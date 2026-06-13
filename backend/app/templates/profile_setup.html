@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Candidate Profile Setup</title>
+  <style>
+    body { background: #242424; color: #fff; font-family: sans-serif; padding: 2rem; }
+    label { display: block; margin-top: 1rem; }
+    textarea, input { width: 100%; padding: 0.5rem; margin-top: 0.25rem; }
+    button { margin-top: 1rem; padding: 0.5rem 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Profile Setup</h1>
+  <form method="post" action="/api/profile">
+    <label>
+      Resume Text:
+      <textarea name="resume" required rows="6" placeholder="Paste your resume here"></textarea>
+    </label>
+    <label>
+      Target Role:
+      <input type="text" name="role" required placeholder="e.g. Site Reliability Engineer" />
+    </label>
+    <label>
+      Company Name:
+      <input type="text" name="company" required placeholder="e.g. Cogent Labs" />
+    </label>
+    <label>
+      Skills:
+      <textarea name="skills" required rows="4" placeholder="e.g. Python, FastAPI, React, MongoDB"></textarea>
+    </label>
+    <label>
+      Experience / Projects:
+      <textarea name="experience" required rows="5" placeholder="Summarize your experience and key projects"></textarea>
+    </label>
+    <button type="submit">Save & Close</button>
+  </form>
+</body>
+</html>

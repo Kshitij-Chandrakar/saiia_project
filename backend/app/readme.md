@@ -1,0 +1,1 @@
+ to start fatspai server uvicorn app.main:app --reload

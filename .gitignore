@@ -1,0 +1,44 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node / frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/dist-electron/
+
+# Runtime / generated files
+tmp/
+logs/
+log/
+backend/uploads/
+candidate_profile.json
+backend/candidate_profile.json
+*.log
+backend-run.*.log
+
+# Audio / recordings
+*.wav
+*.webm
+*.mp3
+*.m4a
+*.ogg
+
+# Build outputs
+dist/
+dist-electron/
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
