@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev/current-work
+  pull_request:
+    branches:
+      - main
+      - dev/current-work
+
+jobs:
+  audit:
+    name: Repository Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install backend dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; fi
+          if [ -f backend/requirements.txt ]; then python -m pip install -r backend/requirements.txt; fi
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Validate browser extension dependencies
+        if: ${{ hashFiles('browser-extension/package.json') != '' }}
+        working-directory: browser-extension
+        shell: bash
+        run: |
+          if [ -f package-lock.json ]; then npm ci; fi
+
+      - name: Git whitespace check
+        run: git diff --check
+
+      - name: Risky file check
+        shell: pwsh
+        run: |
+          $patterns = @(
+            '(^|/)\.env($|\.)',
+            '^backend/uploads/',
+            '^tmp/',
+            '^graphify-out/',
+            '^\.agents/',
+            '^backend/debug/',
+            '\.zip$',
+            '\.(wav|webm|mp3|m4a|ogg)$'
+          )
+          $files = git ls-files
+          $risky = @()
+          foreach ($file in $files) {
+            $path = $file -replace '\\', '/'
+            if ($path -eq '.env.example') { continue }
+            foreach ($pattern in $patterns) {
+              if ($path -match $pattern) {
+                $risky += $path
+                break
+              }
+            }
+          }
+          if ($risky.Count -gt 0) {
+            Write-Error "Risky tracked files detected:`n$($risky -join "`n")"
+            exit 1
+          }
+          Write-Host "No risky tracked files detected."
+
+      - name: Backend compile
+        run: python -m compileall -q backend/app
+
+      - name: Backend tests
+        if: ${{ hashFiles('backend/tests/**') != '' }}
+        run: python -m pytest backend/tests -q -k "not openai and not openrouter"
+
+      - name: Frontend build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Electron syntax checks
+        run: |
+          node --check frontend/electron/main.cjs
+          node --check frontend/electron/preload.cjs
+
+      - name: Browser extension validation
+        if: ${{ hashFiles('browser-extension/package.json') != '' }}
+        working-directory: browser-extension
+        run: npm run validate

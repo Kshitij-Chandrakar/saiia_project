@@ -1,0 +1,58 @@
+language: en-US
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  path_filters:
+    - "!**/node_modules/**"
+    - "!**/dist/**"
+    - "!**/dist-electron/**"
+    - "!tmp/**"
+    - "!logs/**"
+    - "!graphify-out/**"
+    - "!backend/debug/**"
+    - "!backend/uploads/**"
+    - "!**/*.zip"
+    - "!**/*.wav"
+    - "!**/*.webm"
+    - "!**/*.mp3"
+    - "!**/*.m4a"
+    - "!**/*.ogg"
+
+  path_instructions:
+    - path: "backend/**/*.py"
+      instructions: >
+        Focus on serious FastAPI correctness issues, async/sync boundary mistakes,
+        request validation bugs, unsafe logging of private interview/resume data,
+        stale result bugs, duplicate request handling, auth/privacy gaps, and
+        Supabase/RLS mistakes. Avoid cosmetic feedback unless it hides a real bug.
+    - path: "frontend/electron/**/*.cjs"
+      instructions: >
+        Focus on Electron main/preload security, context isolation, IPC exposure,
+        file/system access, navigation controls, secret leakage, unsafe logging,
+        duplicate request handling, and stale response propagation.
+    - path: "frontend/src/**/*"
+      instructions: >
+        Focus on React state ownership bugs, stale state, duplicated requests,
+        cancellation/stop-flow mistakes, privacy leaks in UI state/logging, and
+        user-visible regressions. Avoid style-only comments.
+    - path: "browser-extension/**/*"
+      instructions: >
+        Focus on browser-extension privacy, permission minimization, manifest
+        safety, content-script data exposure, unsafe DOM extraction, message
+        validation, and secret/private data leakage.
+    - path: ".github/workflows/**/*"
+      instructions: >
+        Focus on CI security, secret handling, dependency installation safety,
+        permissions, and checks that could give false confidence.
+
+  auto_review:
+    enabled: true
+    drafts: false
+
+chat:
+  auto_reply: true
