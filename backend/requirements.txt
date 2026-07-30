@@ -48,7 +48,7 @@ packaging==25.0
 pillow==11.3.0
 preshed==3.0.10
 PyAudio==0.2.14
-PyAudioWPatch
+PyAudioWPatch; sys_platform == "win32"
 pydantic==2.11.7
 pydantic-extra-types==2.10.5
 pydantic-settings==2.10.1
