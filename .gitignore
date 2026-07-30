@@ -26,6 +26,14 @@ backend/candidate_profile.json
 *.log
 backend-run.*.log
 
+# Local/generated audit artifacts
+graphify-out/
+.agents/
+backend/debug/
+*.zip
+backend/debug_*.json
+frontend/NVIDIA Corporation/
+
 # Audio / recordings
 *.wav
 *.webm

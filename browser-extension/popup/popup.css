@@ -1,0 +1,49 @@
+body {
+  width: 360px;
+  margin: 0;
+  background: #101317;
+  color: #f2f5f7;
+  font: 14px/1.45 system-ui, sans-serif;
+}
+
+main {
+  padding: 14px;
+}
+
+h1 {
+  font-size: 16px;
+  margin: 0 0 10px;
+}
+
+.muted {
+  color: #b7c0ca;
+}
+
+.actions {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+button {
+  border: 1px solid #56606b;
+  border-radius: 6px;
+  background: #20262d;
+  color: #f2f5f7;
+  padding: 8px 10px;
+}
+
+button:focus-visible {
+  outline: 2px solid #80c7ff;
+  outline-offset: 2px;
+}
+
+pre {
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  background: #0b0d10;
+  border: 1px solid #303842;
+  border-radius: 6px;
+  padding: 8px;
+}

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>SAIIA Extension Prototype</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <h1>SAIIA Extension Prototype</h1>
+      <p class="muted">Desktop connection: <strong>Not implemented in C0.9.5</strong></p>
+      <section>
+        <p>Page access: <strong id="permission-state">Checking...</strong></p>
+        <p>Prototype status: <strong id="status">Idle</strong></p>
+      </section>
+      <div class="actions">
+        <button id="grant">Grant Page Access</button>
+        <button id="check">Check Permission</button>
+        <button id="test">Test Active Tab Extraction</button>
+      </div>
+      <p class="muted">Test extraction is development-only. Opening this popup does not extract page content.</p>
+      <details>
+        <summary>Development-only extraction preview</summary>
+        <pre id="preview"></pre>
+      </details>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

@@ -102,3 +102,138 @@ watchfiles==1.1.0
 weasel==0.4.1
 websockets==15.0.1
 wrapt==1.17.2
+
+
+Start P6A — SAIIA Transparent Runtime UI Foundation.
+
+Goal:
+use /tas Polish SAIIA’s desktop UI into a transparent glass-style interview assistant. Do not rebuild the backend. Do not break the current working flow.
+
+Use the uploaded SAIIA Transparent Overlay UI plan as the design source.
+
+Current status:
+
+* P1 resume extraction works.
+* P2 resume grounding works.
+* P3 job context works.
+* P4 Groq-primary provider path works; NVIDIA is paused by default.
+* P5 OCR capture and OCR preview are working.
+* The current UI still looks like a normal React dashboard and needs to become a polished transparent desktop assistant.
+
+Do not:
+
+* Do not change backend routes unless required.
+* Do not break microphone flow.
+* Do not break OCR flow.
+* Do not break Groq generation.
+* Do not re-enable NVIDIA by default.
+* Do not add auth/billing.
+
+
+P6A scope:
+Only build the transparent UI foundation and window structure.
+
+Required:
+
+1. Make the main diagnostics window look like a transparent glass panel.
+2. Keep this main window focused on:
+
+   * Setup Profile
+   * transcript
+   * category
+   * provider
+   * generation time
+   * total pipeline time
+   * displayed answer
+   * logs/status
+   * last error
+3. Add collapse/expand behavior for the main diagnostics window.
+4. Create or prepare a separate OverlayWindow component for the floating interview overlay.
+5. Create or prepare a glass.css style file.
+6. Apply consistent dark transparent glass styling:
+
+   * rgba dark background
+   * blur/backdrop feel
+   * soft border
+   * rounded corners
+   * readable white text
+   * minimal professional spacing
+7. Fix current layout overflow issues:
+
+   * vertical scroll where needed
+   * OCR preview should not cut the screen
+   * control panel should remain reachable
+8. Keep current buttons working:
+
+   * Start Recording
+   * Start Auto Mode
+   * Capture Question from Screen
+   * Generate Answer from Screen Text
+   * Hide Overlay
+9. Do not move all controls yet; that is P6B/P6C.
+10. Keep Ctrl+H working.
+
+Files likely:
+
+* frontend/src/App.jsx
+* frontend/src/styles/glass.css
+* optional frontend/src/components/MainDiagnosticsWindow.jsx
+* optional frontend/src/components/OverlayWindow.jsx
+* frontend/electron/main.cjs only if window transparency needs adjustment
+
+Validation:
+
+1. npm run build passes.
+2. Electron starts.
+3. Main window looks transparent/glass.
+4. OCR preview layout no longer cuts the screen.
+5. Capture Question from Screen still works.
+6. Generate Answer from Screen Text still works.
+7. Microphone flow still works.
+8. Overlay still receives answer.
+9. Ctrl+H still works.
+
+Report:
+
+* files changed
+* UI foundation implemented
+* layout overflow fixed
+* whether OCR flow still works
+* whether microphone flow still works
+* whether overlay still works
+* whether build passed
+* blockers before P6B
+
+Use the appropriate skills for this phase:
+
+Primary skills:
+
+* React UI / frontend component design
+* Electron desktop window and IPC implementation
+* CSS glass UI / responsive layout polish
+
+Secondary skills:
+
+* UI regression testing
+* component refactor
+
+Do not use backend/RAG/database/auth skills unless required to fix a real bug.
+
+For P6, focus on:
+
+1. Transparent glass UI
+2. Main diagnostics window
+3. Floating interview overlay
+4. Overlay toolbar
+5. Transcript strip
+6. Answer panel
+7. Chat panel
+8. Timer/menu
+9. Hotkeys
+10. Electron IPC/window behavior
+11. Layout overflow fixes
+12. npm run build validation
+
+Follow the uploaded SAIIA Transparent Overlay UI plan as the design source.
+Do not rewrite the backend.
+Do not break P1/P2/P3/P4/P5 flows.

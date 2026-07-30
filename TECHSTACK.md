@@ -34,6 +34,7 @@ Avoid adding advanced RAG, admin dashboards, analytics, payment systems, mock in
 | Audio processing dependency | ffmpeg | Required |
 | Primary LLM provider | Groq API | Add |
 | Primary LLM model | `llama-3.1-8b-instant` | Use first |
+| Screen Analyze provider | Groq Vision Maverick + RapidOCR fallback | Keep |
 | Optional fallback LLM | Ollama + `llama3:8b` | Keep as fallback only |
 | Profile storage for MVP | Existing simple profile storage / JSON | Keep unless already implemented differently |
 | Database | No new database for MVP unless already present | Avoid scope creep |
@@ -761,16 +762,16 @@ Potential future local stack:
 llama.cpp / llama-cpp-python with CUDA
 ```
 
-### 19.2 NVIDIA Path
+### 19.2 Screen Analyze
 
-Potential future NVIDIA stack:
+Current screen analyze stack:
 
 ```text
-NVIDIA Riva for ASR/STT
-TensorRT-LLM or NVIDIA NIM for optimized inference
+Groq Vision Maverick as the primary active-window analyzer
+RapidOCR as fallback only when Groq Vision fails or times out
 ```
 
-Not required for MVP.
+NVIDIA/NIM/Nemotron are not part of the Screen Analyze path.
 
 ### 19.3 Better Audio Capture
 

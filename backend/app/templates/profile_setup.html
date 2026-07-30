@@ -4,36 +4,925 @@
   <meta charset="utf-8" />
   <title>Candidate Profile Setup</title>
   <style>
-    body { background: #242424; color: #fff; font-family: sans-serif; padding: 2rem; }
-    label { display: block; margin-top: 1rem; }
-    textarea, input { width: 100%; padding: 0.5rem; margin-top: 0.25rem; }
-    button { margin-top: 1rem; padding: 0.5rem 1rem; }
+    body {
+      background: #242424;
+      color: #fff;
+      font-family: sans-serif;
+      padding: 2rem;
+      margin: 0;
+    }
+
+    .container {
+      max-width: 760px;
+      margin: 0 auto;
+    }
+
+    h1, h2 {
+      margin-bottom: 0.5rem;
+    }
+
+    p {
+      color: rgba(255, 255, 255, 0.78);
+    }
+
+    .panel {
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 10px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1rem;
+    }
+
+    label {
+      display: block;
+      margin-top: 1rem;
+    }
+
+    textarea,
+    input {
+      width: 100%;
+      padding: 0.65rem;
+      margin-top: 0.35rem;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(0, 0, 0, 0.18);
+      color: #fff;
+      box-sizing: border-box;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 96px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin-top: 1rem;
+    }
+
+    button {
+      margin-top: 0.5rem;
+      padding: 0.7rem 1rem;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+    }
+
+    button.primary {
+      background: #7dd3fc;
+      color: #111827;
+      font-weight: 700;
+    }
+
+    button.secondary {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+    }
+
+    .helper {
+      font-size: 0.92rem;
+      color: rgba(255, 255, 255, 0.68);
+      margin-top: 0.4rem;
+    }
+
+    .status {
+      margin-top: 0.75rem;
+      padding: 0.85rem 1rem;
+      border-radius: 8px;
+      display: none;
+      white-space: pre-wrap;
+    }
+
+    .status.visible {
+      display: block;
+    }
+
+    .status.info {
+      background: rgba(125, 211, 252, 0.14);
+      color: #bae6fd;
+    }
+
+    .status.error {
+      background: rgba(248, 113, 113, 0.16);
+      color: #fecaca;
+    }
+
+    .status.warning {
+      background: rgba(250, 204, 21, 0.14);
+      color: #fde68a;
+    }
   </style>
 </head>
 <body>
-  <h1>Profile Setup</h1>
-  <form method="post" action="/api/profile">
-    <label>
-      Resume Text:
-      <textarea name="resume" required rows="6" placeholder="Paste your resume here"></textarea>
-    </label>
-    <label>
-      Target Role:
-      <input type="text" name="role" required placeholder="e.g. Site Reliability Engineer" />
-    </label>
-    <label>
-      Company Name:
-      <input type="text" name="company" required placeholder="e.g. Cogent Labs" />
-    </label>
-    <label>
-      Skills:
-      <textarea name="skills" required rows="4" placeholder="e.g. Python, FastAPI, React, MongoDB"></textarea>
-    </label>
-    <label>
-      Experience / Projects:
-      <textarea name="experience" required rows="5" placeholder="Summarize your experience and key projects"></textarea>
-    </label>
-    <button type="submit">Save & Close</button>
-  </form>
+  <div class="container">
+    <h1>Profile Setup</h1>
+    <p>
+      You can still fill everything manually, upload a resume to extract profile fields, and add optional job/company context for more targeted interview answers.
+    </p>
+
+    <div class="panel">
+      <h2>Resume Upload</h2>
+      <label for="resume-file">
+        Upload Resume
+        <input id="resume-file" type="file" accept=".pdf,.docx,.txt" />
+      </label>
+      <div class="helper">Accepted file types: PDF, DOCX, TXT. Extracted fields are editable and will not auto-save.</div>
+      <div class="actions">
+        <button id="extract-button" type="button" class="secondary">Extract Resume Fields</button>
+      </div>
+      <div id="extract-status" class="status info"></div>
+      <div id="extract-warning" class="status warning"></div>
+      <div id="extract-error" class="status error"></div>
+      <div id="draft-banner" class="status warning"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Resume Index</h2>
+      <p>SAIIA uses a local resume index to retrieve relevant snippets before generating interview answers.</p>
+      <div id="index-summary" class="helper">Resume index status: Not indexed</div>
+      <div class="actions">
+        <button id="index-button" type="button" class="secondary">Index Current Resume</button>
+        <button id="rebuild-index-button" type="button" class="secondary">Rebuild Resume Index</button>
+        <button id="remove-index-button" type="button" class="secondary">Remove Resume Data</button>
+      </div>
+      <div id="index-status" class="status info"></div>
+      <div id="index-error" class="status error"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Job Description and Company Context</h2>
+      <p>Use this section to tailor answers to a target role and company without changing your actual resume facts.</p>
+      <label for="job-context-file">
+        Optional Job Description Upload
+        <input id="job-context-file" type="file" accept=".pdf,.docx,.txt" />
+      </label>
+      <div class="helper">Optional upload supports PDF, DOCX, and TXT if you want SAIIA to draft these fields first.</div>
+      <div class="actions">
+        <button id="extract-job-context-button" type="button" class="secondary">Extract Job Context</button>
+      </div>
+      <div id="job-context-summary" class="helper">Job context status: Not saved</div>
+      <div id="job-context-extract-status" class="status info"></div>
+      <div id="job-context-extract-error" class="status error"></div>
+      <label>
+        Job Description
+        <textarea id="job_description" rows="5" placeholder="Paste the job description here"></textarea>
+      </label>
+      <label>
+        Required Skills
+        <textarea id="required_skills" rows="3" placeholder="Key skills required for this role"></textarea>
+      </label>
+      <label>
+        Responsibilities
+        <textarea id="responsibilities" rows="4" placeholder="Key responsibilities for this role"></textarea>
+      </label>
+      <label>
+        Preferred Qualifications
+        <textarea id="preferred_qualifications" rows="3" placeholder="Optional preferred qualifications"></textarea>
+      </label>
+      <label>
+        Company Notes / Context
+        <textarea id="company_notes" rows="3" placeholder="Optional company-specific context or notes"></textarea>
+      </label>
+      <div class="actions">
+        <button id="save-job-context-button" type="button" class="secondary">Save Job Context</button>
+        <button id="delete-job-context-button" type="button" class="secondary">Delete Job Context</button>
+      </div>
+      <div id="job-context-status" class="status info"></div>
+      <div id="job-context-error" class="status error"></div>
+    </div>
+
+    <form method="post" action="/api/profile">
+      <div class="panel">
+        <h2>Editable Profile Preview</h2>
+        <p>Review and edit these fields before saving. Manual entry stays available even if extraction fails.</p>
+        <p class="helper">Review and save the cleaned profile before using it for answers.</p>
+
+        <input id="raw_resume_text" name="raw_resume_text" type="hidden" />
+
+        <label>
+          Full Name
+          <input id="full_name" type="text" name="full_name" placeholder="Candidate name from the resume" />
+        </label>
+        <label>
+          Email
+          <input id="email" type="text" name="email" placeholder="Candidate email address" />
+        </label>
+        <label>
+          Phone
+          <input id="phone" type="text" name="phone" placeholder="Candidate phone number" />
+        </label>
+        <label>
+          Location
+          <input id="location" type="text" name="location" placeholder="City, state, or preferred location" />
+        </label>
+        <label>
+          Current Title / Target Role
+          <input id="current_title" type="text" name="current_title" placeholder="e.g. AI/ML Engineer" />
+        </label>
+        <label>
+          Target Role Alias
+          <input id="target_role" type="text" name="target_role" placeholder="Optional role wording if different" />
+        </label>
+        <label>
+          Resume Text / Background Summary
+          <textarea id="resume" name="resume" required rows="6" placeholder="Paste your resume or use resume extraction"></textarea>
+        </label>
+        <label>
+          Professional Summary
+          <textarea id="professional_summary" name="professional_summary" rows="4" placeholder="Short spoken-style background summary"></textarea>
+        </label>
+        <label>
+          Target Role
+          <input id="role" type="text" name="role" required placeholder="e.g. Site Reliability Engineer" />
+        </label>
+        <label>
+          Company Name
+          <input id="company" type="text" name="company" required placeholder="e.g. B2World" />
+        </label>
+        <label>
+          Top Skills
+          <textarea id="top_skills" name="top_skills" rows="3" placeholder="3 to 6 strongest skills for quick answers"></textarea>
+        </label>
+        <label>
+          Technical Skills
+          <textarea id="technical_skills" name="technical_skills" rows="4" placeholder="Broader technical stack without duplicates"></textarea>
+        </label>
+        <label>
+          Soft Skills
+          <textarea id="soft_skills" name="soft_skills" rows="3" placeholder="Communication, leadership, teamwork, problem-solving"></textarea>
+        </label>
+        <label>
+          Tools / Frameworks
+          <textarea id="tools_frameworks" name="tools_frameworks" rows="3" placeholder="Main tools and frameworks"></textarea>
+        </label>
+        <label>
+          Skills
+          <textarea id="skills" name="skills" required rows="4" placeholder="e.g. Python, FastAPI, React, MongoDB"></textarea>
+        </label>
+        <label>
+          Projects
+          <textarea id="projects" name="projects" rows="5" placeholder="Keep project names and short descriptions separate"></textarea>
+        </label>
+        <label>
+          Experience
+          <textarea id="experience" name="experience" required rows="5" placeholder="Summarize relevant experience only"></textarea>
+        </label>
+        <label>
+          Education
+          <textarea id="education" name="education" rows="3" placeholder="Optional education summary"></textarea>
+        </label>
+        <label>
+          Degree
+          <input id="degree" type="text" name="degree" placeholder="e.g. B.Tech, B.E, M.Sc" />
+        </label>
+        <label>
+          Branch / Specialization
+          <input id="branch_specialization" type="text" name="branch_specialization" placeholder="e.g. Computer Science, AI & ML" />
+        </label>
+        <label>
+          College / University
+          <input id="college_university" type="text" name="college_university" placeholder="Institution name" />
+        </label>
+        <label>
+          University Alias
+          <input id="university" type="text" name="university" placeholder="University name if listed separately" />
+        </label>
+        <label>
+          Graduation Year
+          <input id="graduation_year" type="text" name="graduation_year" placeholder="e.g. 2025" />
+        </label>
+        <label>
+          Work Experience
+          <textarea id="work_experience" name="work_experience" rows="4" placeholder="Optional work experience summary"></textarea>
+        </label>
+        <label>
+          Leadership Activities
+          <textarea id="leadership_activities" name="leadership_activities" rows="3" placeholder="IEEE, SIH, event coordination, club or leadership roles"></textarea>
+        </label>
+        <label>
+          Achievements
+          <textarea id="achievements" name="achievements" rows="3" placeholder="Optional achievements"></textarea>
+        </label>
+        <label>
+          Certifications
+          <textarea id="certifications" name="certifications" rows="3" placeholder="Optional certifications"></textarea>
+        </label>
+        <div class="actions">
+          <button type="submit" class="primary">Save & Close</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    const extractButton = document.getElementById('extract-button');
+    const fileInput = document.getElementById('resume-file');
+    const statusBox = document.getElementById('extract-status');
+    const warningBox = document.getElementById('extract-warning');
+    const errorBox = document.getElementById('extract-error');
+    const indexSummary = document.getElementById('index-summary');
+    const indexStatusBox = document.getElementById('index-status');
+    const indexErrorBox = document.getElementById('index-error');
+    const draftBanner = document.getElementById('draft-banner');
+    const indexButton = document.getElementById('index-button');
+    const rebuildIndexButton = document.getElementById('rebuild-index-button');
+    const removeIndexButton = document.getElementById('remove-index-button');
+    const jobContextFileInput = document.getElementById('job-context-file');
+    const extractJobContextButton = document.getElementById('extract-job-context-button');
+    const saveJobContextButton = document.getElementById('save-job-context-button');
+    const deleteJobContextButton = document.getElementById('delete-job-context-button');
+    const jobContextSummary = document.getElementById('job-context-summary');
+    const jobContextStatusBox = document.getElementById('job-context-status');
+    const jobContextErrorBox = document.getElementById('job-context-error');
+    const jobContextExtractStatusBox = document.getElementById('job-context-extract-status');
+    const jobContextExtractErrorBox = document.getElementById('job-context-extract-error');
+
+    const fields = {
+      raw_resume_text: document.getElementById('raw_resume_text'),
+      full_name: document.getElementById('full_name'),
+      email: document.getElementById('email'),
+      phone: document.getElementById('phone'),
+      location: document.getElementById('location'),
+      current_title: document.getElementById('current_title'),
+      target_role: document.getElementById('target_role'),
+      resume: document.getElementById('resume'),
+      professional_summary: document.getElementById('professional_summary'),
+      role: document.getElementById('role'),
+      company: document.getElementById('company'),
+      top_skills: document.getElementById('top_skills'),
+      technical_skills: document.getElementById('technical_skills'),
+      soft_skills: document.getElementById('soft_skills'),
+      tools_frameworks: document.getElementById('tools_frameworks'),
+      skills: document.getElementById('skills'),
+      projects: document.getElementById('projects'),
+      experience: document.getElementById('experience'),
+      education: document.getElementById('education'),
+      degree: document.getElementById('degree'),
+      branch_specialization: document.getElementById('branch_specialization'),
+      college_university: document.getElementById('college_university'),
+      university: document.getElementById('university'),
+      graduation_year: document.getElementById('graduation_year'),
+      work_experience: document.getElementById('work_experience'),
+      leadership_activities: document.getElementById('leadership_activities'),
+      achievements: document.getElementById('achievements'),
+      certifications: document.getElementById('certifications'),
+    };
+
+    const jobContextFields = {
+      job_description: document.getElementById('job_description'),
+      required_skills: document.getElementById('required_skills'),
+      responsibilities: document.getElementById('responsibilities'),
+      preferred_qualifications: document.getElementById('preferred_qualifications'),
+      company_notes: document.getElementById('company_notes'),
+    };
+
+    const EMPTY_PROFILE = {
+      raw_resume_text: '',
+      full_name: '',
+      email: '',
+      phone: '',
+      location: '',
+      current_title: '',
+      target_role: '',
+      resume: '',
+      professional_summary: '',
+      role: '',
+      company: '',
+      top_skills: '',
+      technical_skills: '',
+      soft_skills: '',
+      tools_frameworks: '',
+      skills: '',
+      projects: '',
+      experience: '',
+      education: '',
+      degree: '',
+      branch_specialization: '',
+      college_university: '',
+      university: '',
+      graduation_year: '',
+      work_experience: '',
+      leadership_activities: '',
+      achievements: '',
+      certifications: '',
+    };
+
+    let savedProfile = { ...EMPTY_PROFILE };
+    let profileDraft = { ...EMPTY_PROFILE };
+    let unsavedDraftExists = false;
+    let draftResumeIndexed = false;
+
+    function setStatus(message) {
+      statusBox.textContent = message;
+      statusBox.className = message ? 'status info visible' : 'status info';
+    }
+
+    function setError(message) {
+      errorBox.textContent = message;
+      errorBox.className = message ? 'status error visible' : 'status error';
+    }
+
+    function setWarning(message) {
+      warningBox.textContent = message;
+      warningBox.className = message ? 'status warning visible' : 'status warning';
+    }
+
+    function setIndexStatus(message) {
+      indexStatusBox.textContent = message;
+      indexStatusBox.className = message ? 'status info visible' : 'status info';
+    }
+
+    function setIndexError(message) {
+      indexErrorBox.textContent = message;
+      indexErrorBox.className = message ? 'status error visible' : 'status error';
+    }
+
+    function setDraftBanner(message) {
+      draftBanner.textContent = message;
+      draftBanner.className = message ? 'status warning visible' : 'status warning';
+    }
+
+    function setJobContextStatus(message) {
+      jobContextStatusBox.textContent = message;
+      jobContextStatusBox.className = message ? 'status info visible' : 'status info';
+    }
+
+    function setJobContextError(message) {
+      jobContextErrorBox.textContent = message;
+      jobContextErrorBox.className = message ? 'status error visible' : 'status error';
+    }
+
+    function setJobContextExtractStatus(message) {
+      jobContextExtractStatusBox.textContent = message;
+      jobContextExtractStatusBox.className = message ? 'status info visible' : 'status info';
+    }
+
+    function setJobContextExtractError(message) {
+      jobContextExtractErrorBox.textContent = message;
+      jobContextExtractErrorBox.className = message ? 'status error visible' : 'status error';
+    }
+
+    function getCurrentProfilePayload() {
+      return {
+        raw_resume_text: fields.raw_resume_text.value.trim(),
+        full_name: fields.full_name.value.trim(),
+        email: fields.email.value.trim(),
+        phone: fields.phone.value.trim(),
+        location: fields.location.value.trim(),
+        current_title: fields.current_title.value.trim(),
+        target_role: fields.target_role.value.trim(),
+        resume: fields.resume.value.trim(),
+        professional_summary: fields.professional_summary.value.trim(),
+        role: fields.role.value.trim(),
+        company: fields.company.value.trim(),
+        top_skills: fields.top_skills.value.trim(),
+        technical_skills: fields.technical_skills.value.trim(),
+        soft_skills: fields.soft_skills.value.trim(),
+        tools_frameworks: fields.tools_frameworks.value.trim(),
+        skills: fields.skills.value.trim(),
+        projects: fields.projects.value.trim(),
+        experience: fields.experience.value.trim(),
+        education: fields.education.value.trim(),
+        degree: fields.degree.value.trim(),
+        branch_specialization: fields.branch_specialization.value.trim(),
+        college_university: fields.college_university.value.trim(),
+        university: fields.university.value.trim(),
+        graduation_year: fields.graduation_year.value.trim(),
+        work_experience: fields.work_experience.value.trim(),
+        leadership_activities: fields.leadership_activities.value.trim(),
+        achievements: fields.achievements.value.trim(),
+        certifications: fields.certifications.value.trim(),
+      };
+    }
+
+    function syncDraftFromForm() {
+      profileDraft = getCurrentProfilePayload();
+    }
+
+    function getJobContextPayload() {
+      return {
+        target_role: fields.role.value.trim(),
+        company_name: fields.company.value.trim(),
+        job_description: jobContextFields.job_description.value.trim(),
+        required_skills: jobContextFields.required_skills.value.trim(),
+        responsibilities: jobContextFields.responsibilities.value.trim(),
+        preferred_qualifications: jobContextFields.preferred_qualifications.value.trim(),
+        company_notes: jobContextFields.company_notes.value.trim(),
+      };
+    }
+
+    function updateIndexSummary(payload) {
+      if (!payload || !payload.indexed) {
+        indexSummary.textContent = 'Resume index status: Not indexed';
+        return;
+      }
+
+      indexSummary.textContent =
+        `Resume index status: Indexed (${payload.chunk_count} chunks)` +
+        (payload.updated_at ? ` - Updated ${payload.updated_at}` : '');
+    }
+
+    function updateJobContextSummary(payload) {
+      if (!payload || !payload.saved) {
+        jobContextSummary.textContent = 'Job context status: Not saved';
+        return;
+      }
+
+      const roleText = payload.target_role ? `Role: ${payload.target_role}` : 'Role: not set';
+      const companyText = payload.company_name ? `Company: ${payload.company_name}` : 'Company: not set';
+      jobContextSummary.textContent =
+        `Job context status: Saved (${roleText} - ${companyText})` +
+        (payload.updated_at ? ` - Updated ${payload.updated_at}` : '');
+    }
+
+    function sanitizeProfilePayload(payload) {
+      const sanitized = { ...EMPTY_PROFILE };
+
+      Object.keys(EMPTY_PROFILE).forEach((key) => {
+        sanitized[key] = String(payload?.[key] || '').trim();
+      });
+
+      if (!sanitized.branch_specialization) {
+        sanitized.branch_specialization = String(payload?.branch || '').trim();
+      }
+      if (!sanitized.college_university) {
+        sanitized.college_university = String(payload?.college || '').trim();
+      }
+      if (!sanitized.university) {
+        sanitized.university = String(payload?.university || sanitized.college_university || '').trim();
+      }
+      if (!sanitized.current_title) {
+        sanitized.current_title = String(payload?.current_title || payload?.target_role || payload?.role || '').trim();
+      }
+      if (!sanitized.target_role) {
+        sanitized.target_role = String(payload?.target_role || payload?.current_title || payload?.role || '').trim();
+      }
+      if (!sanitized.role) {
+        sanitized.role = String(payload?.role || payload?.current_title || payload?.target_role || '').trim();
+      }
+      if (!sanitized.resume) {
+        sanitized.resume = String(payload?.resume || payload?.professional_summary || '').trim();
+      }
+      if (!sanitized.professional_summary) {
+        sanitized.professional_summary = String(payload?.professional_summary || payload?.resume || '').trim();
+      }
+      if (!sanitized.skills) {
+        sanitized.skills = String(payload?.skills || payload?.top_skills || payload?.technical_skills || '').trim();
+      }
+
+      return sanitized;
+    }
+
+    function renderProfileDraft() {
+      Object.entries(fields).forEach(([key, field]) => {
+        field.value = String(profileDraft?.[key] || '').trim();
+      });
+    }
+
+    function updateDraftStateUi() {
+      if (unsavedDraftExists) {
+        setDraftBanner('Extracted profile is an unsaved draft. Click Save Profile to use it for live answers.');
+        if (draftResumeIndexed) {
+          setIndexStatus('Draft resume extracted. Save Profile to activate this resume for live answers and indexing.');
+          setIndexError('');
+        } else {
+          setIndexStatus('Unsaved extracted profile draft exists. Save Profile to activate it.');
+        }
+      } else {
+        setDraftBanner('');
+      }
+    }
+
+    function applySavedProfile(payload) {
+      savedProfile = sanitizeProfilePayload(payload);
+      profileDraft = { ...savedProfile };
+      unsavedDraftExists = false;
+      draftResumeIndexed = false;
+      renderProfileDraft();
+      updateDraftStateUi();
+    }
+
+    function applyJobContextFields(payload) {
+      if (!payload) {
+        return;
+      }
+
+      if (!fields.role.value.trim() && payload.target_role) {
+        fields.role.value = String(payload.target_role).trim();
+      }
+      if (!fields.company.value.trim() && payload.company_name) {
+        fields.company.value = String(payload.company_name).trim();
+      }
+
+      Object.entries(jobContextFields).forEach(([key, field]) => {
+        const value = String(payload[key] || '').trim();
+        if (value) {
+          field.value = value;
+        }
+      });
+    }
+
+    async function refreshIndexStatus() {
+      try {
+        const response = await fetch('/api/resume/index/status');
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.detail || 'Could not load resume index status.');
+        }
+        updateIndexSummary(payload);
+      } catch (error) {
+        updateIndexSummary({ indexed: false, chunk_count: 0 });
+      }
+    }
+
+    async function loadExistingState() {
+      try {
+        const profileResponse = await fetch('/api/profile');
+        const profilePayload = await profileResponse.json();
+        if (profileResponse.ok) {
+          applySavedProfile(profilePayload);
+        }
+      } catch (error) {
+        // Keep manual entry usable even if the saved profile cannot be loaded.
+      }
+
+      try {
+        const contextResponse = await fetch('/api/job-context');
+        const contextPayload = await contextResponse.json();
+        if (contextResponse.ok) {
+          applyJobContextFields(contextPayload);
+          updateJobContextSummary(contextPayload);
+        }
+      } catch (error) {
+        updateJobContextSummary({ saved: false });
+      }
+    }
+
+    async function buildIndex(mode) {
+      if (unsavedDraftExists) {
+        setIndexError('');
+        setIndexStatus('Save Profile first to activate this extracted draft before indexing.');
+        return;
+      }
+
+      setIndexError('');
+      setIndexStatus(mode === 'rebuild' ? 'Rebuilding local resume index...' : 'Building local resume index...');
+      indexButton.disabled = true;
+      rebuildIndexButton.disabled = true;
+      removeIndexButton.disabled = true;
+
+      try {
+        const response = await fetch('/api/resume/index', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profile: savedProfile }),
+        });
+
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.detail || 'Could not build the resume index.');
+        }
+
+        updateIndexSummary(payload);
+        setIndexStatus(
+          mode === 'rebuild'
+            ? 'Resume index rebuilt successfully.'
+            : 'Resume indexed successfully.'
+        );
+      } catch (error) {
+        setIndexStatus('');
+        setIndexError(error.message || 'Could not build the resume index.');
+      } finally {
+        indexButton.disabled = false;
+        rebuildIndexButton.disabled = false;
+        removeIndexButton.disabled = false;
+      }
+    }
+
+    async function removeIndex() {
+      setIndexError('');
+      setIndexStatus('Removing local resume index...');
+      indexButton.disabled = true;
+      rebuildIndexButton.disabled = true;
+      removeIndexButton.disabled = true;
+
+      try {
+        const response = await fetch('/api/resume/index', { method: 'DELETE' });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.detail || 'Could not remove the resume index.');
+        }
+        updateIndexSummary(payload);
+        setIndexStatus('Resume index removed.');
+      } catch (error) {
+        setIndexStatus('');
+        setIndexError(error.message || 'Could not remove the resume index.');
+      } finally {
+        indexButton.disabled = false;
+        rebuildIndexButton.disabled = false;
+        removeIndexButton.disabled = false;
+      }
+    }
+
+    async function saveJobContext() {
+      setJobContextError('');
+      setJobContextStatus('Saving job context...');
+      saveJobContextButton.disabled = true;
+      deleteJobContextButton.disabled = true;
+      extractJobContextButton.disabled = true;
+
+      try {
+        const response = await fetch('/api/job-context', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(getJobContextPayload()),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.detail || 'Could not save job context.');
+        }
+
+        updateJobContextSummary(payload);
+        setJobContextStatus('Job context saved successfully.');
+      } catch (error) {
+        setJobContextStatus('');
+        setJobContextError(error.message || 'Could not save job context.');
+      } finally {
+        saveJobContextButton.disabled = false;
+        deleteJobContextButton.disabled = false;
+        extractJobContextButton.disabled = false;
+      }
+    }
+
+    async function deleteJobContext() {
+      setJobContextError('');
+      setJobContextStatus('Deleting job context...');
+      saveJobContextButton.disabled = true;
+      deleteJobContextButton.disabled = true;
+      extractJobContextButton.disabled = true;
+
+      try {
+        const response = await fetch('/api/job-context', { method: 'DELETE' });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.detail || 'Could not delete job context.');
+        }
+
+        Object.values(jobContextFields).forEach((field) => {
+          field.value = '';
+        });
+        updateJobContextSummary(payload);
+        setJobContextStatus('Job context deleted.');
+      } catch (error) {
+        setJobContextStatus('');
+        setJobContextError(error.message || 'Could not delete job context.');
+      } finally {
+        saveJobContextButton.disabled = false;
+        deleteJobContextButton.disabled = false;
+        extractJobContextButton.disabled = false;
+      }
+    }
+
+    function applyExtractedDraft(payload) {
+      const source = payload && payload.profile ? payload.profile : payload;
+      profileDraft = {
+        ...EMPTY_PROFILE,
+        ...sanitizeProfilePayload(source),
+      };
+      unsavedDraftExists = true;
+      draftResumeIndexed = false;
+      renderProfileDraft();
+      updateDraftStateUi();
+    }
+
+    async function extractResume() {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) {
+        setError('Please choose a PDF, DOCX, or TXT resume first.');
+        setStatus('');
+        return;
+      }
+
+      setError('');
+      setWarning('');
+      setStatus('Uploading and extracting resume fields...');
+      extractButton.disabled = true;
+
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch('/api/resume/extract', {
+          method: 'POST',
+          body: formData,
+        });
+
+        let payload = null;
+        try {
+          payload = await response.json();
+        } catch {
+          payload = null;
+        }
+
+        if (!response.ok) {
+          throw new Error(payload?.detail || 'Resume extraction failed. Please try again.');
+        }
+
+        const extractedProfile = payload?.profile || payload;
+
+        applyExtractedDraft(payload);
+        const parserLabel = payload?.parser_provider === 'affinda' ? 'Affinda' : 'local';
+        const fallbackMessage = payload?.fallback_used
+          ? (payload?.fallback_message || 'Affinda parsing unavailable, local extraction used.')
+          : '';
+        const missingFields = Array.isArray(payload?.missing_fields) && payload.missing_fields.length
+          ? ` Missing fields: ${payload.missing_fields.join(', ')}.`
+          : '';
+        setWarning(
+          payload?.review_required || payload?.manual_review_required
+            ? `${payload?.warning || payload?.manual_review_message || 'Some resume fields may need manual review.'}${missingFields}`
+            : (payload?.warning || fallbackMessage)
+        );
+        setStatus(
+          `Resume extracted using ${parserLabel}${payload?.fallback_used ? ' with local fallback support' : ''}. Review and edit the fields below before saving.`
+        );
+        setIndexStatus('Draft resume extracted. Save Profile to activate this resume for live answers and indexing.');
+        setIndexError('');
+      } catch (error) {
+        setStatus('');
+        setWarning('');
+        setError(error.message || 'Resume extraction failed. Please try again.');
+      } finally {
+        extractButton.disabled = false;
+      }
+    }
+
+    async function extractJobContext() {
+      const file = jobContextFileInput.files && jobContextFileInput.files[0];
+      if (!file) {
+        setJobContextExtractError('Please choose a PDF, DOCX, or TXT job description first.');
+        setJobContextExtractStatus('');
+        return;
+      }
+
+      setJobContextExtractError('');
+      setJobContextExtractStatus('Uploading and extracting job context...');
+      extractJobContextButton.disabled = true;
+
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch('/api/job-context/extract', {
+          method: 'POST',
+          body: formData,
+        });
+
+        let payload = null;
+        try {
+          payload = await response.json();
+        } catch {
+          payload = null;
+        }
+
+        if (!response.ok) {
+          throw new Error(payload?.detail || 'Job context extraction failed. Please try again.');
+        }
+
+        if (!fields.role.value.trim() && payload.target_role) {
+          fields.role.value = String(payload.target_role).trim();
+        }
+        if (!fields.company.value.trim() && payload.company_name) {
+          fields.company.value = String(payload.company_name).trim();
+        }
+        applyJobContextFields(payload);
+        setJobContextExtractStatus('Job context extracted. Review and save the fields below if you want to keep them.');
+      } catch (error) {
+        setJobContextExtractStatus('');
+        setJobContextExtractError(error.message || 'Job context extraction failed. Please try again.');
+      } finally {
+        extractJobContextButton.disabled = false;
+      }
+    }
+
+    extractButton.addEventListener('click', extractResume);
+    indexButton.addEventListener('click', () => buildIndex('build'));
+    rebuildIndexButton.addEventListener('click', () => buildIndex('rebuild'));
+    removeIndexButton.addEventListener('click', removeIndex);
+    extractJobContextButton.addEventListener('click', extractJobContext);
+    saveJobContextButton.addEventListener('click', saveJobContext);
+    deleteJobContextButton.addEventListener('click', deleteJobContext);
+    Object.values(fields).forEach((field) => {
+      field.addEventListener('input', () => {
+        syncDraftFromForm();
+      });
+    });
+    document.querySelector('form[action="/api/profile"]').addEventListener('submit', () => {
+      syncDraftFromForm();
+    });
+    loadExistingState();
+    refreshIndexStatus();
+  </script>
 </body>
 </html>

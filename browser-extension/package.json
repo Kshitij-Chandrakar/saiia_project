@@ -1,0 +1,11 @@
+{
+  "name": "saiia-browser-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "check": "node --check service-worker.js && node --check content-script.js && node --check popup/popup.js && node --check options/options.js",
+    "validate": "npm run check && npm test"
+  }
+}
