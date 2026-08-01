@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, LogOut } from 'lucide-react'
 
@@ -414,6 +414,13 @@ export function AuthStatusPage({ backendUrl }) {
   const [bootstrapLoading, setBootstrapLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const bootstrapOperationRef = useRef(0)
+
+  useEffect(() => {
+    return () => {
+      bootstrapOperationRef.current += 1
+    }
+  }, [])
 
   useEffect(() => {
     let ignore = false
@@ -462,8 +469,10 @@ export function AuthStatusPage({ backendUrl }) {
     if (!supabase) {
       return
     }
+    bootstrapOperationRef.current += 1
     setLoading(true)
     setError('')
+    setBootstrapLoading(false)
     await supabase.auth.signOut()
     setUser(null)
     setBootstrapResult(null)
@@ -475,28 +484,39 @@ export function AuthStatusPage({ backendUrl }) {
       return
     }
 
+    const operationId = bootstrapOperationRef.current + 1
+    bootstrapOperationRef.current = operationId
     setBootstrapLoading(true)
     setError('')
 
-    if (!supabase) {
-      setError('Supabase auth is not configured for this build.')
-      setBootstrapLoading(false)
-      return
-    }
-
     try {
+      if (!supabase) {
+        if (bootstrapOperationRef.current === operationId) {
+          setError('Supabase auth is not configured for this build.')
+        }
+        return
+      }
+
       const { data, error: sessionError } = await supabase.auth.getSession()
       if (sessionError || !data.session?.access_token) {
-        setError('No active auth session was found.')
+        if (bootstrapOperationRef.current === operationId) {
+          setError('No active auth session was found.')
+        }
         return
       }
 
       const result = await bootstrapProfile(data.session.access_token, { backendUrl })
-      setBootstrapResult(result)
+      if (bootstrapOperationRef.current === operationId) {
+        setBootstrapResult(result)
+      }
     } catch (bootstrapError) {
-      setError(bootstrapError.message)
+      if (bootstrapOperationRef.current === operationId) {
+        setError(bootstrapError.message)
+      }
     } finally {
-      setBootstrapLoading(false)
+      if (bootstrapOperationRef.current === operationId) {
+        setBootstrapLoading(false)
+      }
     }
   }
 
