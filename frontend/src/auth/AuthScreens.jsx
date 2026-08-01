@@ -235,7 +235,10 @@ function useAuthForm() {
 
 export function AuthSignupPage() {
   const form = useAuthForm()
-  const checkingSession = useRedirectAuthenticatedUser()
+  const location = useLocation()
+  const [searchParams] = useSearchParams()
+  const safeNextRoute = getSafeAuthNextRoute(searchParams.get('next') || location.state?.next)
+  const checkingSession = useRedirectAuthenticatedUser(safeNextRoute)
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -312,7 +315,8 @@ export function AuthLoginPage({ backendUrl }) {
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()
-  const checkingSession = useRedirectAuthenticatedUser()
+  const safeNextRoute = getSafeAuthNextRoute(searchParams.get('next') || location.state?.next)
+  const checkingSession = useRedirectAuthenticatedUser(safeNextRoute)
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -339,15 +343,20 @@ export function AuthLoginPage({ backendUrl }) {
         await fetchCurrentUser(data.session.access_token, { backendUrl })
       }
       form.setMessage('Login successful.')
-      navigate(
-        getSafeAuthNextRoute(searchParams.get('next') || location.state?.next),
-        { replace: true }
-      )
+      navigate(safeNextRoute, { replace: true })
     } catch (verifyError) {
       form.setError(verifyError.message)
     } finally {
       form.setLoading(false)
     }
+  }
+
+  if (checkingSession) {
+    return (
+      <AuthShell title="Login">
+        <p className="auth-message info">Checking session...</p>
+      </AuthShell>
+    )
   }
 
   return (
@@ -750,6 +759,7 @@ function RequireAuth({ backendUrl, children }) {
 
 export function AuthDashboardPage({ backendUrl }) {
   const [logoutPending, setLogoutPending] = useState(false)
+  const [logoutError, setLogoutError] = useState('')
   const navigate = useNavigate()
   const {
     bootstrapResult,
@@ -767,14 +777,16 @@ export function AuthDashboardPage({ backendUrl }) {
       return
     }
     setLogoutPending(true)
-    invalidateBootstrap()
+    setLogoutError('')
     try {
       await supabase.auth.signOut()
+      invalidateBootstrap()
       navigate('/auth/login', {
         replace: true,
         state: { authMessage: 'Signed out.' },
       })
     } catch {
+      setLogoutError('Sign out failed. Please try again.')
       setLogoutPending(false)
     }
   }
@@ -787,7 +799,7 @@ export function AuthDashboardPage({ backendUrl }) {
             <p>{user.email || user.user_id}</p>
             {user.role && <span>{user.role}</span>}
           </div>
-          <AuthMessage message={error} tone="error" />
+          <AuthMessage message={logoutError || error} tone="error" />
           {bootstrapResult && (
             <div className="auth-user-summary">
               <p>Profile ready</p>
