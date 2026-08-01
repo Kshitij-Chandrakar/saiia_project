@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import logging
-from typing import Any
+from typing import Any, NoReturn
 
 import requests
 
@@ -57,11 +57,11 @@ class SupabaseRestClient:
             self._safe_response_body(response),
         )
 
-    def _raise_for_response(self, table: str, operation: str, response: requests.Response) -> None:
+    def _raise_for_response(self, table: str, operation: str, response: requests.Response) -> NoReturn:
         self._log_failure(table, operation, response)
         raise SupabaseProfileBootstrapError("Supabase profile bootstrap failed.")
 
-    def _raise_for_request_error(self, table: str, operation: str, exc: requests.RequestException) -> None:
+    def _raise_for_request_error(self, table: str, operation: str, exc: requests.RequestException) -> NoReturn:
         logger.error(
             "Supabase REST failure during profile bootstrap: table=%s operation=%s status=request_error body=%s",
             table,
@@ -76,7 +76,7 @@ class SupabaseRestClient:
                 f"{self._base_url}/{table}",
                 headers=self._headers,
                 params={"user_id": f"eq.{user_id}", "select": "id", "limit": "1"},
-                timeout=20,
+                timeout=10,
             )
         except requests.RequestException as exc:
             self._raise_for_request_error(table, "select", exc)
@@ -92,7 +92,7 @@ class SupabaseRestClient:
                 headers={**self._headers, "Prefer": "resolution=ignore-duplicates,return=representation"},
                 params={"on_conflict": "user_id"},
                 json={"user_id": user_id},
-                timeout=20,
+                timeout=10,
             )
         except requests.RequestException as exc:
             self._raise_for_request_error(table, "upsert", exc)
@@ -108,6 +108,8 @@ def _ensure_user_row(client: Any, table: str, user_id: str) -> tuple[bool, bool]
     if client.row_exists(table, user_id):
         return True, False
     created = client.insert_user_row(table, user_id)
+    if not created and not client.row_exists(table, user_id):
+        raise SupabaseProfileBootstrapError("Supabase profile bootstrap failed.")
     return True, created
 
 

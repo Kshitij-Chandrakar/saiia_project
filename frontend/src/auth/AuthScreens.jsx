@@ -410,7 +410,6 @@ export function AuthCallbackPage({ backendUrl }) {
 
 export function AuthStatusPage({ backendUrl }) {
   const [user, setUser] = useState(null)
-  const [sessionToken, setSessionToken] = useState('')
   const [bootstrapResult, setBootstrapResult] = useState(null)
   const [bootstrapLoading, setBootstrapLoading] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -441,7 +440,6 @@ export function AuthStatusPage({ backendUrl }) {
         const currentUser = await fetchCurrentUser(data.session.access_token, { backendUrl })
         if (!ignore) {
           setUser(currentUser)
-          setSessionToken(data.session.access_token)
         }
       } catch (verifyError) {
         if (!ignore) {
@@ -468,13 +466,18 @@ export function AuthStatusPage({ backendUrl }) {
     setError('')
     await supabase.auth.signOut()
     setUser(null)
-    setSessionToken('')
     setBootstrapResult(null)
     setLoading(false)
   }
 
   async function handleBootstrapProfile() {
-    if (!sessionToken) {
+    if (!supabase) {
+      setError('Supabase auth is not configured for this build.')
+      return
+    }
+
+    const { data, error: sessionError } = await supabase.auth.getSession()
+    if (sessionError || !data.session?.access_token) {
       setError('No active auth session was found.')
       return
     }
@@ -482,7 +485,7 @@ export function AuthStatusPage({ backendUrl }) {
     setBootstrapLoading(true)
     setError('')
     try {
-      const result = await bootstrapProfile(sessionToken, { backendUrl })
+      const result = await bootstrapProfile(data.session.access_token, { backendUrl })
       setBootstrapResult(result)
     } catch (bootstrapError) {
       setError(bootstrapError.message)

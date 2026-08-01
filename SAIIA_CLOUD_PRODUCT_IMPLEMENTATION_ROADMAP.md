@@ -906,7 +906,7 @@ It should:
 ## Status
 
 ```text
-[~] Active - C2.1 auth architecture audit complete; C2.2 minimal Supabase auth UI and backend current-user endpoint complete; C2.3 authenticated profile bootstrap implemented with follow-up Supabase table privilege migration added after live PostgREST validation; live bootstrap revalidation is pending after applying the migration; no cloud profile saving, cloud resume upload, desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, or final website UI started; C2.4 pending explicit approval
+[~] Active - C2.1 auth architecture audit complete; C2.2 minimal Supabase auth UI and backend current-user endpoint complete; C2.3 authenticated profile bootstrap implemented and live revalidated after follow-up Supabase table privilege migration fixed the PostgREST privilege blocker; no cloud profile saving, cloud resume upload, desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, or final website UI started; C2.4 pending explicit approval
 ```
 
 ## Goal
@@ -1043,6 +1043,9 @@ After a verified user first enters the dashboard:
 - [x] Added a temporary `Prepare Profile` action on `/auth/status`
 - [x] Added a follow-up Supabase privilege migration after live C2.3 validation
   found PostgREST returned `permission denied for table profiles`
+- [x] Live bootstrap revalidation is complete after
+  `20260801115446_grant_cloud_table_privileges.sql` fixed the live Supabase
+  privilege blocker
 - [x] Did not migrate local profile JSON, save cloud profile content, upload
   resumes, write `resumes`, `resume_chunks`, or `job_contexts`, protect
   desktop-local routes, add desktop login/cloud sync, sessions, billing, usage,
@@ -3235,7 +3238,7 @@ The C0â€“C16 track is complete when:
 
 ```text
 C0 remains complete. C0.9 is not fully complete: C0.9.6 has implementation present with Chrome/Edge real-page validation pending, and C0.9.7 through C0.9.13 are deferred by explicit product-priority decision.
-C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 is active. C2.1 auth architecture audit is complete. C2.2 minimal Supabase auth UI and backend current-user endpoint are complete. C2.3 authenticated profile bootstrap is implemented with a follow-up Supabase table privilege migration added after live PostgREST validation found missing grants; live bootstrap revalidation is pending after applying the migration. No cloud profile saving, cloud resume upload, desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, or final website UI work has started. Next: begin C2.4 only when explicitly approved.
+C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 is active. C2.1 auth architecture audit is complete. C2.2 minimal Supabase auth UI and backend current-user endpoint are complete. C2.3 authenticated profile bootstrap is implemented and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the live Supabase privilege blocker. No cloud profile saving, cloud resume upload, desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, or final website UI work has started. Next: begin C2.4 only when explicitly approved.
 ```
 
 The completed C0.9.2 manual validation covered:

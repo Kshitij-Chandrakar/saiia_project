@@ -2,6 +2,7 @@ import json
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Annotated, Any
+from urllib.parse import urlparse
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
@@ -13,6 +14,8 @@ from jwt.exceptions import (
     InvalidIssuerError,
     InvalidSignatureError,
     InvalidTokenError,
+    PyJWKClientConnectionError,
+    PyJWKClientError,
 )
 
 from app.cloud.supabase_config import get_supabase_settings
@@ -59,6 +62,13 @@ def _issuer_from_url(url: str) -> str | None:
     return f"{cleaned}/auth/v1" if cleaned else None
 
 
+def _validated_jwks_url(url: str) -> str:
+    parsed = urlparse(url.strip())
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise SupabaseAuthConfigurationError(AUTH_CONFIG_ERROR_DETAIL)
+    return url.strip()
+
+
 def _parse_auth_config(raw_config: str, supabase_url: str) -> AuthVerificationConfig:
     raw = raw_config.strip()
     if not raw:
@@ -68,7 +78,7 @@ def _parse_auth_config(raw_config: str, supabase_url: str) -> AuthVerificationCo
     audience = "authenticated"
 
     if raw.startswith(("http://", "https://")):
-        return AuthVerificationConfig(mode="jwks_url", key=raw, issuer=issuer, audience=audience)
+        return AuthVerificationConfig(mode="jwks_url", key=_validated_jwks_url(raw), issuer=issuer, audience=audience)
 
     try:
         parsed = json.loads(raw)
@@ -84,7 +94,7 @@ def _parse_auth_config(raw_config: str, supabase_url: str) -> AuthVerificationCo
 
     jwks_url = str(parsed.get("jwks_url") or parsed.get("jwks_uri") or "").strip()
     if jwks_url:
-        return AuthVerificationConfig(mode="jwks_url", key=jwks_url, issuer=issuer, audience=audience)
+        return AuthVerificationConfig(mode="jwks_url", key=_validated_jwks_url(jwks_url), issuer=issuer, audience=audience)
 
     if isinstance(parsed.get("keys"), list):
         return AuthVerificationConfig(mode="jwks_json", key=json.dumps(parsed), issuer=issuer, audience=audience)
@@ -119,7 +129,12 @@ def _decode_with_config(token: str, config: AuthVerificationConfig) -> dict[str,
         return jwt.decode(token, config.key, algorithms=["HS256"], **decode_kwargs)
 
     if config.mode == "jwks_url":
-        signing_key = _get_jwks_client(config.key).get_signing_key_from_jwt(token)
+        try:
+            signing_key = _get_jwks_client(config.key).get_signing_key_from_jwt(token)
+        except PyJWKClientConnectionError as exc:
+            raise SupabaseAuthConfigurationError(AUTH_CONFIG_ERROR_DETAIL) from exc
+        except PyJWKClientError as exc:
+            raise SupabaseAuthError(AUTH_ERROR_DETAIL) from exc
         return jwt.decode(token, signing_key.key, algorithms=["RS256", "ES256"], **decode_kwargs)
 
     if config.mode == "jwks_json":
@@ -172,7 +187,7 @@ def _bearer_token_from_request(request: Request) -> str:
     return token.strip()
 
 
-async def get_current_user(request: Request) -> CurrentUser:
+def get_current_user(request: Request) -> CurrentUser:
     try:
         return verify_supabase_token(_bearer_token_from_request(request))
     except SupabaseAuthConfigurationError as exc:

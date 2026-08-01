@@ -44,6 +44,26 @@ class FakeBootstrapClient:
         return True
 
 
+class ConflictThenVisibleClient:
+    def __init__(self) -> None:
+        self.exists_checks: dict[str, int] = {}
+        self.inserts: list[tuple[str, str]] = []
+
+    def row_exists(self, table: str, user_id: str) -> bool:
+        self.exists_checks[table] = self.exists_checks.get(table, 0) + 1
+        return self.exists_checks[table] > 1
+
+    def insert_user_row(self, table: str, user_id: str) -> bool:
+        self.inserts.append((table, user_id))
+        return False
+
+
+class ConflictStillMissingClient(ConflictThenVisibleClient):
+    def row_exists(self, table: str, user_id: str) -> bool:
+        self.exists_checks[table] = self.exists_checks.get(table, 0) + 1
+        return False
+
+
 class FakeResponse:
     def __init__(self, status_code: int, data: object, text: str = "") -> None:
         self.status_code = status_code
@@ -134,6 +154,28 @@ def test_bootstrap_reuses_existing_profile_and_settings() -> None:
     assert client.inserts == []
 
 
+def test_bootstrap_re_reads_after_conflict_and_accepts_visible_row() -> None:
+    client = ConflictThenVisibleClient()
+
+    result = bootstrap_authenticated_profile(TEST_USER_ID, client=client)
+
+    assert result.profile_exists is True
+    assert result.profile_created is False
+    assert result.settings_exists is True
+    assert result.settings_created is False
+    assert client.inserts == [
+        ("profiles", TEST_USER_ID),
+        ("user_settings", TEST_USER_ID),
+    ]
+
+
+def test_bootstrap_raises_when_conflict_row_is_still_missing() -> None:
+    client = ConflictStillMissingClient()
+
+    with pytest.raises(SupabaseProfileBootstrapError):
+        bootstrap_authenticated_profile(TEST_USER_ID, client=client)
+
+
 def test_supabase_rest_insert_headers_and_payload_match_schema() -> None:
     session = FakeRestSession()
     client = _rest_client(session)
@@ -144,6 +186,7 @@ def test_supabase_rest_insert_headers_and_payload_match_schema() -> None:
     call = session.post_calls[0]
     assert call["json"] == {"user_id": TEST_USER_ID}
     assert call["params"] == {"on_conflict": "user_id"}
+    assert call["timeout"] == 10
     headers = call["headers"]
     assert headers["apikey"] == "service-role-unit-test-value"
     assert headers["Authorization"] == "Bearer service-role-unit-test-value"

@@ -8,11 +8,14 @@ import jwt
 import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
+from jwt.exceptions import PyJWKClientConnectionError, PyJWKClientError
 
+import app.auth.supabase_auth as supabase_auth
 from app.auth.supabase_auth import (
     AUTH_CONFIG_ERROR_DETAIL,
     AUTH_ERROR_DETAIL,
     CurrentUser,
+    SupabaseAuthConfigurationError,
     get_auth_verification_config,
     get_current_user,
     verify_supabase_token,
@@ -157,12 +160,61 @@ def test_jwks_url_config_is_preferred_when_configured(monkeypatch):
     assert config.key.endswith("/.well-known/jwks.json")
 
 
+def test_cleartext_jwks_url_config_is_rejected(monkeypatch):
+    _configure_legacy_secret(monkeypatch, secret="http://project-ref.supabase.co/auth/v1/.well-known/jwks.json")
+
+    with pytest.raises(SupabaseAuthConfigurationError):
+        get_auth_verification_config()
+
+
+def test_cleartext_parsed_jwks_url_config_is_rejected(monkeypatch):
+    _configure_legacy_secret(
+        monkeypatch,
+        secret='{"jwks_url": "http://project-ref.supabase.co/auth/v1/.well-known/jwks.json"}',
+    )
+
+    with pytest.raises(SupabaseAuthConfigurationError):
+        get_auth_verification_config()
+
+
 def test_jwks_json_config_is_supported(monkeypatch):
     _configure_legacy_secret(monkeypatch, secret='{"keys": []}')
 
     config = get_auth_verification_config()
 
     assert config.mode == "jwks_json"
+
+
+def test_jwks_connection_error_returns_configuration_error(auth_client: TestClient, monkeypatch):
+    _configure_legacy_secret(monkeypatch, secret="https://project-ref.supabase.co/auth/v1/.well-known/jwks.json")
+
+    class FailingJwksClient:
+        def get_signing_key_from_jwt(self, token: str):
+            raise PyJWKClientConnectionError("jwks unavailable")
+
+    monkeypatch.setattr(supabase_auth, "_get_jwks_client", lambda url: FailingJwksClient())
+
+    response = auth_client.get("/protected", headers={"Authorization": f"Bearer {_token()}"})
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": AUTH_CONFIG_ERROR_DETAIL}
+
+
+def test_jwks_unknown_kid_returns_unauthorized_without_raw_500(auth_client: TestClient, monkeypatch):
+    _configure_legacy_secret(monkeypatch, secret="https://project-ref.supabase.co/auth/v1/.well-known/jwks.json")
+    raw_token = _token()
+
+    class FailingJwksClient:
+        def get_signing_key_from_jwt(self, token: str):
+            raise PyJWKClientError("Unable to find a signing key that matches")
+
+    monkeypatch.setattr(supabase_auth, "_get_jwks_client", lambda url: FailingJwksClient())
+
+    response = auth_client.get("/protected", headers={"Authorization": f"Bearer {raw_token}"})
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": AUTH_ERROR_DETAIL}
+    assert raw_token not in response.text
 
 
 def test_missing_subject_rejected(auth_client: TestClient, monkeypatch):

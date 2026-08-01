@@ -36,7 +36,7 @@ This tracker is the live execution log for the production build.
 Current active execution phase:
 
 ```text
-C2 - Authentication and Account Lifecycle; C2.1 and C2.2 complete; C2.3 implemented with privilege migration added and live revalidation pending; C2.4 pending approval
+C2 - Authentication and Account Lifecycle; C2.1 and C2.2 complete; C2.3 implemented and live revalidated after privilege migration; C2.4 pending approval
 ```
 
 Screen Intelligence documentation:
@@ -66,7 +66,7 @@ C1 current status:
 C2 current status:
 
 ```text
-[~] Active - C2.1 auth architecture audit, account-flow plan, and safe implementation boundary complete; C2.2 minimal Supabase auth UI and backend current-user endpoint complete; C2.3 authenticated profile bootstrap implemented in the existing React/Vite app and FastAPI backend with follow-up Supabase table privilege migration added after live PostgREST validation; live bootstrap revalidation is pending after applying the migration; no cloud profile saving, cloud resume upload, desktop login/cloud sync, sessions, billing, usage, email-provider integration, payment, or final website UI started; C2.4 pending explicit approval
+[~] Active - C2.1 auth architecture audit, account-flow plan, and safe implementation boundary complete; C2.2 minimal Supabase auth UI and backend current-user endpoint complete; C2.3 authenticated profile bootstrap implemented in the existing React/Vite app and FastAPI backend and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the PostgREST privilege blocker; no cloud profile saving, cloud resume upload, desktop login/cloud sync, sessions, billing, usage, email-provider integration, payment, or final website UI started; C2.4 pending explicit approval
 ```
 
 Primary references:
@@ -1528,7 +1528,7 @@ P17 Protected commercial edition
 # Current Immediate Next Phase
 
 ```text
-C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is active. C2.1 auth architecture audit is complete. C2.2 minimal Supabase auth UI and backend current-user endpoint are complete. C2.3 authenticated profile bootstrap is implemented in the existing React/Vite app and FastAPI backend with a follow-up Supabase table privilege migration added after live PostgREST validation found missing grants; live bootstrap revalidation is pending after applying the migration. No cloud profile saving, cloud resume upload, desktop login/cloud sync, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, or final website UI work has started. Next: begin C2.4 only when explicitly approved.
+C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is active. C2.1 auth architecture audit is complete. C2.2 minimal Supabase auth UI and backend current-user endpoint are complete. C2.3 authenticated profile bootstrap is implemented in the existing React/Vite app and FastAPI backend and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the live Supabase privilege blocker. No cloud profile saving, cloud resume upload, desktop login/cloud sync, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, or final website UI work has started. Next: begin C2.4 only when explicitly approved.
 ```
 
 P6B/P8/P9 consolidation records are preserved as historical desktop validation notes, not as the current execution authority.
