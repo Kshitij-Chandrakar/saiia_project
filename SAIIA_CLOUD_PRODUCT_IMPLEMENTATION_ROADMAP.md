@@ -526,7 +526,7 @@ C0 is complete only when:
 ## Status
 
 ```text
-[~] Deferred by product-priority decision - C0.9.1, C0.9.2, C0.9.3, C0.9.4, and C0.9.5 complete; C0.9.6 Generic Coding-Page DOM Extraction is implemented with coding-only scope, editor/starter-code extraction fixes, semantic sample/example grouping, controlled unsupported-content results, and Chrome/Edge real-page validation pending; C0.9.7 through C0.9.13 deferred while C1 cloud foundation moves forward
+[~] Deferred by product-priority decision - C0.9.1, C0.9.2, C0.9.3, C0.9.4, and C0.9.5 complete; C0.9.6 Generic Coding-Page DOM Extraction is implemented with coding-only scope, editor/starter-code extraction fixes, semantic sample/example grouping, controlled unsupported-content results, and Chrome/Edge real-page validation pending; C0.9.7 through C0.9.13 remain deferred after C1 completion while C2 authentication/account lifecycle is active
 ```
 
 ## Purpose
@@ -641,7 +641,7 @@ C0.9 is complete only when:
 ## Status
 
 ```text
-[x] Foundation complete - C1.1 Supabase configuration, migration foundation, and repository audit complete; C1.2 base Supabase database schema migration complete and applied to live saiia-dev; C1.3 RLS/storage bucket migration complete and applied to live saiia-dev; C1.4 FastAPI auth-token verification dependency complete; C1.5 closure audit complete; live Supabase user-token smoke test passed; C2 auth UI/account lifecycle not started
+[x] Foundation complete - C1.1 Supabase configuration, migration foundation, and repository audit complete; C1.2 base Supabase database schema migration complete and applied to live saiia-dev; C1.3 RLS/storage bucket migration complete and applied to live saiia-dev; C1.4 FastAPI auth-token verification dependency complete; C1.5 closure audit complete; live Supabase user-token smoke test passed; C2 is active with C2.1, C2.2, and C2.3 complete/live revalidated; C2.4 pending explicit approval
 ```
 
 ## Goal
@@ -650,7 +650,7 @@ Create the secure cloud foundation shared by the website, backend, and desktop a
 
 ## Prerequisite
 
-C0 is complete. C0.9 remains deferred by explicit product-priority decision; C0.9.6 Chrome/Edge real-page validation remains pending and C0.9.7 through C0.9.13 are deferred while C1 begins.
+C0 is complete. C0.9 remains deferred by explicit product-priority decision; C0.9.6 Chrome/Edge real-page validation remains pending and C0.9.7 through C0.9.13 remain deferred after C1 completion while C2 is active.
 
 ## Primary deliverables
 
