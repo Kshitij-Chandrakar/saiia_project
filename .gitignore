@@ -29,6 +29,7 @@ backend-run.*.log
 # Local/generated audit artifacts
 graphify-out/
 .agents/
+supabase/.temp/
 backend/debug/
 *.zip
 backend/debug_*.json

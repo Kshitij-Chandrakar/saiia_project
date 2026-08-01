@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
-from app.api import auto_stt, classify, generate, job_context, question_detect, resume, system_audio, transcribe
+from app.api import auth, auto_stt, classify, generate, job_context, question_detect, resume, system_audio, transcribe
 from app.api.debug import router as debug_router
 from app.api.screen_ocr import router as screen_ocr_router
 from app.config import settings
@@ -42,6 +42,7 @@ app.include_router(system_audio.router, prefix="/api/audio/system", tags=["Syste
 app.include_router(job_context.router, prefix="/api/job-context", tags=["Job Context"])
 app.include_router(question_detect.router, prefix="/api/question-detect", tags=["Question Detect"])
 app.include_router(screen_ocr_router)
+app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 if settings.DEBUG:
     app.include_router(debug_router, prefix="/api/debug", tags=["Debug"])
 
