@@ -471,20 +471,26 @@ export function AuthStatusPage({ backendUrl }) {
   }
 
   async function handleBootstrapProfile() {
-    if (!supabase) {
-      setError('Supabase auth is not configured for this build.')
-      return
-    }
-
-    const { data, error: sessionError } = await supabase.auth.getSession()
-    if (sessionError || !data.session?.access_token) {
-      setError('No active auth session was found.')
+    if (bootstrapLoading) {
       return
     }
 
     setBootstrapLoading(true)
     setError('')
+
+    if (!supabase) {
+      setError('Supabase auth is not configured for this build.')
+      setBootstrapLoading(false)
+      return
+    }
+
     try {
+      const { data, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError || !data.session?.access_token) {
+        setError('No active auth session was found.')
+        return
+      }
+
       const result = await bootstrapProfile(data.session.access_token, { backendUrl })
       setBootstrapResult(result)
     } catch (bootstrapError) {

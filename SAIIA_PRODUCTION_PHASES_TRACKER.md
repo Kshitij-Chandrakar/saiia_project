@@ -60,7 +60,7 @@ C0.9 overall status:
 C1 current status:
 
 ```text
-[x] Foundation complete - C1.1 complete; C1.2 base Supabase database schema migration complete and applied to live saiia-dev; C1.3 RLS/storage bucket migration complete and applied to live saiia-dev; C1.4 FastAPI auth-token verification dependency complete; C1.5 closure audit complete; live Supabase user-token smoke test passed; C2 auth UI/account lifecycle not started
+[x] Foundation complete - C1.1 complete; C1.2 base Supabase database schema migration complete and applied to live saiia-dev; C1.3 RLS/storage bucket migration complete and applied to live saiia-dev; C1.4 FastAPI auth-token verification dependency complete; C1.5 closure audit complete; live Supabase user-token smoke test passed; C2.1/C2.2/C2.3 complete and live revalidated; C2.4 pending explicit approval
 ```
 
 C2 current status:
