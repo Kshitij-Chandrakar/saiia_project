@@ -1040,6 +1040,9 @@ After a verified user first enters the dashboard:
   rows on repeated calls
 - [x] Relies on C1.2 unique constraints for idempotency:
   `profiles_user_id_key` and `user_settings_user_id_key`
+- [x] Handles concurrent duplicate/conflict inserts by re-reading the row before
+  returning `created=false`; if the row is still missing, the existing safe
+  bootstrap error is raised
 - [x] Added a temporary `Prepare Profile` action on `/auth/status`
 - [x] Added a follow-up Supabase privilege migration after live C2.3 validation
   found PostgREST returned `permission denied for table profiles`

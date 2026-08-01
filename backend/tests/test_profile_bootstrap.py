@@ -167,6 +167,7 @@ def test_bootstrap_re_reads_after_conflict_and_accepts_visible_row() -> None:
         ("profiles", TEST_USER_ID),
         ("user_settings", TEST_USER_ID),
     ]
+    assert client.exists_checks == {"profiles": 2, "user_settings": 2}
 
 
 def test_bootstrap_raises_when_conflict_row_is_still_missing() -> None:
@@ -174,6 +175,7 @@ def test_bootstrap_raises_when_conflict_row_is_still_missing() -> None:
 
     with pytest.raises(SupabaseProfileBootstrapError):
         bootstrap_authenticated_profile(TEST_USER_ID, client=client)
+    assert client.exists_checks["profiles"] == 2
 
 
 def test_supabase_rest_insert_headers_and_payload_match_schema() -> None:

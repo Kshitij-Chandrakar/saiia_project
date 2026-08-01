@@ -108,9 +108,11 @@ def _ensure_user_row(client: Any, table: str, user_id: str) -> tuple[bool, bool]
     if client.row_exists(table, user_id):
         return True, False
     created = client.insert_user_row(table, user_id)
-    if not created and not client.row_exists(table, user_id):
-        raise SupabaseProfileBootstrapError("Supabase profile bootstrap failed.")
-    return True, created
+    if created:
+        return True, True
+    if client.row_exists(table, user_id):
+        return True, False
+    raise SupabaseProfileBootstrapError("Supabase profile bootstrap failed.")
 
 
 def bootstrap_authenticated_profile(user_id: str, client: Any | None = None) -> ProfileBootstrapResult:
