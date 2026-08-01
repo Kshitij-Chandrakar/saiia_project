@@ -4,9 +4,9 @@
 **Document type:** Detailed implementation roadmap and execution source of truth  
 **Track:** Desktop stabilization â†’ Cloud account system â†’ Website integration â†’ Session intelligence â†’ Subscription and release  
 **Version:** 1.1  
-**Last updated:** 2026-07-24  
+**Last updated:** 2026-08-01
 **Created:** 2026-07-10  
-**Current active phase:** C0.9 - Screen Intelligence Source Selection and Browser Extension Foundation  
+**Current active phase:** C2 - Authentication and Account Lifecycle
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -526,14 +526,14 @@ C0 is complete only when:
 ## Status
 
 ```text
-[~] In progress - C0.9.1, C0.9.2, C0.9.3, C0.9.4, and C0.9.5 complete; C0.9.6 Generic Coding-Page DOM Extraction is implemented with coding-only scope, editor/starter-code extraction fixes, semantic sample/example grouping, controlled unsupported-content results, and Chrome/Edge real-page validation pending; C0.9.7 onward not started
+[~] Deferred by product-priority decision - C0.9.1, C0.9.2, C0.9.3, C0.9.4, and C0.9.5 complete; C0.9.6 Generic Coding-Page DOM Extraction is implemented with coding-only scope, editor/starter-code extraction fixes, semantic sample/example grouping, controlled unsupported-content results, and Chrome/Edge real-page validation pending; C0.9.7 through C0.9.13 remain deferred after C1 completion while C2 authentication/account lifecycle is active
 ```
 
 ## Purpose
 
-Implement the Analyze Screen OCR/Extension source-selection architecture before beginning C1 cloud foundation work.
+Implement the Analyze Screen OCR/Extension source-selection architecture. On 2026-07-31, the project made an explicit product-priority decision to defer the remaining C0.9 validation/application work and begin C1 cloud foundation work.
 
-C0.9 is a deliberate pre-cloud phase. C0.9.1 documentation is complete. C0.9.2 OCR/Extension menu, contextual result controls, and optimized multi-question one-click OCR are complete. C0.9.3 contracts are complete. C0.9.4 operation ownership and reliable active-window targeting are complete. C0.9.5 adds the standalone Chrome/Edge Manifest V3 extension prototype with automated validation and Chrome/Edge manual validation passing. C0.9.6 implements platform-agnostic Generic Coding-Page DOM Extraction: coding pages can return ready envelopes, false-negative coding scope detection is guarded by normalized evidence, raw list/label candidates no longer control MCQ scope, decorative visuals no longer force coding pages to OCR, accessible Monaco/Ace/CodeMirror/textarea/contenteditable editor DOM can report editor presence and starter code independently, official Sample/Example/Test Case entries stay in one `examples` array with kind, label, and index metadata while custom input/output panels are excluded, semantic sample/example blocks attach child Input/Output/Explanation sections to the correct parent, official Input/Output and STDIN/Function tables normalize without orphan `unknown` examples, `Prints`/`Returns` map to output contracts, canonical editor counts avoid nested surfaces, folded editor DOM reports partial-code diagnostics, and confidence is capped below perfect when warnings exist. MCQs, code-based MCQs, output-prediction, technical/general, true visual/chart/diagram, tutorial/article, and editor-only pages return controlled unsupported results that recommend OCR. Automated validation passes; Chrome/Edge real-page validation remains pending. C0.9.7 onward application implementation has not started.
+C0.9 remains intentionally not fully complete. C0.9.1 documentation is complete. C0.9.2 OCR/Extension menu, contextual result controls, and optimized multi-question one-click OCR are complete. C0.9.3 contracts are complete. C0.9.4 operation ownership and reliable active-window targeting are complete. C0.9.5 adds the standalone Chrome/Edge Manifest V3 extension prototype with automated validation and Chrome/Edge manual validation passing. C0.9.6 implements platform-agnostic Generic Coding-Page DOM Extraction: coding pages can return ready envelopes, false-negative coding scope detection is guarded by normalized evidence, raw list/label candidates no longer control MCQ scope, decorative visuals no longer force coding pages to OCR, accessible Monaco/Ace/CodeMirror/textarea/contenteditable editor DOM can report editor presence and starter code independently, official Sample/Example/Test Case entries stay in one `examples` array with kind, label, and index metadata while custom input/output panels are excluded, semantic sample/example blocks attach child Input/Output/Explanation sections to the correct parent, official Input/Output and STDIN/Function tables normalize without orphan `unknown` examples, `Prints`/`Returns` map to output contracts, canonical editor counts avoid nested surfaces, folded editor DOM reports partial-code diagnostics, and confidence is capped below perfect when warnings exist. MCQs, code-based MCQs, output-prediction, technical/general, true visual/chart/diagram, tutorial/article, and editor-only pages return controlled unsupported results that recommend OCR. Automated validation passes; Chrome/Edge real-page validation remains pending. C0.9.7 through C0.9.13 are deferred.
 
 ## Build-order placement
 
@@ -553,14 +553,14 @@ Do not renumber C1-C16.
 - [x] C0.9.3 - Extraction Result Envelope and Normalized Question schema
 - [x] C0.9.4 - Screen Intelligence orchestrator, request ownership, and reliable active-window targeting
 - [x] C0.9.5 - Generic Chrome/Edge extension prototype
-- [~] C0.9.6 - Generic Coding-Page DOM Extraction implemented with coding-only scope, editor/starter-code extraction fixes, semantic sample/example grouping, false-negative/false-MCQ/false-visual detection fixes, and controlled unsupported-content results; Chrome/Edge real-page validation pending
-- [ ] C0.9.7 - Coding language and submission-mode resolution
-- [ ] C0.9.8 - Electron-to-extension local bridge
-- [ ] C0.9.9 - OCR multiple-question detection and selection
-- [ ] C0.9.10 - Explicit fallback and error states
-- [ ] C0.9.11 - Security and privacy hardening
-- [ ] C0.9.12 - Regression and manual validation
-- [ ] C0.9.13 - Production Native Messaging planning
+- [~] C0.9.6 - Deferred with implementation present; Generic Coding-Page DOM Extraction implemented with coding-only scope, editor/starter-code extraction fixes, semantic sample/example grouping, false-negative/false-MCQ/false-visual detection fixes, and controlled unsupported-content results; Chrome/Edge real-page validation pending
+- [-] C0.9.7 - Coding language and submission-mode resolution deferred
+- [-] C0.9.8 - Electron-to-extension local bridge deferred
+- [-] C0.9.9 - OCR multiple-question detection and selection deferred
+- [-] C0.9.10 - Explicit fallback and error states deferred
+- [-] C0.9.11 - Security and privacy hardening deferred
+- [-] C0.9.12 - Regression and manual validation deferred
+- [-] C0.9.13 - Production Native Messaging planning deferred
 
 Do not implement Native Messaging in the first prototype unless separately approved. Do not claim the extension or bridge are implemented.
 
@@ -641,7 +641,7 @@ C0.9 is complete only when:
 ## Status
 
 ```text
-[ ] Not started
+[x] Foundation complete - C1.1 Supabase configuration, migration foundation, and repository audit complete; C1.2 base Supabase database schema migration complete and applied to live saiia-dev; C1.3 RLS/storage bucket migration complete and applied to live saiia-dev; C1.4 FastAPI auth-token verification dependency complete; C1.5 closure audit complete; live Supabase user-token smoke test passed; C2 is active with C2.1, C2.2, and C2.3 complete/live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the live PostgREST privilege blocker; C2.4 pending explicit approval
 ```
 
 ## Goal
@@ -650,7 +650,7 @@ Create the secure cloud foundation shared by the website, backend, and desktop a
 
 ## Prerequisite
 
-C0 and C0.9 exit gates must pass.
+C0 is complete. C0.9 remains deferred by explicit product-priority decision; C0.9.6 Chrome/Edge real-page validation remains pending and C0.9.7 through C0.9.13 remain deferred after C1 completion while C2 is active.
 
 ## Primary deliverables
 
@@ -765,6 +765,63 @@ Create migrations for:
 
 Additional tables will be added in later phases rather than created prematurely.
 
+C1.2 implementation status:
+
+- [x] Created `supabase/migrations/20260731121714_create_base_cloud_schema.sql`
+- [x] Created base `profiles`, `resumes`, `resume_chunks`, `job_contexts`, and `user_settings` tables
+- [x] Used `user_id uuid not null references auth.users(id) on delete cascade` on every user-owned table
+- [x] Added ownership indexes, one-profile/one-settings uniqueness, and one-active-job-context partial uniqueness
+- [x] Kept `resume_chunks.embedding` as nullable JSONB so pgvector is not required before the C3 resume cloud/RAG decision
+- [x] Deferred RLS policies to C1.3 to avoid enabling RLS without access policies during local validation
+- [x] Deferred Supabase Storage bucket creation to C1.3
+- [x] Did not create session, transcript, AI answer, subscription, usage, email, payment, or account-lifecycle tables
+
+C1.3 implementation status:
+
+- [x] Created `supabase/migrations/20260731123545_enable_rls_and_storage.sql`
+- [x] Enabled RLS on `profiles`, `resumes`, `resume_chunks`, `job_contexts`, and `user_settings`
+- [x] Added authenticated own-row select, insert, update, and delete policies for each C1.2 user-owned table
+- [x] Used both `USING` and `WITH CHECK` on update policies to prevent ownership transfer
+- [x] Created private `resumes` and `exports` Supabase Storage buckets
+- [x] Added storage object policies for authenticated access only under the user's own top-level `{user_id}/...` folder
+- [x] Did not create public buckets, audio buckets, screenshot buckets, auth UI, FastAPI token verification, upload flows, sessions, billing, usage, email, payment, or website UI
+
+C2.3 privilege support migration:
+
+- [x] Created `supabase/migrations/20260801115446_grant_cloud_table_privileges.sql`
+- [x] Granted `USAGE` on schema `public` to `authenticated` and `service_role`
+- [x] Granted `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on `profiles`, `user_settings`, `resumes`, `resume_chunks`, and `job_contexts` to `authenticated` and `service_role`
+- [x] Did not grant user-owned tables to `anon`
+- [x] Kept C1.3 RLS enabled and own-row policies unchanged
+- [x] Documented that authenticated grants rely on RLS `auth.uid()` ownership checks
+- [x] Documented that `service_role` is backend-only and bypasses RLS, so backend code must derive `user_id` from a verified JWT
+
+C1.4 implementation status:
+
+- [x] Created reusable FastAPI auth dependency in `backend/app/auth/supabase_auth.py`
+- [x] Added `get_current_user()` and safe `CurrentUser` identity object
+- [x] Supports JWKS URL/JWKS JSON verification first and legacy JWT-secret verification only when explicitly configured
+- [x] Rejects missing, non-Bearer, malformed, expired, invalid-signature, and missing-subject tokens
+- [x] Returns controlled `503` when auth verification config is missing and the dependency is called
+- [x] Does not use `SUPABASE_SERVICE_ROLE_KEY` for JWT verification
+- [x] Does not protect existing desktop-local routes yet
+- [x] Does not create `/api/auth/*`, login/signup UI, desktop login, resume cloud upload, sessions, billing, usage, email, payment, or website UI
+
+C1.5 closure status:
+
+- [x] Verified C1.1 backend-only Supabase configuration and local-only mode behavior
+- [x] Verified C1.2 migration file for `profiles`, `resumes`, `resume_chunks`, `job_contexts`, and `user_settings`
+- [x] Recorded that C1.2 is applied to live `saiia-dev`
+- [x] Verified C1.3 migration file for RLS, own-row policies, private `resumes`/`exports` buckets, and storage ownership policies
+- [x] Recorded user dashboard verification that C1.3 is applied to live `saiia-dev`
+- [x] Verified C1.4 auth verifier tests and that no existing desktop-local route is protected yet
+- [x] Added skipped-by-default live Supabase user-token smoke test for C2 integration readiness
+- [x] Live Supabase user-token smoke test passed with a real Supabase Auth user access token validated by the C1.4 FastAPI verifier
+- [x] Confirmed no login/signup UI, `/api/auth/*` route, existing desktop route protection, cloud resume upload, desktop login, sessions, billing, usage, email, payment, or website UI was added
+- [x] Confirmed token, password, and service-role key values were not committed or printed
+- [x] Treated the smoke-test user password as exposed; password should be changed immediately or the smoke-test user should be deleted
+- [x] Confirmed no C2/C3/C5/session/billing/usage/email/payment/website work was started
+
 ## Storage buckets
 
 ### `resumes`
@@ -849,7 +906,7 @@ It should:
 ## Status
 
 ```text
-[ ] Not started
+[~] Active - C2.1 auth architecture audit complete; C2.2 minimal Supabase auth UI and backend current-user endpoint complete; C2.3 authenticated profile bootstrap implemented and live revalidated after follow-up Supabase table privilege migration fixed the PostgREST privilege blocker; no cloud profile saving, cloud resume upload, desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, or final website UI started; C2.4 pending explicit approval
 ```
 
 ## Goal
@@ -937,6 +994,65 @@ After a verified user first enters the dashboard:
 - rate-limit auth-related backend endpoints
 - do not reveal whether an email exists more than necessary
 - record security-relevant events without logging secrets
+
+## C2.1 implementation status
+
+- [x] Created `docs/C2_AUTH_ARCHITECTURE_PLAN.md`
+- [x] Audited existing React/Vite/Electron frontend entry points and routing
+- [x] Audited existing FastAPI route registration and C1.4 auth dependency
+- [x] Audited local profile, resume-index, and job-context storage
+- [x] Confirmed `@supabase/supabase-js` is not installed yet
+- [x] Confirmed frontend has no current `VITE_*` Supabase env usage
+- [x] Proposed C2 endpoint, profile bootstrap, redirect URL, token handling, and protected-route plan
+- [x] Did not add login/signup UI, `/api/auth/*` routes, existing desktop route protection, desktop login, cloud resume upload, sessions, billing, usage, email, payment, or website UI
+
+## C2.2 implementation status
+
+- [x] Added `@supabase/supabase-js` to the existing React/Vite frontend package
+- [x] Added frontend-safe placeholders `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
+- [x] Added temporary auth routes in the existing Vite app on port 5173:
+  `/auth/signup`, `/auth/login`, `/auth/forgot-password`,
+  `/auth/reset-password`, `/auth/callback`, `/auth/status`, and
+  `/auth/logout`
+- [x] Added frontend Supabase auth client boundary under `frontend/src/auth/`
+- [x] Added `GET /api/auth/me` using the existing C1.4 FastAPI
+  `get_current_user()` verifier
+- [x] `/api/auth/me` returns only `user_id`, optional `email`, and optional
+  `role`
+- [x] Documented development Supabase Auth setup:
+  Site URL `http://localhost:5173`, redirect URLs
+  `http://localhost:5173/auth/callback` and
+  `http://localhost:5173/auth/reset-password`
+- [x] Did not add C2.3 profile bootstrap, backend signup/login endpoints, cloud
+  profile saving, cloud resume upload, desktop login/cloud sync, sessions,
+  billing, usage, email-provider integration, payments, or final website UI
+
+## C2.3 implementation status
+
+- [x] Added `POST /api/auth/profile/bootstrap`
+- [x] Protected the endpoint with the existing C1.4 `get_current_user()` verifier
+- [x] Bootstrap uses only verified `current_user.user_id`; frontend-supplied
+  `user_id` is ignored
+- [x] Selected Supabase REST with backend-only service-role access because
+  `requests` already exists and no Postgres/Supabase Python client dependency
+  was installed
+- [x] Creates missing `profiles` and `user_settings` rows and reuses existing
+  rows on repeated calls
+- [x] Relies on C1.2 unique constraints for idempotency:
+  `profiles_user_id_key` and `user_settings_user_id_key`
+- [x] Handles concurrent duplicate/conflict inserts by re-reading the row before
+  returning `created=false`; if the row is still missing, the existing safe
+  bootstrap error is raised
+- [x] Added a temporary `Prepare Profile` action on `/auth/status`
+- [x] Added a follow-up Supabase privilege migration after live C2.3 validation
+  found PostgREST returned `permission denied for table profiles`
+- [x] Live bootstrap revalidation is complete after
+  `20260801115446_grant_cloud_table_privileges.sql` fixed the live Supabase
+  privilege blocker
+- [x] Did not migrate local profile JSON, save cloud profile content, upload
+  resumes, write `resumes`, `resume_chunks`, or `job_contexts`, protect
+  desktop-local routes, add desktop login/cloud sync, sessions, billing, usage,
+  email-provider integration, payments, or final website UI
 
 ## C2 tests
 
@@ -3124,8 +3240,8 @@ The C0â€“C16 track is complete when:
 ## 18. Current Next Action
 
 ```text
-C0.9.2 manual Electron validation is complete.
-Do not begin Supabase C1 until the remaining C0.9 subphases are resolved.
+C0 remains complete. C0.9 is not fully complete: C0.9.6 has implementation present with Chrome/Edge real-page validation pending, and C0.9.7 through C0.9.13 are deferred by explicit product-priority decision.
+C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 is active. C2.1 auth architecture audit is complete. C2.2 minimal Supabase auth UI and backend current-user endpoint are complete. C2.3 authenticated profile bootstrap is implemented and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the live Supabase privilege blocker. No cloud profile saving, cloud resume upload, desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, or final website UI work has started. Next: begin C2.4 only when explicitly approved.
 ```
 
 The completed C0.9.2 manual validation covered:

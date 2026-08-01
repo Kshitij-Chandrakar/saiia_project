@@ -3,7 +3,7 @@
 **Product:** SAIIA â€” Smart AI Interview Assistant  
 **Document Type:** Production phase checklist for developer + Codex  
 **Version:** 1.1  
-**Last updated:** 2026-07-24  
+**Last updated:** 2026-08-01
 **Purpose:** Track SAIIA after MVP and guide development toward a polished production-ready application.
 
 ---
@@ -36,7 +36,7 @@ This tracker is the live execution log for the production build.
 Current active execution phase:
 
 ```text
-C0.9 - Screen Intelligence Source Selection and Browser Extension Foundation
+C2 - Authentication and Account Lifecycle; C2.1 and C2.2 complete; C2.3 implemented and live revalidated after privilege migration; C2.4 pending approval
 ```
 
 Screen Intelligence documentation:
@@ -54,7 +54,19 @@ C0 status:
 C0.9 overall status:
 
 ```text
-[~] In progress - C0.9.1, C0.9.2, C0.9.3, C0.9.4, and C0.9.5 complete; C0.9.6 Generic Coding-Page DOM Extraction is implemented with coding-only scope, editor/starter-code extraction fixes, semantic sample/example grouping, controlled unsupported-content results, and Chrome/Edge real-page validation pending; C0.9.7 onward not started
+[~] Deferred by product-priority decision - C0.9.1, C0.9.2, C0.9.3, C0.9.4, and C0.9.5 complete; C0.9.6 Generic Coding-Page DOM Extraction is implemented with coding-only scope, editor/starter-code extraction fixes, semantic sample/example grouping, controlled unsupported-content results, and Chrome/Edge real-page validation pending; C0.9.7 through C0.9.13 deferred while C1 cloud foundation moves forward
+```
+
+C1 current status:
+
+```text
+[x] Foundation complete - C1.1 complete; C1.2 base Supabase database schema migration complete and applied to live saiia-dev; C1.3 RLS/storage bucket migration complete and applied to live saiia-dev; C1.4 FastAPI auth-token verification dependency complete; C1.5 closure audit complete; live Supabase user-token smoke test passed; C2.1/C2.2/C2.3 complete and live revalidated; C2.4 pending explicit approval
+```
+
+C2 current status:
+
+```text
+[~] Active - C2.1 auth architecture audit, account-flow plan, and safe implementation boundary complete; C2.2 minimal Supabase auth UI and backend current-user endpoint complete; C2.3 authenticated profile bootstrap implemented in the existing React/Vite app and FastAPI backend and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the PostgREST privilege blocker; no cloud profile saving, cloud resume upload, desktop login/cloud sync, sessions, billing, usage, email-provider integration, payment, or final website UI started; C2.4 pending explicit approval
 ```
 
 Primary references:
@@ -667,13 +679,13 @@ Status:
 
 ```text
 [x] C0.9.1 - Documentation and architecture lock complete
-[~] C0.9 - In progress; C0.9.1, C0.9.2, C0.9.3, C0.9.4, and C0.9.5 complete; C0.9.6 Generic Coding-Page DOM Extraction is implemented with coding-only scope, editor/starter-code extraction fixes, semantic sample/example grouping, controlled unsupported-content results, and Chrome/Edge real-page validation pending; C0.9.7 onward not started
+[~] C0.9 - Deferred by product-priority decision; C0.9.1, C0.9.2, C0.9.3, C0.9.4, and C0.9.5 complete; C0.9.6 Generic Coding-Page DOM Extraction is implemented with coding-only scope, editor/starter-code extraction fixes, semantic sample/example grouping, controlled unsupported-content results, and Chrome/Edge real-page validation pending; C0.9.7 through C0.9.13 deferred
 [x] C0.9.2 - Analyze Screen OCR/Extension menu, contextual result controls, and optimized one-click multi-question OCR complete
 [x] C0.9.3 - Extraction Result Envelope and Normalized Question schema complete
 [x] C0.9.4 - Screen Intelligence orchestrator, request ownership, and reliable active-window targeting complete
 [x] C0.9.5 - Generic Chrome/Edge extension prototype
-[~] C0.9.6 - Generic Coding-Page DOM Extraction implemented with coding-only scope, editor/starter-code extraction fixes, semantic sample/example block grouping, sample/example metadata preservation, final extraction-quality fixes for explanation pairing, Input/Output and STDIN/Function tables, runtime panel exclusion, `Prints`/`Returns`, canonical editor counts, folded-code diagnostics, confidence calibration, false-negative/false-MCQ/false-visual detection fixes, and controlled unsupported-content results; Chrome/Edge real-page validation pending
-[ ] C0.9.7 onward - not started
+[~] C0.9.6 - Deferred with implementation present; Generic Coding-Page DOM Extraction implemented with coding-only scope, editor/starter-code extraction fixes, semantic sample/example block grouping, sample/example metadata preservation, final extraction-quality fixes for explanation pairing, Input/Output and STDIN/Function tables, runtime panel exclusion, `Prints`/`Returns`, canonical editor counts, folded-code diagnostics, confidence calibration, false-negative/false-MCQ/false-visual detection fixes, and controlled unsupported-content results; Chrome/Edge real-page validation pending
+[-] C0.9.7 through C0.9.13 - deferred
 ```
 
 Previous architecture:
@@ -1516,7 +1528,7 @@ P17 Protected commercial edition
 # Current Immediate Next Phase
 
 ```text
-C0 is marked done. The current implementation phase is C0.9 - Screen Intelligence Source Selection and Browser Extension Foundation. C0.9.6 Generic Coding-Page DOM Extraction is implemented with coding-only scope, editor/starter-code extraction fixes, semantic sample/example block grouping, sample/example metadata preservation, final extraction-quality fixes for explanation pairing, output aliases, table normalization, runtime panel exclusion, editor diagnostics, false-negative/false-MCQ/false-visual detection fixes, controlled unsupported-content results, split coding workspace handling, and Chrome/Edge real-page validation pending. Next: complete C0.9.6 validation before beginning C0.9.7.
+C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is active. C2.1 auth architecture audit is complete. C2.2 minimal Supabase auth UI and backend current-user endpoint are complete. C2.3 authenticated profile bootstrap is implemented in the existing React/Vite app and FastAPI backend and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the live Supabase privilege blocker. No cloud profile saving, cloud resume upload, desktop login/cloud sync, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, or final website UI work has started. Next: begin C2.4 only when explicitly approved.
 ```
 
 P6B/P8/P9 consolidation records are preserved as historical desktop validation notes, not as the current execution authority.
