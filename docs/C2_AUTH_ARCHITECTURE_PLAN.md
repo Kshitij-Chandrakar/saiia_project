@@ -247,11 +247,14 @@ Frontend tests/manual checks:
   React/Vite app.
 - [x] Signed-out or expired-session users are redirected to `/auth/login` with a
   generic session message.
+- [x] Already-authenticated users who open `/auth/login` or `/auth/signup` are
+  redirected to `/auth/dashboard` after a safe Supabase session check.
 - [x] Signed-in users see only safe account identity from `GET /api/auth/me`.
 - [x] `/auth/dashboard` can run the existing C2.3 profile bootstrap action and
   report profile/settings readiness without storing the raw access token in
   React state.
-- [x] Logout clears the Supabase browser session and returns to `/auth/login`.
+- [x] Logout is guarded against duplicate clicks, clears the Supabase browser
+  session, and returns to `/auth/login`.
 - [x] Existing `/` and `/profile-setup` remain unprotected for desktop-local
   development.
 - [x] Did not add backend signup/login endpoints, backend session endpoints,
@@ -299,12 +302,16 @@ Do not add production redirect URLs until the production domain is known.
 
 - Open `http://localhost:5173/auth/dashboard` while signed out and confirm it
   redirects to `/auth/login` with a session-expired/signed-out message.
+- While already signed in, open `http://localhost:5173/auth/login` and
+  `http://localhost:5173/auth/signup`; both should redirect to
+  `/auth/dashboard`.
 - Log in with the existing dev Supabase test user and open
   `http://localhost:5173/auth/dashboard`.
 - Confirm the page shows only the safe user email or user id and optional role.
 - Click `Prepare Profile` and confirm it reports profile/settings readiness
   without duplicate rows.
-- Click `Logout` and confirm the app returns to `/auth/login`.
+- Click `Logout` and confirm the button enters a pending state and the app
+  returns to `/auth/login`.
 - Confirm `http://localhost:5173/` and
   `http://localhost:5173/profile-setup` still open without login.
 - Confirm no raw access token, refresh token, password, or service-role value is

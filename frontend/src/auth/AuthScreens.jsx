@@ -11,11 +11,123 @@ const AUTH_CALLBACK_URL = 'http://localhost:5173/auth/callback'
 const PASSWORD_RESET_URL = 'http://localhost:5173/auth/reset-password'
 const DEFAULT_LOGIN_NEXT_ROUTE = '/auth/dashboard'
 const SAFE_AUTH_NEXT_ROUTES = new Set(['/auth/dashboard', '/auth/status'])
+const LOGIN_REQUIRED_MESSAGE = 'Session expired or signed out. Please log in.'
 
 
 function getSafeAuthNextRoute(value, fallback = DEFAULT_LOGIN_NEXT_ROUTE) {
   const route = String(value || '').trim()
   return SAFE_AUTH_NEXT_ROUTES.has(route) ? route : fallback
+}
+
+
+function useRedirectAuthenticatedUser(targetRoute = DEFAULT_LOGIN_NEXT_ROUTE) {
+  const navigate = useNavigate()
+  const [checkingSession, setCheckingSession] = useState(true)
+
+  useEffect(() => {
+    let ignore = false
+
+    async function checkSession() {
+      if (!supabase) {
+        setCheckingSession(false)
+        return
+      }
+
+      try {
+        const { data } = await supabase.auth.getSession()
+        if (ignore) {
+          return
+        }
+        if (data.session?.access_token) {
+          navigate(targetRoute, { replace: true })
+          return
+        }
+      } catch {
+        // Stay on the public auth form. The explicit login/signup action will surface errors.
+      }
+
+      if (!ignore) {
+        setCheckingSession(false)
+      }
+    }
+
+    checkSession()
+    return () => {
+      ignore = true
+    }
+  }, [navigate, targetRoute])
+
+  return checkingSession
+}
+
+
+function useProfileBootstrap({ backendUrl, sessionErrorMessage }) {
+  const [bootstrapResult, setBootstrapResult] = useState(null)
+  const [bootstrapLoading, setBootstrapLoading] = useState(false)
+  const [error, setError] = useState('')
+  const bootstrapOperationRef = useRef(0)
+
+  useEffect(() => {
+    return () => {
+      bootstrapOperationRef.current += 1
+    }
+  }, [])
+
+  async function handleBootstrapProfile() {
+    if (bootstrapLoading) {
+      return
+    }
+
+    const operationId = bootstrapOperationRef.current + 1
+    bootstrapOperationRef.current = operationId
+    setBootstrapLoading(true)
+    setError('')
+
+    try {
+      if (!supabase) {
+        if (bootstrapOperationRef.current === operationId) {
+          setError('Supabase auth is not configured for this build.')
+        }
+        return
+      }
+
+      const { data, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError || !data.session?.access_token) {
+        if (bootstrapOperationRef.current === operationId) {
+          setError(sessionErrorMessage)
+        }
+        return
+      }
+
+      const result = await bootstrapProfile(data.session.access_token, { backendUrl })
+      if (bootstrapOperationRef.current === operationId) {
+        setBootstrapResult(result)
+      }
+    } catch (bootstrapError) {
+      if (bootstrapOperationRef.current === operationId) {
+        setError(bootstrapError.message)
+      }
+    } finally {
+      if (bootstrapOperationRef.current === operationId) {
+        setBootstrapLoading(false)
+      }
+    }
+  }
+
+  function invalidateBootstrap() {
+    bootstrapOperationRef.current += 1
+    setBootstrapLoading(false)
+    setBootstrapResult(null)
+    setError('')
+  }
+
+  return {
+    bootstrapResult,
+    bootstrapLoading,
+    error,
+    handleBootstrapProfile,
+    invalidateBootstrap,
+  }
 }
 
 
@@ -123,6 +235,7 @@ function useAuthForm() {
 
 export function AuthSignupPage() {
   const form = useAuthForm()
+  const checkingSession = useRedirectAuthenticatedUser()
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -148,6 +261,14 @@ export function AuthSignupPage() {
     }
 
     form.setMessage('Check your email to verify your account.')
+  }
+
+  if (checkingSession) {
+    return (
+      <AuthShell title="Create Account">
+        <p className="auth-message info">Checking session...</p>
+      </AuthShell>
+    )
   }
 
   return (
@@ -191,6 +312,7 @@ export function AuthLoginPage({ backendUrl }) {
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()
+  const checkingSession = useRedirectAuthenticatedUser()
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -425,24 +547,27 @@ export function AuthCallbackPage({ backendUrl }) {
 
 export function AuthStatusPage({ backendUrl }) {
   const [user, setUser] = useState(null)
-  const [bootstrapResult, setBootstrapResult] = useState(null)
-  const [bootstrapLoading, setBootstrapLoading] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const bootstrapOperationRef = useRef(0)
-
-  useEffect(() => {
-    return () => {
-      bootstrapOperationRef.current += 1
-    }
-  }, [])
+  const [userError, setUserError] = useState('')
+  const [logoutPending, setLogoutPending] = useState(false)
+  const navigate = useNavigate()
+  const {
+    bootstrapResult,
+    bootstrapLoading,
+    error: bootstrapError,
+    handleBootstrapProfile,
+    invalidateBootstrap,
+  } = useProfileBootstrap({
+    backendUrl,
+    sessionErrorMessage: 'No active auth session was found.',
+  })
 
   useEffect(() => {
     let ignore = false
 
     async function loadUser() {
       if (!supabase) {
-        setError('Supabase auth is not configured for this build.')
+        setUserError('Supabase auth is not configured for this build.')
         setLoading(false)
         return
       }
@@ -453,7 +578,7 @@ export function AuthStatusPage({ backendUrl }) {
       }
 
       if (sessionError || !data.session?.access_token) {
-        setError(sessionError?.message || 'No active auth session was found.')
+        setUserError(sessionError?.message || 'No active auth session was found.')
         setLoading(false)
         return
       }
@@ -465,7 +590,7 @@ export function AuthStatusPage({ backendUrl }) {
         }
       } catch (verifyError) {
         if (!ignore) {
-          setError(verifyError.message)
+          setUserError(verifyError.message)
         }
       } finally {
         if (!ignore) {
@@ -481,64 +606,31 @@ export function AuthStatusPage({ backendUrl }) {
   }, [backendUrl])
 
   async function handleLogout() {
-    if (!supabase) {
+    if (!supabase || logoutPending) {
       return
     }
-    bootstrapOperationRef.current += 1
+    setLogoutPending(true)
     setLoading(true)
-    setError('')
-    setBootstrapLoading(false)
-    await supabase.auth.signOut()
-    setUser(null)
-    setBootstrapResult(null)
-    setLoading(false)
-  }
-
-  async function handleBootstrapProfile() {
-    if (bootstrapLoading) {
-      return
-    }
-
-    const operationId = bootstrapOperationRef.current + 1
-    bootstrapOperationRef.current = operationId
-    setBootstrapLoading(true)
-    setError('')
-
+    setUserError('')
+    invalidateBootstrap()
     try {
-      if (!supabase) {
-        if (bootstrapOperationRef.current === operationId) {
-          setError('Supabase auth is not configured for this build.')
-        }
-        return
-      }
-
-      const { data, error: sessionError } = await supabase.auth.getSession()
-      if (sessionError || !data.session?.access_token) {
-        if (bootstrapOperationRef.current === operationId) {
-          setError('No active auth session was found.')
-        }
-        return
-      }
-
-      const result = await bootstrapProfile(data.session.access_token, { backendUrl })
-      if (bootstrapOperationRef.current === operationId) {
-        setBootstrapResult(result)
-      }
-    } catch (bootstrapError) {
-      if (bootstrapOperationRef.current === operationId) {
-        setError(bootstrapError.message)
-      }
-    } finally {
-      if (bootstrapOperationRef.current === operationId) {
-        setBootstrapLoading(false)
-      }
+      await supabase.auth.signOut()
+      setUser(null)
+      navigate('/auth/login', {
+        replace: true,
+        state: { authMessage: 'Signed out.' },
+      })
+    } catch (logoutError) {
+      setUserError(logoutError.message || 'Could not sign out.')
+      setLoading(false)
+      setLogoutPending(false)
     }
   }
 
   return (
     <AuthShell title="Account">
       {loading && <p className="auth-message info">Loading...</p>}
-      <AuthMessage message={error} tone="error" />
+      <AuthMessage message={userError || bootstrapError} tone="error" />
       {user && (
         <div className="auth-user-summary">
           <p>{user.email || user.user_id}</p>
@@ -563,9 +655,9 @@ export function AuthStatusPage({ backendUrl }) {
           </span>
         </div>
       )}
-      <button className="auth-secondary-button" type="button" onClick={handleLogout} disabled={!supabase || loading}>
+      <button className="auth-secondary-button" type="button" onClick={handleLogout} disabled={!supabase || loading || logoutPending}>
         <LogOut size={18} aria-hidden="true" />
-        Logout
+        {logoutPending ? 'Signing out...' : 'Logout'}
       </button>
       <AuthLinks />
     </AuthShell>
@@ -638,7 +730,7 @@ function RequireAuth({ backendUrl, children }) {
       <Navigate
         to={`/auth/login?next=${encodeURIComponent(nextRoute)}`}
         replace
-        state={{ authMessage: error || 'Session expired or signed out. Please log in.', next: nextRoute }}
+        state={{ authMessage: LOGIN_REQUIRED_MESSAGE, next: nextRoute }}
       />
     )
   }
@@ -657,72 +749,34 @@ function RequireAuth({ backendUrl, children }) {
 
 
 export function AuthDashboardPage({ backendUrl }) {
-  const [bootstrapResult, setBootstrapResult] = useState(null)
-  const [bootstrapLoading, setBootstrapLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [logoutPending, setLogoutPending] = useState(false)
   const navigate = useNavigate()
-  const bootstrapOperationRef = useRef(0)
-
-  useEffect(() => {
-    return () => {
-      bootstrapOperationRef.current += 1
-    }
-  }, [])
-
-  async function handleBootstrapProfile() {
-    if (bootstrapLoading) {
-      return
-    }
-
-    const operationId = bootstrapOperationRef.current + 1
-    bootstrapOperationRef.current = operationId
-    setBootstrapLoading(true)
-    setError('')
-
-    try {
-      if (!supabase) {
-        if (bootstrapOperationRef.current === operationId) {
-          setError('Supabase auth is not configured for this build.')
-        }
-        return
-      }
-
-      const { data, error: sessionError } = await supabase.auth.getSession()
-      if (sessionError || !data.session?.access_token) {
-        if (bootstrapOperationRef.current === operationId) {
-          setError('Session expired or signed out. Please log in again.')
-        }
-        return
-      }
-
-      const result = await bootstrapProfile(data.session.access_token, { backendUrl })
-      if (bootstrapOperationRef.current === operationId) {
-        setBootstrapResult(result)
-      }
-    } catch (bootstrapError) {
-      if (bootstrapOperationRef.current === operationId) {
-        setError(bootstrapError.message)
-      }
-    } finally {
-      if (bootstrapOperationRef.current === operationId) {
-        setBootstrapLoading(false)
-      }
-    }
-  }
+  const {
+    bootstrapResult,
+    bootstrapLoading,
+    error,
+    handleBootstrapProfile,
+    invalidateBootstrap,
+  } = useProfileBootstrap({
+    backendUrl,
+    sessionErrorMessage: 'Session expired or signed out. Please log in again.',
+  })
 
   async function handleLogout() {
-    if (!supabase) {
+    if (!supabase || logoutPending) {
       return
     }
-    bootstrapOperationRef.current += 1
-    setBootstrapLoading(false)
-    setBootstrapResult(null)
-    setError('')
-    await supabase.auth.signOut()
-    navigate('/auth/login', {
-      replace: true,
-      state: { authMessage: 'Signed out.' },
-    })
+    setLogoutPending(true)
+    invalidateBootstrap()
+    try {
+      await supabase.auth.signOut()
+      navigate('/auth/login', {
+        replace: true,
+        state: { authMessage: 'Signed out.' },
+      })
+    } catch {
+      setLogoutPending(false)
+    }
   }
 
   return (
@@ -750,9 +804,9 @@ export function AuthDashboardPage({ backendUrl }) {
           >
             {bootstrapLoading ? 'Preparing...' : 'Prepare Profile'}
           </button>
-          <button className="auth-secondary-button" type="button" onClick={handleLogout} disabled={!supabase}>
+          <button className="auth-secondary-button" type="button" onClick={handleLogout} disabled={!supabase || logoutPending}>
             <LogOut size={18} aria-hidden="true" />
-            Logout
+            {logoutPending ? 'Signing out...' : 'Logout'}
           </button>
           <nav className="auth-links" aria-label="Account navigation">
             <Link to="/auth/status">Auth status</Link>

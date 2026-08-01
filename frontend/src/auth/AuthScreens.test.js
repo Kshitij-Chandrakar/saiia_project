@@ -5,12 +5,17 @@ import test from 'node:test'
 
 const source = readFileSync(new URL('./AuthScreens.jsx', import.meta.url), 'utf8')
 const appSource = readFileSync(new URL('../App.jsx', import.meta.url), 'utf8')
+const statusPageSource = source.match(/export function AuthStatusPage[\s\S]*?function RequireAuth/)?.[0] || ''
+const dashboardPageSource = source.match(/export function AuthDashboardPage[\s\S]*?export function AuthLogoutPage/)?.[0] || ''
 
 
-test('bootstrap operation is invalidated on logout and unmount', () => {
+test('profile bootstrap behavior is shared by status and dashboard pages', () => {
+  assert.match(source, /function useProfileBootstrap\(\{ backendUrl, sessionErrorMessage \}\)/)
+  assert.equal((source.match(/async function handleBootstrapProfile/g) || []).length, 1)
   assert.match(source, /const bootstrapOperationRef = useRef\(0\)/)
   assert.match(source, /return \(\) => \{\s+bootstrapOperationRef\.current \+= 1\s+\}/)
-  assert.match(source, /async function handleLogout\(\) \{[\s\S]*bootstrapOperationRef\.current \+= 1/)
+  assert.match(statusPageSource, /useProfileBootstrap\(\{\s+backendUrl,\s+sessionErrorMessage: 'No active auth session was found\.'/)
+  assert.match(dashboardPageSource, /useProfileBootstrap\(\{\s+backendUrl,\s+sessionErrorMessage: 'Session expired or signed out\. Please log in again\.'/)
 })
 
 
@@ -29,7 +34,9 @@ test('protected dashboard redirects signed-out users to login', () => {
   assert.match(source, /supabase\.auth\.getSession\(\)/)
   assert.match(source, /setSignedOut\(true\)/)
   assert.match(source, /to=\{`\/auth\/login\?next=\$\{encodeURIComponent\(nextRoute\)\}`\}/)
-  assert.match(source, /Session expired or signed out\. Please log in\./)
+  assert.match(source, /const LOGIN_REQUIRED_MESSAGE = 'Session expired or signed out\. Please log in\.'/)
+  assert.match(source, /state=\{\{ authMessage: LOGIN_REQUIRED_MESSAGE, next: nextRoute \}\}/)
+  assert.doesNotMatch(source, /authMessage: error/)
 })
 
 
@@ -40,9 +47,19 @@ test('login redirects to dashboard by default after verification', () => {
 })
 
 
+test('signed-in users visiting login or signup redirect to dashboard', () => {
+  assert.match(source, /function useRedirectAuthenticatedUser\(targetRoute = DEFAULT_LOGIN_NEXT_ROUTE\)/)
+  assert.match(source, /const \{ data \} = await supabase\.auth\.getSession\(\)/)
+  assert.match(source, /if \(data\.session\?\.access_token\) \{\s+navigate\(targetRoute, \{ replace: true \}\)/)
+  assert.match(source, /export function AuthSignupPage\(\)[\s\S]*const checkingSession = useRedirectAuthenticatedUser\(\)/)
+  assert.match(source, /export function AuthLoginPage\(\{ backendUrl \}\)[\s\S]*const checkingSession = useRedirectAuthenticatedUser\(\)/)
+  assert.match(source, /<p className="auth-message info">Checking session\.\.\.<\/p>/)
+})
+
+
 test('protected dashboard redirect returns to dashboard after login', () => {
   assert.match(source, /const nextRoute = getSafeAuthNextRoute\(location\.pathname\)/)
-  assert.match(source, /state=\{\{ authMessage: error \|\| 'Session expired or signed out\. Please log in\.', next: nextRoute \}\}/)
+  assert.match(source, /state=\{\{ authMessage: LOGIN_REQUIRED_MESSAGE, next: nextRoute \}\}/)
 })
 
 
@@ -63,8 +80,18 @@ test('protected dashboard shows safe user identity and avoids token state', () =
 
 
 test('dashboard logout clears session path and returns to login', () => {
-  assert.match(source, /async function handleLogout\(\) \{[\s\S]*supabase\.auth\.signOut\(\)/)
-  assert.match(source, /navigate\('\/auth\/login', \{[\s\S]*state: \{ authMessage: 'Signed out\.' \}/)
+  assert.match(dashboardPageSource, /async function handleLogout\(\) \{[\s\S]*if \(!supabase \|\| logoutPending\) \{[\s\S]*return/)
+  assert.match(dashboardPageSource, /setLogoutPending\(true\)[\s\S]*await supabase\.auth\.signOut\(\)/)
+  assert.match(dashboardPageSource, /navigate\('\/auth\/login', \{[\s\S]*state: \{ authMessage: 'Signed out\.' \}/)
+})
+
+
+test('logout buttons are disabled while signout is pending', () => {
+  assert.match(statusPageSource, /const \[logoutPending, setLogoutPending\] = useState\(false\)/)
+  assert.match(dashboardPageSource, /const \[logoutPending, setLogoutPending\] = useState\(false\)/)
+  assert.match(statusPageSource, /disabled=\{!supabase \|\| loading \|\| logoutPending\}/)
+  assert.match(dashboardPageSource, /disabled=\{!supabase \|\| logoutPending\}/)
+  assert.match(source, /logoutPending \? 'Signing out\.\.\.' : 'Logout'/)
 })
 
 
