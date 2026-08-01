@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { Eye, EyeOff, LogOut } from 'lucide-react'
 
 import { bootstrapProfile, fetchCurrentUser } from './authApi'
@@ -9,6 +9,14 @@ import './auth.css'
 
 const AUTH_CALLBACK_URL = 'http://localhost:5173/auth/callback'
 const PASSWORD_RESET_URL = 'http://localhost:5173/auth/reset-password'
+const DEFAULT_LOGIN_NEXT_ROUTE = '/auth/dashboard'
+const SAFE_AUTH_NEXT_ROUTES = new Set(['/auth/dashboard', '/auth/status'])
+
+
+function getSafeAuthNextRoute(value, fallback = DEFAULT_LOGIN_NEXT_ROUTE) {
+  const route = String(value || '').trim()
+  return SAFE_AUTH_NEXT_ROUTES.has(route) ? route : fallback
+}
 
 
 function AuthShell({ title, children }) {
@@ -84,6 +92,7 @@ function AuthLinks({ mode }) {
       {mode !== 'login' && <Link to="/auth/login">Login</Link>}
       {mode !== 'signup' && <Link to="/auth/signup">Sign up</Link>}
       {mode !== 'forgot' && <Link to="/auth/forgot-password">Forgot password</Link>}
+      <Link to="/auth/dashboard">Dashboard</Link>
       <Link to="/">Desktop app</Link>
     </nav>
   )
@@ -180,6 +189,8 @@ export function AuthSignupPage() {
 export function AuthLoginPage({ backendUrl }) {
   const form = useAuthForm()
   const navigate = useNavigate()
+  const location = useLocation()
+  const [searchParams] = useSearchParams()
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -206,7 +217,10 @@ export function AuthLoginPage({ backendUrl }) {
         await fetchCurrentUser(data.session.access_token, { backendUrl })
       }
       form.setMessage('Login successful.')
-      navigate('/auth/status', { replace: true })
+      navigate(
+        getSafeAuthNextRoute(searchParams.get('next') || location.state?.next),
+        { replace: true }
+      )
     } catch (verifyError) {
       form.setError(verifyError.message)
     } finally {
@@ -241,6 +255,7 @@ export function AuthLoginPage({ backendUrl }) {
           {form.loading ? 'Checking...' : 'Login'}
         </button>
       </form>
+      <AuthMessage message={location.state?.authMessage || ''} tone="info" />
       <AuthMessage message={form.error} tone="error" />
       <AuthMessage message={form.message} tone="success" />
       <AuthLinks mode="login" />
@@ -554,6 +569,198 @@ export function AuthStatusPage({ backendUrl }) {
       </button>
       <AuthLinks />
     </AuthShell>
+  )
+}
+
+
+function RequireAuth({ backendUrl, children }) {
+  const [user, setUser] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [signedOut, setSignedOut] = useState(false)
+  const [error, setError] = useState('')
+  const location = useLocation()
+
+  useEffect(() => {
+    let ignore = false
+
+    async function loadUser() {
+      if (!supabase) {
+        setError('Supabase auth is not configured for this build.')
+        setLoading(false)
+        return
+      }
+
+      const { data, error: sessionError } = await supabase.auth.getSession()
+      if (ignore) {
+        return
+      }
+
+      if (sessionError || !data.session?.access_token) {
+        setSignedOut(true)
+        setLoading(false)
+        return
+      }
+
+      try {
+        const currentUser = await fetchCurrentUser(data.session.access_token, { backendUrl })
+        if (!ignore) {
+          setUser(currentUser)
+        }
+      } catch (verifyError) {
+        if (!ignore) {
+          setError(verifyError.message)
+          setSignedOut(true)
+        }
+      } finally {
+        if (!ignore) {
+          setLoading(false)
+        }
+      }
+    }
+
+    loadUser()
+    return () => {
+      ignore = true
+    }
+  }, [backendUrl])
+
+  if (loading) {
+    return (
+      <AuthShell title="Account">
+        <p className="auth-message info">Checking session...</p>
+      </AuthShell>
+    )
+  }
+
+  if (signedOut) {
+    const nextRoute = getSafeAuthNextRoute(location.pathname)
+    return (
+      <Navigate
+        to={`/auth/login?next=${encodeURIComponent(nextRoute)}`}
+        replace
+        state={{ authMessage: error || 'Session expired or signed out. Please log in.', next: nextRoute }}
+      />
+    )
+  }
+
+  if (error) {
+    return (
+      <AuthShell title="Account">
+        <AuthMessage message={error} tone="error" />
+        <AuthLinks />
+      </AuthShell>
+    )
+  }
+
+  return children(user)
+}
+
+
+export function AuthDashboardPage({ backendUrl }) {
+  const [bootstrapResult, setBootstrapResult] = useState(null)
+  const [bootstrapLoading, setBootstrapLoading] = useState(false)
+  const [error, setError] = useState('')
+  const navigate = useNavigate()
+  const bootstrapOperationRef = useRef(0)
+
+  useEffect(() => {
+    return () => {
+      bootstrapOperationRef.current += 1
+    }
+  }, [])
+
+  async function handleBootstrapProfile() {
+    if (bootstrapLoading) {
+      return
+    }
+
+    const operationId = bootstrapOperationRef.current + 1
+    bootstrapOperationRef.current = operationId
+    setBootstrapLoading(true)
+    setError('')
+
+    try {
+      if (!supabase) {
+        if (bootstrapOperationRef.current === operationId) {
+          setError('Supabase auth is not configured for this build.')
+        }
+        return
+      }
+
+      const { data, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError || !data.session?.access_token) {
+        if (bootstrapOperationRef.current === operationId) {
+          setError('Session expired or signed out. Please log in again.')
+        }
+        return
+      }
+
+      const result = await bootstrapProfile(data.session.access_token, { backendUrl })
+      if (bootstrapOperationRef.current === operationId) {
+        setBootstrapResult(result)
+      }
+    } catch (bootstrapError) {
+      if (bootstrapOperationRef.current === operationId) {
+        setError(bootstrapError.message)
+      }
+    } finally {
+      if (bootstrapOperationRef.current === operationId) {
+        setBootstrapLoading(false)
+      }
+    }
+  }
+
+  async function handleLogout() {
+    if (!supabase) {
+      return
+    }
+    bootstrapOperationRef.current += 1
+    setBootstrapLoading(false)
+    setBootstrapResult(null)
+    setError('')
+    await supabase.auth.signOut()
+    navigate('/auth/login', {
+      replace: true,
+      state: { authMessage: 'Signed out.' },
+    })
+  }
+
+  return (
+    <RequireAuth backendUrl={backendUrl}>
+      {(user) => (
+        <AuthShell title="Dashboard">
+          <div className="auth-user-summary">
+            <p>{user.email || user.user_id}</p>
+            {user.role && <span>{user.role}</span>}
+          </div>
+          <AuthMessage message={error} tone="error" />
+          {bootstrapResult && (
+            <div className="auth-user-summary">
+              <p>Profile ready</p>
+              <span>
+                profile {bootstrapResult.profile_created ? 'created' : 'found'} - settings {bootstrapResult.settings_created ? 'created' : 'found'}
+              </span>
+            </div>
+          )}
+          <button
+            className="auth-secondary-button"
+            type="button"
+            onClick={handleBootstrapProfile}
+            disabled={bootstrapLoading}
+          >
+            {bootstrapLoading ? 'Preparing...' : 'Prepare Profile'}
+          </button>
+          <button className="auth-secondary-button" type="button" onClick={handleLogout} disabled={!supabase}>
+            <LogOut size={18} aria-hidden="true" />
+            Logout
+          </button>
+          <nav className="auth-links" aria-label="Account navigation">
+            <Link to="/auth/status">Auth status</Link>
+            <Link to="/">Desktop app</Link>
+          </nav>
+        </AuthShell>
+      )}
+    </RequireAuth>
   )
 }
 

@@ -3,9 +3,11 @@
 SAIIA C2 starts from the completed C1 cloud foundation. This document records
 the C2.1 audit and the safe implementation boundary for authentication and
 account lifecycle. C2.2 adds the first temporary auth screens inside the
-existing React/Vite app plus a safe current-user backend endpoint. It does not
-start desktop login, profile bootstrap, cloud resume upload, sessions, billing,
-usage, email-provider work, payments, or final website UI.
+existing React/Vite app plus a safe current-user backend endpoint. C2.3 adds
+authenticated profile bootstrap. C2.4 adds a temporary protected auth shell and
+session/account state handling. It does not start desktop login, cloud resume
+upload, sessions, billing, usage, email-provider work, payments, or final
+website UI.
 
 ## C2.1 Audit Findings
 
@@ -178,7 +180,8 @@ Future desktop login:
 3. C2.2: added `GET /api/auth/me` using the C1.4 verifier.
 4. C2.3: added profile bootstrap endpoint and tests after choosing the backend
    Supabase data-access approach.
-5. C2.3/C2.4: add protected dashboard route behavior and session refresh checks.
+5. C2.4: add protected dashboard route behavior and session/account state
+   handling.
 6. C2 final validation: run live signup/login/logout/email/reset/manual browser
    checks against `saiia-dev`.
 
@@ -238,6 +241,23 @@ Frontend tests/manual checks:
   desktop login/cloud sync, sessions, billing, usage, email-provider
   integration, payments, or final website UI.
 
+## C2.4 Implementation Status
+
+- [x] Added temporary protected route `/auth/dashboard` in the existing
+  React/Vite app.
+- [x] Signed-out or expired-session users are redirected to `/auth/login` with a
+  generic session message.
+- [x] Signed-in users see only safe account identity from `GET /api/auth/me`.
+- [x] `/auth/dashboard` can run the existing C2.3 profile bootstrap action and
+  report profile/settings readiness without storing the raw access token in
+  React state.
+- [x] Logout clears the Supabase browser session and returns to `/auth/login`.
+- [x] Existing `/` and `/profile-setup` remain unprotected for desktop-local
+  development.
+- [x] Did not add backend signup/login endpoints, backend session endpoints,
+  cloud resume upload, desktop login/cloud sync, session history, billing,
+  usage, email-provider integration, payments, or final website UI.
+
 ## Supabase Dashboard Setup For C2.2
 
 Set the development auth URLs in the `saiia-dev` Supabase project:
@@ -275,9 +295,22 @@ Do not add production redirect URLs until the production domain is known.
 - Confirm the smoke-test user's password from C1.5 was changed or the user was
   deleted.
 
-## Open Decisions Before C2.4
+## Manual Validation After C2.4
 
-- Should protected dashboard behavior start in C2.4 or wait for a later C2
-  subphase?
-- Should C2.4 focus on session refresh/protected auth shell, resend
-  verification, or account-state messaging?
+- Open `http://localhost:5173/auth/dashboard` while signed out and confirm it
+  redirects to `/auth/login` with a session-expired/signed-out message.
+- Log in with the existing dev Supabase test user and open
+  `http://localhost:5173/auth/dashboard`.
+- Confirm the page shows only the safe user email or user id and optional role.
+- Click `Prepare Profile` and confirm it reports profile/settings readiness
+  without duplicate rows.
+- Click `Logout` and confirm the app returns to `/auth/login`.
+- Confirm `http://localhost:5173/` and
+  `http://localhost:5173/profile-setup` still open without login.
+- Confirm no raw access token, refresh token, password, or service-role value is
+  displayed in the browser.
+
+## Open Decisions Before C2.5
+
+- Whether C2.5 should close C2 with manual auth validation or add a small
+  account-state refinement such as resend-verification messaging.
