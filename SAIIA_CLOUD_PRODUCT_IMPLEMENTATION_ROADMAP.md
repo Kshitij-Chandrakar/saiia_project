@@ -641,7 +641,7 @@ C0.9 is complete only when:
 ## Status
 
 ```text
-[x] Foundation complete - C1.1 Supabase configuration, migration foundation, and repository audit complete; C1.2 base Supabase database schema migration complete and applied to live saiia-dev; C1.3 RLS/storage bucket migration complete and applied to live saiia-dev; C1.4 FastAPI auth-token verification dependency complete; C1.5 closure audit complete; live Supabase user-token smoke test passed; C2 is active with C2.1, C2.2, and C2.3 complete/live revalidated; C2.4 pending explicit approval
+[x] Foundation complete - C1.1 Supabase configuration, migration foundation, and repository audit complete; C1.2 base Supabase database schema migration complete and applied to live saiia-dev; C1.3 RLS/storage bucket migration complete and applied to live saiia-dev; C1.4 FastAPI auth-token verification dependency complete; C1.5 closure audit complete; live Supabase user-token smoke test passed; C2 is active with C2.1, C2.2, and C2.3 complete/live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the live PostgREST privilege blocker; C2.4 pending explicit approval
 ```
 
 ## Goal
