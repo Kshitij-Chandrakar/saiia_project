@@ -61,7 +61,7 @@ function useRedirectAuthenticatedUser(targetRoute = DEFAULT_LOGIN_NEXT_ROUTE) {
 }
 
 
-function useProfileBootstrap({ backendUrl, sessionErrorMessage }) {
+function useProfileBootstrap({ backendUrl, sessionErrorMessage, disabled = false }) {
   const [bootstrapResult, setBootstrapResult] = useState(null)
   const [bootstrapLoading, setBootstrapLoading] = useState(false)
   const [error, setError] = useState('')
@@ -73,11 +73,8 @@ function useProfileBootstrap({ backendUrl, sessionErrorMessage }) {
     }
   }, [])
 
-  async function handleBootstrapProfile(logoutPending = false) {
-    if (bootstrapLoading) {
-      return
-    }
-    if (logoutPending) {
+  async function handleBootstrapProfile() {
+    if (bootstrapLoading || disabled) {
       return
     }
 
@@ -572,6 +569,7 @@ export function AuthStatusPage({ backendUrl }) {
   } = useProfileBootstrap({
     backendUrl,
     sessionErrorMessage: 'No active auth session was found.',
+    disabled: logoutPending,
   })
   const profileBootstrapDisabled = bootstrapLoading || logoutPending
 
@@ -663,7 +661,7 @@ export function AuthStatusPage({ backendUrl }) {
           type="button"
           onClick={() => {
             if (!profileBootstrapDisabled) {
-              handleBootstrapProfile(logoutPending)
+              handleBootstrapProfile()
             }
           }}
           disabled={bootstrapLoading || logoutPending}
@@ -785,6 +783,7 @@ export function AuthDashboardPage({ backendUrl }) {
   } = useProfileBootstrap({
     backendUrl,
     sessionErrorMessage: 'Session expired or signed out. Please log in again.',
+    disabled: logoutPending,
   })
   const profileBootstrapDisabled = bootstrapLoading || logoutPending
 
@@ -835,7 +834,7 @@ export function AuthDashboardPage({ backendUrl }) {
             type="button"
             onClick={() => {
               if (!profileBootstrapDisabled) {
-                handleBootstrapProfile(logoutPending)
+                handleBootstrapProfile()
               }
             }}
             disabled={bootstrapLoading || logoutPending}

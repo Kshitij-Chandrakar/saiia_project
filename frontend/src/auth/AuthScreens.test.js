@@ -21,17 +21,17 @@ assert.ok(dashboardLogoutSource, 'AuthDashboardPage handleLogout source slice sh
 
 
 test('profile bootstrap behavior is shared by status and dashboard pages', () => {
-  assert.match(source, /function useProfileBootstrap\(\{ backendUrl, sessionErrorMessage \}\)/)
+  assert.match(source, /function useProfileBootstrap\(\{ backendUrl, sessionErrorMessage, disabled = false \}\)/)
   assert.equal((source.match(/async function handleBootstrapProfile/g) || []).length, 1)
   assert.match(source, /const bootstrapOperationRef = useRef\(0\)/)
   assert.match(source, /return \(\) => \{\s+bootstrapOperationRef\.current \+= 1\s+\}/)
-  assert.match(statusPageSource, /useProfileBootstrap\(\{\s+backendUrl,\s+sessionErrorMessage: 'No active auth session was found\.'/)
-  assert.match(dashboardPageSource, /useProfileBootstrap\(\{\s+backendUrl,\s+sessionErrorMessage: 'Session expired or signed out\. Please log in again\.'/)
+  assert.match(statusPageSource, /useProfileBootstrap\(\{\s+backendUrl,\s+sessionErrorMessage: 'No active auth session was found\.',\s+disabled: logoutPending,/)
+  assert.match(dashboardPageSource, /useProfileBootstrap\(\{\s+backendUrl,\s+sessionErrorMessage: 'Session expired or signed out\. Please log in again\.',\s+disabled: logoutPending,/)
 })
 
 
 test('bootstrap result and loading updates require active operation', () => {
-  assert.match(source, /if \(bootstrapLoading\) \{\s+return\s+\}/)
+  assert.match(source, /if \(bootstrapLoading \|\| disabled\) \{\s+return\s+\}/)
   assert.match(source, /const operationId = bootstrapOperationRef\.current \+ 1/)
   assert.match(source, /bootstrapOperationRef\.current = operationId/)
   assert.match(source, /setBootstrapLoading\(true\)[\s\S]*supabase\.auth\.getSession\(\)/)
