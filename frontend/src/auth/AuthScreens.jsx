@@ -621,16 +621,23 @@ export function AuthStatusPage({ backendUrl }) {
     setLogoutPending(true)
     setLoading(true)
     setUserError('')
-    invalidateBootstrap()
     try {
-      await supabase.auth.signOut()
+      const { error: signOutError } = await supabase.auth.signOut()
+      if (signOutError) {
+        setUserError('Sign out failed. Please try again.')
+        setLoading(false)
+        setLogoutPending(false)
+        return
+      }
+
+      invalidateBootstrap()
       setUser(null)
       navigate('/auth/login', {
         replace: true,
         state: { authMessage: 'Signed out.' },
       })
-    } catch (logoutError) {
-      setUserError(logoutError.message || 'Could not sign out.')
+    } catch {
+      setUserError('Sign out failed. Please try again.')
       setLoading(false)
       setLogoutPending(false)
     }
@@ -779,7 +786,13 @@ export function AuthDashboardPage({ backendUrl }) {
     setLogoutPending(true)
     setLogoutError('')
     try {
-      await supabase.auth.signOut()
+      const { error: signOutError } = await supabase.auth.signOut()
+      if (signOutError) {
+        setLogoutError('Sign out failed. Please try again.')
+        setLogoutPending(false)
+        return
+      }
+
       invalidateBootstrap()
       navigate('/auth/login', {
         replace: true,

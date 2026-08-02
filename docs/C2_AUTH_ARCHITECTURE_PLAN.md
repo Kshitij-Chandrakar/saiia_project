@@ -253,8 +253,9 @@ Frontend tests/manual checks:
 - [x] `/auth/dashboard` can run the existing C2.3 profile bootstrap action and
   report profile/settings readiness without storing the raw access token in
   React state.
-- [x] Logout is guarded against duplicate clicks, clears the Supabase browser
-  session, and returns to `/auth/login`.
+- [x] Logout is guarded against duplicate clicks, handles Supabase sign-out
+  failures with generic UI text while preserving profile readiness, clears the
+  browser session only on success, and returns to `/auth/login`.
 - [x] Existing `/` and `/profile-setup` remain unprotected for desktop-local
   development.
 - [x] Did not add backend signup/login endpoints, backend session endpoints,
@@ -311,7 +312,9 @@ Do not add production redirect URLs until the production domain is known.
 - Click `Prepare Profile` and confirm it reports profile/settings readiness
   without duplicate rows.
 - Click `Logout` and confirm the button enters a pending state and the app
-  returns to `/auth/login`.
+  returns to `/auth/login` on success.
+- Simulate a sign-out failure and confirm the dashboard/status page shows
+  `Sign out failed. Please try again.` without clearing profile readiness.
 - Confirm `http://localhost:5173/` and
   `http://localhost:5173/profile-setup` still open without login.
 - Confirm no raw access token, refresh token, password, or service-role value is

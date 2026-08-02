@@ -5,11 +5,19 @@ import test from 'node:test'
 
 const source = readFileSync(new URL('./AuthScreens.jsx', import.meta.url), 'utf8')
 const appSource = readFileSync(new URL('../App.jsx', import.meta.url), 'utf8')
+const signupPageSource = source.match(/export function AuthSignupPage[\s\S]*?export function AuthLoginPage/)?.[0] || ''
+const loginPageSource = source.match(/export function AuthLoginPage[\s\S]*?export function AuthForgotPasswordPage/)?.[0] || ''
 const statusPageSource = source.match(/export function AuthStatusPage[\s\S]*?function RequireAuth/)?.[0] || ''
 const dashboardPageSource = source.match(/export function AuthDashboardPage[\s\S]*?export function AuthLogoutPage/)?.[0] || ''
+const statusLogoutSource = statusPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n  \}\n\n  return \(/)?.[0] || ''
+const dashboardLogoutSource = dashboardPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n  \}\n\n  return \(/)?.[0] || ''
 
+assert.ok(signupPageSource, 'AuthSignupPage source slice should be found')
+assert.ok(loginPageSource, 'AuthLoginPage source slice should be found')
 assert.ok(statusPageSource, 'AuthStatusPage source slice should be found')
 assert.ok(dashboardPageSource, 'AuthDashboardPage source slice should be found')
+assert.ok(statusLogoutSource, 'AuthStatusPage handleLogout source slice should be found')
+assert.ok(dashboardLogoutSource, 'AuthDashboardPage handleLogout source slice should be found')
 
 
 test('profile bootstrap behavior is shared by status and dashboard pages', () => {
@@ -55,9 +63,10 @@ test('signed-in users visiting login or signup redirect to dashboard', () => {
   assert.match(source, /function useRedirectAuthenticatedUser\(targetRoute = DEFAULT_LOGIN_NEXT_ROUTE\)/)
   assert.match(source, /const \{ data \} = await supabase\.auth\.getSession\(\)/)
   assert.match(source, /if \(data\.session\?\.access_token\) \{\s+navigate\(targetRoute, \{ replace: true \}\)/)
-  assert.match(source, /export function AuthSignupPage\(\)[\s\S]*const safeNextRoute = getSafeAuthNextRoute\(searchParams\.get\('next'\) \|\| location\.state\?\.next\)[\s\S]*const checkingSession = useRedirectAuthenticatedUser\(safeNextRoute\)/)
-  assert.match(source, /export function AuthLoginPage\(\{ backendUrl \}\)[\s\S]*const safeNextRoute = getSafeAuthNextRoute\(searchParams\.get\('next'\) \|\| location\.state\?\.next\)[\s\S]*const checkingSession = useRedirectAuthenticatedUser\(safeNextRoute\)/)
-  assert.match(source, /<p className="auth-message info">Checking session\.\.\.<\/p>/)
+  assert.match(signupPageSource, /const safeNextRoute = getSafeAuthNextRoute\(searchParams\.get\('next'\) \|\| location\.state\?\.next\)[\s\S]*const checkingSession = useRedirectAuthenticatedUser\(safeNextRoute\)/)
+  assert.match(loginPageSource, /const safeNextRoute = getSafeAuthNextRoute\(searchParams\.get\('next'\) \|\| location\.state\?\.next\)[\s\S]*const checkingSession = useRedirectAuthenticatedUser\(safeNextRoute\)/)
+  assert.match(signupPageSource, /if \(checkingSession\) \{[\s\S]*<p className="auth-message info">Checking session\.\.\.<\/p>/)
+  assert.match(loginPageSource, /if \(checkingSession\) \{[\s\S]*<p className="auth-message info">Checking session\.\.\.<\/p>/)
 })
 
 
@@ -84,18 +93,19 @@ test('protected dashboard shows safe user identity and avoids token state', () =
 
 
 test('dashboard logout clears session path and returns to login', () => {
-  assert.match(dashboardPageSource, /async function handleLogout\(\) \{[\s\S]*if \(!supabase \|\| logoutPending\) \{[\s\S]*return/)
-  assert.match(dashboardPageSource, /setLogoutPending\(true\)[\s\S]*await supabase\.auth\.signOut\(\)/)
-  assert.match(dashboardPageSource, /await supabase\.auth\.signOut\(\)[\s\S]*invalidateBootstrap\(\)/)
-  assert.match(dashboardPageSource, /navigate\('\/auth\/login', \{[\s\S]*state: \{ authMessage: 'Signed out\.' \}/)
+  assert.match(dashboardLogoutSource, /async function handleLogout\(\) \{[\s\S]*if \(!supabase \|\| logoutPending\) \{[\s\S]*return/)
+  assert.match(dashboardLogoutSource, /setLogoutPending\(true\)[\s\S]*const \{ error: signOutError \} = await supabase\.auth\.signOut\(\)/)
+  assert.match(dashboardLogoutSource, /if \(signOutError\) \{[\s\S]*setLogoutError\('Sign out failed\. Please try again\.'\)[\s\S]*setLogoutPending\(false\)[\s\S]*return[\s\S]*\}[\s\S]*invalidateBootstrap\(\)/)
+  assert.match(dashboardLogoutSource, /navigate\('\/auth\/login', \{[\s\S]*state: \{ authMessage: 'Signed out\.' \}/)
 })
 
 
 test('dashboard logout failure is generic and preserves bootstrap state', () => {
   assert.match(dashboardPageSource, /const \[logoutError, setLogoutError\] = useState\(''\)/)
-  assert.doesNotMatch(dashboardPageSource, /setLogoutError\(.*\.message/)
-  assert.match(dashboardPageSource, /catch \{\s+setLogoutError\('Sign out failed\. Please try again\.'\)\s+setLogoutPending\(false\)/)
-  assert.doesNotMatch(dashboardPageSource, /setLogoutPending\(true\)\s+invalidateBootstrap\(\)/)
+  assert.doesNotMatch(dashboardLogoutSource, /setLogoutError\(.*\.message/)
+  assert.match(dashboardLogoutSource, /const \{ error: signOutError \} = await supabase\.auth\.signOut\(\)/)
+  assert.match(dashboardLogoutSource, /catch \{\s+setLogoutError\('Sign out failed\. Please try again\.'\)\s+setLogoutPending\(false\)/)
+  assert.doesNotMatch(dashboardLogoutSource, /setLogoutPending\(true\)\s+invalidateBootstrap\(\)/)
 })
 
 
@@ -105,6 +115,15 @@ test('logout buttons are disabled while signout is pending', () => {
   assert.match(statusPageSource, /disabled=\{!supabase \|\| loading \|\| logoutPending\}/)
   assert.match(dashboardPageSource, /disabled=\{!supabase \|\| logoutPending\}/)
   assert.match(source, /logoutPending \? 'Signing out\.\.\.' : 'Logout'/)
+})
+
+
+test('status logout resolved-error is generic and preserves bootstrap state', () => {
+  assert.match(statusLogoutSource, /const \{ error: signOutError \} = await supabase\.auth\.signOut\(\)/)
+  assert.match(statusLogoutSource, /if \(signOutError\) \{[\s\S]*setUserError\('Sign out failed\. Please try again\.'\)[\s\S]*setLogoutPending\(false\)[\s\S]*return[\s\S]*\}[\s\S]*invalidateBootstrap\(\)/)
+  assert.match(statusLogoutSource, /catch \{\s+setUserError\('Sign out failed\. Please try again\.'\)\s+setLoading\(false\)\s+setLogoutPending\(false\)/)
+  assert.doesNotMatch(statusLogoutSource, /setUserError\(.*\.message/)
+  assert.doesNotMatch(statusLogoutSource, /setLogoutPending\(true\)\s+setLoading\(true\)\s+setUserError\(''\)\s+invalidateBootstrap\(\)/)
 })
 
 
