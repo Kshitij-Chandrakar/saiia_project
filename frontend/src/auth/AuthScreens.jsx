@@ -73,8 +73,11 @@ function useProfileBootstrap({ backendUrl, sessionErrorMessage }) {
     }
   }, [])
 
-  async function handleBootstrapProfile() {
+  async function handleBootstrapProfile(logoutPending = false) {
     if (bootstrapLoading) {
+      return
+    }
+    if (logoutPending) {
       return
     }
 
@@ -660,10 +663,10 @@ export function AuthStatusPage({ backendUrl }) {
           type="button"
           onClick={() => {
             if (!profileBootstrapDisabled) {
-              handleBootstrapProfile()
+              handleBootstrapProfile(logoutPending)
             }
           }}
-          disabled={profileBootstrapDisabled}
+          disabled={bootstrapLoading || logoutPending}
         >
           {bootstrapLoading ? 'Preparing...' : 'Prepare Profile'}
         </button>
@@ -832,10 +835,10 @@ export function AuthDashboardPage({ backendUrl }) {
             type="button"
             onClick={() => {
               if (!profileBootstrapDisabled) {
-                handleBootstrapProfile()
+                handleBootstrapProfile(logoutPending)
               }
             }}
-            disabled={profileBootstrapDisabled}
+            disabled={bootstrapLoading || logoutPending}
           >
             {bootstrapLoading ? 'Preparing...' : 'Prepare Profile'}
           </button>
