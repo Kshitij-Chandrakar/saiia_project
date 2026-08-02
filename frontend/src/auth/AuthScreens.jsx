@@ -570,6 +570,7 @@ export function AuthStatusPage({ backendUrl }) {
     backendUrl,
     sessionErrorMessage: 'No active auth session was found.',
   })
+  const profileBootstrapDisabled = bootstrapLoading || logoutPending
 
   useEffect(() => {
     let ignore = false
@@ -657,8 +658,12 @@ export function AuthStatusPage({ backendUrl }) {
         <button
           className="auth-secondary-button"
           type="button"
-          onClick={handleBootstrapProfile}
-          disabled={bootstrapLoading}
+          onClick={() => {
+            if (!profileBootstrapDisabled) {
+              handleBootstrapProfile()
+            }
+          }}
+          disabled={profileBootstrapDisabled}
         >
           {bootstrapLoading ? 'Preparing...' : 'Prepare Profile'}
         </button>
@@ -778,6 +783,7 @@ export function AuthDashboardPage({ backendUrl }) {
     backendUrl,
     sessionErrorMessage: 'Session expired or signed out. Please log in again.',
   })
+  const profileBootstrapDisabled = bootstrapLoading || logoutPending
 
   async function handleLogout() {
     if (!supabase || logoutPending) {
@@ -824,8 +830,12 @@ export function AuthDashboardPage({ backendUrl }) {
           <button
             className="auth-secondary-button"
             type="button"
-            onClick={handleBootstrapProfile}
-            disabled={bootstrapLoading}
+            onClick={() => {
+              if (!profileBootstrapDisabled) {
+                handleBootstrapProfile()
+              }
+            }}
+            disabled={profileBootstrapDisabled}
           >
             {bootstrapLoading ? 'Preparing...' : 'Prepare Profile'}
           </button>
