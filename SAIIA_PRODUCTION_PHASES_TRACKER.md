@@ -36,7 +36,7 @@ This tracker is the live execution log for the production build.
 Current active execution phase:
 
 ```text
-C3.1 - Cloud resume/profile storage planning and audit; planning only, no upload runtime implemented
+C3.2 - Backend Cloud Resume API complete; C3.3 frontend upload/review UI pending explicit next-step approval
 ```
 
 Screen Intelligence documentation:
@@ -72,7 +72,7 @@ C2 current status:
 C3 current status:
 
 ```text
-[~] Active - C3.1 Cloud Resume/Profile Storage Planning + Audit started after explicit user approval to begin C3; no upload runtime, cloud profile saving, cloud resume indexing, C4, C5, sessions, billing, payment, email provider, admin console, or final website UI started
+[~] Active - C3.1 Cloud Resume/Profile Storage Planning + Audit complete; C3.2 Backend Cloud Resume API complete with Supabase lifecycle/security migration and authenticated `/api/resumes/*` backend routes; C3.3 frontend upload UI pending explicit next-step approval; no C3.4 cloud RAG/index activation, C3.5 delete closure, C4, C5, sessions, billing, payment, email provider, admin console, or final website UI started
 ```
 
 Primary references:
