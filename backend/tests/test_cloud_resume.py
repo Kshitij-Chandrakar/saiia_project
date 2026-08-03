@@ -340,9 +340,8 @@ def test_parser_failure_marks_extraction_failed_and_logs_no_raw_resume_text(
     client.objects[f"{USER_A}/{RESUME_ID}/resume.txt"] = b"SECRET RESUME BODY"
     service = CloudResumeService(client=client, parser=FailingParser())  # type: ignore[arg-type]
 
-    with caplog.at_level("WARNING", logger="cloud_resume"):
-        with pytest.raises(CloudResumeError):
-            service.extract_resume(user_id=USER_A, resume_id=RESUME_ID)
+    with caplog.at_level("WARNING", logger="cloud_resume"), pytest.raises(CloudResumeError):
+        service.extract_resume(user_id=USER_A, resume_id=RESUME_ID)
 
     assert client.records[(USER_A, RESUME_ID)].status == "failed"
     assert "stage=local_parse" in caplog.text
