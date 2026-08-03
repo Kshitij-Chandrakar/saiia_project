@@ -7,7 +7,9 @@ existing React/Vite app plus a safe current-user backend endpoint. C2.3 adds
 authenticated profile bootstrap. C2.4 adds a temporary protected auth shell and
 session/account state handling. C2.5 closes the auth surface as a checkpoint
 before C3. It does not start desktop login, cloud resume upload, sessions,
-billing, usage, email-provider work, payments, or final website UI.
+billing, usage, email-provider work, payments, or final website UI. C3 remains
+blocked until explicit user approval after the C2.5 PR is merged, the local dev
+branch is synced, and final manual smoke validation is recorded.
 
 ## C2.1 Audit Findings
 
@@ -193,8 +195,8 @@ Future desktop login:
 6. C2.5: close the auth surface by auditing C2.1-C2.4 docs, routes, env
    boundaries, protected-route behavior, bootstrap idempotency, token handling,
    open-redirect controls, and phase boundaries.
-7. C2 final validation: run live signup/login/logout/email/reset/manual browser
-   checks against `saiia-dev`.
+7. C2 final validation: record live signup/login/logout/email/reset/manual
+   browser checks against `saiia-dev` before requesting explicit C3 approval.
 
 ## Required Tests For C2 Implementation
 
@@ -275,6 +277,10 @@ Frontend tests/manual checks:
 
 ## C2.5 Auth Surface Closure
 
+- C2.5 documentation/audit validation: Passed.
+- C2.5 final manual smoke validation: Pending user-recorded result.
+- C3 status: Blocked / pending explicit approval.
+
 - [x] Reviewed C2.1, C2.2, C2.3, and C2.4 implementation status against the
   current frontend and backend files.
 - [x] Confirmed current auth routes are documented:
@@ -306,6 +312,9 @@ Frontend tests/manual checks:
 - [x] Confirmed no C3 cloud resume upload, C5 desktop login/cloud sync,
   session history, billing, usage, email-provider integration, payments, admin
   console, or final website UI was started.
+- [x] Confirmed C3 must not start until the C2.5 PR is merged, the local dev
+  branch is synced, final manual smoke validation is recorded with result,
+  environment, and date, and the user explicitly approves starting C3.
 
 ## Supabase Dashboard Setup For C2.2
 
@@ -367,13 +376,21 @@ Do not add production redirect URLs until the production domain is known.
 
 ## Manual Validation After C2.5
 
-- Run the C2.2/C2.3/C2.4 browser checks once more against `saiia-dev` before
-  beginning C3.
-- Confirm signup, email verification, login, `/auth/dashboard`,
-  `Prepare Profile`, `/auth/status`, logout, forgot-password, reset-password,
-  and `/auth/callback` still behave as documented.
-- Confirm `/` and `/profile-setup` remain open without login.
-- Confirm browser developer tools do not show raw access tokens, refresh
-  tokens, passwords, or service-role values in rendered UI or console output.
-- Confirm no duplicate `profiles` or `user_settings` rows are created for the
-  same Supabase Auth user.
+C2.5 manual smoke validation must be recorded before C3 starts. A checklist
+item is not complete until it has a result, environment, date, and notes.
+
+| Check | Result | Environment | Date | Notes |
+|---|---|---|---|---|
+| `/auth/login` redirects to `/auth/dashboard` after login | Pending | Windows local dev, Vite 5173 + FastAPI 8000 | 2026-08-03 | Must be manually confirmed before C3 |
+| Signed-out `/auth/dashboard` redirects to `/auth/login` | Pending | Windows local dev, Vite 5173 + FastAPI 8000 | 2026-08-03 | Must be manually confirmed before C3 |
+| `/auth/signup` route still works | Pending | Windows local dev, Vite 5173 + FastAPI 8000 | 2026-08-03 | Must be manually confirmed before C3 |
+| Forgot/reset password routes still open | Pending | Windows local dev, Vite 5173 + FastAPI 8000 | 2026-08-03 | Must be manually confirmed before C3 |
+| `Prepare Profile` succeeds without duplicate `profiles` / `user_settings` rows | Pending | Windows local dev, Vite 5173 + FastAPI 8000 + Supabase dev project | 2026-08-03 | Must be manually confirmed before C3 |
+| Logout returns to `/auth/login` | Pending | Windows local dev, Vite 5173 + FastAPI 8000 | 2026-08-03 | Must be manually confirmed before C3 |
+| `/` remains open without login | Pending | Windows local dev, Vite 5173 + FastAPI 8000 | 2026-08-03 | Must be manually confirmed before C3 |
+| `/profile-setup` remains open without login | Pending | Windows local dev, Vite 5173 + FastAPI 8000 | 2026-08-03 | Must be manually confirmed before C3 |
+| UI/DevTools do not show tokens, passwords, or service-role values | Pending | Windows local dev, Vite 5173 + FastAPI 8000 | 2026-08-03 | Must be manually confirmed before C3 |
+
+C3 remains blocked until all pending manual smoke rows above are updated with a
+recorded result, the C2.5 PR is merged, the local dev branch is synced, and the
+user explicitly approves starting C3.
