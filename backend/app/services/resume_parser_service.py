@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any
 
 from app.config import settings
@@ -27,7 +28,7 @@ class ResumeParserService:
                 fallback_provider=fallback_provider,
             )
 
-        local_profile = self.resume_service.build_profile_fields(resume_text)
+        local_profile = self._extract_local_profile(resume_text)
         return self._build_result(
             profile=local_profile,
             parser_provider="local",
@@ -53,7 +54,7 @@ class ResumeParserService:
         except AffindaResumeParserError as exc:
             logger.warning("Affinda parsing unavailable, using local extraction instead: %s", exc)
             if fallback_provider == "local":
-                local_profile = self.resume_service.build_profile_fields(resume_text)
+                local_profile = self._extract_local_profile(resume_text)
                 return self._build_result(
                     profile=local_profile,
                     parser_provider="local",
@@ -66,7 +67,7 @@ class ResumeParserService:
         missing_fields = self.resume_service.get_missing_fields(affinda_profile)
         if self._needs_local_completion(affinda_profile, missing_fields) and fallback_provider == "local":
             try:
-                local_profile = self.resume_service.build_profile_fields(resume_text)
+                local_profile = self._extract_local_profile(resume_text)
                 return self._build_result(
                     profile=local_profile,
                     parser_provider="local",
@@ -103,6 +104,34 @@ class ResumeParserService:
             return True
 
         return bool(profile.get("manual_review_required"))
+
+    def _extract_local_profile(self, resume_text: str) -> dict[str, Any]:
+        try:
+            return self.resume_service.build_profile_fields(resume_text)
+        except ProviderError:
+            logger.warning("Local structured resume extraction unavailable; returning review draft.")
+            return self._build_provider_free_draft(resume_text)
+
+    def _build_provider_free_draft(self, resume_text: str) -> dict[str, Any]:
+        lines = [line.strip() for line in resume_text.splitlines() if line.strip()]
+        name = next(
+            (
+                line
+                for line in lines[:5]
+                if not re.search(r"@|https?://|\d{5,}", line, flags=re.IGNORECASE)
+                and len(line.split()) <= 5
+            ),
+            "",
+        )
+        summary = " ".join(lines[:4])[:420]
+        parsed = {
+            "full_name": name,
+            "professional_summary": summary,
+            "manual_review_required": True,
+            "manual_review_message": "Provider-free draft created from resume text. Please review before saving.",
+            "extraction_confidence": "low",
+        }
+        return self.resume_service.normalize_profile_fields(parsed, resume_text)
 
     def _build_result(
         self,

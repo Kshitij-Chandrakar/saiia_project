@@ -1,5 +1,9 @@
 import pytest
 
+from app.nlp.answer_generator import ProviderError
+from app.services.affinda_resume_parser import AffindaResumeParserError
+from app.services.resume_parser_service import ResumeParserService
+from app.services import resume_parser_service as resume_parser_module
 from app.cloud.cloud_resume import (
     CloudResumeConflictError,
     CloudResumeError,
@@ -75,7 +79,10 @@ class FakeCloudResumeClient:
         self.objects[storage_path] = content
 
     def download_resume_object(self, storage_path: str) -> bytes:
-        return self.objects[storage_path]
+        try:
+            return self.objects[storage_path]
+        except KeyError as exc:
+            raise CloudResumeError("storage download failed") from exc
 
     def get_resume(self, resume_id: str, user_id: str) -> CloudResumeRecord:
         try:
@@ -151,6 +158,11 @@ class FakeParser:
             "profile": profile,
             "extracted_text_length": 12,
         }
+
+
+class FailingParser:
+    def extract_profile(self, *, filename: str, content: bytes) -> dict[str, object]:
+        raise ProviderError("provider failed with raw text: SECRET RESUME BODY")
 
 
 def test_sanitize_resume_filename_rejects_path_traversal() -> None:
@@ -259,6 +271,83 @@ def test_extract_uses_attempt_guard_and_returns_request_scoped_draft() -> None:
     assert client.records[(USER_A, RESUME_ID)].extraction_attempt == 1
     assert client.compare_calls[0]["from_statuses"] == {"uploaded", "failed", "timeout", "cancelled", "needs_review"}
     assert client.compare_calls[1]["extraction_attempt"] == 1
+
+
+def test_txt_extract_succeeds_when_affinda_and_provider_local_are_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(resume_parser_module.settings, "RESUME_PARSER_PROVIDER", "affinda")
+    monkeypatch.setattr(resume_parser_module.settings, "RESUME_PARSER_FALLBACK", "local")
+    monkeypatch.setattr(resume_parser_module.settings, "GROQ_API_KEY", "")
+    parser = ResumeParserService()
+    monkeypatch.setattr(
+        parser.affinda_parser,
+        "parse",
+        lambda **_: (_ for _ in ()).throw(AffindaResumeParserError("invalid API key")),
+    )
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(status="uploaded", extraction_attempt=0)
+    client.objects[f"{USER_A}/{RESUME_ID}/resume.txt"] = (
+        b"Test User\nBackend Engineer\nPython FastAPI PostgreSQL\nSynthetic resume fixture only."
+    )
+    service = CloudResumeService(client=client, parser=parser)
+
+    result = service.extract_resume(user_id=USER_A, resume_id=RESUME_ID)
+
+    updated = client.records[(USER_A, RESUME_ID)]
+    assert result.status == "needs_review"
+    assert result.parser_provider == "local"
+    assert result.fallback_used is True
+    assert result.profile["full_name"] == "Test User"
+    assert updated.status == "needs_review"
+    assert updated.parser_provider == "local"
+    assert updated.parser_status == "completed"
+    assert updated.extraction_status == "completed"
+
+
+def test_extract_retry_from_failed_status_can_succeed() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(status="failed", extraction_attempt=1)
+    client.objects[f"{USER_A}/{RESUME_ID}/resume.txt"] = b"resume bytes"
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    result = service.extract_resume(user_id=USER_A, resume_id=RESUME_ID)
+
+    assert result.status == "needs_review"
+    assert result.extraction_attempt == 2
+    assert client.records[(USER_A, RESUME_ID)].status == "needs_review"
+
+
+def test_storage_download_failure_marks_extraction_failed_safely() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(status="uploaded", extraction_attempt=0)
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    with pytest.raises(CloudResumeError):
+        service.extract_resume(user_id=USER_A, resume_id=RESUME_ID)
+
+    failed_record = client.records[(USER_A, RESUME_ID)]
+    assert failed_record.status == "failed"
+    assert failed_record.failure_code == "extraction_failed"
+    assert failed_record.failure_message == "Resume processing failed. Please try again."
+
+
+def test_parser_failure_marks_extraction_failed_and_logs_no_raw_resume_text(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(status="uploaded", extraction_attempt=0)
+    client.objects[f"{USER_A}/{RESUME_ID}/resume.txt"] = b"SECRET RESUME BODY"
+    service = CloudResumeService(client=client, parser=FailingParser())  # type: ignore[arg-type]
+
+    with caplog.at_level("WARNING", logger="cloud_resume"):
+        with pytest.raises(CloudResumeError):
+            service.extract_resume(user_id=USER_A, resume_id=RESUME_ID)
+
+    assert client.records[(USER_A, RESUME_ID)].status == "failed"
+    assert "stage=local_parse" in caplog.text
+    assert "ProviderError" in caplog.text
+    assert "SECRET RESUME BODY" not in caplog.text
 
 
 def test_stale_extraction_attempt_write_is_rejected() -> None:
