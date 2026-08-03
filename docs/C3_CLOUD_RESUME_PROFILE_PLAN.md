@@ -22,8 +22,8 @@ Authenticated user
 -> Parse structured profile
 -> Show editable review screen
 -> User confirms
--> Save cloud profile
 -> Build/rebuild user-owned resume index
+-> Activate cloud profile and ready resume
 -> Mark resume ready
 ```
 
@@ -116,6 +116,11 @@ current resume.
 
 Required migration planning for C3.2:
 
+C3.2 must add these columns before runtime writes depend on them. The migration
+must be null-safe: add columns with safe defaults or temporary nullable state,
+explicitly backfill existing rows, and apply `NOT NULL` constraints only after
+the backfill has completed.
+
 - `resumes.status`: top-level lifecycle status using exactly this enum:
   `uploaded`, `extracting`, `needs_review`, `indexing`, `ready`, `failed`,
   `timeout`, `cancelled`, `deleted`.
@@ -125,33 +130,41 @@ Required migration planning for C3.2:
   fields.
 - `resumes.extraction_attempt`: integer or UUID attempt marker used to reject
   stale extraction/provider writes.
-- `resumes.confirmed_profile`: JSONB server-owned candidate profile snapshot,
-  or an equivalent server-owned table/column that stores reviewed normalized
-  fields before activation.
+- `resumes.confirmed_profile`: JSONB server-owned candidate profile snapshot
+  that stores reviewed normalized fields before activation.
 - `resumes.active_chunk_generation`: generation ID for the chunk generation
   currently used by retrieval.
 - failure fields with safe non-secret values only: `failure_code`,
   `failure_message`, `failed_at`, and `last_error_at`.
 
-Required database constraints:
+Required database constraints and indexes:
 
 ```sql
-resumes.status in (
-  'uploaded',
-  'extracting',
-  'needs_review',
-  'indexing',
-  'ready',
-  'failed',
-  'timeout',
-  'cancelled',
-  'deleted'
-)
+ALTER TABLE public.resumes
+  ADD CONSTRAINT resumes_status_check
+  CHECK (
+    status IN (
+      'uploaded',
+      'extracting',
+      'needs_review',
+      'indexing',
+      'ready',
+      'failed',
+      'timeout',
+      'cancelled',
+      'deleted'
+    )
+  );
+
+ALTER TABLE public.resumes
+  ADD CONSTRAINT resumes_active_ready_check
+  CHECK (is_active = false OR status = 'ready');
+
+CREATE UNIQUE INDEX resumes_one_active_per_user_idx
+  ON public.resumes (user_id)
+  WHERE is_active = true;
 ```
 
-- Partial unique index for one active resume per user:
-  `unique (user_id) where is_active = true`.
-- Check constraint: `is_active = false or status = 'ready'`.
 - Parser, extraction, provider, and index diagnostic statuses are separate
   fields and do not replace this top-level `resumes.status`.
 
@@ -169,7 +182,7 @@ State contract:
   endpoint explicitly supports choosing another owned resume.
 - Deactivating the old resume and activating the new ready resume must happen
   atomically through a transactional RPC or direct database transaction, not
-  separate best-effort REST calls.
+  separate REST calls.
 
 Allowed top-level status transitions:
 
@@ -194,8 +207,26 @@ Allowed top-level status transitions:
 - `timeout -> deleted`
 - `cancelled -> deleted`
 
-Retries must create a new attempt/generation and use compare-and-set checks.
-Retries must not blindly overwrite terminal states or activate stale resumes.
+Allowed compare-and-set retry transitions:
+
+- `needs_review -> extracting`
+- `failed -> extracting`
+- `timeout -> extracting`
+- `cancelled -> extracting`
+- `failed -> indexing`, only when `confirmed_profile` and candidate
+  chunks/generation preconditions are valid
+- `timeout -> indexing`, only when `confirmed_profile` and candidate
+  chunks/generation preconditions are valid
+- `cancelled -> indexing`, only when `confirmed_profile` and candidate
+  chunks/generation preconditions are valid
+
+Retries must increment or replace `extraction_attempt` for extraction retry,
+create a new `generation_id` for indexing retry, and use compare-and-set status
+guards. Retries must never activate stale attempts/generations, overwrite
+deleted records, or blindly overwrite terminal states. `deleted` is terminal.
+The current C3.1 plan chooses existing-row retry with compare-and-set guards. If
+C3.2 later chooses new-row retry instead, C3.2 must update endpoint,
+idempotency, and test contracts before implementation.
 
 ## Architecture Decision
 
@@ -233,8 +264,8 @@ Failure-safe behavior:
   or delete the unused metadata row; it must not leave an active resume.
 - Metadata failure after storage upload should delete the uploaded object where
   possible, or mark it for cleanup/reconciliation without exposing the object.
-- Confirm failure after profile write but before status update must be
-  retryable and must not activate a different resume.
+- Confirm failure while writing `resumes.confirmed_profile` must be retryable
+  and must not update `profiles` or activate a different resume.
 - Index rebuild must build replacement chunks first or stage them safely; the
   existing active chunks must remain usable until the new rebuild succeeds.
 - Delete should be idempotent: missing storage object, missing chunks, or
@@ -267,10 +298,18 @@ Storage upload and reconciliation plan:
 
 Confirmation/activation reconciliation:
 
-- Profile update and resume activation must be atomic.
-- Avoid any state where the profile is written but the resume/chunk activation
-  status is not updated.
-- If C3.2 cannot make profile update, ready status, active resume switch, and
+- `POST /api/resumes/{resume_id}/confirm` writes reviewed normalized fields
+  only to `resumes.confirmed_profile`; it does not update `profiles`.
+- Profile upsert/update and resume activation must be atomic during
+  `POST /api/resumes/{resume_id}/index` activation.
+- Preferred C3 plan: upsert the `profiles` row from
+  `resumes.confirmed_profile` inside the same activation transaction, because
+  a user may not have a cloud `profiles` row yet.
+- If a later implementation does not upsert, it must verify that the profile
+  update affects exactly one row and abort activation otherwise.
+- Avoid any state where `profiles` is upserted/updated without the same
+  transaction also updating resume/chunk activation state.
+- If C3.2 cannot make profile upsert, ready status, active resume switch, and
   chunk-generation switch atomic through REST, C3.2 must add a transactional
   RPC before implementation.
 
@@ -310,7 +349,11 @@ Recommended behavior:
   `resumes.confirmed_profile`. It must not update `profiles` directly.
 - `POST /api/resumes/{resume_id}/index`: authenticate, check `user_id`, rebuild
   `resume_chunks` for that resume with a new `generation_id`, then activate the
-  resume/profile/chunk generation atomically only after rebuild succeeds.
+  resume/profile/chunk generation atomically only after rebuild succeeds. The
+  activation transaction must upsert/update `profiles` from
+  `resumes.confirmed_profile`, set the candidate resume `status='ready'`, set
+  candidate `is_active=true`, deactivate the previous active resume for the
+  same user, and switch `active_chunk_generation`.
 - `GET /api/resumes/{resume_id}/status`: authenticate, check `user_id`, return
   parser/extraction/index/review status.
 - `DELETE /api/resumes/{resume_id}`: authenticate, check `user_id`, delete the
@@ -383,10 +426,10 @@ Extraction attempt guard:
 
 - Each extraction run increments or assigns `resumes.extraction_attempt`.
 - Worker/provider/local extraction writes must include the attempt ID.
-- Status updates, draft readiness, confirmed profile writes, and chunk writes
-  are accepted only when `user_id` matches, `resume_id` matches, attempt ID
-  matches current `resumes.extraction_attempt`, and the resume is still in an
-  allowed non-terminal state.
+- Status updates, draft readiness, `resumes.confirmed_profile` writes, and
+  chunk writes are accepted only when `user_id` matches, `resume_id` matches,
+  attempt ID matches current `resumes.extraction_attempt`, and the resume is
+  still in an allowed non-terminal state.
 - Late writes after timeout, cancel, failure, or deletion must be rejected,
   including stale completed statuses and stale draft data.
 
@@ -455,11 +498,13 @@ Required contract:
   and stores the reviewed normalized fields as `resumes.confirmed_profile`.
 - `POST /api/resumes/{resume_id}/index` builds replacement chunks for that
   candidate resume and then performs one atomic activation transaction:
-  update `profiles` from `resumes.confirmed_profile`, set candidate resume
-  `status='ready'`, set candidate resume `is_active=true`, deactivate the
-  previous active resume for the same user, and switch active chunk generation.
+  upsert/update `profiles` from `resumes.confirmed_profile`, set candidate
+  resume `status='ready'`, set candidate resume `is_active=true`, deactivate
+  the previous active resume for the same user, and switch active chunk
+  generation.
 - If indexing or activation fails, the previous active resume, previous profile
-  fields, and previous chunks remain unchanged.
+  fields, and previous chunks remain unchanged; the candidate remains
+  non-active and is marked failed/retryable as appropriate.
 - Do not persist unconfirmed extraction draft data into `profiles`.
 
 ## Resume Chunk and Retrieval Plan
@@ -539,6 +584,17 @@ flow remains usable without login.
 - Raw extracted text must not be returned broadly; review responses should
   return editable structured fields and only the minimum text needed for user
   confirmation.
+- C3.2 must revoke or narrow authenticated-role direct `INSERT`, `UPDATE`, and
+  `DELETE` permissions for `resumes`, `resume_chunks`, `profiles`, and resume
+  storage objects before cloud resume runtime is enabled.
+- A browser using `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` must not be
+  able to directly mutate resume lifecycle state, chunks, resume-derived
+  profile fields, or storage objects in ways that bypass backend rules.
+- Permitted mutations must go through the FastAPI backend with
+  `get_current_user()` or an authorized RPC boundary with strict server-side
+  ownership, status, attempt, and generation checks.
+- Direct browser reads may remain only where safe, explicitly scoped by RLS,
+  and not broad enough to expose raw resume text or cross-user data.
 
 ## C3 Subphases
 
@@ -560,10 +616,17 @@ flow remains usable without login.
 - [ ] Add authenticated cloud upload endpoint.
 - [ ] Store resume files in private Supabase Storage under
   `{user_id}/{resume_id}/{safe_filename}`.
+- [ ] Add C3.2 migration/backfill/constraints for `resumes.status`,
+  `is_active`, `confirmed_at`, `extraction_attempt`, `confirmed_profile`,
+  `active_chunk_generation`, and safe failure fields before runtime writes.
+- [ ] Revoke or narrow direct authenticated-role mutation permissions for
+  resume lifecycle tables, profile resume-derived fields, chunks, and storage.
 - [ ] Insert/update `resumes` metadata with parser/extraction/index status.
 - [ ] Reuse `ResumeParserService` for extraction.
 - [ ] Return editable draft profile fields without marking them confirmed.
-- [ ] Confirm reviewed profile into `profiles`.
+- [ ] Confirm reviewed normalized fields into `resumes.confirmed_profile` only.
+- [ ] Upsert/update `profiles` only inside the atomic activation transaction
+  after indexing succeeds.
 - [ ] Build/rebuild `resume_chunks` filtered by `user_id` and `resume_id`.
 - [ ] Add status and delete behavior.
 - [ ] Preserve existing local desktop routes.
@@ -579,7 +642,8 @@ C3 is complete only when:
 - uploaded files are private and user-owned
 - resume metadata rows are user-owned
 - extraction draft is shown for review before profile replacement
-- confirmed profile saves to the authenticated user's `profiles` row
+- confirmed profile updates the authenticated user's `profiles` row only during
+  the atomic activation transaction after indexing succeeds
 - extraction failure does not overwrite an existing valid profile
 - resume chunks are rebuilt under the authenticated `user_id`
 - retrieval never crosses users
@@ -595,12 +659,19 @@ Backend tests:
 - missing/invalid token rejected for every `/api/resumes/*` route
 - valid token uses `CurrentUser.user_id`
 - frontend-supplied `user_id` is ignored/rejected
-- C3.2 migration exposes `status`, `is_active`, `confirmed_at`, and safe
-  failure fields before upload runtime is enabled
+- C3.2 migration exposes `status`, `is_active`, `confirmed_at`,
+  `extraction_attempt`, `confirmed_profile`, `active_chunk_generation`, and
+  safe failure fields before upload runtime is enabled
+- C3.2 migration backfills existing rows before applying `NOT NULL`
+  constraints
 - top-level status check constraint allows only `uploaded`, `extracting`,
   `needs_review`, `indexing`, `ready`, `failed`, `timeout`, `cancelled`, and
   `deleted`
+- named `resumes_status_check` and `resumes_active_ready_check` constraints
+  exist
 - allowed status transitions use compare-and-set success/failure checks
+- retry transitions increment/replace `extraction_attempt` or create a new
+  `generation_id`, and never overwrite deleted records
 - stale retry cannot overwrite terminal states
 - partial unique index enforces one active resume per user
 - check constraint enforces `is_active = false or status = 'ready'`
@@ -621,7 +692,10 @@ Backend tests:
 - extraction failure preserves existing profile
 - extraction timeout/cancel persists safe failed/timeout status and prevents
   ready/active state
-- confirm saves profile fields to the current user only
+- confirm writes reviewed fields only to `resumes.confirmed_profile`
+- confirm does not update `profiles`
+- activation upserts/updates `profiles` inside the same transaction that marks
+  the candidate resume ready/active and switches the active chunk generation
 - confirm rejected unless current status is `needs_review` with matching
   attempt ID
 - confirm requires reviewed normalized fields and does not trust raw extraction
@@ -633,6 +707,17 @@ Backend tests:
 - upload partial failure cleanup/reconciliation
 - delete is idempotent and user-owned
 - user A cannot access user B resume/status/chunks/profile
+- authenticated anon-key direct insert to `resumes` is rejected
+- authenticated anon-key direct update to `resumes.status` or
+  `resumes.is_active` is rejected
+- authenticated anon-key direct insert, update, or delete to `resume_chunks` is
+  rejected
+- authenticated anon-key direct update to resume-derived `profiles` fields is
+  rejected unless it goes through the approved backend/RPC path
+- direct browser storage object mutation is rejected or limited to the
+  backend-only upload path
+- backend/RPC mutation path works with a verified JWT and server-side user
+  ownership checks
 
 Frontend tests:
 
@@ -654,12 +739,15 @@ Manual validation:
 - verify private object path in Supabase Storage
 - verify `resumes` row belongs to the test user
 - verify review screen appears before profile save
-- confirm profile and verify `profiles` row updates
+- confirm profile and verify `profiles` row does not update until successful
+  index/activation
 - rebuild index and verify `resume_chunks.user_id`
+- verify successful activation updates or creates the test user's `profiles`
+  row atomically with the active ready resume switch
 - attempt a second user access check
 - delete resume and verify cleanup of storage objects, `resumes`,
-  `resume_chunks`, test profile rows, and candidate `confirmed_profile` data
-  created during validation
+  `resume_chunks`, test profile rows, and candidate `confirmed_profile` or
+  draft/candidate data if present during validation
 - confirm local `/profile-setup` still works without login
 
 ## Risks and Blockers
@@ -674,6 +762,10 @@ Manual validation:
   explicitly approved.
 - Supabase Storage uploads through REST need careful request handling and
   sanitized error logging.
+- C1 currently grants authenticated owned-row/table and storage mutation paths;
+  C3.2 must narrow those direct mutations before browser upload UI is enabled
+  so users cannot bypass backend lifecycle, attempt, generation, and activation
+  guards.
 - Service role bypasses RLS, so backend tests must prove user-id filtering.
 - Local desktop generation still reads `GET /api/profile`; cloud profile usage
   in desktop belongs to C5, not C3.
