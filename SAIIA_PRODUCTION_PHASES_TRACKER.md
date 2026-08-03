@@ -3,7 +3,7 @@
 **Product:** SAIIA â€” Smart AI Interview Assistant  
 **Document Type:** Production phase checklist for developer + Codex  
 **Version:** 1.1  
-**Last updated:** 2026-08-01
+**Last updated:** 2026-08-02
 **Purpose:** Track SAIIA after MVP and guide development toward a polished production-ready application.
 
 ---
@@ -36,7 +36,7 @@ This tracker is the live execution log for the production build.
 Current active execution phase:
 
 ```text
-C2 - Authentication and Account Lifecycle; C2.1 and C2.2 complete; C2.3 implemented and live revalidated after privilege migration; C2.4 pending approval
+C2 - Authentication and Account Lifecycle; C2.1, C2.2, C2.3, C2.4, and C2.5 complete; C3 remains pending explicit approval
 ```
 
 Screen Intelligence documentation:
@@ -54,19 +54,19 @@ C0 status:
 C0.9 overall status:
 
 ```text
-[~] Deferred by product-priority decision - C0.9.1, C0.9.2, C0.9.3, C0.9.4, and C0.9.5 complete; C0.9.6 Generic Coding-Page DOM Extraction is implemented with coding-only scope, editor/starter-code extraction fixes, semantic sample/example grouping, controlled unsupported-content results, and Chrome/Edge real-page validation pending; C0.9.7 through C0.9.13 deferred while C1 cloud foundation moves forward
+[~] Deferred by product-priority decision - C0.9.1, C0.9.2, C0.9.3, C0.9.4, and C0.9.5 complete; C0.9.6 Generic Coding-Page DOM Extraction is implemented with coding-only scope, editor/starter-code extraction fixes, semantic sample/example grouping, controlled unsupported-content results, and Chrome/Edge real-page validation pending; C0.9.7 through C0.9.13 remain deferred after C2 auth surface closure
 ```
 
 C1 current status:
 
 ```text
-[x] Foundation complete - C1.1 complete; C1.2 base Supabase database schema migration complete and applied to live saiia-dev; C1.3 RLS/storage bucket migration complete and applied to live saiia-dev; C1.4 FastAPI auth-token verification dependency complete; C1.5 closure audit complete; live Supabase user-token smoke test passed; C2.1/C2.2/C2.3 complete and live revalidated; C2.4 pending explicit approval
+[x] Foundation complete - C1.1 complete; C1.2 base Supabase database schema migration complete and applied to live saiia-dev; C1.3 RLS/storage bucket migration complete and applied to live saiia-dev; C1.4 FastAPI auth-token verification dependency complete; C1.5 closure audit complete; live Supabase user-token smoke test passed; C2.1/C2.2/C2.3 complete and live revalidated; C2.4 complete; C2.5 auth surface closure complete
 ```
 
 C2 current status:
 
 ```text
-[~] Active - C2.1 auth architecture audit, account-flow plan, and safe implementation boundary complete; C2.2 minimal Supabase auth UI and backend current-user endpoint complete; C2.3 authenticated profile bootstrap implemented in the existing React/Vite app and FastAPI backend and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the PostgREST privilege blocker; no cloud profile saving, cloud resume upload, desktop login/cloud sync, sessions, billing, usage, email-provider integration, payment, or final website UI started; C2.4 pending explicit approval
+[x] Complete - C2.1 auth architecture audit, account-flow plan, and safe implementation boundary complete; C2.2 minimal Supabase auth UI and backend current-user endpoint complete; C2.3 authenticated profile bootstrap implemented in the existing React/Vite app and FastAPI backend and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the PostgREST privilege blocker; C2.4 protected auth shell and account/session state handling complete; C2.5 Auth Surface Closure complete; no C3 cloud profile saving, cloud resume upload, C5 desktop login/cloud sync, sessions, billing, usage, email-provider integration, payment, admin console, or final website UI started
 ```
 
 Primary references:
@@ -1528,7 +1528,7 @@ P17 Protected commercial edition
 # Current Immediate Next Phase
 
 ```text
-C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is active. C2.1 auth architecture audit is complete. C2.2 minimal Supabase auth UI and backend current-user endpoint are complete. C2.3 authenticated profile bootstrap is implemented in the existing React/Vite app and FastAPI backend and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the live Supabase privilege blocker. No cloud profile saving, cloud resume upload, desktop login/cloud sync, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, or final website UI work has started. Next: begin C2.4 only when explicitly approved.
+C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C2.1 auth architecture audit is complete. C2.2 minimal Supabase auth UI and backend current-user endpoint are complete. C2.3 authenticated profile bootstrap is implemented in the existing React/Vite app and FastAPI backend and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the live Supabase privilege blocker. C2.4 protected auth shell and account/session state handling is complete. No C3 cloud profile saving, cloud resume upload, C5 desktop login/cloud sync, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI work has started. Next: begin C3 only after explicit approval.
 ```
 
 P6B/P8/P9 consolidation records are preserved as historical desktop validation notes, not as the current execution authority.

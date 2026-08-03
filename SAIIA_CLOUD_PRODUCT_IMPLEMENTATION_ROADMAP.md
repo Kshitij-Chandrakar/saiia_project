@@ -4,9 +4,9 @@
 **Document type:** Detailed implementation roadmap and execution source of truth  
 **Track:** Desktop stabilization â†’ Cloud account system â†’ Website integration â†’ Session intelligence â†’ Subscription and release  
 **Version:** 1.1  
-**Last updated:** 2026-08-01
+**Last updated:** 2026-08-02
 **Created:** 2026-07-10  
-**Current active phase:** C2 - Authentication and Account Lifecycle
+**Current active phase:** C2 complete through C2.5; C3 pending explicit approval
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -641,7 +641,7 @@ C0.9 is complete only when:
 ## Status
 
 ```text
-[x] Foundation complete - C1.1 Supabase configuration, migration foundation, and repository audit complete; C1.2 base Supabase database schema migration complete and applied to live saiia-dev; C1.3 RLS/storage bucket migration complete and applied to live saiia-dev; C1.4 FastAPI auth-token verification dependency complete; C1.5 closure audit complete; live Supabase user-token smoke test passed; C2 is active with C2.1, C2.2, and C2.3 complete/live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the live PostgREST privilege blocker; C2.4 pending explicit approval
+[x] Foundation complete - C1.1 Supabase configuration, migration foundation, and repository audit complete; C1.2 base Supabase database schema migration complete and applied to live saiia-dev; C1.3 RLS/storage bucket migration complete and applied to live saiia-dev; C1.4 FastAPI auth-token verification dependency complete; C1.5 closure audit complete; live Supabase user-token smoke test passed; C2.1, C2.2, C2.3, C2.4, and C2.5 are complete; C3 remains pending explicit approval
 ```
 
 ## Goal
@@ -906,7 +906,7 @@ It should:
 ## Status
 
 ```text
-[~] Active - C2.1 auth architecture audit complete; C2.2 minimal Supabase auth UI and backend current-user endpoint complete; C2.3 authenticated profile bootstrap implemented and live revalidated after follow-up Supabase table privilege migration fixed the PostgREST privilege blocker; no cloud profile saving, cloud resume upload, desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, or final website UI started; C2.4 pending explicit approval
+[x] Auth surface closure complete - C2.1 auth architecture audit complete; C2.2 minimal Supabase auth UI and backend current-user endpoint complete; C2.3 authenticated profile bootstrap implemented and live revalidated after follow-up Supabase table privilege migration fixed the PostgREST privilege blocker; C2.4 protected auth shell and account/session state handling complete; C2.5 auth surface closure checkpoint complete; no C3 cloud resume upload, C5 desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, admin console, or final website UI started
 ```
 
 ## Goal
@@ -1053,6 +1053,58 @@ After a verified user first enters the dashboard:
   resumes, write `resumes`, `resume_chunks`, or `job_contexts`, protect
   desktop-local routes, add desktop login/cloud sync, sessions, billing, usage,
   email-provider integration, payments, or final website UI
+
+## C2.4 implementation status
+
+- [x] Added temporary protected route `/auth/dashboard` inside the existing
+  React/Vite app.
+- [x] Signed-out or expired-session users opening `/auth/dashboard` redirect to
+  `/auth/login` with the fixed generic message `Session expired or signed out.
+  Please log in.`
+- [x] Login succeeds to `/auth/dashboard` by default, and safe `next` routes
+  are allowlisted to `/auth/dashboard` and `/auth/status`.
+- [x] Already-authenticated users opening `/auth/login` or `/auth/signup`
+  redirect through the same safe next-route handling.
+- [x] `/auth/dashboard` displays safe identity from `GET /api/auth/me` and can
+  run the existing C2.3 profile bootstrap action.
+- [x] Logout is guarded against duplicate clicks, handles resolved or thrown
+  Supabase sign-out errors with generic UI text, preserves profile readiness on
+  logout failure, and navigates to `/auth/login` only after sign-out success.
+- [x] `Prepare Profile` is disabled while either bootstrap or logout is
+  pending, and the shared bootstrap handler also blocks while logout is
+  pending.
+- [x] Existing `/` and `/profile-setup` remain intentionally unprotected for
+  desktop-local development.
+- [x] Did not add backend signup/login endpoints, backend session endpoints,
+  cloud resume upload, desktop login/cloud sync, session history, billing,
+  usage, email-provider integration, payments, admin console, or final website
+  UI.
+
+## C2.5 auth surface closure status
+
+- [x] Audited C2.1, C2.2, C2.3, and C2.4 implementation status against current
+  frontend, backend, and documentation.
+- [x] Confirmed frontend-safe Supabase env usage is limited to
+  `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+- [x] Confirmed backend auth env rules: `SUPABASE_URL` identifies the project,
+  `SUPABASE_JWT_SECRET_OR_JWKS_CONFIG` verifies access tokens with HTTPS-only
+  JWKS URL handling where JWKS is used, and `SUPABASE_SERVICE_ROLE_KEY` remains
+  backend-only and is not used as the JWT verification secret.
+- [x] Confirmed C2 backend auth route surface is limited to `GET /api/auth/me`
+  and `POST /api/auth/profile/bootstrap`; no backend signup/login endpoints
+  were added.
+- [x] Confirmed route behavior: `/auth/dashboard` is protected; `/auth/login`
+  and `/auth/signup` redirect authenticated users to `/auth/dashboard` or a
+  safe allowlisted next route; `/auth/status` works; logout clears the browser
+  Supabase session on success; `/` and `/profile-setup` remain unprotected.
+- [x] Confirmed C2.3 profile bootstrap is idempotent and derives `user_id` only
+  from the verified backend `CurrentUser`.
+- [x] Confirmed no raw token, refresh token, password, service-role value, or
+  full JWT payload is intentionally stored in React state, logs, tests, or docs.
+- [x] Confirmed safe next-route handling avoids external/open redirects.
+- [x] Confirmed no C3 cloud resume upload, C5 desktop login/cloud sync, session
+  history, billing, usage, email-provider integration, payment, admin console,
+  or final website UI was started.
 
 ## C2 tests
 
@@ -3241,7 +3293,7 @@ The C0â€“C16 track is complete when:
 
 ```text
 C0 remains complete. C0.9 is not fully complete: C0.9.6 has implementation present with Chrome/Edge real-page validation pending, and C0.9.7 through C0.9.13 are deferred by explicit product-priority decision.
-C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 is active. C2.1 auth architecture audit is complete. C2.2 minimal Supabase auth UI and backend current-user endpoint are complete. C2.3 authenticated profile bootstrap is implemented and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the live Supabase privilege blocker. No cloud profile saving, cloud resume upload, desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, or final website UI work has started. Next: begin C2.4 only when explicitly approved.
+C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 auth surface closure is complete through C2.5. C2.1 auth architecture audit is complete. C2.2 minimal Supabase auth UI and backend current-user endpoint are complete. C2.3 authenticated profile bootstrap is implemented and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the live Supabase privilege blocker. C2.4 protected auth shell and account/session state handling are complete. C2.5 auth surface closure validation is complete. No C3 cloud profile saving, cloud resume upload, C5 desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started. Next: begin C3 only after explicit approval.
 ```
 
 The completed C0.9.2 manual validation covered:
