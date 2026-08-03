@@ -3,7 +3,7 @@
 **Product:** SAIIA â€” Smart AI Interview Assistant  
 **Document Type:** Production phase checklist for developer + Codex  
 **Version:** 1.1  
-**Last updated:** 2026-08-02
+**Last updated:** 2026-08-03
 **Purpose:** Track SAIIA after MVP and guide development toward a polished production-ready application.
 
 ---
@@ -36,7 +36,7 @@ This tracker is the live execution log for the production build.
 Current active execution phase:
 
 ```text
-C2 - Authentication and Account Lifecycle; C2.1, C2.2, C2.3, C2.4, and C2.5 complete; C3 remains pending explicit approval
+C3.1 - Cloud resume/profile storage planning and audit; planning only, no upload runtime implemented
 ```
 
 Screen Intelligence documentation:
@@ -67,6 +67,12 @@ C2 current status:
 
 ```text
 [x] Complete - C2.1 auth architecture audit, account-flow plan, and safe implementation boundary complete; C2.2 minimal Supabase auth UI and backend current-user endpoint complete; C2.3 authenticated profile bootstrap implemented in the existing React/Vite app and FastAPI backend and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the PostgREST privilege blocker; C2.4 protected auth shell and account/session state handling complete; C2.5 Auth Surface Closure complete; no C3 cloud profile saving, cloud resume upload, C5 desktop login/cloud sync, sessions, billing, usage, email-provider integration, payment, admin console, or final website UI started
+```
+
+C3 current status:
+
+```text
+[~] Active - C3.1 Cloud Resume/Profile Storage Planning + Audit started after explicit user approval to begin C3; no upload runtime, cloud profile saving, cloud resume indexing, C4, C5, sessions, billing, payment, email provider, admin console, or final website UI started
 ```
 
 Primary references:
@@ -1528,7 +1534,7 @@ P17 Protected commercial edition
 # Current Immediate Next Phase
 
 ```text
-C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C2.1 auth architecture audit is complete. C2.2 minimal Supabase auth UI and backend current-user endpoint are complete. C2.3 authenticated profile bootstrap is implemented in the existing React/Vite app and FastAPI backend and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the live Supabase privilege blocker. C2.4 protected auth shell and account/session state handling is complete. No C3 cloud profile saving, cloud resume upload, C5 desktop login/cloud sync, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI work has started. Next: begin C3 only after explicit approval.
+C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C2.1 auth architecture audit is complete. C2.2 minimal Supabase auth UI and backend current-user endpoint are complete. C2.3 authenticated profile bootstrap is implemented in the existing React/Vite app and FastAPI backend and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the live Supabase privilege blocker. C2.4 protected auth shell and account/session state handling is complete. C3.1 Cloud Resume/Profile Storage Planning + Audit is active after explicit user approval to start C3. No C3 upload runtime, cloud profile saving, cloud resume indexing, C5 desktop login/cloud sync, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI work has started. Next: complete C3.1 planning validation, then begin C3.2 backend cloud resume API only after explicit approval.
 ```
 
 P6B/P8/P9 consolidation records are preserved as historical desktop validation notes, not as the current execution authority.

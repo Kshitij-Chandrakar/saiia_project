@@ -4,9 +4,9 @@
 **Document type:** Detailed implementation roadmap and execution source of truth  
 **Track:** Desktop stabilization â†’ Cloud account system â†’ Website integration â†’ Session intelligence â†’ Subscription and release  
 **Version:** 1.1  
-**Last updated:** 2026-08-02
+**Last updated:** 2026-08-03
 **Created:** 2026-07-10  
-**Current active phase:** C2 complete through C2.5; C3 pending explicit approval
+**Current active phase:** C3.1 - Cloud resume/profile storage planning and audit
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -641,7 +641,7 @@ C0.9 is complete only when:
 ## Status
 
 ```text
-[x] Foundation complete - C1.1 Supabase configuration, migration foundation, and repository audit complete; C1.2 base Supabase database schema migration complete and applied to live saiia-dev; C1.3 RLS/storage bucket migration complete and applied to live saiia-dev; C1.4 FastAPI auth-token verification dependency complete; C1.5 closure audit complete; live Supabase user-token smoke test passed; C2.1, C2.2, C2.3, C2.4, and C2.5 are complete; C3 remains pending explicit approval
+[x] Foundation complete - C1.1 Supabase configuration, migration foundation, and repository audit complete; C1.2 base Supabase database schema migration complete and applied to live saiia-dev; C1.3 RLS/storage bucket migration complete and applied to live saiia-dev; C1.4 FastAPI auth-token verification dependency complete; C1.5 closure audit complete; live Supabase user-token smoke test passed; C2.1, C2.2, C2.3, C2.4, and C2.5 are complete; C3.1 planning/audit is active after explicit approval to start C3
 ```
 
 ## Goal
@@ -1136,12 +1136,30 @@ After a verified user first enters the dashboard:
 ## Status
 
 ```text
-[ ] Not started
+[~] C3.1 audit/design active - planning only; no upload runtime implemented yet
 ```
 
 ## Goal
 
 Move resume upload, extraction review, profile saving, and resume indexing into the authenticated website/cloud workflow while preserving current extraction logic.
+
+## C3 subphases
+
+- C3.1 audit/design
+- C3.2 backend cloud resume API
+- C3.3 frontend authenticated upload/review UI
+- C3.4 cloud resume indexing/RAG ownership
+- C3.5 delete/rebuild/status + closure
+
+## C3.1 planning status
+
+- [x] Started after explicit user approval to begin C3.
+- [x] Audited existing local resume extraction, profile saving, local index,
+  Supabase schema/storage, and C2 auth boundary.
+- [x] Created `docs/C3_CLOUD_RESUME_PROFILE_PLAN.md`.
+- [x] Confirmed C3.1 does not implement upload runtime, cloud profile saving,
+  cloud resume indexing, C4, C5, sessions, billing, payment, email provider,
+  admin console, or final website UI.
 
 ## Existing capability to reuse
 
@@ -3293,7 +3311,7 @@ The C0â€“C16 track is complete when:
 
 ```text
 C0 remains complete. C0.9 is not fully complete: C0.9.6 has implementation present with Chrome/Edge real-page validation pending, and C0.9.7 through C0.9.13 are deferred by explicit product-priority decision.
-C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 auth surface closure is complete through C2.5. C2.1 auth architecture audit is complete. C2.2 minimal Supabase auth UI and backend current-user endpoint are complete. C2.3 authenticated profile bootstrap is implemented and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the live Supabase privilege blocker. C2.4 protected auth shell and account/session state handling are complete. C2.5 auth surface closure validation is complete. No C3 cloud profile saving, cloud resume upload, C5 desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started. Next: begin C3 only after explicit approval.
+C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 auth surface closure is complete through C2.5. C2.1 auth architecture audit is complete. C2.2 minimal Supabase auth UI and backend current-user endpoint are complete. C2.3 authenticated profile bootstrap is implemented and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the live Supabase privilege blocker. C2.4 protected auth shell and account/session state handling are complete. C2.5 auth surface closure validation is complete. C3.1 cloud resume/profile storage planning and audit is active after explicit approval to start C3. No C3 upload runtime, cloud profile saving, cloud resume indexing, C5 desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started. Next: complete C3.1 planning validation, then begin C3.2 backend cloud resume API only after explicit approval.
 ```
 
 The completed C0.9.2 manual validation covered:
