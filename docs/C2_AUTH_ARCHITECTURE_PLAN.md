@@ -5,9 +5,11 @@ the C2.1 audit and the safe implementation boundary for authentication and
 account lifecycle. C2.2 adds the first temporary auth screens inside the
 existing React/Vite app plus a safe current-user backend endpoint. C2.3 adds
 authenticated profile bootstrap. C2.4 adds a temporary protected auth shell and
-session/account state handling. It does not start desktop login, cloud resume
-upload, sessions, billing, usage, email-provider work, payments, or final
-website UI.
+session/account state handling. C2.5 closes the auth surface as a checkpoint
+before C3. It does not start desktop login, cloud resume upload, sessions,
+billing, usage, email-provider work, payments, or final website UI. C3 remains
+blocked until explicit user approval after the C2.5 PR is merged, the local dev
+branch is synced, and final manual smoke validation is recorded.
 
 ## C2.1 Audit Findings
 
@@ -77,6 +79,14 @@ Environment and secrets:
 - C2.2 frontend auth uses only `VITE_SUPABASE_URL` and
   `VITE_SUPABASE_ANON_KEY`. Backend-only `SUPABASE_SERVICE_ROLE_KEY` and
   `SUPABASE_JWT_SECRET_OR_JWKS_CONFIG` remain outside the Vite bundle.
+- The React/Vite frontend may use only `VITE_SUPABASE_URL` and
+  `VITE_SUPABASE_ANON_KEY`; it must never use `SUPABASE_SERVICE_ROLE_KEY`,
+  `SUPABASE_JWT_SECRET_OR_JWKS_CONFIG`, smoke-test credentials, passwords, or
+  raw bearer tokens as configuration.
+- The backend auth verifier uses `SUPABASE_URL` and
+  `SUPABASE_JWT_SECRET_OR_JWKS_CONFIG`; JWKS URL configuration must use HTTPS.
+  `SUPABASE_SERVICE_ROLE_KEY` stays backend-only for approved server-side
+  Supabase REST work and is not a JWT verification secret.
 
 Design boundary:
 
@@ -180,10 +190,13 @@ Future desktop login:
 3. C2.2: added `GET /api/auth/me` using the C1.4 verifier.
 4. C2.3: added profile bootstrap endpoint and tests after choosing the backend
    Supabase data-access approach.
-5. C2.4: add protected dashboard route behavior and session/account state
+5. C2.4: added protected dashboard route behavior and session/account state
    handling.
-6. C2 final validation: run live signup/login/logout/email/reset/manual browser
-   checks against `saiia-dev`.
+6. C2.5: close the auth surface by auditing C2.1-C2.4 docs, routes, env
+   boundaries, protected-route behavior, bootstrap idempotency, token handling,
+   open-redirect controls, and phase boundaries.
+7. C2 final validation: record live signup/login/logout/email/reset/manual
+   browser checks against `saiia-dev` before requesting explicit C3 approval.
 
 ## Required Tests For C2 Implementation
 
@@ -262,6 +275,47 @@ Frontend tests/manual checks:
   cloud resume upload, desktop login/cloud sync, session history, billing,
   usage, email-provider integration, payments, or final website UI.
 
+## C2.5 Auth Surface Closure
+
+- C2.5 documentation/audit validation: Passed.
+- C2.5 final manual smoke validation: Pending user-recorded result.
+- C3 status: Blocked / pending explicit approval.
+
+- [x] Reviewed C2.1, C2.2, C2.3, and C2.4 implementation status against the
+  current frontend and backend files.
+- [x] Confirmed current auth routes are documented:
+  `/auth/signup`, `/auth/login`, `/auth/forgot-password`,
+  `/auth/reset-password`, `/auth/callback`, `/auth/status`,
+  `/auth/logout`, `/auth/dashboard`, `GET /api/auth/me`, and
+  `POST /api/auth/profile/bootstrap`.
+- [x] Confirmed frontend auth configuration is limited to
+  `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+- [x] Confirmed backend auth configuration keeps `SUPABASE_SERVICE_ROLE_KEY`
+  backend-only and uses `SUPABASE_JWT_SECRET_OR_JWKS_CONFIG` for JWT/JWKS
+  verification with HTTPS-only JWKS URL handling.
+- [x] Confirmed `/auth/dashboard` is protected, `/auth/login` and
+  `/auth/signup` redirect authenticated users to a safe next route or
+  `/auth/dashboard`, `/auth/status` remains available for auth diagnostics,
+  logout clears the browser Supabase session on success, and `/` plus
+  `/profile-setup` intentionally remain unprotected for desktop-local
+  development.
+- [x] Confirmed C2.3 profile bootstrap remains idempotent, creates/reuses only
+  `profiles` and `user_settings`, and derives `user_id` only from the verified
+  backend `CurrentUser`.
+- [x] Confirmed auth code does not store raw access tokens in React state and
+  does not expose passwords, refresh tokens, service-role keys, or full JWT
+  payloads in API responses.
+- [x] Confirmed safe next-route handling is allowlisted to `/auth/dashboard`
+  and `/auth/status`, avoiding external/open redirects.
+- [x] Confirmed no backend signup/login endpoints were added; Supabase browser
+  auth owns signup/login/reset flows in this temporary C2 surface.
+- [x] Confirmed no C3 cloud resume upload, C5 desktop login/cloud sync,
+  session history, billing, usage, email-provider integration, payments, admin
+  console, or final website UI was started.
+- [x] Confirmed C3 must not start until the C2.5 PR is merged, the local dev
+  branch is synced, final manual smoke validation is recorded with result,
+  environment, and date, and the user explicitly approves starting C3.
+
 ## Supabase Dashboard Setup For C2.2
 
 Set the development auth URLs in the `saiia-dev` Supabase project:
@@ -320,7 +374,23 @@ Do not add production redirect URLs until the production domain is known.
 - Confirm no raw access token, refresh token, password, or service-role value is
   displayed in the browser.
 
-## Open Decisions Before C2.5
+## Manual Validation After C2.5
 
-- Whether C2.5 should close C2 with manual auth validation or add a small
-  account-state refinement such as resend-verification messaging.
+C2.5 manual smoke validation must be recorded before C3 starts. A checklist
+item is not complete until it has a result, environment, date, and notes.
+
+| Check | Result | Environment | Date | Notes |
+|---|---|---|---|---|
+| `/auth/login` redirects to `/auth/dashboard` after login | Pending | Windows local dev, Vite 5173 + FastAPI 8000 | 2026-08-03 | Must be manually confirmed before C3 |
+| Signed-out `/auth/dashboard` redirects to `/auth/login` | Pending | Windows local dev, Vite 5173 + FastAPI 8000 | 2026-08-03 | Must be manually confirmed before C3 |
+| `/auth/signup` route still works | Pending | Windows local dev, Vite 5173 + FastAPI 8000 | 2026-08-03 | Must be manually confirmed before C3 |
+| Forgot/reset password routes still open | Pending | Windows local dev, Vite 5173 + FastAPI 8000 | 2026-08-03 | Must be manually confirmed before C3 |
+| `Prepare Profile` succeeds without duplicate `profiles` / `user_settings` rows | Pending | Windows local dev, Vite 5173 + FastAPI 8000 + Supabase dev project | 2026-08-03 | Must be manually confirmed before C3 |
+| Logout returns to `/auth/login` | Pending | Windows local dev, Vite 5173 + FastAPI 8000 | 2026-08-03 | Must be manually confirmed before C3 |
+| `/` remains open without login | Pending | Windows local dev, Vite 5173 + FastAPI 8000 | 2026-08-03 | Must be manually confirmed before C3 |
+| `/profile-setup` remains open without login | Pending | Windows local dev, Vite 5173 + FastAPI 8000 | 2026-08-03 | Must be manually confirmed before C3 |
+| UI/DevTools do not show tokens, passwords, or service-role values | Pending | Windows local dev, Vite 5173 + FastAPI 8000 | 2026-08-03 | Must be manually confirmed before C3 |
+
+C3 remains blocked until all pending manual smoke rows above are updated with a
+recorded result, the C2.5 PR is merged, the local dev branch is synced, and the
+user explicitly approves starting C3.

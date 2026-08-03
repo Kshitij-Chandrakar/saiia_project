@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 
-const source = readFileSync(new URL('./AuthScreens.jsx', import.meta.url), 'utf8')
-const appSource = readFileSync(new URL('../App.jsx', import.meta.url), 'utf8')
+const source = readFileSync(new URL('./AuthScreens.jsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+const appSource = readFileSync(new URL('../App.jsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const signupPageSource = source.match(/export function AuthSignupPage[\s\S]*?export function AuthLoginPage/)?.[0] || ''
 const loginPageSource = source.match(/export function AuthLoginPage[\s\S]*?export function AuthForgotPasswordPage/)?.[0] || ''
 const statusPageSource = source.match(/export function AuthStatusPage[\s\S]*?function RequireAuth/)?.[0] || ''
