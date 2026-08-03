@@ -107,6 +107,37 @@ Backend auth boundary:
 - C3 authenticated routes must derive `user_id` only from `CurrentUserDep`.
 - Frontend-supplied `user_id` must be ignored or rejected.
 
+## Required C3.2 Schema Contract
+
+C3.2 must add explicit ready/current markers before implementing runtime upload
+behavior. The current C1 `resumes` table has parser, extraction, index, and
+review fields, but it does not yet have enough state to safely define the
+current resume.
+
+Required migration planning for C3.2:
+
+- `resumes.status`: one top-level lifecycle status such as `uploaded`,
+  `extracting`, `needs_review`, `confirmed`, `ready`, `failed`, `timeout`,
+  `deleted`, or equivalent.
+- `resumes.is_active`: boolean marker for the single active ready/confirmed
+  resume per user.
+- `resumes.confirmed_at`: timestamp set only after the user confirms reviewed
+  fields.
+- failure fields if needed, such as `failure_code`, `failure_message`,
+  `failed_at`, or `last_error_at`, with safe non-secret values only.
+
+State contract:
+
+- Only one active ready/confirmed resume may exist per user.
+- A new upload starts inactive.
+- A resume may become active only after upload, extraction, user confirmation,
+  and index build/rebuild succeed.
+- Previous active resume remains active when a new upload, extraction,
+  confirmation, or index rebuild fails.
+- Failed, timed-out, or cancelled resumes must not become active.
+- Retrieval should use the active ready/confirmed resume unless a later C3
+  endpoint explicitly supports choosing another owned resume.
+
 ## Architecture Decision
 
 C3 should add authenticated cloud resume routes beside the existing local
@@ -128,10 +159,30 @@ Why backend service-role access:
 - Existing code already uses backend-only Supabase REST for C2.3 bootstrap.
 - It avoids exposing service-role credentials to the browser.
 - It lets the backend orchestrate metadata writes, storage upload/delete,
-  extraction status, profile confirmation, and chunk rebuild atomically enough
-  for C3 without adding a new database dependency.
+  extraction status, profile confirmation, and chunk rebuild without adding a
+  new database dependency.
 - Because service role bypasses RLS, every C3 service method must require a
   `user_id` argument from `CurrentUserDep` and must filter by `user_id`.
+
+Failure-safe behavior:
+
+- Supabase Storage writes and Supabase REST table writes are separate
+  operations, not one atomic transaction.
+- Each step must write safe status transitions so partial completion is
+  visible and retryable.
+- Upload failure after metadata creation should mark the `resumes` row failed
+  or delete the unused metadata row; it must not leave an active resume.
+- Metadata failure after storage upload should delete the uploaded object where
+  possible, or mark it for cleanup/reconciliation without exposing the object.
+- Confirm failure after profile write but before status update must be
+  retryable and must not activate a different resume.
+- Index rebuild must build replacement chunks first or stage them safely; the
+  existing active chunks must remain usable until the new rebuild succeeds.
+- Delete should be idempotent: missing storage object, missing chunks, or
+  already-deleted metadata should produce a safe final deleted/not-found state
+  for the same user, not cross-user access.
+- C3.2/C3.4 tests must cover partial failures for upload, confirm, rebuild,
+  and delete.
 
 ## Endpoint Plan
 
@@ -155,8 +206,8 @@ Recommended behavior:
   the current user, without raw extracted text.
 - `POST /api/resumes/{resume_id}/extract`: authenticate, check `user_id`,
   download/read the stored private file through backend storage, run existing
-  extraction services, save extraction draft/status, and return editable profile
-  draft fields.
+  extraction services, update safe extraction status, and return editable
+  request-scoped draft profile fields.
 - `POST /api/resumes/{resume_id}/confirm`: authenticate, check `user_id`, save
   the user-reviewed profile fields to `profiles`, mark the resume review state,
   and avoid overwriting an existing valid profile if extraction failed or was
@@ -207,13 +258,37 @@ C3 backend upload validation must also verify:
 - corrupt files fail without creating a ready resume
 - dangerous filenames and path traversal are rejected or sanitized
 
+## Timeout and Cancellation Rules
+
+C3.2 must define one end-to-end extraction timeout covering:
+
+- local text extraction
+- parser provider call
+- provider fallback
+- safe cloud status update
+
+Rules:
+
+- Timeout or cancellation prevents `confirmed`, `ready`, and `is_active=true`
+  states.
+- Where a provider or local task supports cancellation/stop, C3 should stop
+  in-flight work after timeout/cancel.
+- Where cancellation is not supported, the backend must ignore late completion
+  for activation purposes if the resume has already timed out/cancelled.
+- Timeout/cancel must persist a safe failed/timeout status and return a safe
+  failure response for review UI.
+- Timeout/cancel responses must not include raw provider payloads, raw resume
+  text, tokens, or service-role details.
+- The previous active resume/profile/chunks remain active when a new extraction
+  times out or is cancelled.
+
 ## Profile Mapping
 
 Map current local profile fields into the C1 `profiles` table:
 
 - `full_name` -> `profiles.full_name`
 - `current_title` / `target_role` / `role` -> `profiles.headline`
-- `professional_summary` / `resume` -> `profiles.summary`
+- normalized `professional_summary` -> `profiles.summary`
 - `top_skills` / `skills` -> `profiles.skills` JSONB array
 - `technical_skills` -> `profiles.technical_skills` JSONB array
 - `soft_skills` -> `profiles.soft_skills` JSONB array
@@ -225,13 +300,22 @@ Map current local profile fields into the C1 `profiles` table:
 - `certifications` -> `profiles.certifications` JSONB array
 - `tools_frameworks` -> `profiles.tools_frameworks` JSONB array
 
-Do not save raw extracted resume text into `profiles.summary`. Raw text should
-be used only for extraction/indexing and, if retained, should live in
-`resume_chunks` or restricted resume metadata/storage-derived processing.
+Do not map the local compatibility `resume` field or raw extracted resume text
+into `profiles.summary`. `profiles.summary` stores only the normalized
+professional summary reviewed by the user. Full raw text stays in private resume
+storage, request-scoped extraction memory, or user-owned `resume_chunks` only.
 
 ## Review and Confirmation Rules
 
 - Extraction results are drafts until the user confirms.
+- C3.2 extraction drafts are request-scoped.
+- Do not persist unconfirmed extraction data into `profiles`.
+- `POST /api/resumes/{resume_id}/extract` returns editable draft fields.
+- `POST /api/resumes/{resume_id}/confirm` receives user-reviewed normalized
+  fields.
+- If the browser refreshes or loses the extraction draft before confirm, the
+  user must re-run extraction; C3.2 should not depend on persisted unconfirmed
+  profile drafts.
 - Confirmed profile save must use the authenticated user's `user_id`.
 - Frontend must never send a trusted `user_id`.
 - Extraction failure must not overwrite an existing valid profile.
@@ -246,7 +330,10 @@ be used only for extraction/indexing and, if retained, should live in
 C3 cloud indexing should reuse the local chunking strategy where practical,
 but persist chunks in `resume_chunks`:
 
-- delete existing chunks for `(user_id, resume_id)` before rebuild
+- preserve existing chunks until a new rebuild succeeds
+- replace chunks for `(user_id, resume_id)` only after the replacement set is
+  successfully built, or use a safe staging/delete-in-transaction pattern if a
+  later database path supports it
 - insert new chunks with `user_id`, `resume_id`, `section`, `chunk_text`, and
   JSONB `metadata`
 - keep `embedding` null/JSONB until a pgvector decision is made
@@ -357,14 +444,25 @@ Backend tests:
 - missing/invalid token rejected for every `/api/resumes/*` route
 - valid token uses `CurrentUser.user_id`
 - frontend-supplied `user_id` is ignored/rejected
+- C3.2 migration exposes `status`, `is_active`, `confirmed_at`, and safe
+  failure fields before upload runtime is enabled
+- only one active ready/confirmed resume per user
+- previous active resume remains active when new upload/extract/confirm/index
+  fails or times out
 - file extension/MIME/size/empty/corrupt validation
 - safe filename/path handling
 - storage upload path includes current user and resume id
 - service-role headers are backend-only and never returned
-- extraction success creates draft/status without confirming profile
+- extraction success returns request-scoped draft fields without confirming
+  profile
 - extraction failure preserves existing profile
+- extraction timeout/cancel persists safe failed/timeout status and prevents
+  ready/active state
 - confirm saves profile fields to the current user only
-- chunk rebuild deletes/replaces only current user's chunks for that resume
+- confirm requires reviewed normalized fields and does not trust raw extraction
+  state from the frontend
+- chunk rebuild preserves current chunks until replacement succeeds
+- partial failure tests cover upload, confirm, rebuild, and delete
 - delete removes current user's file/metadata/chunks
 - user A cannot access user B resume/status/chunks/profile
 
@@ -381,22 +479,27 @@ Frontend tests:
 Manual validation:
 
 - sign in to `http://localhost:5173/auth/dashboard`
-- upload TXT, PDF, DOCX resumes through the C3 UI
+- use only synthetic resume fixtures created for testing; do not upload real
+  resume data, real candidate PII, or customer data
+- use only approved Supabase dev test accounts
+- upload synthetic TXT, PDF, DOCX resumes through the C3 UI
 - verify private object path in Supabase Storage
 - verify `resumes` row belongs to the test user
 - verify review screen appears before profile save
 - confirm profile and verify `profiles` row updates
 - rebuild index and verify `resume_chunks.user_id`
 - attempt a second user access check
-- delete resume and verify object/chunks/metadata removal
+- delete resume and verify cleanup of storage objects, `resumes`,
+  `resume_chunks`, and any test profile rows created during validation
 - confirm local `/profile-setup` still works without login
 
 ## Risks and Blockers
 
 - Current C1 `profiles` table does not include every local compatibility field
   as a scalar column; C3 must map list-like/local fields into JSONB safely.
-- `resumes` has no explicit `is_active` column. C3 must decide active/current
-  behavior by latest confirmed resume or add a later migration only if needed.
+- `resumes` has no explicit `status`, `is_active`, or `confirmed_at` columns.
+  C3.2 must add explicit ready/current markers before upload runtime is
+  implemented.
 - `resume_chunks.embedding` is JSONB placeholder; pgvector is not enabled.
   C3.4 should keep lexical/local-style retrieval unless a vector migration is
   explicitly approved.
