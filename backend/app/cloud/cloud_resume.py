@@ -9,6 +9,7 @@ from typing import Any, NoReturn
 from uuid import uuid4
 
 import requests
+from requests.adapters import HTTPAdapter
 
 from app.cloud.supabase_config import SupabaseConfigurationError, get_supabase_settings
 from app.nlp.answer_generator import ProviderError
@@ -26,6 +27,7 @@ RETRY_EXTRACT_STATUSES = {"uploaded", "failed", "timeout", "cancelled", "needs_r
 SAFE_FAILURE_MESSAGE = "Resume processing failed. Please try again."
 MAX_CONFIRMED_PROFILE_BYTES = 64 * 1024
 CONFIRMED_PROFILE_FIELDS = tuple(field for field in PROFILE_FIELD_ORDER if field != "raw_resume_text")
+SUPABASE_HTTP_POOL_SIZE = 20
 
 
 class CloudResumeError(RuntimeError):
@@ -182,6 +184,13 @@ class SupabaseCloudResumeClient:
         self._resume_bucket = settings.resume_bucket
         self._service_role_key = settings.service_role_key
         self._session = requests.Session()
+        adapter = HTTPAdapter(
+            pool_connections=SUPABASE_HTTP_POOL_SIZE,
+            pool_maxsize=SUPABASE_HTTP_POOL_SIZE,
+            pool_block=True,
+        )
+        self._session.mount("https://", adapter)
+        self._session.mount("http://", adapter)
         self._headers = {
             "apikey": settings.service_role_key,
             "Authorization": f"Bearer {settings.service_role_key}",

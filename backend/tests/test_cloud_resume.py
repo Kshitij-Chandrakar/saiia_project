@@ -6,6 +6,7 @@ from app.cloud.cloud_resume import (
     CloudResumeNotFoundError,
     CloudResumeRecord,
     CloudResumeService,
+    SUPABASE_HTTP_POOL_SIZE,
     SupabaseCloudResumeClient,
     CloudResumeValidationError,
     sanitize_resume_filename,
@@ -16,6 +17,23 @@ from app.cloud.cloud_resume import (
 USER_A = "00000000-0000-4000-8000-000000000001"
 USER_B = "00000000-0000-4000-8000-000000000002"
 RESUME_ID = "10000000-0000-4000-8000-000000000001"
+
+
+def test_supabase_client_configures_blocking_http_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SUPABASE_URL", "http://127.0.0.1:54321")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-unit-test-value")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role-unit-test-value")
+    monkeypatch.setenv("SUPABASE_JWT_SECRET_OR_JWKS_CONFIG", "unit-test-jwt-secret")
+    monkeypatch.setenv("SUPABASE_RESUME_BUCKET", "resumes")
+    monkeypatch.setenv("SUPABASE_EXPORT_BUCKET", "exports")
+
+    client = SupabaseCloudResumeClient()
+
+    for prefix in ("https://", "http://"):
+        adapter = client._session.adapters[prefix]
+        assert adapter._pool_connections == SUPABASE_HTTP_POOL_SIZE
+        assert adapter._pool_maxsize == SUPABASE_HTTP_POOL_SIZE
+        assert adapter._pool_block is True
 
 
 def _record(**overrides: object) -> CloudResumeRecord:
