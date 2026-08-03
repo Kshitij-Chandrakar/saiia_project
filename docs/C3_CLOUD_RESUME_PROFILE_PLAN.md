@@ -116,27 +116,86 @@ current resume.
 
 Required migration planning for C3.2:
 
-- `resumes.status`: one top-level lifecycle status such as `uploaded`,
-  `extracting`, `needs_review`, `confirmed`, `ready`, `failed`, `timeout`,
-  `deleted`, or equivalent.
-- `resumes.is_active`: boolean marker for the single active ready/confirmed
-  resume per user.
+- `resumes.status`: top-level lifecycle status using exactly this enum:
+  `uploaded`, `extracting`, `needs_review`, `indexing`, `ready`, `failed`,
+  `timeout`, `cancelled`, `deleted`.
+- `resumes.is_active`: boolean marker for the single active ready resume per
+  user.
 - `resumes.confirmed_at`: timestamp set only after the user confirms reviewed
   fields.
-- failure fields if needed, such as `failure_code`, `failure_message`,
-  `failed_at`, or `last_error_at`, with safe non-secret values only.
+- `resumes.extraction_attempt`: integer or UUID attempt marker used to reject
+  stale extraction/provider writes.
+- `resumes.confirmed_profile`: JSONB server-owned candidate profile snapshot,
+  or an equivalent server-owned table/column that stores reviewed normalized
+  fields before activation.
+- `resumes.active_chunk_generation`: generation ID for the chunk generation
+  currently used by retrieval.
+- failure fields with safe non-secret values only: `failure_code`,
+  `failure_message`, `failed_at`, and `last_error_at`.
+
+Required database constraints:
+
+```sql
+resumes.status in (
+  'uploaded',
+  'extracting',
+  'needs_review',
+  'indexing',
+  'ready',
+  'failed',
+  'timeout',
+  'cancelled',
+  'deleted'
+)
+```
+
+- Partial unique index for one active resume per user:
+  `unique (user_id) where is_active = true`.
+- Check constraint: `is_active = false or status = 'ready'`.
+- Parser, extraction, provider, and index diagnostic statuses are separate
+  fields and do not replace this top-level `resumes.status`.
 
 State contract:
 
-- Only one active ready/confirmed resume may exist per user.
+- Only `status='ready'` may have `is_active=true`.
+- Only one active ready resume may exist per user.
 - A new upload starts inactive.
 - A resume may become active only after upload, extraction, user confirmation,
   and index build/rebuild succeed.
 - Previous active resume remains active when a new upload, extraction,
   confirmation, or index rebuild fails.
 - Failed, timed-out, or cancelled resumes must not become active.
-- Retrieval should use the active ready/confirmed resume unless a later C3
+- Retrieval should use the active ready resume unless a later C3
   endpoint explicitly supports choosing another owned resume.
+- Deactivating the old resume and activating the new ready resume must happen
+  atomically through a transactional RPC or direct database transaction, not
+  separate best-effort REST calls.
+
+Allowed top-level status transitions:
+
+- `uploaded -> extracting`
+- `uploaded -> failed`
+- `uploaded -> deleted`
+- `extracting -> needs_review`
+- `extracting -> failed`
+- `extracting -> timeout`
+- `extracting -> cancelled`
+- `extracting -> deleted`
+- `needs_review -> indexing`
+- `needs_review -> failed`
+- `needs_review -> deleted`
+- `indexing -> ready`
+- `indexing -> failed`
+- `indexing -> timeout`
+- `indexing -> cancelled`
+- `indexing -> deleted`
+- `ready -> deleted`
+- `failed -> deleted`
+- `timeout -> deleted`
+- `cancelled -> deleted`
+
+Retries must create a new attempt/generation and use compare-and-set checks.
+Retries must not blindly overwrite terminal states or activate stale resumes.
 
 ## Architecture Decision
 
@@ -184,6 +243,37 @@ Failure-safe behavior:
 - C3.2/C3.4 tests must cover partial failures for upload, confirm, rebuild,
   and delete.
 
+Operation identity and idempotency:
+
+- Upload operation identity is `resume_id` plus deterministic storage path.
+- Extraction operation identity is `resume_id + extraction_attempt`.
+- Chunk rebuild operation identity is `resume_id + generation_id`.
+- Activation operation identity is `resume_id + generation_id`.
+- Retries use the same operation identity where safe.
+- Writes use compare-and-set status transitions.
+- No retry may activate a stale resume, stale extraction attempt, or stale
+  chunk generation.
+
+Storage upload and reconciliation plan:
+
+- Prefer metadata-first: create the `resumes` row with `status='uploaded'` and
+  deterministic `storage_path` before uploading the file.
+- If storage upload fails, mark the resume `failed` or `deleted` safely.
+- If storage upload succeeds but status update fails, reconciliation can
+  inspect the metadata row and object path and repair/fail safely.
+- If an orphan storage object can exist, define a deterministic orphan sweeper
+  by path prefix `{user_id}/{resume_id}/...` and require cleanup verification
+  in live validation.
+
+Confirmation/activation reconciliation:
+
+- Profile update and resume activation must be atomic.
+- Avoid any state where the profile is written but the resume/chunk activation
+  status is not updated.
+- If C3.2 cannot make profile update, ready status, active resume switch, and
+  chunk-generation switch atomic through REST, C3.2 must add a transactional
+  RPC before implementation.
+
 ## Endpoint Plan
 
 Evaluate these endpoints for C3.2/C3.3; do not implement during C3.1.
@@ -191,6 +281,7 @@ Evaluate these endpoints for C3.2/C3.3; do not implement during C3.1.
 ```text
 POST   /api/resumes
 GET    /api/resumes/current
+GET    /api/resumes/review-candidate
 POST   /api/resumes/{resume_id}/extract
 POST   /api/resumes/{resume_id}/confirm
 POST   /api/resumes/{resume_id}/index
@@ -202,18 +293,24 @@ Recommended behavior:
 
 - `POST /api/resumes`: authenticate, validate file, create resume metadata row,
   upload the private file to Supabase Storage, and return safe resume metadata.
-- `GET /api/resumes/current`: return the latest ready or in-review resume for
-  the current user, without raw extracted text.
+- `GET /api/resumes/current`: return only the active ready resume where
+  `user_id = current_user.user_id`, `is_active = true`, and `status = 'ready'`.
+  It must not return `needs_review`, `uploaded`, `extracting`, or `indexing`
+  candidates. If there is no active ready resume, return an empty/not-ready
+  state.
+- `GET /api/resumes/review-candidate`: return the latest `needs_review` resume
+  for the current user ordered by `updated_at desc`. This endpoint never
+  replaces `/api/resumes/current`.
 - `POST /api/resumes/{resume_id}/extract`: authenticate, check `user_id`,
   download/read the stored private file through backend storage, run existing
   extraction services, update safe extraction status, and return editable
   request-scoped draft profile fields.
-- `POST /api/resumes/{resume_id}/confirm`: authenticate, check `user_id`, save
-  the user-reviewed profile fields to `profiles`, mark the resume review state,
-  and avoid overwriting an existing valid profile if extraction failed or was
-  never confirmed.
+- `POST /api/resumes/{resume_id}/confirm`: authenticate, check `user_id`, verify
+  server-owned preconditions, and store reviewed normalized fields as
+  `resumes.confirmed_profile`. It must not update `profiles` directly.
 - `POST /api/resumes/{resume_id}/index`: authenticate, check `user_id`, rebuild
-  `resume_chunks` for that resume, and set `index_status`.
+  `resume_chunks` for that resume with a new `generation_id`, then activate the
+  resume/profile/chunk generation atomically only after rebuild succeeds.
 - `GET /api/resumes/{resume_id}/status`: authenticate, check `user_id`, return
   parser/extraction/index/review status.
 - `DELETE /api/resumes/{resume_id}`: authenticate, check `user_id`, delete the
@@ -269,8 +366,8 @@ C3.2 must define one end-to-end extraction timeout covering:
 
 Rules:
 
-- Timeout or cancellation prevents `confirmed`, `ready`, and `is_active=true`
-  states.
+- Timeout or cancellation prevents `confirmed_at` from being set, prevents
+  `status='ready'`, and prevents `is_active=true`.
 - Where a provider or local task supports cancellation/stop, C3 should stop
   in-flight work after timeout/cancel.
 - Where cancellation is not supported, the backend must ignore late completion
@@ -281,6 +378,17 @@ Rules:
   text, tokens, or service-role details.
 - The previous active resume/profile/chunks remain active when a new extraction
   times out or is cancelled.
+
+Extraction attempt guard:
+
+- Each extraction run increments or assigns `resumes.extraction_attempt`.
+- Worker/provider/local extraction writes must include the attempt ID.
+- Status updates, draft readiness, confirmed profile writes, and chunk writes
+  are accepted only when `user_id` matches, `resume_id` matches, attempt ID
+  matches current `resumes.extraction_attempt`, and the resume is still in an
+  allowed non-terminal state.
+- Late writes after timeout, cancel, failure, or deletion must be rejected,
+  including stale completed statuses and stale draft data.
 
 ## Profile Mapping
 
@@ -313,23 +421,57 @@ storage, request-scoped extraction memory, or user-owned `resume_chunks` only.
 - `POST /api/resumes/{resume_id}/extract` returns editable draft fields.
 - `POST /api/resumes/{resume_id}/confirm` receives user-reviewed normalized
   fields.
+- Before accepting reviewed fields, `POST /api/resumes/{resume_id}/confirm`
+  must verify the resume belongs to the current user, `status='needs_review'`,
+  the request attempt ID matches current `resumes.extraction_attempt`, the
+  resume is not `failed`, `timeout`, `cancelled`, `deleted`, `uploaded`,
+  `extracting`, `indexing`, or `ready`, and the stored file still exists if the
+  confirmation flow needs it.
+- Reject confirmation for pending, failed, stale, timeout, cancelled, deleted,
+  mismatched-attempt, or already-active resumes.
 - If the browser refreshes or loses the extraction draft before confirm, the
   user must re-run extraction; C3.2 should not depend on persisted unconfirmed
   profile drafts.
-- Confirmed profile save must use the authenticated user's `user_id`.
+- Confirmed profile activation must use the authenticated user's `user_id`.
 - Frontend must never send a trusted `user_id`.
 - Extraction failure must not overwrite an existing valid profile.
-- A new upload may create a new `resumes` row and mark older resume/index
-  state as superseded only when the new resume is confirmed or explicitly
-  selected.
-- If user uploads a new resume and extraction fails, the previous confirmed
+- A new upload may create a new `resumes` row, but older active resume/index
+  state changes only when the candidate resume becomes ready through atomic
+  activation.
+- If user uploads a new resume and extraction fails, the previous active
   profile and indexed chunks remain active.
+
+## Profile Consistency With Active Resume
+
+The single `profiles` row must not be updated independently before the
+candidate resume becomes active.
+
+Required contract:
+
+- `POST /api/resumes/{resume_id}/extract` returns request-scoped editable draft
+  fields.
+- The frontend lets the user review/edit those fields.
+- `POST /api/resumes/{resume_id}/confirm` validates server-owned preconditions
+  and stores the reviewed normalized fields as `resumes.confirmed_profile`.
+- `POST /api/resumes/{resume_id}/index` builds replacement chunks for that
+  candidate resume and then performs one atomic activation transaction:
+  update `profiles` from `resumes.confirmed_profile`, set candidate resume
+  `status='ready'`, set candidate resume `is_active=true`, deactivate the
+  previous active resume for the same user, and switch active chunk generation.
+- If indexing or activation fails, the previous active resume, previous profile
+  fields, and previous chunks remain unchanged.
+- Do not persist unconfirmed extraction draft data into `profiles`.
 
 ## Resume Chunk and Retrieval Plan
 
 C3 cloud indexing should reuse the local chunking strategy where practical,
 but persist chunks in `resume_chunks`:
 
+- C3.4 must add `resume_chunks.generation_id`.
+- C3.2/C3.4 must add `resumes.active_chunk_generation`.
+- Rebuild creates chunks with a new `generation_id`.
+- Retrieval filters by `user_id`, active `resume_id`, and
+  `generation_id = resumes.active_chunk_generation`.
 - preserve existing chunks until a new rebuild succeeds
 - replace chunks for `(user_id, resume_id)` only after the replacement set is
   successfully built, or use a safe staging/delete-in-transaction pattern if a
@@ -339,8 +481,17 @@ but persist chunks in `resume_chunks`:
 - keep `embedding` null/JSONB until a pgvector decision is made
 - set `resumes.index_status` to `indexed`, `failed`, or `needs_rebuild`
 - retrieval must filter by `user_id`
-- retrieval may filter by active/latest confirmed `resume_id`
+- retrieval must filter by the active ready `resume_id`
 - never read chunks by `resume_id` alone
+
+Chunk cutover must be atomic:
+
+- Use a transactional RPC that inserts/switches/deactivates in one database
+  transaction, or use generation identifiers with an atomic active-generation
+  switch.
+- Old chunks remain readable until the new generation is complete and switched
+  active.
+- Failed rebuilds must leave old chunks active.
 
 ## Delete Behavior
 
@@ -446,7 +597,18 @@ Backend tests:
 - frontend-supplied `user_id` is ignored/rejected
 - C3.2 migration exposes `status`, `is_active`, `confirmed_at`, and safe
   failure fields before upload runtime is enabled
-- only one active ready/confirmed resume per user
+- top-level status check constraint allows only `uploaded`, `extracting`,
+  `needs_review`, `indexing`, `ready`, `failed`, `timeout`, `cancelled`, and
+  `deleted`
+- allowed status transitions use compare-and-set success/failure checks
+- stale retry cannot overwrite terminal states
+- partial unique index enforces one active resume per user
+- check constraint enforces `is_active = false or status = 'ready'`
+- old active resume deactivation and new ready resume activation happen in one
+  transactional RPC or direct database transaction
+- `/api/resumes/current` returns only `is_active=true` and `status='ready'`
+- `/api/resumes/review-candidate` returns latest `needs_review` candidate and
+  does not replace current resume
 - previous active resume remains active when new upload/extract/confirm/index
   fails or times out
 - file extension/MIME/size/empty/corrupt validation
@@ -455,15 +617,21 @@ Backend tests:
 - service-role headers are backend-only and never returned
 - extraction success returns request-scoped draft fields without confirming
   profile
+- stale extraction attempt rejected
 - extraction failure preserves existing profile
 - extraction timeout/cancel persists safe failed/timeout status and prevents
   ready/active state
 - confirm saves profile fields to the current user only
+- confirm rejected unless current status is `needs_review` with matching
+  attempt ID
 - confirm requires reviewed normalized fields and does not trust raw extraction
   state from the frontend
 - chunk rebuild preserves current chunks until replacement succeeds
+- chunk rebuild failure keeps old active generation
+- activation transaction keeps previous profile/resume/chunks on failure
 - partial failure tests cover upload, confirm, rebuild, and delete
-- delete removes current user's file/metadata/chunks
+- upload partial failure cleanup/reconciliation
+- delete is idempotent and user-owned
 - user A cannot access user B resume/status/chunks/profile
 
 Frontend tests:
@@ -490,7 +658,8 @@ Manual validation:
 - rebuild index and verify `resume_chunks.user_id`
 - attempt a second user access check
 - delete resume and verify cleanup of storage objects, `resumes`,
-  `resume_chunks`, and any test profile rows created during validation
+  `resume_chunks`, test profile rows, and candidate `confirmed_profile` data
+  created during validation
 - confirm local `/profile-setup` still works without login
 
 ## Risks and Blockers
