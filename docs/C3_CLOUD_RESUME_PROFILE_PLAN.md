@@ -27,6 +27,16 @@ Authenticated user
 -> Mark resume ready
 ```
 
+## Resume State Contract
+
+Resume "ready" and "current" states must be deterministic:
+
+- **Ready state**: A resume is ready when `resumes.extraction_status = 'completed'` AND `resumes.review_status = 'confirmed'` AND `resumes.index_status = 'indexed'`. Only ready resumes are eligible for retrieval.
+- **In-review state**: A resume is in-review when `resumes.extraction_status = 'completed'` AND `resumes.review_status IN ('pending', 'in_review')`. In-review resumes have extraction data available but are not yet confirmed.
+- **Latest-ready selection**: `GET /api/resumes/current` returns the ready resume with the most recent `resumes.updated_at` (or `created_at` if `updated_at` is null) for the current user. If no ready resume exists, it returns the latest in-review resume. If neither exists, it returns null/404.
+- **Previous resume retention**: When a new upload fails extraction or validation, the previous ready resume remains the current ready resume. A new upload only supersedes the previous ready resume when the new resume reaches ready state or is explicitly confirmed.
+- **Failed upload handling**: If upload, extraction, or indexing fails, the resume row may be retained with `extraction_status = 'failed'` or `index_status = 'failed'`, but must never enter ready state. The previous confirmed profile and chunks remain active until a new resume is successfully confirmed and indexed.
+
 ## Audit Findings
 
 Backend local resume routes:
@@ -128,10 +138,26 @@ Why backend service-role access:
 - Existing code already uses backend-only Supabase REST for C2.3 bootstrap.
 - It avoids exposing service-role credentials to the browser.
 - It lets the backend orchestrate metadata writes, storage upload/delete,
-  extraction status, profile confirmation, and chunk rebuild atomically enough
-  for C3 without adding a new database dependency.
+  extraction status, profile confirmation, and chunk rebuild with explicit
+  failure-safe behavior for C3 without adding a new database dependency.
 - Because service role bypasses RLS, every C3 service method must require a
   `user_id` argument from `CurrentUserDep` and must filter by `user_id`.
+
+### Operation Failure-Safe Guarantees
+
+Each C3 operation must define idempotency, compensation, and status transitions:
+
+- **Upload (`POST /api/resumes`)**: Idempotent by checking for existing `(user_id, storage_path)` before creating a new `resumes` row. If storage upload fails after metadata insert, the resume row remains with `extraction_status = null` or `'pending'` and is never marked ready. Retry behavior: frontend may retry upload; backend creates a new `resumes` row with a new `resume_id`. Partial failure: if metadata insert succeeds but storage upload fails, the resume row exists but cannot be extracted. Status: `extraction_status = 'pending'` or `'upload_failed'`.
+
+- **Extract (`POST /api/resumes/{resume_id}/extract`)**: Idempotent by reading from existing storage and overwriting extraction status. If extraction fails (timeout, provider error, corrupt file), set `extraction_status = 'failed'` and preserve any previous ready resume. If extraction succeeds, set `extraction_status = 'completed'` and `review_status = 'pending'`. Retry behavior: safe to retry; extraction re-runs and updates status. Partial failure: if extraction starts but times out, set `extraction_status = 'failed'`. Never write extraction data to `profiles` unless confirmed.
+
+- **Confirm (`POST /api/resumes/{resume_id}/confirm`)**: Idempotent by checking `review_status` before updating `profiles`. Only write to `profiles` if `extraction_status = 'completed'`. Set `review_status = 'confirmed'` after profile write succeeds. If profile write fails, leave `review_status = 'pending'` or `'in_review'` and allow retry. Partial failure: if profile write partially succeeds (unlikely with single-row upsert), retry should re-apply full profile data. Never overwrite a valid existing profile if extraction data is missing or failed.
+
+- **Index/Rebuild (`POST /api/resumes/{resume_id}/index`)**: Preserve existing `resume_chunks` until rebuild succeeds. Workflow: (1) read existing chunks into memory or temporary state, (2) generate new chunks, (3) delete old chunks for `(user_id, resume_id)`, (4) insert new chunks, (5) set `index_status = 'indexed'`. If step 3 or 4 fails, set `index_status = 'failed'` and existing chunks remain (from before the delete). If delete succeeds but insert fails, chunks are lost; to prevent this, consider inserting new chunks first with a temporary marker, then deleting old chunks, then updating the marker (or accept that rebuild failure requires re-extraction). Idempotent by resume_id. Retry behavior: safe to retry; rebuild re-runs. Partial failure test: simulate insert failure after delete to verify recovery.
+
+- **Delete (`DELETE /api/resumes/{resume_id}`)**: Delete in order: (1) storage object, (2) `resume_chunks`, (3) `resumes` row. If storage delete fails, log error but proceed with metadata/chunk delete (object may already be gone). If chunk delete fails, retry or leave orphaned chunks (cascade delete on `resumes` foreign key should handle this). Idempotent by checking existence before delete. Retry behavior: safe to retry; already-deleted resources return success. Never delete `profiles` row unless explicitly requested and confirmed by user.
+
+Each operation must have tests covering: normal success, retry after partial failure, timeout/cancellation, and status transition verification.
 
 ## Endpoint Plan
 
@@ -155,8 +181,18 @@ Recommended behavior:
   the current user, without raw extracted text.
 - `POST /api/resumes/{resume_id}/extract`: authenticate, check `user_id`,
   download/read the stored private file through backend storage, run existing
-  extraction services, save extraction draft/status, and return editable profile
-  draft fields.
+  extraction services, update `resumes.extraction_status` and
+  `resumes.parser_metadata`, and return editable profile draft fields.
+  **Extraction draft storage**: The editable extraction draft is
+  request-scoped/ephemeral and not persisted to the database. Draft profile
+  fields are returned in the response body for frontend review/editing only.
+  Unconfirmed extraction data must never be written into `profiles` and must
+  never overwrite an existing valid profile. Only user-confirmed data (via
+  `POST /api/resumes/{resume_id}/confirm`) writes to `profiles`. If draft
+  persistence is later required, add a `resumes.draft_profile` JSONB column with
+  explicit ownership (`user_id`), lifecycle (cleared on confirm or expire), and
+  access controls (never exposed outside the owning user's extract/confirm
+  flow).
 - `POST /api/resumes/{resume_id}/confirm`: authenticate, check `user_id`, save
   the user-reviewed profile fields to `profiles`, mark the resume review state,
   and avoid overwriting an existing valid profile if extraction failed or was
@@ -207,13 +243,27 @@ C3 backend upload validation must also verify:
 - corrupt files fail without creating a ready resume
 - dangerous filenames and path traversal are rejected or sanitized
 
+## Extraction and Upload Timeout Policy
+
+All extraction and upload operations must define end-to-end timeouts:
+
+- **Upload timeout**: `POST /api/resumes` must complete file upload to Supabase Storage within 60 seconds (or configured limit). If timeout occurs, return HTTP 408 or 500, do not create a `resumes` row (or mark it `upload_failed`), and allow retry.
+
+- **Extraction timeout**: `POST /api/resumes/{resume_id}/extract` must complete local text extraction, provider API calls (Affinda or fallback), and status updates within 120 seconds (or configured limit). If local extraction times out, set `extraction_status = 'failed'` and return safe error response. If provider API call times out, attempt local fallback if not already tried, then set `extraction_status = 'failed'` if all methods fail.
+
+- **Cancellation propagation**: If the client cancels the request (connection closed), stop in-flight extraction work where possible (e.g., cancel provider API calls if the library supports it, stop local parsing loops). Set `extraction_status = 'cancelled'` or `'failed'`. Do not mark the resume as ready.
+
+- **Timeout/cancellation result**: Any timeout or cancellation must prevent the resume from entering ready state. The resume row remains with `extraction_status IN ('failed', 'cancelled', 'timeout')` and `review_status` remains null or `'pending'`. Return a safe error response instructing the user to retry or upload a different file. Never write partial or incomplete extraction data to `profiles`.
+
+- **Cloud status persistence**: On timeout or failure, persist the failure status to `resumes.extraction_status` and `resumes.parser_metadata` (with error details) so the user can view the failure reason via `GET /api/resumes/{resume_id}/status`. This prevents silent failures and allows retry decisions.
+
 ## Profile Mapping
 
 Map current local profile fields into the C1 `profiles` table:
 
 - `full_name` -> `profiles.full_name`
 - `current_title` / `target_role` / `role` -> `profiles.headline`
-- `professional_summary` / `resume` -> `profiles.summary`
+- `professional_summary` -> `profiles.summary` (normalized summary text only; never full pasted resume)
 - `top_skills` / `skills` -> `profiles.skills` JSONB array
 - `technical_skills` -> `profiles.technical_skills` JSONB array
 - `soft_skills` -> `profiles.soft_skills` JSONB array
@@ -225,9 +275,7 @@ Map current local profile fields into the C1 `profiles` table:
 - `certifications` -> `profiles.certifications` JSONB array
 - `tools_frameworks` -> `profiles.tools_frameworks` JSONB array
 
-Do not save raw extracted resume text into `profiles.summary`. Raw text should
-be used only for extraction/indexing and, if retained, should live in
-`resume_chunks` or restricted resume metadata/storage-derived processing.
+**Raw resume text handling**: Do not save raw extracted resume text or full pasted resume content into `profiles.summary`. Only normalized, structured professional summary fields (e.g., 2-3 sentence career summaries extracted by the parser) should map to `profiles.summary`. Full resume text, if retained, must only go into `resume_chunks.chunk_text` (for retrieval) or remain in the private storage object. `profiles.summary` is for human-readable profile summaries, not raw document dumps.
 
 ## Review and Confirmation Rules
 
@@ -380,16 +428,24 @@ Frontend tests:
 
 Manual validation:
 
-- sign in to `http://localhost:5173/auth/dashboard`
-- upload TXT, PDF, DOCX resumes through the C3 UI
-- verify private object path in Supabase Storage
-- verify `resumes` row belongs to the test user
+**IMPORTANT: Use only synthetic/fixture resume data and approved test accounts. Never use real personal resume data for testing.**
+
+- sign in to `http://localhost:5173/auth/dashboard` using an approved test account (e.g., `test-user-c3@example.com` or configured test account)
+- upload synthetic TXT, PDF, DOCX resume fixtures (create test files with fake names, skills, experience) through the C3 UI
+- verify private object path in Supabase Storage under `{test_user_id}/{resume_id}/`
+- verify `resumes` row belongs to the test user (check `user_id` matches)
 - verify review screen appears before profile save
-- confirm profile and verify `profiles` row updates
-- rebuild index and verify `resume_chunks.user_id`
-- attempt a second user access check
+- confirm profile and verify `profiles` row updates with test data only
+- rebuild index and verify `resume_chunks.user_id` matches test user
+- attempt a second user access check (sign in as different test user, verify cannot access first user's resume)
 - delete resume and verify object/chunks/metadata removal
 - confirm local `/profile-setup` still works without login
+- **cleanup verification**: After all manual validation steps, verify complete cleanup of test data:
+  - delete all storage objects under test user paths in `resumes` bucket
+  - delete all `resumes` rows for test users
+  - delete all `resume_chunks` rows for test users
+  - delete or reset `profiles` rows for test users to empty/default state
+  - document cleanup steps in validation notes
 
 ## Risks and Blockers
 
