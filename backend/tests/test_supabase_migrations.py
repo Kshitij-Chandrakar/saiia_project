@@ -82,6 +82,9 @@ def test_c3_2_resume_lifecycle_migration_hardens_direct_authenticated_writes() -
     assert "drop policy if exists resume_chunks_insert_own" in sql
     assert "drop policy if exists profiles_update_own" in sql
     assert "drop policy if exists saiia_storage_insert_own on storage.objects" in sql
+    assert "drop policy if exists saiia_exports_storage_insert_own on storage.objects" in sql
+    assert "drop policy if exists saiia_exports_storage_update_own on storage.objects" in sql
+    assert "drop policy if exists saiia_exports_storage_delete_own on storage.objects" in sql
     assert "bucket_id = 'exports'" in sql
     assert " to anon" not in sql
     assert "disable row level security" not in sql

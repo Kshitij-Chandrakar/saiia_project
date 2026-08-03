@@ -1,6 +1,9 @@
-from typing import Any
+from functools import lru_cache
+import logging
+from typing import Annotated, Any
+from uuid import UUID
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
 from app.auth.supabase_auth import CurrentUserDep
@@ -13,8 +16,10 @@ from app.cloud.cloud_resume import (
     CloudResumeValidationError,
 )
 from app.cloud.supabase_config import SupabaseConfigurationError
+from app.services.resume_service import MAX_RESUME_FILE_BYTES
 
 router = APIRouter()
+logger = logging.getLogger("cloud_resume_api")
 
 
 class CloudResumeResponse(BaseModel):
@@ -75,8 +80,19 @@ class ConfirmResponse(BaseModel):
     next_step: str
 
 
-def get_cloud_resume_service() -> CloudResumeService:
+@lru_cache(maxsize=1)
+def _cached_cloud_resume_service() -> CloudResumeService:
     return CloudResumeService()
+
+
+def get_cloud_resume_service() -> CloudResumeService:
+    try:
+        return _cached_cloud_resume_service()
+    except SupabaseConfigurationError as exc:
+        raise _handle_cloud_error(exc) from exc
+
+
+CloudResumeServiceDep = Annotated[CloudResumeService, Depends(get_cloud_resume_service)]
 
 
 def _resume_response(record: CloudResumeRecord) -> CloudResumeResponse:
@@ -116,6 +132,8 @@ def _handle_cloud_error(exc: Exception) -> HTTPException:
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume was not found.")
     if isinstance(exc, CloudResumeConflictError):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if not isinstance(exc, CloudResumeError):
+        logger.exception("Unexpected cloud resume route failure", exc_info=exc)
     return HTTPException(
         status_code=status.HTTP_502_BAD_GATEWAY,
         detail="Supabase cloud resume operation failed.",
@@ -123,10 +141,16 @@ def _handle_cloud_error(exc: Exception) -> HTTPException:
 
 
 @router.post("", response_model=CloudResumeResponse, status_code=status.HTTP_201_CREATED)
-async def upload_cloud_resume(current_user: CurrentUserDep, file: UploadFile = File(...)) -> CloudResumeResponse:
+def upload_cloud_resume(
+    current_user: CurrentUserDep,
+    service: CloudResumeServiceDep,
+    file: UploadFile = File(...),
+) -> CloudResumeResponse:
     try:
-        content = await file.read()
-        result = get_cloud_resume_service().upload_resume(
+        if file.size is not None and file.size > MAX_RESUME_FILE_BYTES:
+            raise CloudResumeValidationError("Resume file is too large. Please upload a file under 5 MB.")
+        content = file.file.read(MAX_RESUME_FILE_BYTES + 1)
+        result = service.upload_resume(
             user_id=current_user.user_id,
             filename=file.filename or "",
             content=content,
@@ -138,36 +162,44 @@ async def upload_cloud_resume(current_user: CurrentUserDep, file: UploadFile = F
 
 
 @router.get("/current", response_model=CurrentResumeResponse)
-def get_current_cloud_resume(current_user: CurrentUserDep) -> CurrentResumeResponse:
+def get_current_cloud_resume(current_user: CurrentUserDep, service: CloudResumeServiceDep) -> CurrentResumeResponse:
     try:
-        record = get_cloud_resume_service().get_current_resume(current_user.user_id)
+        record = service.get_current_resume(current_user.user_id)
     except Exception as exc:
         raise _handle_cloud_error(exc) from exc
     return CurrentResumeResponse(ready=record is not None, resume=_resume_response(record) if record else None)
 
 
 @router.get("/review-candidate", response_model=ReviewCandidateResponse)
-def get_review_candidate(current_user: CurrentUserDep) -> ReviewCandidateResponse:
+def get_review_candidate(current_user: CurrentUserDep, service: CloudResumeServiceDep) -> ReviewCandidateResponse:
     try:
-        record = get_cloud_resume_service().get_review_candidate(current_user.user_id)
+        record = service.get_review_candidate(current_user.user_id)
     except Exception as exc:
         raise _handle_cloud_error(exc) from exc
     return ReviewCandidateResponse(has_candidate=record is not None, resume=_resume_response(record) if record else None)
 
 
 @router.get("/{resume_id}/status", response_model=CloudResumeResponse)
-def get_cloud_resume_status(resume_id: str, current_user: CurrentUserDep) -> CloudResumeResponse:
+def get_cloud_resume_status(
+    resume_id: UUID,
+    current_user: CurrentUserDep,
+    service: CloudResumeServiceDep,
+) -> CloudResumeResponse:
     try:
-        record = get_cloud_resume_service().get_status(user_id=current_user.user_id, resume_id=resume_id)
+        record = service.get_status(user_id=current_user.user_id, resume_id=str(resume_id))
     except Exception as exc:
         raise _handle_cloud_error(exc) from exc
     return _resume_response(record)
 
 
 @router.post("/{resume_id}/extract", response_model=ExtractResponse)
-def extract_cloud_resume(resume_id: str, current_user: CurrentUserDep) -> ExtractResponse:
+def extract_cloud_resume(
+    resume_id: UUID,
+    current_user: CurrentUserDep,
+    service: CloudResumeServiceDep,
+) -> ExtractResponse:
     try:
-        result = get_cloud_resume_service().extract_resume(user_id=current_user.user_id, resume_id=resume_id)
+        result = service.extract_resume(user_id=current_user.user_id, resume_id=str(resume_id))
     except Exception as exc:
         raise _handle_cloud_error(exc) from exc
     return ExtractResponse(
@@ -185,14 +217,15 @@ def extract_cloud_resume(resume_id: str, current_user: CurrentUserDep) -> Extrac
 
 @router.post("/{resume_id}/confirm", response_model=ConfirmResponse)
 def confirm_cloud_resume(
-    resume_id: str,
+    resume_id: UUID,
     payload: ConfirmRequest,
     current_user: CurrentUserDep,
+    service: CloudResumeServiceDep,
 ) -> ConfirmResponse:
     try:
-        result = get_cloud_resume_service().confirm_resume(
+        result = service.confirm_resume(
             user_id=current_user.user_id,
-            resume_id=resume_id,
+            resume_id=str(resume_id),
             extraction_attempt=payload.extraction_attempt,
             confirmed_profile=payload.profile,
         )

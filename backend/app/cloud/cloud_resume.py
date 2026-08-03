@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
 import logging
 import mimetypes
 from pathlib import PurePath
@@ -12,7 +13,7 @@ import requests
 from app.cloud.supabase_config import SupabaseConfigurationError, get_supabase_settings
 from app.nlp.answer_generator import ProviderError
 from app.services.resume_parser_service import ResumeParserService
-from app.services.resume_service import MAX_RESUME_FILE_BYTES, ResumeExtractionError
+from app.services.resume_service import MAX_RESUME_FILE_BYTES, PROFILE_FIELD_ORDER, ResumeExtractionError
 
 logger = logging.getLogger("cloud_resume")
 
@@ -23,6 +24,8 @@ ALLOWED_MIME_TYPES = {
 }
 RETRY_EXTRACT_STATUSES = {"uploaded", "failed", "timeout", "cancelled", "needs_review"}
 SAFE_FAILURE_MESSAGE = "Resume processing failed. Please try again."
+MAX_CONFIRMED_PROFILE_BYTES = 64 * 1024
+CONFIRMED_PROFILE_FIELDS = tuple(field for field in PROFILE_FIELD_ORDER if field != "raw_resume_text")
 
 
 class CloudResumeError(RuntimeError):
@@ -132,9 +135,24 @@ def sanitize_resume_filename(filename: str) -> str:
     basename = re.sub(r"\s+", " ", basename).strip(" .")
     if not basename or basename in {".", ".."}:
         raise CloudResumeValidationError("Invalid resume filename.")
-    if PurePath(basename).suffix.lower() not in ALLOWED_MIME_TYPES:
+    suffix = PurePath(basename).suffix.lower()
+    if suffix not in ALLOWED_MIME_TYPES:
         raise CloudResumeValidationError("Unsupported resume file type. Please upload a PDF, DOCX, or TXT resume.")
-    return basename[:120]
+    stem = basename[: -len(suffix)].rstrip(" .")
+    return f"{stem[: 120 - len(suffix)]}{suffix}"
+
+
+def validate_confirmed_profile(payload: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(payload, dict) or not payload:
+        raise CloudResumeValidationError("Confirmed profile is required.")
+    unknown_fields = sorted(set(payload) - set(CONFIRMED_PROFILE_FIELDS))
+    if unknown_fields:
+        raise CloudResumeValidationError("Confirmed profile contains unsupported fields.")
+    normalized = {field: payload[field] for field in CONFIRMED_PROFILE_FIELDS if field in payload}
+    serialized = json.dumps(normalized, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if len(serialized) > MAX_CONFIRMED_PROFILE_BYTES:
+        raise CloudResumeValidationError("Confirmed profile is too large.")
+    return normalized
 
 
 def validate_resume_upload(*, filename: str, content: bytes, content_type: str | None) -> tuple[str, str]:
@@ -171,16 +189,23 @@ class SupabaseCloudResumeClient:
             "Content-Type": "application/json",
         }
 
-    def _safe_body(self, response: requests.Response) -> str:
-        return response.text[:500].replace(self._service_role_key, "[redacted]")
+    def _safe_error_code(self, response: requests.Response) -> str:
+        try:
+            payload = response.json()
+        except ValueError:
+            return "unavailable"
+        if not isinstance(payload, dict):
+            return "unavailable"
+        code = str(payload.get("code") or "").strip()
+        return code[:80] if re.fullmatch(r"[A-Za-z0-9_.-]+", code) else "unavailable"
 
     def _log_failure(self, target: str, operation: str, response: requests.Response) -> None:
         logger.error(
-            "Supabase cloud resume failure: target=%s operation=%s status=%s body=%s",
+            "Supabase cloud resume failure: target=%s operation=%s status=%s error_code=%s",
             target,
             operation,
             response.status_code,
-            self._safe_body(response),
+            self._safe_error_code(response),
         )
 
     def _raise_response(self, target: str, operation: str, response: requests.Response) -> NoReturn:
@@ -189,10 +214,10 @@ class SupabaseCloudResumeClient:
 
     def _raise_request(self, target: str, operation: str, exc: requests.RequestException) -> NoReturn:
         logger.error(
-            "Supabase cloud resume failure: target=%s operation=%s status=request_error body=%s",
+            "Supabase cloud resume failure: target=%s operation=%s status=request_error error_type=%s",
             target,
             operation,
-            str(exc)[:500].replace(self._service_role_key, "[redacted]"),
+            type(exc).__name__,
         )
         raise CloudResumeError("Supabase cloud resume operation failed.") from exc
 
@@ -443,19 +468,29 @@ class CloudResumeService:
             raise CloudResumeError(SAFE_FAILURE_MESSAGE) from exc
 
         profile = dict(parsed.get("profile") or {})
-        updated = self._client.compare_and_set_resume(
-            resume_id,
-            user_id,
-            {"extracting"},
-            {
-                "status": "needs_review",
-                "extraction_status": "needs_review",
-                "parser_status": "completed",
-                "parser_provider": parsed.get("parser_provider") or "local",
-                "review_required": bool(parsed.get("review_required")),
-            },
-            extraction_attempt=attempt,
-        )
+        try:
+            updated = self._client.compare_and_set_resume(
+                resume_id,
+                user_id,
+                {"extracting"},
+                {
+                    "status": "needs_review",
+                    "extraction_status": "needs_review",
+                    "parser_status": "completed",
+                    "parser_provider": parsed.get("parser_provider") or "local",
+                    "review_required": bool(parsed.get("review_required")),
+                },
+                extraction_attempt=attempt,
+            )
+        except CloudResumeError:
+            self._mark_failed(
+                resume_id=resume_id,
+                user_id=user_id,
+                code="extraction_state_write_failed",
+                message=SAFE_FAILURE_MESSAGE,
+                extraction_attempt=attempt,
+            )
+            raise
         return ExtractResult(
             resume_id=updated.id,
             status=updated.status,
@@ -476,14 +511,13 @@ class CloudResumeService:
         extraction_attempt: int,
         confirmed_profile: dict[str, Any],
     ) -> ConfirmResult:
-        if not isinstance(confirmed_profile, dict) or not confirmed_profile:
-            raise CloudResumeValidationError("Confirmed profile is required.")
+        normalized_profile = validate_confirmed_profile(confirmed_profile)
         updated = self._client.compare_and_set_resume(
             resume_id,
             user_id,
             {"needs_review"},
             {
-                "confirmed_profile": confirmed_profile,
+                "confirmed_profile": normalized_profile,
                 "confirmed_at": _utc_now_iso(),
                 "review_required": False,
             },

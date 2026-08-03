@@ -36,7 +36,7 @@ This tracker is the live execution log for the production build.
 Current active execution phase:
 
 ```text
-C3.2 - Backend Cloud Resume API complete; C3.3 frontend upload/review UI pending explicit next-step approval
+C3.2 - Backend Cloud Resume API complete locally/in PR; live saiia-dev migration pending review/approval/application; C3.3 frontend upload/review UI pending after C3.2 PR merge and live migration decision
 ```
 
 Screen Intelligence documentation:
@@ -72,7 +72,7 @@ C2 current status:
 C3 current status:
 
 ```text
-[~] Active - C3.1 Cloud Resume/Profile Storage Planning + Audit complete; C3.2 Backend Cloud Resume API complete with Supabase lifecycle/security migration and authenticated `/api/resumes/*` backend routes; C3.3 frontend upload UI pending explicit next-step approval; no C3.4 cloud RAG/index activation, C3.5 delete closure, C4, C5, sessions, billing, payment, email provider, admin console, or final website UI started
+[~] Active - C3.1 Cloud Resume/Profile Storage Planning + Audit complete; C3.2 Backend Cloud Resume API complete locally/in PR with Supabase lifecycle/security migration and authenticated `/api/resumes/*` backend routes; live saiia-dev migration/deployment remains pending review/approval/application; C3.3 frontend upload UI pending after C3.2 PR merge and live migration decision; no C3.4 cloud RAG/index activation, C3.5 delete closure, C4, C5, sessions, billing, payment, email provider, admin console, or final website UI started
 ```
 
 Primary references:
@@ -1534,7 +1534,7 @@ P17 Protected commercial edition
 # Current Immediate Next Phase
 
 ```text
-C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C2.1 auth architecture audit is complete. C2.2 minimal Supabase auth UI and backend current-user endpoint are complete. C2.3 authenticated profile bootstrap is implemented in the existing React/Vite app and FastAPI backend and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the live Supabase privilege blocker. C2.4 protected auth shell and account/session state handling is complete. C3.1 Cloud Resume/Profile Storage Planning + Audit is active after explicit user approval to start C3. No C3 upload runtime, cloud profile saving, cloud resume indexing, C5 desktop login/cloud sync, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI work has started. Next: complete C3.1 planning validation, then begin C3.2 backend cloud resume API only after explicit approval.
+C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is complete locally/in PR with live saiia-dev migration/deployment still pending review, approval, and explicit application. Next phase is C3.3 frontend upload/review UI only after the C3.2 PR is reviewed/merged and the live migration decision is recorded. No C3.3 frontend upload UI, C3.4 cloud RAG/index activation, C3.5 delete closure, C4, C5 desktop login/cloud sync, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI work has started.
 ```
 
 P6B/P8/P9 consolidation records are preserved as historical desktop validation notes, not as the current execution authority.

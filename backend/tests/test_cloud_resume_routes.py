@@ -8,20 +8,32 @@ from fastapi.testclient import TestClient
 
 from app.api import resumes as resumes_api
 from app.auth.supabase_auth import AUTH_ERROR_DETAIL, get_auth_verification_config
-from app.cloud.cloud_resume import CloudResumeRecord
-from app.cloud.supabase_config import CLOUD_MODE_ENV, SUPABASE_REQUIRED_ENV_VARS, get_supabase_settings
+from app.cloud.cloud_resume import (
+    CloudResumeConflictError,
+    CloudResumeError,
+    CloudResumeNotFoundError,
+    CloudResumeRecord,
+    CloudResumeValidationError,
+)
+from app.cloud.supabase_config import (
+    CLOUD_MODE_ENV,
+    SUPABASE_REQUIRED_ENV_VARS,
+    SupabaseConfigurationError,
+    get_supabase_settings,
+)
 
 TEST_SECRET = "unit-test-jwt-secret"
 TEST_USER_ID = "00000000-0000-4000-8000-000000000001"
 TEST_ISSUER = "https://project-ref.supabase.co/auth/v1"
 TEST_AUDIENCE = "authenticated"
+RESUME_ID = "10000000-0000-4000-8000-000000000001"
 
 
 def _record(**overrides: object) -> CloudResumeRecord:
     payload = {
-        "id": "10000000-0000-4000-8000-000000000001",
+        "id": RESUME_ID,
         "user_id": TEST_USER_ID,
-        "storage_path": f"{TEST_USER_ID}/10000000-0000-4000-8000-000000000001/resume.txt",
+        "storage_path": f"{TEST_USER_ID}/{RESUME_ID}/resume.txt",
         "original_filename": "resume.txt",
         "mime_type": "text/plain",
         "file_size": 12,
@@ -43,6 +55,7 @@ def clear_supabase_auth_env(monkeypatch: pytest.MonkeyPatch):
     yield
     get_supabase_settings.cache_clear()
     get_auth_verification_config.cache_clear()
+    resumes_api._cached_cloud_resume_service.cache_clear()
 
 
 @pytest.fixture
@@ -58,7 +71,9 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     get_auth_verification_config.cache_clear()
     app = FastAPI()
     app.include_router(resumes_api.router, prefix="/api/resumes")
-    return TestClient(app)
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
 
 
 def _token(*, subject: str = TEST_USER_ID, secret: str = TEST_SECRET) -> str:
@@ -135,9 +150,9 @@ class FakeRouteService:
 
 
 @pytest.fixture
-def fake_service(monkeypatch: pytest.MonkeyPatch) -> FakeRouteService:
+def fake_service(client: TestClient) -> FakeRouteService:
     service = FakeRouteService()
-    monkeypatch.setattr(resumes_api, "get_cloud_resume_service", lambda: service)
+    client.app.dependency_overrides[resumes_api.get_cloud_resume_service] = lambda: service
     return service
 
 
@@ -181,10 +196,10 @@ def test_review_candidate_route_is_separate_from_current(client: TestClient, fak
 def test_status_extract_and_confirm_are_user_owned(client: TestClient, fake_service: FakeRouteService) -> None:
     headers = {"Authorization": f"Bearer {_token()}"}
 
-    status_response = client.get("/api/resumes/resume-id/status", headers=headers)
-    extract_response = client.post("/api/resumes/resume-id/extract", headers=headers)
+    status_response = client.get(f"/api/resumes/{RESUME_ID}/status", headers=headers)
+    extract_response = client.post(f"/api/resumes/{RESUME_ID}/extract", headers=headers)
     confirm_response = client.post(
-        "/api/resumes/resume-id/confirm",
+        f"/api/resumes/{RESUME_ID}/confirm",
         headers=headers,
         json={"extraction_attempt": 1, "profile": {"full_name": "Test User"}},
     )
@@ -197,8 +212,64 @@ def test_status_extract_and_confirm_are_user_owned(client: TestClient, fake_serv
     assert confirm_response.json()["status"] == "needs_review"
 
 
+def test_malformed_resume_id_returns_422_before_service_call(client: TestClient, fake_service: FakeRouteService) -> None:
+    response = client.get("/api/resumes/not-a-uuid/status", headers={"Authorization": f"Bearer {_token()}"})
+
+    assert response.status_code == 422
+    assert fake_service.user_ids == []
+
+
 def test_invalid_token_rejected_before_service_call(client: TestClient, fake_service: FakeRouteService) -> None:
     response = client.get("/api/resumes/current", headers={"Authorization": "Bearer not-a-jwt"})
 
     assert response.status_code == 401
     assert fake_service.user_ids == []
+
+
+class RaisingRouteService:
+    def __init__(self, exc: Exception) -> None:
+        self.exc = exc
+
+    def get_status(self, *, user_id: str, resume_id: str):
+        raise self.exc
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected_status", "expected_detail"),
+    [
+        (CloudResumeValidationError("bad upload"), 400, "bad upload"),
+        (CloudResumeNotFoundError("missing"), 404, "Resume was not found."),
+        (CloudResumeConflictError("stale"), 409, "stale"),
+        (SupabaseConfigurationError("missing config"), 503, "Supabase cloud configuration is not ready."),
+        (TypeError("boom"), 502, "Supabase cloud resume operation failed."),
+    ],
+)
+def test_cloud_resume_route_error_mapping(
+    client: TestClient,
+    caplog: pytest.LogCaptureFixture,
+    exc: Exception,
+    expected_status: int,
+    expected_detail: str,
+) -> None:
+    client.app.dependency_overrides[resumes_api.get_cloud_resume_service] = lambda: RaisingRouteService(exc)
+
+    with caplog.at_level("ERROR", logger="cloud_resume_api"):
+        response = client.get(f"/api/resumes/{RESUME_ID}/status", headers={"Authorization": f"Bearer {_token()}"})
+
+    assert response.status_code == expected_status
+    assert response.json() == {"detail": expected_detail}
+    if isinstance(exc, TypeError):
+        assert "Unexpected cloud resume route failure" in caplog.text
+    else:
+        assert "Unexpected cloud resume route failure" not in caplog.text
+
+
+def test_other_users_resume_maps_to_404(client: TestClient) -> None:
+    client.app.dependency_overrides[resumes_api.get_cloud_resume_service] = lambda: RaisingRouteService(
+        CloudResumeNotFoundError("not owned")
+    )
+
+    response = client.get(f"/api/resumes/{RESUME_ID}/status", headers={"Authorization": f"Bearer {_token()}"})
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Resume was not found."}

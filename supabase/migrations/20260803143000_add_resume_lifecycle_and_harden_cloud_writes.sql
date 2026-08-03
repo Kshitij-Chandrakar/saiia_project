@@ -107,6 +107,10 @@ drop policy if exists saiia_storage_insert_own on storage.objects;
 drop policy if exists saiia_storage_update_own on storage.objects;
 drop policy if exists saiia_storage_delete_own on storage.objects;
 
+drop policy if exists saiia_exports_storage_insert_own on storage.objects;
+drop policy if exists saiia_exports_storage_update_own on storage.objects;
+drop policy if exists saiia_exports_storage_delete_own on storage.objects;
+
 create policy saiia_exports_storage_insert_own
 on storage.objects
 for insert
