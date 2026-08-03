@@ -465,8 +465,8 @@ class CloudResumeService:
         )
         try:
             content = self._client.download_resume_object(extracting.storage_path)
-            parsed = self._parser.extract_profile(filename=extracting.original_filename, content=content)
-        except (ResumeExtractionError, ProviderError, CloudResumeError) as exc:
+        except CloudResumeError as exc:
+            self._log_extract_failure("storage_download", exc)
             self._mark_failed(
                 resume_id=resume_id,
                 user_id=user_id,
@@ -476,7 +476,31 @@ class CloudResumeService:
             )
             raise CloudResumeError(SAFE_FAILURE_MESSAGE) from exc
 
-        profile = dict(parsed.get("profile") or {})
+        try:
+            parsed = self._parser.extract_profile(filename=extracting.original_filename, content=content)
+        except (ResumeExtractionError, ProviderError, CloudResumeError, Exception) as exc:
+            self._log_extract_failure("local_parse", exc)
+            self._mark_failed(
+                resume_id=resume_id,
+                user_id=user_id,
+                code="extraction_failed",
+                message=SAFE_FAILURE_MESSAGE,
+                extraction_attempt=attempt,
+            )
+            raise CloudResumeError(SAFE_FAILURE_MESSAGE) from exc
+
+        try:
+            profile = dict(parsed.get("profile") or {})
+        except (AttributeError, TypeError, ValueError) as exc:
+            self._log_extract_failure("normalize_draft", exc)
+            self._mark_failed(
+                resume_id=resume_id,
+                user_id=user_id,
+                code="extraction_failed",
+                message=SAFE_FAILURE_MESSAGE,
+                extraction_attempt=attempt,
+            )
+            raise CloudResumeError(SAFE_FAILURE_MESSAGE) from exc
         try:
             updated = self._client.compare_and_set_resume(
                 resume_id,
@@ -484,14 +508,15 @@ class CloudResumeService:
                 {"extracting"},
                 {
                     "status": "needs_review",
-                    "extraction_status": "needs_review",
+                    "extraction_status": "completed",
                     "parser_status": "completed",
                     "parser_provider": parsed.get("parser_provider") or "local",
                     "review_required": bool(parsed.get("review_required")),
                 },
                 extraction_attempt=attempt,
             )
-        except CloudResumeError:
+        except CloudResumeError as exc:
+            self._log_extract_failure("status_update", exc)
             self._mark_failed(
                 resume_id=resume_id,
                 user_id=user_id,
@@ -577,3 +602,6 @@ class CloudResumeService:
                 user_id,
                 code,
             )
+
+    def _log_extract_failure(self, stage: str, exc: Exception) -> None:
+        logger.warning("Cloud resume extraction failed stage=%s error_type=%s", stage, type(exc).__name__)
