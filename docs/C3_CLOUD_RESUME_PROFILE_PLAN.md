@@ -8,7 +8,11 @@ website UI.
 ## Status
 
 ```text
-[~] C3.1 audit/design active
+[x] C3.1 audit/design complete
+[x] C3.2 backend cloud resume API implemented
+[ ] C3.3 frontend authenticated upload/review UI pending
+[ ] C3.4 cloud resume indexing/RAG ownership pending
+[ ] C3.5 delete/rebuild/status + closure pending
 ```
 
 C3 product goal:
@@ -113,6 +117,12 @@ C3.2 must add explicit ready/current markers before implementing runtime upload
 behavior. The current C1 `resumes` table has parser, extraction, index, and
 review fields, but it does not yet have enough state to safely define the
 current resume.
+
+C3.2 implementation note: migration
+`20260803143000_add_resume_lifecycle_and_harden_cloud_writes.sql` adds these
+markers, backfills existing rows, adds named lifecycle constraints, adds the
+one-active-resume partial unique index, and narrows direct authenticated write
+permissions so browser clients cannot bypass backend lifecycle rules.
 
 Required migration planning for C3.2:
 
@@ -327,6 +337,19 @@ POST   /api/resumes/{resume_id}/index
 GET    /api/resumes/{resume_id}/status
 DELETE /api/resumes/{resume_id}
 ```
+
+C3.2 implemented the backend-only subset:
+
+- `POST /api/resumes`
+- `GET /api/resumes/current`
+- `GET /api/resumes/review-candidate`
+- `GET /api/resumes/{resume_id}/status`
+- `POST /api/resumes/{resume_id}/extract`
+- `POST /api/resumes/{resume_id}/confirm`
+
+C3.2 intentionally did not add frontend upload/review UI, cloud index
+activation, delete polish, desktop sync, sessions, billing, payment, email,
+admin, or final website UI.
 
 Recommended behavior:
 
@@ -611,26 +634,28 @@ flow remains usable without login.
 
 ## Implementation Checklist
 
-- [ ] Add backend cloud resume service boundary.
-- [ ] Add safe filename sanitizer.
-- [ ] Add authenticated cloud upload endpoint.
-- [ ] Store resume files in private Supabase Storage under
+- [x] Add backend cloud resume service boundary.
+- [x] Add safe filename sanitizer.
+- [x] Add authenticated cloud upload endpoint.
+- [x] Store resume files in private Supabase Storage under
   `{user_id}/{resume_id}/{safe_filename}`.
-- [ ] Add C3.2 migration/backfill/constraints for `resumes.status`,
+- [x] Add C3.2 migration/backfill/constraints for `resumes.status`,
   `is_active`, `confirmed_at`, `extraction_attempt`, `confirmed_profile`,
   `active_chunk_generation`, and safe failure fields before runtime writes.
-- [ ] Revoke or narrow direct authenticated-role mutation permissions for
+- [x] Revoke or narrow direct authenticated-role mutation permissions for
   resume lifecycle tables, profile resume-derived fields, chunks, and storage.
-- [ ] Insert/update `resumes` metadata with parser/extraction/index status.
-- [ ] Reuse `ResumeParserService` for extraction.
-- [ ] Return editable draft profile fields without marking them confirmed.
-- [ ] Confirm reviewed normalized fields into `resumes.confirmed_profile` only.
+- [x] Insert/update `resumes` metadata with parser/extraction/index status.
+- [x] Reuse `ResumeParserService` for extraction.
+- [x] Return editable draft profile fields without marking them confirmed.
+- [x] Confirm reviewed normalized fields into `resumes.confirmed_profile` only.
 - [ ] Upsert/update `profiles` only inside the atomic activation transaction
   after indexing succeeds.
 - [ ] Build/rebuild `resume_chunks` filtered by `user_id` and `resume_id`.
-- [ ] Add status and delete behavior.
-- [ ] Preserve existing local desktop routes.
-- [ ] Add focused backend tests and frontend auth/upload tests.
+- [x] Add status behavior.
+- [ ] Add delete behavior.
+- [x] Preserve existing local desktop routes.
+- [x] Add focused backend tests.
+- [ ] Add frontend auth/upload tests during C3.3.
 - [ ] Add manual live Supabase validation checklist for saiia-dev.
 
 ## Acceptance Criteria

@@ -1136,7 +1136,7 @@ After a verified user first enters the dashboard:
 ## Status
 
 ```text
-[~] C3.1 audit/design active - planning only; no upload runtime implemented yet
+[~] C3.2 backend cloud resume API complete locally/in PR - backend routes, Supabase lifecycle/security migration, backend-only service, tests, and docs complete; live saiia-dev migration/deployment pending review/approval/application; C3.3/C3.4/C3.5 pending
 ```
 
 ## Goal
@@ -1160,6 +1160,26 @@ Move resume upload, extraction review, profile saving, and resume indexing into 
 - [x] Confirmed C3.1 does not implement upload runtime, cloud profile saving,
   cloud resume indexing, C4, C5, sessions, billing, payment, email provider,
   admin console, or final website UI.
+
+## C3.2 backend status
+
+- [x] Added Supabase migration
+  `20260803143000_add_resume_lifecycle_and_harden_cloud_writes.sql` for
+  resume lifecycle columns, named constraints, one-active-resume index, and
+  direct authenticated write hardening.
+- [x] Added authenticated backend cloud resume routes under `/api/resumes`.
+- [x] Added backend-only Supabase REST/storage service for upload, current
+  resume lookup, review candidate lookup, status, extraction, and confirmation.
+- [x] Reused existing resume parser services for extraction.
+- [x] Confirmation writes only to `resumes.confirmed_profile`; it does not
+  update `profiles`, set active, or mark ready.
+- [x] Existing `/api/resume/*`, `/api/profile`, and `/profile-setup` local
+  desktop flows remain intentionally unchanged.
+- [ ] Live saiia-dev migration/deployment remains pending until the C3.2 PR is
+  reviewed, approved, and the migration is explicitly applied.
+- [ ] C3.3 frontend upload/review UI pending.
+- [ ] C3.4 cloud chunk generation/RAG activation pending.
+- [ ] C3.5 delete/rebuild/status closure pending.
 
 ## Existing capability to reuse
 
@@ -1204,6 +1224,9 @@ POST   /api/resumes/{resume_id}/index
 GET    /api/resumes/{resume_id}/status
 DELETE /api/resumes/{resume_id}
 ```
+
+C3.2 implemented the backend subset except `/index` and `DELETE`, which remain
+for C3.4/C3.5.
 
 ## Upload validation
 

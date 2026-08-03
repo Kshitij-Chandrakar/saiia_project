@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
-from app.api import auth, auto_stt, classify, generate, job_context, question_detect, resume, system_audio, transcribe
+from app.api import auth, auto_stt, classify, generate, job_context, question_detect, resume, resumes, system_audio, transcribe
 from app.api.debug import router as debug_router
 from app.api.screen_ocr import router as screen_ocr_router
 from app.config import settings
@@ -38,6 +38,7 @@ app.include_router(auto_stt.router, tags=["Auto STT"])
 app.include_router(classify.router, prefix="/classify", tags=["Classify"])
 app.include_router(generate.router, prefix="/generate", tags=["Generate"])
 app.include_router(resume.router, prefix="/api/resume", tags=["Resume"])
+app.include_router(resumes.router, prefix="/api/resumes", tags=["Cloud Resumes"])
 app.include_router(system_audio.router, prefix="/api/audio/system", tags=["System Audio"])
 app.include_router(job_context.router, prefix="/api/job-context", tags=["Job Context"])
 app.include_router(question_detect.router, prefix="/api/question-detect", tags=["Question Detect"])

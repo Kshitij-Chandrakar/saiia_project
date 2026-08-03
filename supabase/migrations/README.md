@@ -18,7 +18,10 @@ Current migrations:
   `authenticated` and backend-only `service_role` table privileges for
   PostgREST while leaving RLS enabled; this fixed the C2.3 live profile
   bootstrap privilege blocker.
+- `20260803143000_add_resume_lifecycle_and_harden_cloud_writes.sql`: adds C3.2
+  resume lifecycle columns, named constraints, one-active-resume index, and
+  narrows direct authenticated writes so cloud resume mutations go through the
+  backend/RPC boundary.
 
 Do not create tables through the Supabase dashboard without adding an
-equivalent migration. These committed migrations are the source of truth. C2.4
-remains pending and not started.
+equivalent migration. These committed migrations are the source of truth.
