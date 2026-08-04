@@ -70,7 +70,10 @@ def _matches_inactive_generation(
         return False
 
     generation_id = chunk.get("generation_id")
-    return generation_id is None or generation_id != active_generation_id
+    if generation_id is None:
+        return True
+
+    return generation_id not in {active_generation_id}
 
 
 class FakeCloudResumeClient:
@@ -241,6 +244,71 @@ class FakeCloudResumeClient:
         updated = _record(**{**current.__dict__, **payload})
         self.records[(user_id, resume_id)] = updated
         return updated
+
+
+def test_fake_inactive_chunk_prune_removes_null_and_old_generations_for_same_resume_only() -> None:
+    client = FakeCloudResumeClient()
+    client.chunks.extend(
+        [
+            {
+                "user_id": USER_A,
+                "resume_id": RESUME_ID,
+                "generation_id": "active-generation",
+                "chunk_text": "active chunk",
+            },
+            {
+                "user_id": USER_A,
+                "resume_id": RESUME_ID,
+                "generation_id": "old-generation",
+                "chunk_text": "old chunk",
+            },
+            {
+                "user_id": USER_A,
+                "resume_id": RESUME_ID,
+                "generation_id": None,
+                "chunk_text": "null generation chunk",
+            },
+            {
+                "user_id": USER_B,
+                "resume_id": RESUME_ID,
+                "generation_id": "old-generation",
+                "chunk_text": "other user old chunk",
+            },
+            {
+                "user_id": USER_B,
+                "resume_id": RESUME_ID,
+                "generation_id": None,
+                "chunk_text": "other user null chunk",
+            },
+            {
+                "user_id": USER_A,
+                "resume_id": "other-resume",
+                "generation_id": "old-generation",
+                "chunk_text": "other resume old chunk",
+            },
+            {
+                "user_id": USER_A,
+                "resume_id": "other-resume",
+                "generation_id": None,
+                "chunk_text": "other resume null chunk",
+            },
+        ]
+    )
+
+    client.delete_inactive_resume_chunks(
+        user_id=USER_A,
+        resume_id=RESUME_ID,
+        active_generation_id="active-generation",
+    )
+
+    remaining_chunks = {chunk["chunk_text"] for chunk in client.chunks}
+    assert "active chunk" in remaining_chunks
+    assert "old chunk" not in remaining_chunks
+    assert "null generation chunk" not in remaining_chunks
+    assert "other user old chunk" in remaining_chunks
+    assert "other user null chunk" in remaining_chunks
+    assert "other resume old chunk" in remaining_chunks
+    assert "other resume null chunk" in remaining_chunks
 
 
 class FakeParser:
