@@ -6,6 +6,7 @@ GRANTS_MIGRATION = MIGRATIONS_DIR / "20260801115446_grant_cloud_table_privileges
 C3_2_MIGRATION = MIGRATIONS_DIR / "20260803143000_add_resume_lifecycle_and_harden_cloud_writes.sql"
 C3_4_MIGRATION = MIGRATIONS_DIR / "20260804134140_add_cloud_resume_chunk_activation.sql"
 C3_4_PARSING_FIX_MIGRATION = MIGRATIONS_DIR / "20260804151715_fix_cloud_resume_activation_profile_parsing.sql"
+C3_4_PROFILE_PRESERVE_MIGRATION = MIGRATIONS_DIR / "20260804162315_preserve_profile_fields_on_cloud_resume_activation.sql"
 
 
 def _normalized_sql() -> str:
@@ -135,5 +136,46 @@ def test_c3_4_followup_migration_keeps_activation_rpc_backend_only() -> None:
     assert "is_active = true" in sql
     assert "active_chunk_generation = p_generation_id" in sql
     assert "on conflict (user_id) do update" in sql
+    assert "grant execute on function public.activate_cloud_resume(uuid, uuid, integer, uuid, jsonb) to service_role" in sql
+    assert "grant execute on function public.activate_cloud_resume(uuid, uuid, integer, uuid, jsonb) to anon" not in sql
+
+
+def test_c3_4_profile_preserve_migration_keeps_omitted_profile_columns() -> None:
+    sql = " ".join(C3_4_PROFILE_PRESERVE_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "create or replace function public.activate_cloud_resume" in sql
+    for column in (
+        "full_name",
+        "headline",
+        "summary",
+        "skills",
+        "technical_skills",
+        "soft_skills",
+        "education",
+        "experience",
+        "projects",
+        "achievements",
+        "certifications",
+        "tools_frameworks",
+    ):
+        assert f"else profiles.{column}" in sql
+
+    assert "when p_profile ? 'full_name' then excluded.full_name" in sql
+    assert "when p_profile ? 'professional_summary' then excluded.summary" in sql
+    assert "when p_profile ? 'current_title' or p_profile ? 'target_role' then excluded.headline" in sql
+    assert "when p_profile ? 'top_skills' or p_profile ? 'skills' then excluded.skills" in sql
+    assert "when p_profile ? 'education' or p_profile ? 'degree' then excluded.education" in sql
+    assert "when p_profile ? 'experience' or p_profile ? 'work_experience' then excluded.experience" in sql
+
+
+def test_c3_4_profile_preserve_migration_parses_soft_skills_as_skill_list() -> None:
+    sql = " ".join(C3_4_PROFILE_PRESERVE_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "public.saiia_text_to_jsonb_array(coalesce(p_profile->>'soft_skills', ''))" in sql
+    for field in ("top_skills", "technical_skills", "tools_frameworks"):
+        assert f"public.saiia_text_to_jsonb_array(coalesce(p_profile->>'{field}'" in sql
+    for field in ("education", "projects", "achievements", "certifications"):
+        assert f"public.saiia_text_to_jsonb_lines(coalesce(p_profile->>'{field}'" in sql
+    assert "public.saiia_text_to_jsonb_lines(coalesce(p_profile->>'experience', p_profile->>'work_experience', ''))" in sql
     assert "grant execute on function public.activate_cloud_resume(uuid, uuid, integer, uuid, jsonb) to service_role" in sql
     assert "grant execute on function public.activate_cloud_resume(uuid, uuid, integer, uuid, jsonb) to anon" not in sql

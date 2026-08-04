@@ -12,7 +12,7 @@ const dashboardPageSource = source.match(/export function AuthDashboardPage[\s\S
 const resumePageSource = source.match(/export function AuthResumePage[\s\S]*?export function AuthLogoutPage/)?.[0] || ''
 const statusLogoutSource = statusPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n  \}\n\n  return \(/)?.[0] || ''
 const dashboardLogoutSource = dashboardPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n  \}\n\n  return \(/)?.[0] || ''
-const resumeRefreshCatchSource = resumePageSource.match(/catch \(refreshError\) \{[\s\S]*?\n      \}\n    \} catch \(confirmError\)/)?.[0] || ''
+const resumeRefreshCatchSource = resumePageSource.match(/catch \(refreshError\) \{[\s\S]*?\}\s*catch \(confirmError\)/)?.[0] || ''
 
 assert.ok(signupPageSource, 'AuthSignupPage source slice should be found')
 assert.ok(loginPageSource, 'AuthLoginPage source slice should be found')
@@ -202,6 +202,7 @@ test('cloud resume page refreshes current state after confirmation', () => {
   assert.match(resumePageSource, /setCurrentResume\(current\.ready \? current\.resume : null\)/)
   assert.match(resumePageSource, /setResumeRecord\(\(currentRecord\) =>/)
   assert.match(resumeRefreshCatchSource, /Refresh to load active resume status/)
+  assert.doesNotMatch(resumeRefreshCatchSource, /setCurrentResume\(null\)/)
   assert.doesNotMatch(resumeRefreshCatchSource, /Could not confirm/)
   assert.match(resumePageSource, /draftProfile && phase !== 'confirmed'/)
   assert.doesNotMatch(resumePageSource, /setCurrentResume\(.*confirmed|status: 'ready'|is_active: true/)

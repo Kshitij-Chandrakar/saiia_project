@@ -24,7 +24,7 @@ ALLOWED_MIME_TYPES = {
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ".txt": "text/plain",
 }
-RETRY_EXTRACT_STATUSES = {"uploaded", "failed", "timeout", "cancelled", "needs_review"}
+RETRY_EXTRACT_STATUSES = {"uploaded", "failed", "timeout", "cancelled", "needs_review", "indexing"}
 SAFE_FAILURE_MESSAGE = "Resume processing failed. Please try again."
 MAX_CONFIRMED_PROFILE_BYTES = 64 * 1024
 CONFIRMED_PROFILE_FIELDS = tuple(field for field in PROFILE_FIELD_ORDER if field != "raw_resume_text")
@@ -52,7 +52,8 @@ CLOUD_INDEX_PROFILE_FIELDS = (
 )
 SUPABASE_HTTP_POOL_SIZE = 20
 SUPABASE_SELECT_ATTEMPT_TIMEOUT = 5
-SUPABASE_ACTIVE_CHUNK_LIMIT = 50
+SUPABASE_ACTIVE_CHUNK_PAGE_SIZE = 100
+SUPABASE_ACTIVE_CHUNK_HARD_LIMIT = 500
 
 
 class CloudResumeError(RuntimeError):
@@ -457,6 +458,23 @@ class SupabaseCloudResumeClient:
         if response.status_code not in {200, 204}:
             self._raise_response("resume_chunks", "delete", response)
 
+    def delete_inactive_resume_chunks(self, *, user_id: str, resume_id: str, active_generation_id: str) -> None:
+        try:
+            response = self._session.delete(
+                f"{self._rest_url}/resume_chunks",
+                headers={**self._headers, "Prefer": "return=minimal"},
+                params={
+                    "user_id": f"eq.{user_id}",
+                    "resume_id": f"eq.{resume_id}",
+                    "generation_id": f"neq.{active_generation_id}",
+                },
+                timeout=10,
+            )
+        except requests.RequestException as exc:
+            self._raise_request("resume_chunks", "delete_inactive", exc)
+        if response.status_code not in {200, 204}:
+            self._raise_response("resume_chunks", "delete_inactive", response)
+
     def activate_resume(
         self,
         *,
@@ -498,13 +516,40 @@ class SupabaseCloudResumeClient:
         resume_id: str,
         generation_id: str,
     ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        offset = 0
+        while offset < SUPABASE_ACTIVE_CHUNK_HARD_LIMIT:
+            page = self._select_resume_chunk_page(
+                user_id=user_id,
+                resume_id=resume_id,
+                generation_id=generation_id,
+                offset=offset,
+            )
+            rows.extend(page)
+            if len(page) < SUPABASE_ACTIVE_CHUNK_PAGE_SIZE:
+                return rows
+            offset += SUPABASE_ACTIVE_CHUNK_PAGE_SIZE
+        logger.error(
+            "Supabase cloud resume failure: target=resume_chunks operation=select status=chunk_limit_exceeded"
+        )
+        raise CloudResumeError("Supabase cloud resume operation failed.")
+
+    def _select_resume_chunk_page(
+        self,
+        *,
+        user_id: str,
+        resume_id: str,
+        generation_id: str,
+        offset: int,
+    ) -> list[dict[str, Any]]:
         query = {
             "select": "id,resume_id,section,chunk_text,metadata,generation_id",
             "user_id": f"eq.{user_id}",
             "resume_id": f"eq.{resume_id}",
             "generation_id": f"eq.{generation_id}",
             "order": "created_at.asc",
-            "limit": str(SUPABASE_ACTIVE_CHUNK_LIMIT),
+            "limit": str(SUPABASE_ACTIVE_CHUNK_PAGE_SIZE),
+            "offset": str(offset),
         }
         for attempt in (1, 2):
             try:
@@ -728,7 +773,6 @@ class CloudResumeService:
                 confirmed_profile=normalized_profile,
             )
             stage = "insert_chunks"
-            self._client.delete_resume_chunks(user_id=user_id, resume_id=resume_id)
             self._client.insert_resume_chunks(chunks)
             inserted_generation = True
             stage = "activate_resume"
@@ -739,6 +783,7 @@ class CloudResumeService:
                 generation_id=generation_id,
                 confirmed_profile=normalized_profile,
             )
+            self._prune_inactive_generations(user_id=user_id, resume_id=resume_id, active_generation_id=generation_id)
         except CloudResumeConflictError as exc:
             self._log_index_failure(stage, exc)
             if inserted_generation:
@@ -814,6 +859,21 @@ class CloudResumeService:
                 user_id,
                 resume_id,
                 generation_id,
+            )
+
+    def _prune_inactive_generations(self, *, user_id: str, resume_id: str, active_generation_id: str) -> None:
+        try:
+            self._client.delete_inactive_resume_chunks(
+                user_id=user_id,
+                resume_id=resume_id,
+                active_generation_id=active_generation_id,
+            )
+        except CloudResumeError:
+            logger.warning(
+                "Could not prune inactive cloud resume chunk generations: user_id=%s resume_id=%s active_generation_id=%s",
+                user_id,
+                resume_id,
+                active_generation_id,
             )
 
     def _build_resume_chunks(

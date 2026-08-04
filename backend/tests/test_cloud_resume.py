@@ -11,7 +11,8 @@ from app.cloud.cloud_resume import (
     CloudResumeNotFoundError,
     CloudResumeRecord,
     CloudResumeService,
-    SUPABASE_ACTIVE_CHUNK_LIMIT,
+    SUPABASE_ACTIVE_CHUNK_HARD_LIMIT,
+    SUPABASE_ACTIVE_CHUNK_PAGE_SIZE,
     SUPABASE_HTTP_POOL_SIZE,
     SUPABASE_SELECT_ATTEMPT_TIMEOUT,
     SupabaseCloudResumeClient,
@@ -141,6 +142,22 @@ class FakeCloudResumeClient:
                 chunk["user_id"] == user_id
                 and chunk["resume_id"] == resume_id
                 and (generation_id is None or chunk["generation_id"] == generation_id)
+            )
+        ]
+
+    def delete_inactive_resume_chunks(self, *, user_id: str, resume_id: str, active_generation_id: str) -> None:
+        self.chunk_deletes.append(
+            {"user_id": user_id, "resume_id": resume_id, "active_generation_id": active_generation_id}
+        )
+        if self.fail_chunk_delete:
+            raise CloudResumeError("chunk prune failed with raw text: SECRET RESUME BODY")
+        self.chunks = [
+            chunk
+            for chunk in self.chunks
+            if not (
+                chunk["user_id"] == user_id
+                and chunk["resume_id"] == resume_id
+                and chunk["generation_id"] != active_generation_id
             )
         ]
 
@@ -370,7 +387,7 @@ def test_extract_uses_attempt_guard_and_returns_request_scoped_draft() -> None:
     assert "raw_resume_text" in result.profile
     assert client.records[(USER_A, RESUME_ID)].status == "needs_review"
     assert client.records[(USER_A, RESUME_ID)].extraction_attempt == 1
-    assert client.compare_calls[0]["from_statuses"] == {"uploaded", "failed", "timeout", "cancelled", "needs_review"}
+    assert client.compare_calls[0]["from_statuses"] == {"uploaded", "failed", "timeout", "cancelled", "needs_review", "indexing"}
     assert client.compare_calls[1]["extraction_attempt"] == 1
 
 
@@ -495,6 +512,13 @@ class FakeRestSession:
         self.get_calls.append({"url": url, **kwargs})
         if self.fail_all_gets or (self.fail_first_get and len(self.get_calls) == 1):
             raise requests.ConnectionError("synthetic stale connection")
+        params = kwargs.get("params")
+        if isinstance(params, dict) and url.endswith("/resume_chunks"):
+            data = self.get_response.json()
+            if isinstance(data, list):
+                offset = int(str(params.get("offset", "0")))
+                limit = int(str(params.get("limit", len(data))))
+                return FakeResponse(200, data[offset : offset + limit])
         return self.get_response
 
     def post(self, url: str, **kwargs: object) -> FakeResponse:
@@ -602,12 +626,15 @@ def test_supabase_activate_p0001_maps_to_conflict_without_raw_payload_log(
     assert "SECRET" not in caplog.text
 
 
-def test_active_chunk_select_includes_limit_and_retries_transient_failure(
+def test_active_chunk_select_paginates_above_fifty_and_retries_transient_failure(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     session = FakeRestSession()
     session.fail_first_get = True
-    session.get_response = FakeResponse(200, [{"id": "chunk-1", "chunk_text": "safe chunk"}])
+    session.get_response = FakeResponse(
+        200,
+        [{"id": f"chunk-{index}", "chunk_text": "safe chunk"} for index in range(SUPABASE_ACTIVE_CHUNK_PAGE_SIZE + 25)],
+    )
     client = _supabase_client_with_session(session)
 
     with caplog.at_level("WARNING", logger="cloud_resume"):
@@ -617,12 +644,36 @@ def test_active_chunk_select_includes_limit_and_retries_transient_failure(
             generation_id="20000000-0000-4000-8000-000000000001",
         )
 
-    assert chunks == [{"id": "chunk-1", "chunk_text": "safe chunk"}]
-    assert len(session.get_calls) == 2
-    assert session.get_calls[0]["params"]["limit"] == str(SUPABASE_ACTIVE_CHUNK_LIMIT)
+    assert len(chunks) == SUPABASE_ACTIVE_CHUNK_PAGE_SIZE + 25
+    assert len(session.get_calls) == 3
+    assert session.get_calls[0]["params"]["limit"] == str(SUPABASE_ACTIVE_CHUNK_PAGE_SIZE)
+    assert session.get_calls[0]["params"]["offset"] == "0"
+    assert session.get_calls[-1]["params"]["offset"] == str(SUPABASE_ACTIVE_CHUNK_PAGE_SIZE)
     assert session.get_calls[0]["timeout"] == SUPABASE_SELECT_ATTEMPT_TIMEOUT
     assert "stage=request_retry" in caplog.text
     assert "synthetic stale connection" not in caplog.text
+
+
+def test_active_chunk_select_is_bounded_and_filters_owner_resume_generation() -> None:
+    session = FakeRestSession()
+    session.get_response = FakeResponse(
+        200,
+        [{"id": f"chunk-{index}", "chunk_text": "safe chunk"} for index in range(SUPABASE_ACTIVE_CHUNK_HARD_LIMIT)],
+    )
+    client = _supabase_client_with_session(session)
+
+    with pytest.raises(CloudResumeError):
+        client.get_active_resume_chunks(
+            user_id=USER_A,
+            resume_id=RESUME_ID,
+            generation_id="20000000-0000-4000-8000-000000000001",
+        )
+
+    assert len(session.get_calls) == SUPABASE_ACTIVE_CHUNK_HARD_LIMIT // SUPABASE_ACTIVE_CHUNK_PAGE_SIZE
+    first_params = session.get_calls[0]["params"]
+    assert first_params["user_id"] == f"eq.{USER_A}"
+    assert first_params["resume_id"] == f"eq.{RESUME_ID}"
+    assert first_params["generation_id"] == "eq.20000000-0000-4000-8000-000000000001"
 
 
 def test_active_chunk_select_exhausted_retry_raises_safe_error(
@@ -699,7 +750,11 @@ def test_confirm_creates_chunks_marks_ready_and_activates_resume() -> None:
     assert ready_record.is_active is True
     assert ready_record.active_chunk_generation
     assert client.chunk_inserts[0][0]["generation_id"] == ready_record.active_chunk_generation
-    assert client.chunk_deletes[0] == {"user_id": USER_A, "resume_id": RESUME_ID, "generation_id": None}
+    assert client.chunk_deletes[0] == {
+        "user_id": USER_A,
+        "resume_id": RESUME_ID,
+        "active_generation_id": ready_record.active_chunk_generation,
+    }
     assert client.profiles[USER_A] == {"full_name": "Test User"}
 
 
@@ -778,7 +833,7 @@ def test_chunk_insert_failure_does_not_activate_resume_and_logs_no_raw_text(
     assert "SECRET RESUME BODY" not in caplog.text
 
 
-def test_repeated_confirmation_replaces_prior_chunks_for_same_resume_only() -> None:
+def test_successful_activation_prunes_prior_chunks_for_same_resume_only() -> None:
     client = FakeCloudResumeClient()
     client.records[(USER_A, RESUME_ID)] = _record(status="needs_review", extraction_attempt=1)
     client.chunks.extend(
@@ -818,10 +873,16 @@ def test_repeated_confirmation_replaces_prior_chunks_for_same_resume_only() -> N
         confirmed_profile={"professional_summary": "new chunk"},
     )
 
-    assert client.chunk_deletes[0] == {"user_id": USER_A, "resume_id": RESUME_ID, "generation_id": None}
+    ready_record = client.records[(USER_A, RESUME_ID)]
+    assert client.chunk_deletes[0] == {
+        "user_id": USER_A,
+        "resume_id": RESUME_ID,
+        "active_generation_id": ready_record.active_chunk_generation,
+    }
     assert not any(chunk["chunk_text"] == "old private chunk" for chunk in client.chunks)
     assert any(chunk["chunk_text"] == "other resume chunk" for chunk in client.chunks)
     assert any(chunk["chunk_text"] == "other user chunk" for chunk in client.chunks)
+    assert any(chunk["generation_id"] == ready_record.active_chunk_generation for chunk in client.chunks)
 
 
 def test_activation_conflict_does_not_mark_resume_failed_or_create_duplicate_active_resume(
@@ -852,6 +913,16 @@ def test_activation_failure_discards_current_generation_and_marks_failed() -> No
     client = FakeCloudResumeClient()
     client.activation_error = CloudResumeError("activation failed")
     client.records[(USER_A, RESUME_ID)] = _record(status="needs_review", extraction_attempt=1)
+    client.chunks.append(
+        {
+            "user_id": USER_A,
+            "resume_id": RESUME_ID,
+            "generation_id": "old-active-generation",
+            "section": "summary",
+            "chunk_text": "previous active chunk",
+            "metadata": {},
+        }
+    )
     service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
 
     with pytest.raises(CloudResumeError):
@@ -865,8 +936,30 @@ def test_activation_failure_discards_current_generation_and_marks_failed() -> No
     failed_record = client.records[(USER_A, RESUME_ID)]
     assert failed_record.status == "failed"
     assert failed_record.failure_code == "indexing_failed"
-    assert client.chunks == []
+    assert [chunk["chunk_text"] for chunk in client.chunks] == ["previous active chunk"]
     assert client.chunk_deletes[-1]["generation_id"] is not None
+
+
+def test_indexing_resume_can_retry_extraction_without_affecting_active_ready_resume() -> None:
+    active_id = "10000000-0000-4000-8000-000000000099"
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, active_id)] = _record(
+        id=active_id,
+        status="ready",
+        is_active=True,
+        active_chunk_generation="active-generation",
+    )
+    client.records[(USER_A, RESUME_ID)] = _record(status="indexing", extraction_attempt=1, is_active=False)
+    client.objects[f"{USER_A}/{RESUME_ID}/resume.txt"] = b"resume bytes"
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    result = service.extract_resume(user_id=USER_A, resume_id=RESUME_ID)
+
+    assert result.status == "needs_review"
+    assert result.extraction_attempt == 2
+    assert client.compare_calls[0]["from_statuses"] == {"uploaded", "failed", "timeout", "cancelled", "needs_review", "indexing"}
+    assert client.records[(USER_A, active_id)].status == "ready"
+    assert client.records[(USER_A, active_id)].is_active is True
 
 
 def test_failed_chunk_cleanup_logs_safely_and_preserves_original_error(

@@ -1136,7 +1136,6 @@ export function AuthResumePage({ backendUrl }) {
         if (confirmController.signal.aborted || refreshError.name === 'AbortError') {
           return
         }
-        setCurrentResume(null)
         setResumeRecord((currentRecord) => ({ ...(currentRecord || {}), id: resumeId, status: confirmed.status }))
         setMessage('Resume confirmed. Refresh to load active resume status.')
       }

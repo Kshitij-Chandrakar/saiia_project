@@ -20,8 +20,11 @@ has been applied to live `saiia-dev`, so it remains unchanged. Its
 pre-launch `SET NOT NULL` and normal index creation are acceptable for the tiny
 development dataset; future production-scale lock mitigation should use a
 separate migration strategy. Follow-up function/RPC corrections use
-`20260804151715_fix_cloud_resume_activation_profile_parsing.sql` instead of
-rewriting applied history.
+`20260804151715_fix_cloud_resume_activation_profile_parsing.sql` and
+`20260804162315_preserve_profile_fields_on_cloud_resume_activation.sql`
+instead of rewriting applied history. The latest activation RPC preserves
+existing profile values when a partial `confirmed_profile` omits fields, while
+explicit submitted empty values may still clear the submitted fields.
 
 C3 product goal:
 
