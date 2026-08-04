@@ -139,9 +139,13 @@ class FakeRouteService:
         self.confirm_payloads.append(confirmed_profile)
 
         class Result:
-            status = "needs_review"
+            status = "ready"
             confirmed_profile_saved = True
-            next_step = "index_resume"
+            next_step = "resume_ready"
+            chunks_indexed = True
+            chunk_count = 1
+            ready = True
+            active = True
 
         result = Result()
         result.resume_id = resume_id
@@ -288,7 +292,38 @@ def test_status_extract_and_confirm_are_user_owned(client: TestClient, fake_serv
     assert confirm_response.status_code == 200
     assert fake_service.user_ids == [TEST_USER_ID, TEST_USER_ID, TEST_USER_ID]
     assert fake_service.confirm_payloads == [{"full_name": "Test User"}]
-    assert confirm_response.json()["status"] == "needs_review"
+    assert confirm_response.json()["status"] == "ready"
+    assert confirm_response.json()["ready"] is True
+    assert confirm_response.json()["active"] is True
+    assert confirm_response.json()["chunks_indexed"] is True
+    assert confirm_response.json()["chunk_count"] == 1
+
+
+def test_confirm_activation_conflict_returns_safe_409(client: TestClient) -> None:
+    class ConfirmConflictService(FakeRouteService):
+        def confirm_resume(
+            self,
+            *,
+            user_id: str,
+            resume_id: str,
+            extraction_attempt: int,
+            confirmed_profile: dict[str, Any],
+        ):
+            self.user_ids.append(user_id)
+            raise CloudResumeConflictError("Resume state changed. Please refresh and try again.")
+
+    service = ConfirmConflictService()
+    client.app.dependency_overrides[resumes_api.get_cloud_resume_service] = lambda: service
+
+    response = client.post(
+        f"/api/resumes/{RESUME_ID}/confirm",
+        headers={"Authorization": f"Bearer {_token()}"},
+        json={"extraction_attempt": 1, "profile": {"full_name": "Test User"}},
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Resume state changed. Please refresh and try again."}
+    assert "service-role-unit-test-value" not in response.text
 
 
 def test_malformed_resume_id_returns_422_before_service_call(client: TestClient, fake_service: FakeRouteService) -> None:

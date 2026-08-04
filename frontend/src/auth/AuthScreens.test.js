@@ -12,6 +12,7 @@ const dashboardPageSource = source.match(/export function AuthDashboardPage[\s\S
 const resumePageSource = source.match(/export function AuthResumePage[\s\S]*?export function AuthLogoutPage/)?.[0] || ''
 const statusLogoutSource = statusPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n  \}\n\n  return \(/)?.[0] || ''
 const dashboardLogoutSource = dashboardPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n  \}\n\n  return \(/)?.[0] || ''
+const resumeRefreshCatchSource = resumePageSource.match(/catch \(refreshError\) \{[\s\S]*?\}\s*catch \(confirmError\)/)?.[0] || ''
 
 assert.ok(signupPageSource, 'AuthSignupPage source slice should be found')
 assert.ok(loginPageSource, 'AuthLoginPage source slice should be found')
@@ -20,6 +21,7 @@ assert.ok(dashboardPageSource, 'AuthDashboardPage source slice should be found')
 assert.ok(resumePageSource, 'AuthResumePage source slice should be found')
 assert.ok(statusLogoutSource, 'AuthStatusPage handleLogout source slice should be found')
 assert.ok(dashboardLogoutSource, 'AuthDashboardPage handleLogout source slice should be found')
+assert.ok(resumeRefreshCatchSource, 'AuthResumePage refresh catch source slice should be found')
 
 
 test('profile bootstrap behavior is shared by status and dashboard pages', () => {
@@ -151,7 +153,7 @@ test('cloud resume page is protected and loads current plus review candidate sta
 
 test('cloud resume page renders no active ready message only once', () => {
   assert.equal((resumePageSource.match(/No active ready resume yet\./g) || []).length, 1)
-  assert.match(resumePageSource, /setMessage\(current\.ready \? 'A ready resume exists\. C3\.4 will connect it to active cloud RAG\.' : ''\)/)
+  assert.match(resumePageSource, /setMessage\(current\.ready \? 'A ready resume is active for cloud answers\.' : ''\)/)
 })
 
 
@@ -176,20 +178,32 @@ test('cloud resume review form confirms edited normalized fields without raw res
   assert.match(source, /\['achievements', 'Achievements', 'textarea'\]/)
   assert.match(resumePageSource, /CLOUD_PROFILE_FIELDS\.map\(\(\[field, label, kind\]\)/)
   assert.match(resumePageSource, /const \[confirmPending, setConfirmPending\] = useState\(false\)/)
+  assert.match(resumePageSource, /const confirmControllerRef = useRef\(null\)/)
+  assert.match(resumePageSource, /confirmControllerRef\.current\?\.abort\(\)/)
   assert.match(resumePageSource, /if \(confirmPending\) \{[\s\S]*return\s+\}/)
   assert.match(resumePageSource, /setConfirmPending\(true\)[\s\S]*confirmCloudResume/)
   assert.match(resumePageSource, /finally \{[\s\S]*setConfirmPending\(false\)/)
-  assert.match(resumePageSource, /disabled=\{confirmPending \|\| phase === 'confirmed'\}/)
+  assert.match(resumePageSource, /draftProfile && phase !== 'confirmed'/)
   assert.match(resumePageSource, /confirmPending \? 'Saving reviewed profile\.\.\.' : 'Confirm Reviewed Profile'/)
   assert.match(resumePageSource, /confirmCloudResume\([\s\S]*normalizeCloudProfile\(draftProfile\)/)
-  assert.match(resumePageSource, /catch \(confirmError\) \{[\s\S]*setMessage\(''\)/)
+  assert.match(resumePageSource, /fetchCurrentCloudResume\(token, \{ backendUrl, signal: confirmController\.signal \}\)/)
+  assert.match(resumePageSource, /Resume confirmed and activated\./)
+  assert.match(resumePageSource, /catch \(confirmError\) \{[\s\S]*?setMessage\(''\)/)
   assert.doesNotMatch(source.match(/const CLOUD_PROFILE_FIELDS = \[[\s\S]*?\n\]/)?.[0] || '', /raw_resume_text/)
   assert.doesNotMatch(resumePageSource, /console\.log|setAccessToken|sessionToken/)
 })
 
 
-test('cloud resume page shows confirmed state without claiming ready activation', () => {
+test('cloud resume page refreshes current state after confirmation', () => {
   assert.match(resumePageSource, /setPhase\('confirmed'\)/)
-  assert.match(resumePageSource, /Resume confirmed\. C3\.4 will index and activate it\./)
+  assert.match(resumePageSource, /Resume confirmed and activated\./)
+  assert.match(resumePageSource, /Resume confirmed\. Refresh to load active resume status\./)
+  assert.match(resumePageSource, /confirmed\.ready && current\.ready/)
+  assert.match(resumePageSource, /setCurrentResume\(current\.ready \? current\.resume : null\)/)
+  assert.match(resumePageSource, /setResumeRecord\(\(currentRecord\) =>/)
+  assert.match(resumeRefreshCatchSource, /Refresh to load active resume status/)
+  assert.doesNotMatch(resumeRefreshCatchSource, /setCurrentResume\(null\)/)
+  assert.doesNotMatch(resumeRefreshCatchSource, /Could not confirm/)
+  assert.match(resumePageSource, /draftProfile && phase !== 'confirmed'/)
   assert.doesNotMatch(resumePageSource, /setCurrentResume\(.*confirmed|status: 'ready'|is_active: true/)
 })
