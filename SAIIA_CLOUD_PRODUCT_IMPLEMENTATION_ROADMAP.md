@@ -1136,7 +1136,7 @@ After a verified user first enters the dashboard:
 ## Status
 
 ```text
-[~] C3.2 backend cloud resume API complete locally/in PR - backend routes, Supabase lifecycle/security migration, backend-only service, tests, and docs complete; live saiia-dev migration/deployment pending review/approval/application; C3.3/C3.4/C3.5 pending
+[~] C3.3 frontend authenticated upload/review UI complete - C3.2 backend routes are merged and live smoke-tested; `/auth/resume` consumes `/api/resumes/*` for upload, extraction, review, and confirmation; C3.4/C3.5 pending
 ```
 
 ## Goal
@@ -1175,9 +1175,8 @@ Move resume upload, extraction review, profile saving, and resume indexing into 
   update `profiles`, set active, or mark ready.
 - [x] Existing `/api/resume/*`, `/api/profile`, and `/profile-setup` local
   desktop flows remain intentionally unchanged.
-- [ ] Live saiia-dev migration/deployment remains pending until the C3.2 PR is
-  reviewed, approved, and the migration is explicitly applied.
-- [ ] C3.3 frontend upload/review UI pending.
+- [x] C3.2 backend API merged and live smoke-tested.
+- [x] C3.3 frontend upload/review UI implemented at `/auth/resume`.
 - [ ] C3.4 cloud chunk generation/RAG activation pending.
 - [ ] C3.5 delete/rebuild/status closure pending.
 

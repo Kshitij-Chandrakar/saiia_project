@@ -16,6 +16,10 @@
   box-shadow: 0 16px 44px rgba(15, 23, 42, 0.08);
 }
 
+.auth-panel:has(.auth-cloud-resume-form) {
+  width: min(100%, 760px);
+}
+
 .auth-panel h1 {
   margin: 0 0 22px;
   font-size: 28px;
@@ -34,7 +38,8 @@
   font-weight: 600;
 }
 
-.auth-form input {
+.auth-form input,
+.auth-form textarea {
   width: 100%;
   min-height: 44px;
   padding: 10px 12px;
@@ -46,12 +51,19 @@
   font: inherit;
 }
 
-.auth-form input::placeholder {
+.auth-form textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.auth-form input::placeholder,
+.auth-form textarea::placeholder {
   color: #64748b;
   opacity: 1;
 }
 
-.auth-form input:focus {
+.auth-form input:focus,
+.auth-form textarea:focus {
   border-color: #2f8ee5;
   outline: 3px solid rgba(47, 142, 229, 0.22);
 }
@@ -179,4 +191,21 @@
 .auth-user-summary span {
   color: #475569;
   font-size: 13px;
+}
+
+.auth-review-form {
+  margin-top: 18px;
+}
+
+.auth-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.auth-section-heading h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.25;
 }
