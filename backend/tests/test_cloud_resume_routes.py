@@ -185,12 +185,59 @@ def test_current_route_returns_safe_ready_state(client: TestClient, fake_service
     assert response.json()["resume"]["status"] == "ready"
 
 
+def test_current_route_returns_ready_false_before_activation(client: TestClient) -> None:
+    class NoCurrentService(FakeRouteService):
+        def get_current_resume(self, user_id: str):
+            self.user_ids.append(user_id)
+            return None
+
+    service = NoCurrentService()
+    client.app.dependency_overrides[resumes_api.get_cloud_resume_service] = lambda: service
+
+    response = client.get("/api/resumes/current", headers={"Authorization": f"Bearer {_token()}"})
+
+    assert response.status_code == 200
+    assert response.json() == {"ready": False, "resume": None}
+    assert service.user_ids == [TEST_USER_ID]
+
+
+def test_review_candidate_route_returns_empty_state_when_no_candidate(client: TestClient) -> None:
+    class NoCandidateService(FakeRouteService):
+        def get_review_candidate(self, user_id: str):
+            self.user_ids.append(user_id)
+            return None
+
+    service = NoCandidateService()
+    client.app.dependency_overrides[resumes_api.get_cloud_resume_service] = lambda: service
+
+    response = client.get("/api/resumes/review-candidate", headers={"Authorization": f"Bearer {_token()}"})
+
+    assert response.status_code == 200
+    assert response.json() == {"has_candidate": False, "resume": None}
+    assert service.user_ids == [TEST_USER_ID]
+
+
 def test_review_candidate_route_is_separate_from_current(client: TestClient, fake_service: FakeRouteService) -> None:
     response = client.get("/api/resumes/review-candidate", headers={"Authorization": f"Bearer {_token()}"})
 
     assert response.status_code == 200
     assert response.json()["has_candidate"] is True
     assert response.json()["resume"]["status"] == "needs_review"
+
+
+def test_review_candidate_route_returns_empty_after_confirmed_state(client: TestClient) -> None:
+    class ConfirmedCandidateService(FakeRouteService):
+        def get_review_candidate(self, user_id: str):
+            self.user_ids.append(user_id)
+            return None
+
+    service = ConfirmedCandidateService()
+    client.app.dependency_overrides[resumes_api.get_cloud_resume_service] = lambda: service
+
+    response = client.get("/api/resumes/review-candidate", headers={"Authorization": f"Bearer {_token()}"})
+
+    assert response.status_code == 200
+    assert response.json() == {"has_candidate": False, "resume": None}
 
 
 def test_status_extract_and_confirm_are_user_owned(client: TestClient, fake_service: FakeRouteService) -> None:

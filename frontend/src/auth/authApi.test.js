@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { bootstrapProfile, fetchCurrentUser } from './authApi.js'
+import {
+  bootstrapProfile,
+  confirmCloudResume,
+  extractCloudResume,
+  fetchCloudResumeStatus,
+  fetchCurrentCloudResume,
+  fetchCurrentUser,
+  fetchReviewCandidate,
+  uploadCloudResume,
+} from './authApi.js'
 import { getSupabaseAuthConfig, hasSupabaseAuthConfig } from './supabaseClient.js'
 
 
@@ -104,4 +113,67 @@ test('bootstrapProfile posts bearer token and returns safe status', async () => 
   })
   assert.equal('access_token' in result, false)
   assert.equal('private_server_value' in result, false)
+})
+
+
+test('cloud resume helpers call authenticated backend routes', async () => {
+  const rawToken = 'unit-test-access-token'
+  const calls = []
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init })
+    if (url.endsWith('/api/resumes/current')) {
+      return { ok: true, json: async () => ({ ready: false, resume: null }) }
+    }
+    if (url.endsWith('/api/resumes/review-candidate')) {
+      return { ok: true, json: async () => ({ has_candidate: false, resume: null }) }
+    }
+    if (url.endsWith('/status')) {
+      return { ok: true, json: async () => ({ id: 'resume-id', status: 'uploaded' }) }
+    }
+    if (url.endsWith('/extract')) {
+      return {
+        ok: true,
+        json: async () => ({
+          resume_id: 'resume-id',
+          status: 'needs_review',
+          extraction_attempt: 1,
+          profile: { full_name: 'Test User' },
+        }),
+      }
+    }
+    if (url.endsWith('/confirm')) {
+      return {
+        ok: true,
+        json: async () => ({
+          resume_id: 'resume-id',
+          status: 'needs_review',
+          extraction_attempt: 1,
+          confirmed_profile_saved: true,
+        }),
+      }
+    }
+    return { ok: true, json: async () => ({ id: 'resume-id', status: 'uploaded' }) }
+  }
+
+  await uploadCloudResume(rawToken, new Blob(['resume'], { type: 'text/plain' }), { fetchImpl })
+  await fetchCurrentCloudResume(rawToken, { fetchImpl })
+  await fetchReviewCandidate(rawToken, { fetchImpl })
+  await fetchCloudResumeStatus(rawToken, 'resume-id', { fetchImpl })
+  await extractCloudResume(rawToken, 'resume-id', { fetchImpl })
+  await confirmCloudResume(rawToken, 'resume-id', 1, { full_name: 'Edited User' }, { fetchImpl })
+
+  assert.deepEqual(calls.map((call) => [call.init.method, call.url]), [
+    ['POST', 'http://localhost:8000/api/resumes'],
+    ['GET', 'http://localhost:8000/api/resumes/current'],
+    ['GET', 'http://localhost:8000/api/resumes/review-candidate'],
+    ['GET', 'http://localhost:8000/api/resumes/resume-id/status'],
+    ['POST', 'http://localhost:8000/api/resumes/resume-id/extract'],
+    ['POST', 'http://localhost:8000/api/resumes/resume-id/confirm'],
+  ])
+  assert.equal(calls.every((call) => call.init.headers.Authorization === `Bearer ${rawToken}`), true)
+  assert.equal(calls[5].init.headers['Content-Type'], 'application/json')
+  assert.deepEqual(JSON.parse(calls[5].init.body), {
+    extraction_attempt: 1,
+    profile: { full_name: 'Edited User' },
+  })
 })

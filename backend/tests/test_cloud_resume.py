@@ -1,4 +1,5 @@
 import pytest
+import requests
 
 from app.nlp.answer_generator import ProviderError
 from app.services.affinda_resume_parser import AffindaResumeParserError
@@ -102,7 +103,7 @@ class FakeCloudResumeClient:
         candidates = [
             record
             for (record_user_id, _), record in self.records.items()
-            if record_user_id == user_id and record.status == "needs_review"
+            if record_user_id == user_id and record.status == "needs_review" and not record.confirmed_at
         ]
         return candidates[0] if candidates else None
 
@@ -255,6 +256,31 @@ def test_review_candidate_returns_needs_review_separately() -> None:
     assert result.status == "needs_review"
 
 
+@pytest.mark.parametrize("status", ["uploaded", "failed"])
+def test_review_candidate_ignores_non_review_statuses(status: str) -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(status=status)
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    result = service.get_review_candidate(USER_A)
+
+    assert result is None
+
+
+def test_review_candidate_ignores_confirmed_needs_review_resume() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(
+        status="needs_review",
+        confirmed_at="2026-08-04T00:00:00+00:00",
+        confirmed_profile={"full_name": "Confirmed"},
+    )
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    result = service.get_review_candidate(USER_A)
+
+    assert result is None
+
+
 def test_extract_uses_attempt_guard_and_returns_request_scoped_draft() -> None:
     client = FakeCloudResumeClient()
     client.records[(USER_A, RESUME_ID)] = _record(status="uploaded", extraction_attempt=0)
@@ -376,11 +402,20 @@ class FakeResponse:
 class FakeRestSession:
     def __init__(self) -> None:
         self.patch_calls: list[dict[str, object]] = []
+        self.get_calls: list[dict[str, object]] = []
         self.patch_response = FakeResponse(200, [_record(status="needs_review", extraction_attempt=3).__dict__])
+        self.get_response = FakeResponse(200, [])
+        self.fail_first_get = False
 
     def patch(self, url: str, **kwargs: object) -> FakeResponse:
         self.patch_calls.append({"url": url, **kwargs})
         return self.patch_response
+
+    def get(self, url: str, **kwargs: object) -> FakeResponse:
+        self.get_calls.append({"url": url, **kwargs})
+        if self.fail_first_get and len(self.get_calls) == 1:
+            raise requests.ConnectionError("synthetic stale connection")
+        return self.get_response
 
 
 def _supabase_client_with_session(session: FakeRestSession) -> SupabaseCloudResumeClient:
@@ -416,6 +451,25 @@ def test_supabase_compare_and_set_sends_status_user_resume_and_attempt_guards() 
     assert params["user_id"] == f"eq.{USER_A}"
     assert params["status"] == "in.(extracting)"
     assert params["extraction_attempt"] == "eq.3"
+
+
+def test_supabase_select_retries_one_transient_connection_error_without_raw_payload_logs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    session = FakeRestSession()
+    session.fail_first_get = True
+    session.get_response = FakeResponse(200, [])
+    client = _supabase_client_with_session(session)
+
+    with caplog.at_level("WARNING", logger="cloud_resume"):
+        result = client.get_review_candidate(USER_A)
+
+    assert result is None
+    assert len(session.get_calls) == 2
+    assert session.get_calls[0]["params"]["status"] == "eq.needs_review"
+    assert session.get_calls[0]["params"]["confirmed_at"] == "is.null"
+    assert "stage=request_retry" in caplog.text
+    assert "synthetic stale connection" not in caplog.text
 
 
 def test_confirm_requires_needs_review_and_matching_attempt() -> None:

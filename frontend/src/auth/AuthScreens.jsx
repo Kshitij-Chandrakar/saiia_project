@@ -1,8 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { Eye, EyeOff, LogOut } from 'lucide-react'
+import { Eye, EyeOff, FileText, LogOut, Upload } from 'lucide-react'
 
-import { bootstrapProfile, fetchCurrentUser } from './authApi'
+import {
+  bootstrapProfile,
+  confirmCloudResume,
+  extractCloudResume,
+  fetchCloudResumeStatus,
+  fetchCurrentCloudResume,
+  fetchCurrentUser,
+  fetchReviewCandidate,
+  uploadCloudResume,
+} from './authApi'
 import { supabase } from './supabaseClient'
 import './auth.css'
 
@@ -12,6 +21,34 @@ const PASSWORD_RESET_URL = 'http://localhost:5173/auth/reset-password'
 const DEFAULT_LOGIN_NEXT_ROUTE = '/auth/dashboard'
 const SAFE_AUTH_NEXT_ROUTES = new Set(['/auth/dashboard', '/auth/status'])
 const LOGIN_REQUIRED_MESSAGE = 'Session expired or signed out. Please log in.'
+const MAX_RESUME_FILE_BYTES = 5 * 1024 * 1024
+const SUPPORTED_RESUME_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain',
+])
+const SUPPORTED_RESUME_EXTENSIONS = new Set(['.pdf', '.docx', '.txt'])
+const CLOUD_PROFILE_FIELDS = [
+  ['full_name', 'Full name', 'input'],
+  ['email', 'Email', 'input'],
+  ['phone', 'Phone', 'input'],
+  ['location', 'Location', 'input'],
+  ['current_title', 'Current title', 'input'],
+  ['target_role', 'Target role', 'input'],
+  ['professional_summary', 'Professional summary', 'textarea'],
+  ['education', 'Education', 'textarea'],
+  ['degree', 'Degree', 'input'],
+  ['branch', 'Branch', 'input'],
+  ['college', 'College / university', 'input'],
+  ['graduation_year', 'Graduation year', 'input'],
+  ['top_skills', 'Top skills', 'textarea'],
+  ['technical_skills', 'Technical skills', 'textarea'],
+  ['tools_frameworks', 'Tools / frameworks', 'textarea'],
+  ['projects', 'Projects', 'textarea'],
+  ['experience', 'Experience', 'textarea'],
+  ['certifications', 'Certifications', 'textarea'],
+  ['achievements', 'Achievements', 'textarea'],
+]
 
 
 function getSafeAuthNextRoute(value, fallback = DEFAULT_LOGIN_NEXT_ROUTE) {
@@ -205,9 +242,39 @@ function AuthLinks({ mode }) {
       {mode !== 'signup' && <Link to="/auth/signup">Sign up</Link>}
       {mode !== 'forgot' && <Link to="/auth/forgot-password">Forgot password</Link>}
       <Link to="/auth/dashboard">Dashboard</Link>
+      <Link to="/auth/resume">Cloud resume</Link>
       <Link to="/">Desktop app</Link>
     </nav>
   )
+}
+
+
+function normalizeCloudProfile(profile = {}) {
+  return Object.fromEntries(
+    CLOUD_PROFILE_FIELDS.map(([field]) => [field, String(profile[field] || '')]),
+  )
+}
+
+
+function validateCloudResumeFile(file) {
+  if (!file) {
+    return 'Choose a resume file first.'
+  }
+  const lowerName = String(file.name || '').toLowerCase()
+  const extension = lowerName.slice(lowerName.lastIndexOf('.'))
+  if (!SUPPORTED_RESUME_EXTENSIONS.has(extension)) {
+    return 'Upload a PDF, DOCX, or TXT resume.'
+  }
+  if (file.type && file.type !== 'application/octet-stream' && !SUPPORTED_RESUME_TYPES.has(file.type)) {
+    return 'The selected file type does not match PDF, DOCX, or TXT.'
+  }
+  if (!file.size) {
+    return 'The selected resume file is empty.'
+  }
+  if (file.size > MAX_RESUME_FILE_BYTES) {
+    return 'Upload a resume under 5 MB.'
+  }
+  return ''
 }
 
 
@@ -846,6 +913,248 @@ export function AuthDashboardPage({ backendUrl }) {
             {logoutPending ? 'Signing out...' : 'Logout'}
           </button>
           <nav className="auth-links" aria-label="Account navigation">
+            <Link to="/auth/status">Auth status</Link>
+            <Link to="/auth/resume">Cloud resume</Link>
+            <Link to="/">Desktop app</Link>
+          </nav>
+        </AuthShell>
+      )}
+    </RequireAuth>
+  )
+}
+
+
+export function AuthResumePage({ backendUrl }) {
+  const [file, setFile] = useState(null)
+  const [currentResume, setCurrentResume] = useState(null)
+  const [reviewCandidate, setReviewCandidate] = useState(null)
+  const [resumeRecord, setResumeRecord] = useState(null)
+  const [draftProfile, setDraftProfile] = useState(null)
+  const [extractionAttempt, setExtractionAttempt] = useState(null)
+  const [phase, setPhase] = useState('loading')
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  async function getSessionToken(sessionErrorMessage = 'Session expired or signed out. Please log in again.') {
+    if (!supabase) {
+      throw new Error('Supabase auth is not configured for this build.')
+    }
+    const { data, error: sessionError } = await supabase.auth.getSession()
+    if (sessionError || !data.session?.access_token) {
+      throw new Error(sessionErrorMessage)
+    }
+    return data.session.access_token
+  }
+
+  async function loadCloudResumeState() {
+    setPhase('loading')
+    setError('')
+    setMessage('')
+    try {
+      const token = await getSessionToken()
+      const [current, candidate] = await Promise.all([
+        fetchCurrentCloudResume(token, { backendUrl }),
+        fetchReviewCandidate(token, { backendUrl }),
+      ])
+      setCurrentResume(current.ready ? current.resume : null)
+      setReviewCandidate(candidate.has_candidate ? candidate.resume : null)
+      setResumeRecord(candidate.has_candidate ? candidate.resume : current.resume)
+      setPhase(candidate.has_candidate ? 'needs_review' : 'idle')
+      setMessage(current.ready ? 'A ready resume exists. C3.4 will connect it to active cloud RAG.' : '')
+    } catch (stateError) {
+      setPhase('failed')
+      setError(stateError.message || 'Could not load cloud resume state.')
+    }
+  }
+
+  useEffect(() => {
+    let ignore = false
+
+    async function guardedLoad() {
+      if (ignore) {
+        return
+      }
+      await loadCloudResumeState()
+    }
+
+    guardedLoad()
+    return () => {
+      ignore = true
+    }
+  }, [backendUrl])
+
+  function handleFileChange(event) {
+    const selectedFile = event.target.files?.[0] || null
+    setFile(selectedFile)
+    setError(selectedFile ? validateCloudResumeFile(selectedFile) : '')
+    setMessage('')
+  }
+
+  function updateDraftField(field, value) {
+    setDraftProfile((current) => ({
+      ...normalizeCloudProfile(current || {}),
+      [field]: value,
+    }))
+  }
+
+  async function handleUploadAndExtract(event) {
+    event.preventDefault()
+    const validationError = validateCloudResumeFile(file)
+    if (validationError) {
+      setError(validationError)
+      return
+    }
+
+    setError('')
+    setMessage('Uploading resume...')
+    setPhase('uploading')
+    setDraftProfile(null)
+    setExtractionAttempt(null)
+
+    try {
+      const token = await getSessionToken()
+      const uploaded = await uploadCloudResume(token, file, { backendUrl })
+      setResumeRecord(uploaded)
+      setMessage('Resume uploaded. Starting extraction...')
+      await fetchCloudResumeStatus(token, uploaded.id, { backendUrl })
+      setPhase('extracting')
+      setMessage('Analyzing resume...')
+      const extracted = await extractCloudResume(token, uploaded.id, { backendUrl })
+      setResumeRecord({ ...uploaded, status: extracted.status, extraction_attempt: extracted.extraction_attempt })
+      setDraftProfile(normalizeCloudProfile(extracted.profile))
+      setExtractionAttempt(extracted.extraction_attempt)
+      setReviewCandidate({ ...uploaded, status: extracted.status, extraction_attempt: extracted.extraction_attempt })
+      setPhase('needs_review')
+      setMessage(extracted.review_required ? 'Some fields need manual review.' : 'Review extracted profile.')
+    } catch (resumeError) {
+      setPhase('failed')
+      setError(resumeError.message || 'Extraction failed. Try again or upload another file.')
+      setMessage('Extraction failed. Try again or upload another file.')
+    }
+  }
+
+  async function handleExtractCandidate() {
+    if (!reviewCandidate?.id) {
+      return
+    }
+    setError('')
+    setMessage('Analyzing resume...')
+    setPhase('extracting')
+    try {
+      const token = await getSessionToken()
+      const extracted = await extractCloudResume(token, reviewCandidate.id, { backendUrl })
+      setDraftProfile(normalizeCloudProfile(extracted.profile))
+      setExtractionAttempt(extracted.extraction_attempt)
+      setResumeRecord({ ...reviewCandidate, status: extracted.status, extraction_attempt: extracted.extraction_attempt })
+      setPhase('needs_review')
+      setMessage(extracted.review_required ? 'Some fields need manual review.' : 'Review extracted profile.')
+    } catch (resumeError) {
+      setPhase('failed')
+      setError(resumeError.message || 'Extraction failed. Try again or upload another file.')
+      setMessage('Extraction failed. Try again or upload another file.')
+    }
+  }
+
+  async function handleConfirmProfile(event) {
+    event.preventDefault()
+    const resumeId = resumeRecord?.id || reviewCandidate?.id
+    if (!resumeId || !extractionAttempt || !draftProfile) {
+      setError('Run extraction before confirming the profile.')
+      return
+    }
+
+    setError('')
+    setMessage('Saving reviewed profile...')
+    try {
+      const token = await getSessionToken()
+      const confirmed = await confirmCloudResume(
+        token,
+        resumeId,
+        extractionAttempt,
+        normalizeCloudProfile(draftProfile),
+        { backendUrl },
+      )
+      setPhase('confirmed')
+      setMessage(confirmed.confirmed_profile_saved ? 'Resume confirmed. C3.4 will index and activate it.' : 'Resume confirmation finished.')
+    } catch (confirmError) {
+      setError(confirmError.message || 'Could not confirm the reviewed profile.')
+    }
+  }
+
+  const busy = ['loading', 'uploading', 'extracting'].includes(phase)
+  const uploadDisabled = busy || !file || Boolean(validateCloudResumeFile(file))
+
+  return (
+    <RequireAuth backendUrl={backendUrl}>
+      {(user) => (
+        <AuthShell title="Cloud Resume">
+          <div className="auth-user-summary">
+            <p>{user.email || user.user_id}</p>
+            <span>Authenticated cloud resume setup</span>
+          </div>
+          <AuthMessage message={error} tone="error" />
+          <AuthMessage message={message} tone={phase === 'failed' ? 'error' : 'info'} />
+          {currentResume ? (
+            <div className="auth-user-summary">
+              <p>Current ready resume</p>
+              <span>{currentResume.original_filename} - {currentResume.status}</span>
+            </div>
+          ) : (
+            <p className="auth-message info">No active ready resume yet.</p>
+          )}
+          {reviewCandidate && !draftProfile && (
+            <div className="auth-user-summary">
+              <p>Review candidate found</p>
+              <span>{reviewCandidate.original_filename} - re-run extraction if the draft was lost.</span>
+              <button className="auth-secondary-button" type="button" onClick={handleExtractCandidate} disabled={busy}>
+                {phase === 'extracting' ? 'Analyzing resume...' : 'Extract Again'}
+              </button>
+            </div>
+          )}
+          <form className="auth-form auth-cloud-resume-form" onSubmit={handleUploadAndExtract}>
+            <label>
+              Resume file
+              <input
+                type="file"
+                accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                onChange={handleFileChange}
+              />
+            </label>
+            <button type="submit" disabled={uploadDisabled}>
+              <Upload size={18} aria-hidden="true" />
+              {phase === 'uploading' ? 'Uploading resume...' : phase === 'extracting' ? 'Analyzing resume...' : 'Upload and Extract'}
+            </button>
+          </form>
+          {draftProfile && (
+            <form className="auth-form auth-review-form" onSubmit={handleConfirmProfile}>
+              <div className="auth-section-heading">
+                <FileText size={18} aria-hidden="true" />
+                <h2>Review extracted profile</h2>
+              </div>
+              {CLOUD_PROFILE_FIELDS.map(([field, label, kind]) => (
+                <label key={field}>
+                  {label}
+                  {kind === 'textarea' ? (
+                    <textarea
+                      value={draftProfile[field] || ''}
+                      onChange={(event) => updateDraftField(field, event.target.value)}
+                    />
+                  ) : (
+                    <input
+                      type={field === 'email' ? 'email' : 'text'}
+                      value={draftProfile[field] || ''}
+                      onChange={(event) => updateDraftField(field, event.target.value)}
+                    />
+                  )}
+                </label>
+              ))}
+              <button type="submit" disabled={phase === 'confirmed'}>
+                {phase === 'confirmed' ? 'Resume confirmed' : 'Confirm Reviewed Profile'}
+              </button>
+            </form>
+          )}
+          <nav className="auth-links" aria-label="Resume navigation">
+            <Link to="/auth/dashboard">Dashboard</Link>
             <Link to="/auth/status">Auth status</Link>
             <Link to="/">Desktop app</Link>
           </nav>

@@ -6,6 +6,7 @@ import {
   AuthForgotPasswordPage,
   AuthLoginPage,
   AuthLogoutPage,
+  AuthResumePage,
   AuthResetPasswordPage,
   AuthSignupPage,
   AuthStatusPage,
@@ -5918,6 +5919,7 @@ export default function App() {
       <Route path="/auth/callback" element={<AuthCallbackPage backendUrl={BACKEND_URL} />} />
       <Route path="/auth/status" element={<AuthStatusPage backendUrl={BACKEND_URL} />} />
       <Route path="/auth/dashboard" element={<AuthDashboardPage backendUrl={BACKEND_URL} />} />
+      <Route path="/auth/resume" element={<AuthResumePage backendUrl={BACKEND_URL} />} />
       <Route path="/auth/logout" element={<AuthLogoutPage />} />
       <Route path="/" element={<MainWindow />} />
       <Route path="/profile-setup" element={<ProfileSetupForm />} />

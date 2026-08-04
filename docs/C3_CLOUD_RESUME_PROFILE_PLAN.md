@@ -10,7 +10,7 @@ website UI.
 ```text
 [x] C3.1 audit/design complete
 [x] C3.2 backend cloud resume API implemented
-[ ] C3.3 frontend authenticated upload/review UI pending
+[x] C3.3 frontend authenticated upload/review UI implemented
 [ ] C3.4 cloud resume indexing/RAG ownership pending
 [ ] C3.5 delete/rebuild/status + closure pending
 ```
@@ -626,7 +626,9 @@ flow remains usable without login.
 - C3.2 backend cloud resume API: add authenticated upload/status/extract/confirm
   route foundations and backend-only Supabase storage/table services.
 - C3.3 frontend authenticated upload/review UI: add temporary authenticated UI
-  for upload, extraction draft review, confirmation, and status.
+  for upload, extraction draft review, confirmation, and status. Implemented
+  under `/auth/resume`; it consumes C3.2 routes, confirms reviewed fields, and
+  does not send `raw_resume_text`.
 - C3.4 cloud resume indexing/RAG ownership: persist user-owned chunks and add
   retrieval that filters by `user_id`.
 - C3.5 delete/rebuild/status + closure: finish delete/rebuild/status behavior,
@@ -655,7 +657,7 @@ flow remains usable without login.
 - [ ] Add delete behavior.
 - [x] Preserve existing local desktop routes.
 - [x] Add focused backend tests.
-- [ ] Add frontend auth/upload tests during C3.3.
+- [x] Add frontend auth/upload tests during C3.3.
 - [ ] Add manual live Supabase validation checklist for saiia-dev.
 
 ## Acceptance Criteria

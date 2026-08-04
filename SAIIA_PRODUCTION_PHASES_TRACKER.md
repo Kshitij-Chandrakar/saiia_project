@@ -3,7 +3,7 @@
 **Product:** SAIIA â€” Smart AI Interview Assistant  
 **Document Type:** Production phase checklist for developer + Codex  
 **Version:** 1.1  
-**Last updated:** 2026-08-03
+**Last updated:** 2026-08-04
 **Purpose:** Track SAIIA after MVP and guide development toward a polished production-ready application.
 
 ---
@@ -36,7 +36,7 @@ This tracker is the live execution log for the production build.
 Current active execution phase:
 
 ```text
-C3.2 - Backend Cloud Resume API complete locally/in PR; live saiia-dev migration pending review/approval/application; C3.3 frontend upload/review UI pending after C3.2 PR merge and live migration decision
+C3.3 - Frontend authenticated cloud resume upload/review UI complete; C3.4 indexing/RAG activation pending
 ```
 
 Screen Intelligence documentation:
@@ -72,7 +72,7 @@ C2 current status:
 C3 current status:
 
 ```text
-[~] Active - C3.1 Cloud Resume/Profile Storage Planning + Audit complete; C3.2 Backend Cloud Resume API complete locally/in PR with Supabase lifecycle/security migration and authenticated `/api/resumes/*` backend routes; live saiia-dev migration/deployment remains pending review/approval/application; C3.3 frontend upload UI pending after C3.2 PR merge and live migration decision; no C3.4 cloud RAG/index activation, C3.5 delete closure, C4, C5, sessions, billing, payment, email provider, admin console, or final website UI started
+[~] Active - C3.1 Cloud Resume/Profile Storage Planning + Audit complete; C3.2 Backend Cloud Resume API merged and live smoke-tested; C3.3 frontend authenticated upload/review UI implemented under `/auth/resume`; no C3.4 cloud RAG/index activation, C3.5 delete closure, C4, C5, sessions, billing, payment, email provider, admin console, or final website UI started
 ```
 
 Primary references:
@@ -1534,7 +1534,7 @@ P17 Protected commercial edition
 # Current Immediate Next Phase
 
 ```text
-C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is complete locally/in PR with live saiia-dev migration/deployment still pending review, approval, and explicit application. Next phase is C3.3 frontend upload/review UI only after the C3.2 PR is reviewed/merged and the live migration decision is recorded. No C3.3 frontend upload UI, C3.4 cloud RAG/index activation, C3.5 delete closure, C4, C5 desktop login/cloud sync, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI work has started.
+C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is merged and live smoke-tested. C3.3 frontend authenticated upload/review UI is implemented under `/auth/resume`. Next phase is C3.4 cloud RAG/index activation only after explicit approval. No C3.4 cloud RAG/index activation, C3.5 delete closure, C4, C5 desktop login/cloud sync, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI work has started.
 ```
 
 P6B/P8/P9 consolidation records are preserved as historical desktop validation notes, not as the current execution authority.

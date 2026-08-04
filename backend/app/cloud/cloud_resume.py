@@ -323,6 +323,7 @@ class SupabaseCloudResumeClient:
             {
                 "user_id": f"eq.{user_id}",
                 "status": "eq.needs_review",
+                "confirmed_at": "is.null",
                 "order": "updated_at.desc",
                 "limit": "1",
             }
@@ -330,15 +331,26 @@ class SupabaseCloudResumeClient:
         return rows[0] if rows else None
 
     def _select_resumes(self, params: dict[str, str]) -> list[CloudResumeRecord]:
-        try:
-            response = self._session.get(
-                f"{self._rest_url}/resumes",
-                headers=self._headers,
-                params={"select": "*", **params},
-                timeout=10,
-            )
-        except requests.RequestException as exc:
-            self._raise_request("resumes", "select", exc)
+        query = {"select": "*", **params}
+        for attempt in (1, 2):
+            try:
+                response = self._session.get(
+                    f"{self._rest_url}/resumes",
+                    headers=self._headers,
+                    params=query,
+                    timeout=10,
+                )
+                break
+            except requests.RequestException as exc:
+                if attempt == 1:
+                    logger.warning(
+                        "Supabase cloud resume select retry: target=resumes operation=select stage=request_retry error_type=%s",
+                        type(exc).__name__,
+                    )
+                    continue
+                self._raise_request("resumes", "select", exc)
+        else:
+            raise CloudResumeError("Supabase cloud resume operation failed.")
         if response.status_code != 200:
             self._raise_response("resumes", "select", response)
         data = response.json()
