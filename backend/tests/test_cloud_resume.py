@@ -60,6 +60,19 @@ def _record(**overrides: object) -> CloudResumeRecord:
     return CloudResumeRecord(**payload)  # type: ignore[arg-type]
 
 
+def _matches_inactive_generation(
+    chunk: dict[str, object],
+    user_id: str,
+    resume_id: str,
+    active_generation_id: str,
+) -> bool:
+    if chunk["user_id"] != user_id or chunk["resume_id"] != resume_id:
+        return False
+
+    generation_id = chunk.get("generation_id")
+    return generation_id is None or generation_id != active_generation_id
+
+
 class FakeCloudResumeClient:
     def __init__(self) -> None:
         self.records: dict[tuple[str, str], CloudResumeRecord] = {}
@@ -154,11 +167,7 @@ class FakeCloudResumeClient:
         self.chunks = [
             chunk
             for chunk in self.chunks
-            if not (
-                chunk["user_id"] == user_id
-                and chunk["resume_id"] == resume_id
-                and chunk["generation_id"] != active_generation_id
-            )
+            if not _matches_inactive_generation(chunk, user_id, resume_id, active_generation_id)
         ]
 
     def activate_resume(
@@ -879,11 +888,27 @@ def test_successful_activation_prunes_prior_chunks_for_same_resume_only() -> Non
                 "metadata": {},
             },
             {
+                "user_id": USER_A,
+                "resume_id": "other-resume",
+                "generation_id": None,
+                "section": "legacy",
+                "chunk_text": "other resume null generation chunk",
+                "metadata": {},
+            },
+            {
                 "user_id": USER_B,
                 "resume_id": RESUME_ID,
                 "generation_id": "other-user-generation",
                 "section": "summary",
                 "chunk_text": "other user chunk",
+                "metadata": {},
+            },
+            {
+                "user_id": USER_B,
+                "resume_id": RESUME_ID,
+                "generation_id": None,
+                "section": "legacy",
+                "chunk_text": "other user null generation chunk",
                 "metadata": {},
             },
         ]
@@ -906,7 +931,9 @@ def test_successful_activation_prunes_prior_chunks_for_same_resume_only() -> Non
     assert not any(chunk["chunk_text"] == "legacy null generation chunk" for chunk in client.chunks)
     assert not any(chunk["chunk_text"] == "old private chunk" for chunk in client.chunks)
     assert any(chunk["chunk_text"] == "other resume chunk" for chunk in client.chunks)
+    assert any(chunk["chunk_text"] == "other resume null generation chunk" for chunk in client.chunks)
     assert any(chunk["chunk_text"] == "other user chunk" for chunk in client.chunks)
+    assert any(chunk["chunk_text"] == "other user null generation chunk" for chunk in client.chunks)
     assert any(chunk["generation_id"] == ready_record.active_chunk_generation for chunk in client.chunks)
 
 
