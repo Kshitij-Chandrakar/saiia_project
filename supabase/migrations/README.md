@@ -22,6 +22,10 @@ Current migrations:
   resume lifecycle columns, named constraints, one-active-resume index, and
   narrows direct authenticated writes so cloud resume mutations go through the
   backend/RPC boundary.
+- `20260804134140_add_cloud_resume_chunk_activation.sql`: adds C3.4
+  `resume_chunks.generation_id`, generation indexes, and a backend-only
+  transactional activation RPC for profile upsert, ready-resume activation, and
+  active chunk-generation switching.
 
 Do not create tables through the Supabase dashboard without adding an
 equivalent migration. These committed migrations are the source of truth.

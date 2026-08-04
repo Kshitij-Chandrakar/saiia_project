@@ -139,9 +139,13 @@ class FakeRouteService:
         self.confirm_payloads.append(confirmed_profile)
 
         class Result:
-            status = "needs_review"
+            status = "ready"
             confirmed_profile_saved = True
-            next_step = "index_resume"
+            next_step = "resume_ready"
+            chunks_indexed = True
+            chunk_count = 1
+            ready = True
+            active = True
 
         result = Result()
         result.resume_id = resume_id
@@ -288,7 +292,11 @@ def test_status_extract_and_confirm_are_user_owned(client: TestClient, fake_serv
     assert confirm_response.status_code == 200
     assert fake_service.user_ids == [TEST_USER_ID, TEST_USER_ID, TEST_USER_ID]
     assert fake_service.confirm_payloads == [{"full_name": "Test User"}]
-    assert confirm_response.json()["status"] == "needs_review"
+    assert confirm_response.json()["status"] == "ready"
+    assert confirm_response.json()["ready"] is True
+    assert confirm_response.json()["active"] is True
+    assert confirm_response.json()["chunks_indexed"] is True
+    assert confirm_response.json()["chunk_count"] == 1
 
 
 def test_malformed_resume_id_returns_422_before_service_call(client: TestClient, fake_service: FakeRouteService) -> None:

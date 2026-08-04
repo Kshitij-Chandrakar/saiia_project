@@ -11,7 +11,7 @@ website UI.
 [x] C3.1 audit/design complete
 [x] C3.2 backend cloud resume API implemented
 [x] C3.3 frontend authenticated upload/review UI implemented
-[ ] C3.4 cloud resume indexing/RAG ownership pending
+[x] C3.4 cloud resume indexing/RAG ownership implemented
 [ ] C3.5 delete/rebuild/status + closure pending
 ```
 
@@ -368,15 +368,14 @@ Recommended behavior:
   extraction services, update safe extraction status, and return editable
   request-scoped draft profile fields.
 - `POST /api/resumes/{resume_id}/confirm`: authenticate, check `user_id`, verify
-  server-owned preconditions, and store reviewed normalized fields as
-  `resumes.confirmed_profile`. It must not update `profiles` directly.
-- `POST /api/resumes/{resume_id}/index`: authenticate, check `user_id`, rebuild
-  `resume_chunks` for that resume with a new `generation_id`, then activate the
-  resume/profile/chunk generation atomically only after rebuild succeeds. The
-  activation transaction must upsert/update `profiles` from
-  `resumes.confirmed_profile`, set the candidate resume `status='ready'`, set
-  candidate `is_active=true`, deactivate the previous active resume for the
-  same user, and switch `active_chunk_generation`.
+  server-owned preconditions, store reviewed normalized fields as
+  `resumes.confirmed_profile`, build `resume_chunks` for that resume with a new
+  `generation_id`, then activate the resume/profile/chunk generation
+  atomically only after rebuild succeeds. The activation transaction
+  upserts/updates `profiles` from `resumes.confirmed_profile`, sets the
+  candidate resume `status='ready'`, sets candidate `is_active=true`,
+  deactivates the previous active resume for the same user, and switches
+  `active_chunk_generation`.
 - `GET /api/resumes/{resume_id}/status`: authenticate, check `user_id`, return
   parser/extraction/index/review status.
 - `DELETE /api/resumes/{resume_id}`: authenticate, check `user_id`, delete the
@@ -519,8 +518,10 @@ Required contract:
 - The frontend lets the user review/edit those fields.
 - `POST /api/resumes/{resume_id}/confirm` validates server-owned preconditions
   and stores the reviewed normalized fields as `resumes.confirmed_profile`.
-- `POST /api/resumes/{resume_id}/index` builds replacement chunks for that
-  candidate resume and then performs one atomic activation transaction:
+- C3.4 implements indexing/activation inside
+  `POST /api/resumes/{resume_id}/confirm`: after confirmation writes the
+  candidate snapshot, the backend builds replacement chunks and then performs
+  one atomic activation transaction:
   upsert/update `profiles` from `resumes.confirmed_profile`, set candidate
   resume `status='ready'`, set candidate resume `is_active=true`, deactivate
   the previous active resume for the same user, and switch active chunk
@@ -629,8 +630,11 @@ flow remains usable without login.
   for upload, extraction draft review, confirmation, and status. Implemented
   under `/auth/resume`; it consumes C3.2 routes, confirms reviewed fields, and
   does not send `raw_resume_text`.
-- C3.4 cloud resume indexing/RAG ownership: persist user-owned chunks and add
-  retrieval that filters by `user_id`.
+- C3.4 cloud resume indexing/RAG ownership: implemented through the existing
+  confirm route. It persists user-owned chunks with `generation_id`, activates
+  the ready resume through a backend-only transactional RPC, and adds a
+  service-level retrieval method that filters by `user_id`, active resume, and
+  active chunk generation.
 - C3.5 delete/rebuild/status + closure: finish delete/rebuild/status behavior,
   run live/manual validation, and close C3.
 
@@ -650,9 +654,9 @@ flow remains usable without login.
 - [x] Reuse `ResumeParserService` for extraction.
 - [x] Return editable draft profile fields without marking them confirmed.
 - [x] Confirm reviewed normalized fields into `resumes.confirmed_profile` only.
-- [ ] Upsert/update `profiles` only inside the atomic activation transaction
+- [x] Upsert/update `profiles` only inside the atomic activation transaction
   after indexing succeeds.
-- [ ] Build/rebuild `resume_chunks` filtered by `user_id` and `resume_id`.
+- [x] Build/rebuild `resume_chunks` filtered by `user_id` and `resume_id`.
 - [x] Add status behavior.
 - [ ] Add delete behavior.
 - [x] Preserve existing local desktop routes.
@@ -719,8 +723,9 @@ Backend tests:
 - extraction failure preserves existing profile
 - extraction timeout/cancel persists safe failed/timeout status and prevents
   ready/active state
-- confirm writes reviewed fields only to `resumes.confirmed_profile`
-- confirm does not update `profiles`
+- confirm writes reviewed fields to `resumes.confirmed_profile`, builds chunks,
+  and activates only through the C3.4 backend-only transaction
+- confirm does not update `profiles` through loose REST writes
 - activation upserts/updates `profiles` inside the same transaction that marks
   the candidate resume ready/active and switches the active chunk generation
 - confirm rejected unless current status is `needs_review` with matching

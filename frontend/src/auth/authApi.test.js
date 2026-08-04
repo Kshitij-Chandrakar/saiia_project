@@ -207,6 +207,7 @@ test('cloud resume helpers call authenticated backend routes', async () => {
     extraction_attempt: 0,
     review_required: false,
     confirmed_at: null,
+    active_chunk_generation: null,
   })
   assert.equal('storage_path' in uploaded, false)
   assert.equal('parser_provider' in uploaded, false)

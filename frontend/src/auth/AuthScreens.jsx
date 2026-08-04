@@ -985,7 +985,7 @@ export function AuthResumePage({ backendUrl }) {
         if (ignore) {
           return
         }
-        setMessage(current.ready ? 'A ready resume exists. C3.4 will connect it to active cloud RAG.' : '')
+        setMessage(current.ready ? 'A ready resume is active for cloud answers.' : '')
       } catch (stateError) {
         if (ignore || stateError.name === 'AbortError') {
           return
@@ -1104,7 +1104,15 @@ export function AuthResumePage({ backendUrl }) {
         { backendUrl },
       )
       setPhase('confirmed')
-      setMessage(confirmed.confirmed_profile_saved ? 'Resume confirmed. C3.4 will index and activate it.' : 'Resume confirmation finished.')
+      const current = await fetchCurrentCloudResume(token, { backendUrl })
+      setCurrentResume(current.ready ? current.resume : null)
+      setReviewCandidate(null)
+      setResumeRecord(current.ready ? current.resume : { ...(resumeRecord || {}), id: resumeId, status: confirmed.status })
+      setMessage(
+        confirmed.ready && current.ready
+          ? 'Resume confirmed and activated.'
+          : 'Resume confirmed. Active resume is not ready yet.',
+      )
     } catch (confirmError) {
       setError(confirmError.message || 'Could not confirm the reviewed profile.')
       setMessage('')

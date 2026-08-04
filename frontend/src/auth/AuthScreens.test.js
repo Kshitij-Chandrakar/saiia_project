@@ -151,7 +151,7 @@ test('cloud resume page is protected and loads current plus review candidate sta
 
 test('cloud resume page renders no active ready message only once', () => {
   assert.equal((resumePageSource.match(/No active ready resume yet\./g) || []).length, 1)
-  assert.match(resumePageSource, /setMessage\(current\.ready \? 'A ready resume exists\. C3\.4 will connect it to active cloud RAG\.' : ''\)/)
+  assert.match(resumePageSource, /setMessage\(current\.ready \? 'A ready resume is active for cloud answers\.' : ''\)/)
 })
 
 
@@ -182,14 +182,18 @@ test('cloud resume review form confirms edited normalized fields without raw res
   assert.match(resumePageSource, /disabled=\{confirmPending \|\| phase === 'confirmed'\}/)
   assert.match(resumePageSource, /confirmPending \? 'Saving reviewed profile\.\.\.' : 'Confirm Reviewed Profile'/)
   assert.match(resumePageSource, /confirmCloudResume\([\s\S]*normalizeCloudProfile\(draftProfile\)/)
+  assert.match(resumePageSource, /fetchCurrentCloudResume\(token, \{ backendUrl \}\)/)
+  assert.match(resumePageSource, /Resume confirmed and activated\./)
   assert.match(resumePageSource, /catch \(confirmError\) \{[\s\S]*setMessage\(''\)/)
   assert.doesNotMatch(source.match(/const CLOUD_PROFILE_FIELDS = \[[\s\S]*?\n\]/)?.[0] || '', /raw_resume_text/)
   assert.doesNotMatch(resumePageSource, /console\.log|setAccessToken|sessionToken/)
 })
 
 
-test('cloud resume page shows confirmed state without claiming ready activation', () => {
+test('cloud resume page refreshes current state after confirmation', () => {
   assert.match(resumePageSource, /setPhase\('confirmed'\)/)
-  assert.match(resumePageSource, /Resume confirmed\. C3\.4 will index and activate it\./)
+  assert.match(resumePageSource, /Resume confirmed and activated\./)
+  assert.match(resumePageSource, /confirmed\.ready && current\.ready/)
+  assert.match(resumePageSource, /setCurrentResume\(current\.ready \? current\.resume : null\)/)
   assert.doesNotMatch(resumePageSource, /setCurrentResume\(.*confirmed|status: 'ready'|is_active: true/)
 })

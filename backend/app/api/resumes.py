@@ -37,6 +37,7 @@ class CloudResumeResponse(BaseModel):
     index_status: str
     review_required: bool
     confirmed_at: str | None = None
+    active_chunk_generation: str | None = None
     failure_code: str | None = None
     failure_message: str | None = None
     failed_at: str | None = None
@@ -78,6 +79,10 @@ class ConfirmResponse(BaseModel):
     extraction_attempt: int
     confirmed_profile_saved: bool
     next_step: str
+    chunks_indexed: bool = False
+    chunk_count: int = 0
+    ready: bool = False
+    active: bool = False
 
 
 @lru_cache(maxsize=1)
@@ -111,6 +116,7 @@ def _resume_response(record: CloudResumeRecord) -> CloudResumeResponse:
         index_status=record.index_status,
         review_required=record.review_required,
         confirmed_at=record.confirmed_at,
+        active_chunk_generation=record.active_chunk_generation,
         failure_code=record.failure_code,
         failure_message=record.failure_message,
         failed_at=record.failed_at,
@@ -237,4 +243,8 @@ def confirm_cloud_resume(
         extraction_attempt=result.extraction_attempt,
         confirmed_profile_saved=result.confirmed_profile_saved,
         next_step=result.next_step,
+        chunks_indexed=result.chunks_indexed,
+        chunk_count=result.chunk_count,
+        ready=result.ready,
+        active=result.active,
     )

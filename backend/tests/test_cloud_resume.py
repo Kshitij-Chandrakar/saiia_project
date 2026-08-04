@@ -66,7 +66,11 @@ class FakeCloudResumeClient:
         self.uploads: list[tuple[str, bytes, str]] = []
         self.compare_calls: list[dict[str, object]] = []
         self.updates: list[dict[str, object]] = []
+        self.chunk_inserts: list[list[dict[str, object]]] = []
+        self.profiles: dict[str, dict[str, object]] = {}
         self.fail_upload = False
+        self.fail_chunk_insert = False
+        self.fail_activation = False
 
     def insert_resume_metadata(self, payload: dict[str, object]) -> CloudResumeRecord:
         self.inserts.append(payload)
@@ -114,6 +118,55 @@ class FakeCloudResumeClient:
         updated = _record(**{**current.__dict__, **payload})
         self.records[(user_id, resume_id)] = updated
         return updated
+
+    def insert_resume_chunks(self, chunks: list[dict[str, object]]) -> None:
+        if self.fail_chunk_insert:
+            raise CloudResumeError("chunk insert failed with raw text: SECRET RESUME BODY")
+        self.chunk_inserts.append(chunks)
+
+    def activate_resume(
+        self,
+        *,
+        user_id: str,
+        resume_id: str,
+        extraction_attempt: int,
+        generation_id: str,
+        confirmed_profile: dict[str, object],
+    ) -> CloudResumeRecord:
+        if self.fail_activation:
+            raise CloudResumeConflictError("Resume activation failed. Please refresh and try again.")
+        current = self.records[(user_id, resume_id)]
+        if current.status != "indexing" or current.extraction_attempt != extraction_attempt:
+            raise CloudResumeConflictError("Resume state changed. Please refresh and try again.")
+        if current.confirmed_profile != confirmed_profile:
+            raise CloudResumeConflictError("Resume state changed. Please refresh and try again.")
+        for (record_user_id, record_id), record in list(self.records.items()):
+            if record_user_id == user_id and record_id != resume_id and record.is_active:
+                self.records[(record_user_id, record_id)] = _record(**{**record.__dict__, "is_active": False})
+        self.profiles[user_id] = dict(confirmed_profile)
+        updated = _record(
+            **{
+                **current.__dict__,
+                "status": "ready",
+                "is_active": True,
+                "index_status": "indexed",
+                "active_chunk_generation": generation_id,
+                "failure_code": None,
+                "failure_message": None,
+            }
+        )
+        self.records[(user_id, resume_id)] = updated
+        return updated
+
+    def get_active_resume_chunks(self, *, user_id: str, resume_id: str, generation_id: str) -> list[dict[str, object]]:
+        return [
+            chunk
+            for insert in self.chunk_inserts
+            for chunk in insert
+            if chunk["user_id"] == user_id
+            and chunk["resume_id"] == resume_id
+            and chunk["generation_id"] == generation_id
+        ]
 
     def compare_and_set_resume(
         self,
@@ -518,7 +571,7 @@ def test_confirm_requires_needs_review_and_matching_attempt() -> None:
         )
 
 
-def test_confirm_writes_confirmed_profile_only_not_profiles() -> None:
+def test_confirm_creates_chunks_marks_ready_and_activates_resume() -> None:
     client = FakeCloudResumeClient()
     client.records[(USER_A, RESUME_ID)] = _record(status="needs_review", extraction_attempt=1)
     service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
@@ -531,11 +584,150 @@ def test_confirm_writes_confirmed_profile_only_not_profiles() -> None:
     )
 
     assert result.confirmed_profile_saved is True
-    assert result.status == "needs_review"
+    assert result.chunks_indexed is True
+    assert result.chunk_count == 1
+    assert result.status == "ready"
+    assert result.ready is True
+    assert result.active is True
+    assert result.next_step == "resume_ready"
     payload = client.compare_calls[-1]["payload"]
     assert payload["confirmed_profile"] == {"full_name": "Test User"}
-    assert "status" not in payload
-    assert "is_active" not in payload
+    assert payload["status"] == "indexing"
+    ready_record = client.records[(USER_A, RESUME_ID)]
+    assert ready_record.status == "ready"
+    assert ready_record.is_active is True
+    assert ready_record.active_chunk_generation
+    assert client.chunk_inserts[0][0]["generation_id"] == ready_record.active_chunk_generation
+    assert client.profiles[USER_A] == {"full_name": "Test User"}
+
+
+def test_confirm_deactivates_previous_active_resume() -> None:
+    previous_id = "10000000-0000-4000-8000-000000000099"
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, previous_id)] = _record(id=previous_id, status="ready", is_active=True)
+    client.records[(USER_A, RESUME_ID)] = _record(status="needs_review", extraction_attempt=1)
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    service.confirm_resume(
+        user_id=USER_A,
+        resume_id=RESUME_ID,
+        extraction_attempt=1,
+        confirmed_profile={"professional_summary": "New active profile"},
+    )
+
+    assert client.records[(USER_A, previous_id)].is_active is False
+    assert client.records[(USER_A, RESUME_ID)].is_active is True
+
+
+def test_review_candidate_excludes_ready_confirmed_active_resume() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(
+        status="ready",
+        is_active=True,
+        confirmed_at="2026-08-04T00:00:00+00:00",
+        confirmed_profile={"full_name": "Confirmed"},
+    )
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    assert service.get_review_candidate(USER_A) is None
+
+
+def test_confirm_skips_empty_fields_and_does_not_store_raw_resume_text_in_chunks() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(status="needs_review", extraction_attempt=1)
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    service.confirm_resume(
+        user_id=USER_A,
+        resume_id=RESUME_ID,
+        extraction_attempt=1,
+        confirmed_profile={
+            "professional_summary": "Backend engineer",
+            "projects": "",
+            "achievements": "Reduced latency",
+        },
+    )
+
+    chunks = client.chunk_inserts[0]
+    assert {chunk["section"] for chunk in chunks} == {"professional_summary", "achievements"}
+    assert "raw_resume_text" not in str(chunks)
+
+
+def test_chunk_insert_failure_does_not_activate_resume_and_logs_no_raw_text(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = FakeCloudResumeClient()
+    client.fail_chunk_insert = True
+    client.records[(USER_A, RESUME_ID)] = _record(status="needs_review", extraction_attempt=1)
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    with caplog.at_level("WARNING", logger="cloud_resume"), pytest.raises(CloudResumeError):
+        service.confirm_resume(
+            user_id=USER_A,
+            resume_id=RESUME_ID,
+            extraction_attempt=1,
+            confirmed_profile={"professional_summary": "Backend engineer"},
+        )
+
+    failed_record = client.records[(USER_A, RESUME_ID)]
+    assert failed_record.status == "failed"
+    assert failed_record.is_active is False
+    assert failed_record.failure_code == "indexing_failed"
+    assert "SECRET RESUME BODY" not in caplog.text
+
+
+def test_activation_conflict_does_not_create_duplicate_active_resume() -> None:
+    client = FakeCloudResumeClient()
+    client.fail_activation = True
+    client.records[(USER_A, RESUME_ID)] = _record(status="needs_review", extraction_attempt=1)
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    with pytest.raises(CloudResumeError):
+        service.confirm_resume(
+            user_id=USER_A,
+            resume_id=RESUME_ID,
+            extraction_attempt=1,
+            confirmed_profile={"professional_summary": "Backend engineer"},
+        )
+
+    assert client.records[(USER_A, RESUME_ID)].is_active is False
+
+
+def test_active_cloud_resume_retrieval_filters_active_generation() -> None:
+    client = FakeCloudResumeClient()
+    generation_id = "20000000-0000-4000-8000-000000000001"
+    client.records[(USER_A, RESUME_ID)] = _record(
+        status="ready",
+        is_active=True,
+        active_chunk_generation=generation_id,
+    )
+    client.chunk_inserts.append(
+        [
+            {
+                "user_id": USER_A,
+                "resume_id": RESUME_ID,
+                "generation_id": generation_id,
+                "section": "projects",
+                "chunk_text": "Built FastAPI services.",
+                "metadata": {
+                    "chunk_id": "resume-1",
+                    "source": "cloud_resume",
+                    "preview": "Built FastAPI services.",
+                    "tokens": ["built", "fastapi", "services"],
+                },
+            }
+        ]
+    )
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    retrieval = service.retrieve_active_resume_chunks(
+        user_id=USER_A,
+        question="Tell me about FastAPI",
+        category="technical",
+    )
+
+    assert retrieval["retrieval_used"] is True
+    assert retrieval["retrieved_chunks"][0]["source"] == "cloud_resume"
 
 
 def test_confirm_rejects_unknown_raw_or_oversized_profile_fields() -> None:

@@ -4,6 +4,7 @@ from pathlib import Path
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "supabase" / "migrations"
 GRANTS_MIGRATION = MIGRATIONS_DIR / "20260801115446_grant_cloud_table_privileges.sql"
 C3_2_MIGRATION = MIGRATIONS_DIR / "20260803143000_add_resume_lifecycle_and_harden_cloud_writes.sql"
+C3_4_MIGRATION = MIGRATIONS_DIR / "20260804134140_add_cloud_resume_chunk_activation.sql"
 
 
 def _normalized_sql() -> str:
@@ -88,3 +89,21 @@ def test_c3_2_resume_lifecycle_migration_hardens_direct_authenticated_writes() -
     assert "bucket_id = 'exports'" in sql
     assert " to anon" not in sql
     assert "disable row level security" not in sql
+
+
+def test_c3_4_migration_adds_chunk_generation_and_activation_rpc() -> None:
+    sql = " ".join(C3_4_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "add column if not exists generation_id uuid" in sql
+    assert "alter column generation_id set not null" in sql
+    assert "create index if not exists resume_chunks_user_resume_generation_idx" in sql
+    assert "create index if not exists resumes_active_generation_idx" in sql
+    assert "create or replace function public.activate_cloud_resume" in sql
+    assert "status = 'indexing'" in sql
+    assert "status = 'ready'" in sql
+    assert "is_active = true" in sql
+    assert "active_chunk_generation = p_generation_id" in sql
+    assert "on conflict (user_id) do update" in sql
+    assert "revoke all on function public.activate_cloud_resume(uuid, uuid, integer, uuid, jsonb) from authenticated" in sql
+    assert "grant execute on function public.activate_cloud_resume(uuid, uuid, integer, uuid, jsonb) to service_role" in sql
+    assert "grant execute on function public.activate_cloud_resume(uuid, uuid, integer, uuid, jsonb) to anon" not in sql

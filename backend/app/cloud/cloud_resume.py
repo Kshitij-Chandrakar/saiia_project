@@ -13,6 +13,7 @@ from requests.adapters import HTTPAdapter
 
 from app.cloud.supabase_config import SupabaseConfigurationError, get_supabase_settings
 from app.nlp.answer_generator import ProviderError
+from app.services.resume_index_service import ResumeIndexError, ResumeIndexService
 from app.services.resume_parser_service import ResumeParserService
 from app.services.resume_service import MAX_RESUME_FILE_BYTES, PROFILE_FIELD_ORDER, ResumeExtractionError
 
@@ -27,6 +28,28 @@ RETRY_EXTRACT_STATUSES = {"uploaded", "failed", "timeout", "cancelled", "needs_r
 SAFE_FAILURE_MESSAGE = "Resume processing failed. Please try again."
 MAX_CONFIRMED_PROFILE_BYTES = 64 * 1024
 CONFIRMED_PROFILE_FIELDS = tuple(field for field in PROFILE_FIELD_ORDER if field != "raw_resume_text")
+CLOUD_INDEX_PROFILE_FIELDS = (
+    "full_name",
+    "current_title",
+    "target_role",
+    "professional_summary",
+    "top_skills",
+    "technical_skills",
+    "tools_frameworks",
+    "skills",
+    "projects",
+    "experience",
+    "work_experience",
+    "education",
+    "degree",
+    "branch",
+    "college",
+    "college_university",
+    "university",
+    "graduation_year",
+    "achievements",
+    "certifications",
+)
 SUPABASE_HTTP_POOL_SIZE = 20
 SUPABASE_SELECT_ATTEMPT_TIMEOUT = 5
 
@@ -65,6 +88,7 @@ class CloudResumeRecord:
     review_required: bool = False
     confirmed_at: str | None = None
     confirmed_profile: dict[str, Any] | None = None
+    active_chunk_generation: str | None = None
     failure_code: str | None = None
     failure_message: str | None = None
     failed_at: str | None = None
@@ -98,6 +122,10 @@ class ConfirmResult:
     extraction_attempt: int
     confirmed_profile_saved: bool
     next_step: str
+    chunks_indexed: bool = False
+    chunk_count: int = 0
+    ready: bool = False
+    active: bool = False
 
 
 def _record_from_payload(payload: dict[str, Any]) -> CloudResumeRecord:
@@ -118,6 +146,7 @@ def _record_from_payload(payload: dict[str, Any]) -> CloudResumeRecord:
         review_required=bool(payload.get("review_required")),
         confirmed_at=payload.get("confirmed_at"),
         confirmed_profile=payload.get("confirmed_profile") if isinstance(payload.get("confirmed_profile"), dict) else None,
+        active_chunk_generation=payload.get("active_chunk_generation"),
         failure_code=payload.get("failure_code"),
         failure_message=payload.get("failure_message"),
         failed_at=payload.get("failed_at"),
@@ -393,6 +422,81 @@ class SupabaseCloudResumeClient:
             self._raise_response("storage.objects", "download", response)
         return response.content
 
+    def insert_resume_chunks(self, chunks: list[dict[str, Any]]) -> None:
+        if not chunks:
+            raise CloudResumeError("Supabase cloud resume operation failed.")
+        try:
+            response = self._session.post(
+                f"{self._rest_url}/resume_chunks",
+                headers={**self._headers, "Prefer": "return=minimal"},
+                json=chunks,
+                timeout=10,
+            )
+        except requests.RequestException as exc:
+            self._raise_request("resume_chunks", "insert", exc)
+        if response.status_code not in {200, 201, 204}:
+            self._raise_response("resume_chunks", "insert", response)
+
+    def activate_resume(
+        self,
+        *,
+        user_id: str,
+        resume_id: str,
+        extraction_attempt: int,
+        generation_id: str,
+        confirmed_profile: dict[str, Any],
+    ) -> CloudResumeRecord:
+        try:
+            response = self._session.post(
+                f"{self._rest_url}/rpc/activate_cloud_resume",
+                headers={**self._headers, "Prefer": "return=representation"},
+                json={
+                    "p_user_id": user_id,
+                    "p_resume_id": resume_id,
+                    "p_extraction_attempt": extraction_attempt,
+                    "p_generation_id": generation_id,
+                    "p_profile": confirmed_profile,
+                },
+                timeout=10,
+            )
+        except requests.RequestException as exc:
+            self._raise_request("resumes", "activate", exc)
+        if response.status_code != 200:
+            self._raise_response("resumes", "activate", response)
+        data = response.json()
+        if not isinstance(data, list) or not data:
+            raise CloudResumeConflictError("Resume activation failed. Please refresh and try again.")
+        return _record_from_payload(data[0])
+
+    def get_active_resume_chunks(
+        self,
+        *,
+        user_id: str,
+        resume_id: str,
+        generation_id: str,
+    ) -> list[dict[str, Any]]:
+        try:
+            response = self._session.get(
+                f"{self._rest_url}/resume_chunks",
+                headers=self._headers,
+                params={
+                    "select": "id,resume_id,section,chunk_text,metadata,generation_id",
+                    "user_id": f"eq.{user_id}",
+                    "resume_id": f"eq.{resume_id}",
+                    "generation_id": f"eq.{generation_id}",
+                    "order": "created_at.asc",
+                },
+                timeout=SUPABASE_SELECT_ATTEMPT_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            self._raise_request("resume_chunks", "select", exc)
+        if response.status_code != 200:
+            self._raise_response("resume_chunks", "select", response)
+        data = response.json()
+        if not isinstance(data, list):
+            raise CloudResumeError("Supabase cloud resume operation failed.")
+        return [item for item in data if isinstance(item, dict)]
+
 
 class CloudResumeService:
     def __init__(
@@ -400,9 +504,11 @@ class CloudResumeService:
         *,
         client: Any | None = None,
         parser: ResumeParserService | None = None,
+        indexer: ResumeIndexService | None = None,
     ) -> None:
         self._client = client or SupabaseCloudResumeClient()
         self._parser = parser or ResumeParserService()
+        self._indexer = indexer or ResumeIndexService()
 
     def upload_resume(
         self,
@@ -559,24 +665,137 @@ class CloudResumeService:
         confirmed_profile: dict[str, Any],
     ) -> ConfirmResult:
         normalized_profile = validate_confirmed_profile(confirmed_profile)
-        updated = self._client.compare_and_set_resume(
+        self._client.compare_and_set_resume(
             resume_id,
             user_id,
             {"needs_review"},
             {
+                "status": "indexing",
                 "confirmed_profile": normalized_profile,
                 "confirmed_at": _utc_now_iso(),
                 "review_required": False,
+                "index_status": "pending",
+                "failure_code": None,
+                "failure_message": None,
+                "failed_at": None,
+                "last_error_at": None,
             },
             extraction_attempt=extraction_attempt,
         )
+        generation_id = str(uuid4())
+        stage = "build_chunks"
+        try:
+            chunks = self._build_resume_chunks(
+                user_id=user_id,
+                resume_id=resume_id,
+                generation_id=generation_id,
+                confirmed_profile=normalized_profile,
+            )
+            stage = "insert_chunks"
+            self._client.insert_resume_chunks(chunks)
+            stage = "activate_resume"
+            updated = self._client.activate_resume(
+                user_id=user_id,
+                resume_id=resume_id,
+                extraction_attempt=extraction_attempt,
+                generation_id=generation_id,
+                confirmed_profile=normalized_profile,
+            )
+        except (CloudResumeError, ResumeIndexError) as exc:
+            self._log_index_failure(stage, exc)
+            self._mark_index_failed(
+                resume_id=resume_id,
+                user_id=user_id,
+                extraction_attempt=extraction_attempt,
+                code="indexing_failed",
+                message=SAFE_FAILURE_MESSAGE,
+            )
+            raise CloudResumeError(SAFE_FAILURE_MESSAGE) from exc
         return ConfirmResult(
             resume_id=updated.id,
             status=updated.status,
             extraction_attempt=updated.extraction_attempt,
             confirmed_profile_saved=True,
-            next_step="index_resume",
+            next_step="resume_ready",
+            chunks_indexed=True,
+            chunk_count=len(chunks),
+            ready=updated.status == "ready",
+            active=updated.is_active,
         )
+
+    def retrieve_active_resume_chunks(
+        self,
+        *,
+        user_id: str,
+        question: str,
+        category: str,
+        limit: int = 3,
+    ) -> dict[str, Any]:
+        current = self._client.get_current_resume(user_id)
+        if not current or not current.active_chunk_generation:
+            return {
+                "retrieval_used": False,
+                "retrieved_chunk_count": 0,
+                "retrieved_chunks": [],
+                "retrieval_ms": 0.0,
+            }
+        rows = self._client.get_active_resume_chunks(
+            user_id=user_id,
+            resume_id=current.id,
+            generation_id=current.active_chunk_generation,
+        )
+        chunks = []
+        for row in rows:
+            metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            text = str(row.get("chunk_text") or "")
+            chunks.append(
+                {
+                    "chunk_id": str(metadata.get("chunk_id") or row.get("id") or ""),
+                    "source": str(metadata.get("source") or "cloud_resume"),
+                    "section": str(row.get("section") or metadata.get("section") or ""),
+                    "text": text,
+                    "preview": str(metadata.get("preview") or text[:120]),
+                    "tokens": list(metadata.get("tokens") or []),
+                }
+            )
+        return self._indexer.retrieve_from_chunks(chunks, question=question, category=category, limit=limit)
+
+    def _build_resume_chunks(
+        self,
+        *,
+        user_id: str,
+        resume_id: str,
+        generation_id: str,
+        confirmed_profile: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        documents = []
+        for field in CLOUD_INDEX_PROFILE_FIELDS:
+            value = str(confirmed_profile.get(field) or "").strip()
+            if value:
+                documents.append({"section": field, "text": value})
+        chunks = self._indexer.build_chunks_from_documents(documents)
+        if not chunks:
+            raise ResumeIndexError("Could not build cloud resume chunks from the confirmed profile.")
+        rows = []
+        for chunk in chunks:
+            rows.append(
+                {
+                    "user_id": user_id,
+                    "resume_id": resume_id,
+                    "section": chunk["section"],
+                    "chunk_text": chunk["text"],
+                    "embedding": None,
+                    "generation_id": generation_id,
+                    "metadata": {
+                        "chunk_id": chunk["chunk_id"],
+                        "source": "cloud_resume",
+                        "section": chunk["section"],
+                        "preview": chunk["preview"],
+                        "tokens": chunk.get("tokens", []),
+                    },
+                }
+            )
+        return rows
 
     def _mark_failed(
         self,
@@ -616,5 +835,42 @@ class CloudResumeService:
                 code,
             )
 
+    def _mark_index_failed(
+        self,
+        *,
+        resume_id: str,
+        user_id: str,
+        extraction_attempt: int,
+        code: str,
+        message: str,
+    ) -> None:
+        payload = {
+            "status": "failed",
+            "is_active": False,
+            "index_status": "failed",
+            "failure_code": code,
+            "failure_message": message,
+            "failed_at": _utc_now_iso(),
+            "last_error_at": _utc_now_iso(),
+        }
+        try:
+            self._client.compare_and_set_resume(
+                resume_id,
+                user_id,
+                {"indexing"},
+                payload,
+                extraction_attempt=extraction_attempt,
+            )
+        except CloudResumeError:
+            logger.warning(
+                "Could not persist safe cloud resume indexing failure state resume_id=%s user_id=%s code=%s",
+                resume_id,
+                user_id,
+                code,
+            )
+
     def _log_extract_failure(self, stage: str, exc: Exception) -> None:
         logger.warning("Cloud resume extraction failed stage=%s error_type=%s", stage, type(exc).__name__)
+
+    def _log_index_failure(self, stage: str, exc: Exception) -> None:
+        logger.warning("Cloud resume indexing failed stage=%s error_type=%s", stage, type(exc).__name__)

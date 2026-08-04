@@ -49,13 +49,7 @@ class ResumeIndexService:
         }
 
     def build_index(self, profile: dict[str, Any]) -> dict[str, Any]:
-        documents = self._profile_documents(profile)
-        if not documents:
-            raise ResumeIndexError(
-                "Could not build a resume index because there is no usable resume/profile text yet."
-            )
-
-        chunks = self._chunk_documents(documents)
+        chunks = self.build_chunks(profile)
         if not chunks:
             raise ResumeIndexError(
                 "Could not build a resume index because there is no usable resume/profile text yet."
@@ -126,6 +120,35 @@ class ResumeIndexService:
                 "retrieval_ms": round((time.perf_counter() - started) * 1000, 2),
             }
 
+        return self.retrieve_from_chunks(chunks, question=question, category=category, limit=limit, started=started)
+
+    def build_chunks(self, profile: dict[str, Any], *, include_raw_resume_text: bool = True) -> list[dict[str, Any]]:
+        documents = self._profile_documents(profile, include_raw_resume_text=include_raw_resume_text)
+        if not documents:
+            return []
+        return self._chunk_documents(documents)
+
+    def build_chunks_from_documents(self, documents: list[dict[str, str]]) -> list[dict[str, Any]]:
+        return self._chunk_documents(documents)
+
+    def retrieve_from_chunks(
+        self,
+        chunks: list[dict[str, Any]],
+        *,
+        question: str,
+        category: str,
+        limit: int = 3,
+        started: float | None = None,
+    ) -> dict[str, Any]:
+        started = time.perf_counter() if started is None else started
+        if not chunks:
+            return {
+                "retrieval_used": False,
+                "retrieved_chunk_count": 0,
+                "retrieved_chunks": [],
+                "retrieval_ms": round((time.perf_counter() - started) * 1000, 2),
+            }
+
         query_tokens = self._tokenize(question)
         category_tokens = self._tokenize(category)
 
@@ -161,9 +184,9 @@ class ResumeIndexService:
             "retrieval_ms": round((time.perf_counter() - started) * 1000, 2),
         }
 
-    def _profile_documents(self, profile: dict[str, Any]) -> list[dict[str, str]]:
+    def _profile_documents(self, profile: dict[str, Any], *, include_raw_resume_text: bool = True) -> list[dict[str, str]]:
         documents = []
-        for section, value in (
+        profile_fields = [
             ("full_name", profile.get("full_name", "")),
             ("professional_summary", profile.get("professional_summary", "")),
             ("resume", profile.get("resume", "")),
@@ -185,8 +208,10 @@ class ResumeIndexService:
             ("work_experience", profile.get("work_experience", "")),
             ("achievements", profile.get("achievements", "")),
             ("certifications", profile.get("certifications", "")),
-            ("raw_resume_text", profile.get("raw_resume_text", "")),
-        ):
+        ]
+        if include_raw_resume_text:
+            profile_fields.append(("raw_resume_text", profile.get("raw_resume_text", "")))
+        for section, value in profile_fields:
             cleaned = self._clean_text(str(value or ""))
             if cleaned:
                 documents.append({"section": section, "text": cleaned})

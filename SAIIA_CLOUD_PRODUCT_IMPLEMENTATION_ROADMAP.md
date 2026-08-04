@@ -4,9 +4,9 @@
 **Document type:** Detailed implementation roadmap and execution source of truth  
 **Track:** Desktop stabilization â†’ Cloud account system â†’ Website integration â†’ Session intelligence â†’ Subscription and release  
 **Version:** 1.1  
-**Last updated:** 2026-08-03
+**Last updated:** 2026-08-04
 **Created:** 2026-07-10  
-**Current active phase:** C3.1 - Cloud resume/profile storage planning and audit
+**Current active phase:** C3.4 - Cloud resume indexing/RAG activation
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -1136,7 +1136,7 @@ After a verified user first enters the dashboard:
 ## Status
 
 ```text
-[~] C3.3 frontend authenticated upload/review UI complete - C3.2 backend routes are merged and live smoke-tested; `/auth/resume` consumes `/api/resumes/*` for upload, extraction, review, and confirmation; C3.4/C3.5 pending
+[~] C3.4 cloud resume indexing/RAG activation implemented - confirm now builds user-owned chunks, activates the ready resume through a backend-only transaction, and makes `/api/resumes/current` return ready:true after activation; C3.5 pending
 ```
 
 ## Goal
@@ -1177,7 +1177,7 @@ Move resume upload, extraction review, profile saving, and resume indexing into 
   desktop flows remain intentionally unchanged.
 - [x] C3.2 backend API merged and live smoke-tested.
 - [x] C3.3 frontend upload/review UI implemented at `/auth/resume`.
-- [ ] C3.4 cloud chunk generation/RAG activation pending.
+- [x] C3.4 cloud chunk generation/RAG activation implemented.
 - [ ] C3.5 delete/rebuild/status closure pending.
 
 ## Existing capability to reuse
@@ -1224,8 +1224,9 @@ GET    /api/resumes/{resume_id}/status
 DELETE /api/resumes/{resume_id}
 ```
 
-C3.2 implemented the backend subset except `/index` and `DELETE`, which remain
-for C3.4/C3.5.
+C3.2 implemented the backend subset for upload/status/extract/confirm. C3.4
+implements chunk generation and activation through the existing confirm route;
+`DELETE` remains for C3.5.
 
 ## Upload validation
 
@@ -3333,7 +3334,7 @@ The C0â€“C16 track is complete when:
 
 ```text
 C0 remains complete. C0.9 is not fully complete: C0.9.6 has implementation present with Chrome/Edge real-page validation pending, and C0.9.7 through C0.9.13 are deferred by explicit product-priority decision.
-C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 auth surface closure is complete through C2.5. C2.1 auth architecture audit is complete. C2.2 minimal Supabase auth UI and backend current-user endpoint are complete. C2.3 authenticated profile bootstrap is implemented and live revalidated after `20260801115446_grant_cloud_table_privileges.sql` fixed the live Supabase privilege blocker. C2.4 protected auth shell and account/session state handling are complete. C2.5 auth surface closure validation is complete. C3.1 cloud resume/profile storage planning and audit is active after explicit approval to start C3. No C3 upload runtime, cloud profile saving, cloud resume indexing, C5 desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started. Next: complete C3.1 planning validation, then begin C3.2 backend cloud resume API only after explicit approval.
+C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 auth surface closure is complete through C2.5. C3.1 planning, C3.2 backend cloud resume API, C3.3 frontend authenticated upload/review UI, and C3.4 cloud resume indexing/RAG activation are complete through implementation. C3.5 delete/rebuild/status closure remains pending. No C5 desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started. Next: complete C3.4 validation/manual smoke, then begin C3.5 only after explicit approval.
 ```
 
 The completed C0.9.2 manual validation covered:

@@ -24,6 +24,7 @@ function projectCloudResume(record) {
     extraction_attempt: Number(record.extraction_attempt || 0),
     review_required: Boolean(record.review_required),
     confirmed_at: record.confirmed_at || null,
+    active_chunk_generation: record.active_chunk_generation || null,
   }
 }
 
