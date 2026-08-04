@@ -932,6 +932,7 @@ export function AuthResumePage({ backendUrl }) {
   const [draftProfile, setDraftProfile] = useState(null)
   const [extractionAttempt, setExtractionAttempt] = useState(null)
   const [phase, setPhase] = useState('loading')
+  const [confirmPending, setConfirmPending] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
@@ -946,40 +947,58 @@ export function AuthResumePage({ backendUrl }) {
     return data.session.access_token
   }
 
-  async function loadCloudResumeState() {
-    setPhase('loading')
-    setError('')
-    setMessage('')
-    try {
-      const token = await getSessionToken()
-      const [current, candidate] = await Promise.all([
-        fetchCurrentCloudResume(token, { backendUrl }),
-        fetchReviewCandidate(token, { backendUrl }),
-      ])
-      setCurrentResume(current.ready ? current.resume : null)
-      setReviewCandidate(candidate.has_candidate ? candidate.resume : null)
-      setResumeRecord(candidate.has_candidate ? candidate.resume : current.resume)
-      setPhase(candidate.has_candidate ? 'needs_review' : 'idle')
-      setMessage(current.ready ? 'A ready resume exists. C3.4 will connect it to active cloud RAG.' : '')
-    } catch (stateError) {
-      setPhase('failed')
-      setError(stateError.message || 'Could not load cloud resume state.')
-    }
+  async function loadCloudResumeState(signal) {
+    const token = await getSessionToken()
+    const [current, candidate] = await Promise.all([
+      fetchCurrentCloudResume(token, { backendUrl, signal }),
+      fetchReviewCandidate(token, { backendUrl, signal }),
+    ])
+    return { current, candidate }
   }
 
   useEffect(() => {
     let ignore = false
+    const controller = new AbortController()
 
     async function guardedLoad() {
-      if (ignore) {
-        return
+      setPhase('loading')
+      setError('')
+      setMessage('')
+      try {
+        const { current, candidate } = await loadCloudResumeState(controller.signal)
+        if (ignore) {
+          return
+        }
+        setCurrentResume(current.ready ? current.resume : null)
+        if (ignore) {
+          return
+        }
+        setReviewCandidate(candidate.has_candidate ? candidate.resume : null)
+        if (ignore) {
+          return
+        }
+        setResumeRecord(candidate.has_candidate ? candidate.resume : current.resume)
+        if (ignore) {
+          return
+        }
+        setPhase(candidate.has_candidate ? 'needs_review' : 'idle')
+        if (ignore) {
+          return
+        }
+        setMessage(current.ready ? 'A ready resume exists. C3.4 will connect it to active cloud RAG.' : '')
+      } catch (stateError) {
+        if (ignore || stateError.name === 'AbortError') {
+          return
+        }
+        setPhase('failed')
+        setError(stateError.message || 'Could not load cloud resume state.')
       }
-      await loadCloudResumeState()
     }
 
     guardedLoad()
     return () => {
       ignore = true
+      controller.abort()
     }
   }, [backendUrl])
 
@@ -1016,7 +1035,13 @@ export function AuthResumePage({ backendUrl }) {
       const uploaded = await uploadCloudResume(token, file, { backendUrl })
       setResumeRecord(uploaded)
       setMessage('Resume uploaded. Starting extraction...')
-      await fetchCloudResumeStatus(token, uploaded.id, { backendUrl })
+      const uploadedStatus = await fetchCloudResumeStatus(token, uploaded.id, { backendUrl })
+      setResumeRecord(uploadedStatus)
+      if (uploadedStatus.status !== 'uploaded') {
+        setPhase(uploadedStatus.status || 'idle')
+        setMessage('Resume is not ready for extraction yet. Refresh or upload another file.')
+        return
+      }
       setPhase('extracting')
       setMessage('Analyzing resume...')
       const extracted = await extractCloudResume(token, uploaded.id, { backendUrl })
@@ -1029,7 +1054,7 @@ export function AuthResumePage({ backendUrl }) {
     } catch (resumeError) {
       setPhase('failed')
       setError(resumeError.message || 'Extraction failed. Try again or upload another file.')
-      setMessage('Extraction failed. Try again or upload another file.')
+      setMessage('')
     }
   }
 
@@ -1051,12 +1076,15 @@ export function AuthResumePage({ backendUrl }) {
     } catch (resumeError) {
       setPhase('failed')
       setError(resumeError.message || 'Extraction failed. Try again or upload another file.')
-      setMessage('Extraction failed. Try again or upload another file.')
+      setMessage('')
     }
   }
 
   async function handleConfirmProfile(event) {
     event.preventDefault()
+    if (confirmPending) {
+      return
+    }
     const resumeId = resumeRecord?.id || reviewCandidate?.id
     if (!resumeId || !extractionAttempt || !draftProfile) {
       setError('Run extraction before confirming the profile.')
@@ -1065,6 +1093,7 @@ export function AuthResumePage({ backendUrl }) {
 
     setError('')
     setMessage('Saving reviewed profile...')
+    setConfirmPending(true)
     try {
       const token = await getSessionToken()
       const confirmed = await confirmCloudResume(
@@ -1078,6 +1107,9 @@ export function AuthResumePage({ backendUrl }) {
       setMessage(confirmed.confirmed_profile_saved ? 'Resume confirmed. C3.4 will index and activate it.' : 'Resume confirmation finished.')
     } catch (confirmError) {
       setError(confirmError.message || 'Could not confirm the reviewed profile.')
+      setMessage('')
+    } finally {
+      setConfirmPending(false)
     }
   }
 
@@ -1118,6 +1150,7 @@ export function AuthResumePage({ backendUrl }) {
                 type="file"
                 accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
                 onChange={handleFileChange}
+                disabled={busy}
               />
             </label>
             <button type="submit" disabled={uploadDisabled}>
@@ -1148,8 +1181,8 @@ export function AuthResumePage({ backendUrl }) {
                   )}
                 </label>
               ))}
-              <button type="submit" disabled={phase === 'confirmed'}>
-                {phase === 'confirmed' ? 'Resume confirmed' : 'Confirm Reviewed Profile'}
+              <button type="submit" disabled={confirmPending || phase === 'confirmed'}>
+                {phase === 'confirmed' ? 'Resume confirmed' : confirmPending ? 'Saving reviewed profile...' : 'Confirm Reviewed Profile'}
               </button>
             </form>
           )}

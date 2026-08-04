@@ -118,6 +118,7 @@ test('bootstrapProfile posts bearer token and returns safe status', async () => 
 
 test('cloud resume helpers call authenticated backend routes', async () => {
   const rawToken = 'unit-test-access-token'
+  const controller = new AbortController()
   const calls = []
   const fetchImpl = async (url, init) => {
     calls.push({ url, init })
@@ -152,15 +153,34 @@ test('cloud resume helpers call authenticated backend routes', async () => {
         }),
       }
     }
-    return { ok: true, json: async () => ({ id: 'resume-id', status: 'uploaded' }) }
+    return {
+      ok: true,
+      json: async () => ({
+        id: 'resume-id',
+        storage_path: 'private/storage/path',
+        original_filename: 'resume.txt',
+        file_size: 6,
+        status: 'uploaded',
+        is_active: false,
+        extraction_attempt: 0,
+        parser_provider: 'pending',
+        failure_message: 'private diagnostic',
+      }),
+    }
   }
 
-  await uploadCloudResume(rawToken, new Blob(['resume'], { type: 'text/plain' }), { fetchImpl })
-  await fetchCurrentCloudResume(rawToken, { fetchImpl })
-  await fetchReviewCandidate(rawToken, { fetchImpl })
-  await fetchCloudResumeStatus(rawToken, 'resume-id', { fetchImpl })
-  await extractCloudResume(rawToken, 'resume-id', { fetchImpl })
-  await confirmCloudResume(rawToken, 'resume-id', 1, { full_name: 'Edited User' }, { fetchImpl })
+  const uploaded = await uploadCloudResume(rawToken, new Blob(['resume'], { type: 'text/plain' }), {
+    fetchImpl,
+    signal: controller.signal,
+  })
+  await fetchCurrentCloudResume(rawToken, { fetchImpl, signal: controller.signal })
+  await fetchReviewCandidate(rawToken, { fetchImpl, signal: controller.signal })
+  await fetchCloudResumeStatus(rawToken, 'resume-id', { fetchImpl, signal: controller.signal })
+  await extractCloudResume(rawToken, 'resume-id', { fetchImpl, signal: controller.signal })
+  await confirmCloudResume(rawToken, 'resume-id', 1, { full_name: 'Edited User' }, {
+    fetchImpl,
+    signal: controller.signal,
+  })
 
   assert.deepEqual(calls.map((call) => [call.init.method, call.url]), [
     ['POST', 'http://localhost:8000/api/resumes'],
@@ -171,9 +191,62 @@ test('cloud resume helpers call authenticated backend routes', async () => {
     ['POST', 'http://localhost:8000/api/resumes/resume-id/confirm'],
   ])
   assert.equal(calls.every((call) => call.init.headers.Authorization === `Bearer ${rawToken}`), true)
+  assert.equal(calls.every((call) => call.init.signal === controller.signal), true)
+  assert.equal('Content-Type' in calls[0].init.headers, false)
   assert.equal(calls[5].init.headers['Content-Type'], 'application/json')
   assert.deepEqual(JSON.parse(calls[5].init.body), {
     extraction_attempt: 1,
     profile: { full_name: 'Edited User' },
   })
+  assert.deepEqual(uploaded, {
+    id: 'resume-id',
+    original_filename: 'resume.txt',
+    file_size: 6,
+    status: 'uploaded',
+    is_active: false,
+    extraction_attempt: 0,
+    review_required: false,
+    confirmed_at: null,
+  })
+  assert.equal('storage_path' in uploaded, false)
+  assert.equal('parser_provider' in uploaded, false)
+  assert.equal('failure_message' in uploaded, false)
+})
+
+
+test('cloud resume helpers use safe fallback for validation-array detail', async () => {
+  await assert.rejects(
+    () => uploadCloudResume('unit-test-access-token', new Blob(['resume'], { type: 'text/plain' }), {
+      fetchImpl: async () => ({
+        ok: false,
+        json: async () => ({
+          detail: [{ msg: 'validation error should not render as object' }],
+        }),
+      }),
+    }),
+    /Unable to upload the resume\./,
+  )
+})
+
+
+test('cloud resume helpers surface string detail and fallback empty errors', async () => {
+  await assert.rejects(
+    () => fetchReviewCandidate('unit-test-access-token', {
+      fetchImpl: async () => ({
+        ok: false,
+        json: async () => ({ detail: 'Review candidate unavailable.' }),
+      }),
+    }),
+    /Review candidate unavailable\./,
+  )
+
+  await assert.rejects(
+    () => extractCloudResume('unit-test-access-token', 'resume-id', {
+      fetchImpl: async () => ({
+        ok: false,
+        json: async () => ({}),
+      }),
+    }),
+    /Unable to extract the resume\./,
+  )
 })

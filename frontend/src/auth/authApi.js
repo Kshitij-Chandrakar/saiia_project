@@ -4,9 +4,27 @@ const DEFAULT_BACKEND_URL = 'http://localhost:8000'
 async function parseJsonResponse(response, fallbackMessage) {
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) {
-    throw new Error(payload.detail || fallbackMessage)
+    const detail = typeof payload.detail === 'string' ? payload.detail.trim() : ''
+    throw new Error(detail || fallbackMessage)
   }
   return payload
+}
+
+
+function projectCloudResume(record) {
+  if (!record || typeof record !== 'object') {
+    return null
+  }
+  return {
+    id: record.id,
+    original_filename: record.original_filename,
+    file_size: record.file_size,
+    status: record.status,
+    is_active: Boolean(record.is_active),
+    extraction_attempt: Number(record.extraction_attempt || 0),
+    review_required: Boolean(record.review_required),
+    confirmed_at: record.confirmed_at || null,
+  }
 }
 
 
@@ -77,6 +95,7 @@ export async function uploadCloudResume(accessToken, file, options = {}) {
   const {
     backendUrl = DEFAULT_BACKEND_URL,
     fetchImpl = fetch,
+    signal,
   } = options
   const formData = new FormData()
   formData.append('file', file)
@@ -88,9 +107,10 @@ export async function uploadCloudResume(accessToken, file, options = {}) {
         Authorization: `Bearer ${token}`,
       },
       body: formData,
+      signal,
     }),
     'Unable to upload the resume.',
-  )
+  ).then(projectCloudResume)
 }
 
 
@@ -99,17 +119,23 @@ export async function fetchCurrentCloudResume(accessToken, options = {}) {
   const {
     backendUrl = DEFAULT_BACKEND_URL,
     fetchImpl = fetch,
+    signal,
   } = options
 
-  return parseJsonResponse(
+  const payload = await parseJsonResponse(
     await fetchImpl(`${backendUrl}/api/resumes/current`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${token}`,
       },
+      signal,
     }),
     'Unable to load the current resume.',
   )
+  return {
+    ready: Boolean(payload.ready),
+    resume: projectCloudResume(payload.resume),
+  }
 }
 
 
@@ -118,17 +144,23 @@ export async function fetchReviewCandidate(accessToken, options = {}) {
   const {
     backendUrl = DEFAULT_BACKEND_URL,
     fetchImpl = fetch,
+    signal,
   } = options
 
-  return parseJsonResponse(
+  const payload = await parseJsonResponse(
     await fetchImpl(`${backendUrl}/api/resumes/review-candidate`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${token}`,
       },
+      signal,
     }),
     'Unable to load the resume review candidate.',
   )
+  return {
+    has_candidate: Boolean(payload.has_candidate),
+    resume: projectCloudResume(payload.resume),
+  }
 }
 
 
@@ -137,6 +169,7 @@ export async function fetchCloudResumeStatus(accessToken, resumeId, options = {}
   const {
     backendUrl = DEFAULT_BACKEND_URL,
     fetchImpl = fetch,
+    signal,
   } = options
 
   return parseJsonResponse(
@@ -145,9 +178,10 @@ export async function fetchCloudResumeStatus(accessToken, resumeId, options = {}
       headers: {
         Authorization: `Bearer ${token}`,
       },
+      signal,
     }),
     'Unable to load the resume status.',
-  )
+  ).then(projectCloudResume)
 }
 
 
@@ -156,6 +190,7 @@ export async function extractCloudResume(accessToken, resumeId, options = {}) {
   const {
     backendUrl = DEFAULT_BACKEND_URL,
     fetchImpl = fetch,
+    signal,
   } = options
 
   return parseJsonResponse(
@@ -164,6 +199,7 @@ export async function extractCloudResume(accessToken, resumeId, options = {}) {
       headers: {
         Authorization: `Bearer ${token}`,
       },
+      signal,
     }),
     'Unable to extract the resume.',
   )
@@ -175,6 +211,7 @@ export async function confirmCloudResume(accessToken, resumeId, extractionAttemp
   const {
     backendUrl = DEFAULT_BACKEND_URL,
     fetchImpl = fetch,
+    signal,
   } = options
 
   return parseJsonResponse(
@@ -188,6 +225,7 @@ export async function confirmCloudResume(accessToken, resumeId, extractionAttemp
         extraction_attempt: extractionAttempt,
         profile,
       }),
+      signal,
     }),
     'Unable to confirm the resume profile.',
   )

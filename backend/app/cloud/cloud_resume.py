@@ -28,6 +28,7 @@ SAFE_FAILURE_MESSAGE = "Resume processing failed. Please try again."
 MAX_CONFIRMED_PROFILE_BYTES = 64 * 1024
 CONFIRMED_PROFILE_FIELDS = tuple(field for field in PROFILE_FIELD_ORDER if field != "raw_resume_text")
 SUPABASE_HTTP_POOL_SIZE = 20
+SUPABASE_SELECT_ATTEMPT_TIMEOUT = 5
 
 
 class CloudResumeError(RuntimeError):
@@ -338,7 +339,7 @@ class SupabaseCloudResumeClient:
                     f"{self._rest_url}/resumes",
                     headers=self._headers,
                     params=query,
-                    timeout=10,
+                    timeout=SUPABASE_SELECT_ATTEMPT_TIMEOUT,
                 )
                 break
             except requests.RequestException as exc:

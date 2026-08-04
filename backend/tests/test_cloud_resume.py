@@ -12,6 +12,7 @@ from app.cloud.cloud_resume import (
     CloudResumeRecord,
     CloudResumeService,
     SUPABASE_HTTP_POOL_SIZE,
+    SUPABASE_SELECT_ATTEMPT_TIMEOUT,
     SupabaseCloudResumeClient,
     CloudResumeValidationError,
     sanitize_resume_filename,
@@ -406,6 +407,7 @@ class FakeRestSession:
         self.patch_response = FakeResponse(200, [_record(status="needs_review", extraction_attempt=3).__dict__])
         self.get_response = FakeResponse(200, [])
         self.fail_first_get = False
+        self.fail_all_gets = False
 
     def patch(self, url: str, **kwargs: object) -> FakeResponse:
         self.patch_calls.append({"url": url, **kwargs})
@@ -413,7 +415,7 @@ class FakeRestSession:
 
     def get(self, url: str, **kwargs: object) -> FakeResponse:
         self.get_calls.append({"url": url, **kwargs})
-        if self.fail_first_get and len(self.get_calls) == 1:
+        if self.fail_all_gets or (self.fail_first_get and len(self.get_calls) == 1):
             raise requests.ConnectionError("synthetic stale connection")
         return self.get_response
 
@@ -468,7 +470,28 @@ def test_supabase_select_retries_one_transient_connection_error_without_raw_payl
     assert len(session.get_calls) == 2
     assert session.get_calls[0]["params"]["status"] == "eq.needs_review"
     assert session.get_calls[0]["params"]["confirmed_at"] == "is.null"
+    assert session.get_calls[0]["timeout"] == SUPABASE_SELECT_ATTEMPT_TIMEOUT
     assert "stage=request_retry" in caplog.text
+    assert "synthetic stale connection" not in caplog.text
+
+
+def test_supabase_select_exhausted_retry_logs_once_without_raw_payload(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    session = FakeRestSession()
+    session.fail_all_gets = True
+    client = _supabase_client_with_session(session)
+
+    with caplog.at_level("WARNING", logger="cloud_resume"), pytest.raises(CloudResumeError):
+        client.get_review_candidate(USER_A)
+
+    assert len(session.get_calls) == 2
+    request_error_records = [
+        record
+        for record in caplog.records
+        if record.name == "cloud_resume" and "status=request_error" in record.getMessage()
+    ]
+    assert len(request_error_records) == 1
     assert "synthetic stale connection" not in caplog.text
 
 

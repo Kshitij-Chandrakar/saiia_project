@@ -8,7 +8,7 @@ const appSource = readFileSync(new URL('../App.jsx', import.meta.url), 'utf8').r
 const signupPageSource = source.match(/export function AuthSignupPage[\s\S]*?export function AuthLoginPage/)?.[0] || ''
 const loginPageSource = source.match(/export function AuthLoginPage[\s\S]*?export function AuthForgotPasswordPage/)?.[0] || ''
 const statusPageSource = source.match(/export function AuthStatusPage[\s\S]*?function RequireAuth/)?.[0] || ''
-const dashboardPageSource = source.match(/export function AuthDashboardPage[\s\S]*?export function AuthLogoutPage/)?.[0] || ''
+const dashboardPageSource = source.match(/export function AuthDashboardPage[\s\S]*?export function AuthResumePage/)?.[0] || ''
 const resumePageSource = source.match(/export function AuthResumePage[\s\S]*?export function AuthLogoutPage/)?.[0] || ''
 const statusLogoutSource = statusPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n  \}\n\n  return \(/)?.[0] || ''
 const dashboardLogoutSource = dashboardPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n  \}\n\n  return \(/)?.[0] || ''
@@ -139,8 +139,11 @@ test('desktop-local routes remain unprotected while auth dashboard is protected'
 
 test('cloud resume page is protected and loads current plus review candidate state', () => {
   assert.match(resumePageSource, /<RequireAuth backendUrl=\{backendUrl\}>/)
-  assert.match(resumePageSource, /fetchCurrentCloudResume\(token, \{ backendUrl \}\)/)
-  assert.match(resumePageSource, /fetchReviewCandidate\(token, \{ backendUrl \}\)/)
+  assert.match(resumePageSource, /const controller = new AbortController\(\)/)
+  assert.match(resumePageSource, /fetchCurrentCloudResume\(token, \{ backendUrl, signal \}\)/)
+  assert.match(resumePageSource, /fetchReviewCandidate\(token, \{ backendUrl, signal \}\)/)
+  assert.match(resumePageSource, /if \(ignore\) \{[\s\S]*setCurrentResume/)
+  assert.match(resumePageSource, /controller\.abort\(\)/)
   assert.match(resumePageSource, /current\.ready \? current\.resume : null/)
   assert.match(resumePageSource, /No active ready resume yet\./)
 })
@@ -157,10 +160,13 @@ test('cloud resume upload validates files and calls upload extract status flow',
   assert.match(source, /const SUPPORTED_RESUME_EXTENSIONS = new Set\(\['\.pdf', '\.docx', '\.txt'\]\)/)
   assert.match(source, /function validateCloudResumeFile\(file\)/)
   assert.match(resumePageSource, /disabled=\{uploadDisabled\}/)
+  assert.match(resumePageSource, /disabled=\{busy\}/)
   assert.match(resumePageSource, /uploadCloudResume\(token, file, \{ backendUrl \}\)/)
-  assert.match(resumePageSource, /fetchCloudResumeStatus\(token, uploaded\.id, \{ backendUrl \}\)/)
+  assert.match(resumePageSource, /const uploadedStatus = await fetchCloudResumeStatus\(token, uploaded\.id, \{ backendUrl \}\)/)
+  assert.match(resumePageSource, /if \(uploadedStatus\.status !== 'uploaded'\) \{[\s\S]*return/)
   assert.match(resumePageSource, /extractCloudResume\(token, uploaded\.id, \{ backendUrl \}\)/)
   assert.match(resumePageSource, /Extraction failed\. Try again or upload another file\./)
+  assert.match(resumePageSource, /catch \(resumeError\) \{[\s\S]*setMessage\(''\)/)
 })
 
 
@@ -169,7 +175,14 @@ test('cloud resume review form confirms edited normalized fields without raw res
   assert.match(source, /\['full_name', 'Full name', 'input'\]/)
   assert.match(source, /\['achievements', 'Achievements', 'textarea'\]/)
   assert.match(resumePageSource, /CLOUD_PROFILE_FIELDS\.map\(\(\[field, label, kind\]\)/)
+  assert.match(resumePageSource, /const \[confirmPending, setConfirmPending\] = useState\(false\)/)
+  assert.match(resumePageSource, /if \(confirmPending\) \{[\s\S]*return\s+\}/)
+  assert.match(resumePageSource, /setConfirmPending\(true\)[\s\S]*confirmCloudResume/)
+  assert.match(resumePageSource, /finally \{[\s\S]*setConfirmPending\(false\)/)
+  assert.match(resumePageSource, /disabled=\{confirmPending \|\| phase === 'confirmed'\}/)
+  assert.match(resumePageSource, /confirmPending \? 'Saving reviewed profile\.\.\.' : 'Confirm Reviewed Profile'/)
   assert.match(resumePageSource, /confirmCloudResume\([\s\S]*normalizeCloudProfile\(draftProfile\)/)
+  assert.match(resumePageSource, /catch \(confirmError\) \{[\s\S]*setMessage\(''\)/)
   assert.doesNotMatch(source.match(/const CLOUD_PROFILE_FIELDS = \[[\s\S]*?\n\]/)?.[0] || '', /raw_resume_text/)
   assert.doesNotMatch(resumePageSource, /console\.log|setAccessToken|sessionToken/)
 })

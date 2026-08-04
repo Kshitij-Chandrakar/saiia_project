@@ -227,15 +227,47 @@ def test_review_candidate_route_is_separate_from_current(client: TestClient, fak
 
 def test_review_candidate_route_returns_empty_after_confirmed_state(client: TestClient) -> None:
     class ConfirmedCandidateService(FakeRouteService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.confirmed = False
+
         def get_review_candidate(self, user_id: str):
             self.user_ids.append(user_id)
+            if not self.confirmed:
+                return _record(user_id=user_id, status="needs_review")
             return None
+
+        def confirm_resume(
+            self,
+            *,
+            user_id: str,
+            resume_id: str,
+            extraction_attempt: int,
+            confirmed_profile: dict[str, Any],
+        ):
+            self.confirmed = True
+            return super().confirm_resume(
+                user_id=user_id,
+                resume_id=resume_id,
+                extraction_attempt=extraction_attempt,
+                confirmed_profile=confirmed_profile,
+            )
 
     service = ConfirmedCandidateService()
     client.app.dependency_overrides[resumes_api.get_cloud_resume_service] = lambda: service
 
-    response = client.get("/api/resumes/review-candidate", headers={"Authorization": f"Bearer {_token()}"})
+    headers = {"Authorization": f"Bearer {_token()}"}
+    before = client.get("/api/resumes/review-candidate", headers=headers)
+    confirm = client.post(
+        f"/api/resumes/{RESUME_ID}/confirm",
+        headers=headers,
+        json={"extraction_attempt": 1, "profile": {"full_name": "Confirmed"}},
+    )
+    response = client.get("/api/resumes/review-candidate", headers=headers)
 
+    assert before.status_code == 200
+    assert before.json()["has_candidate"] is True
+    assert confirm.status_code == 200
     assert response.status_code == 200
     assert response.json() == {"has_candidate": False, "resume": None}
 
