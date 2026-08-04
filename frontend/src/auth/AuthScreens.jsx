@@ -935,6 +935,13 @@ export function AuthResumePage({ backendUrl }) {
   const [confirmPending, setConfirmPending] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const confirmControllerRef = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      confirmControllerRef.current?.abort()
+    }
+  }, [])
 
   async function getSessionToken(sessionErrorMessage = 'Session expired or signed out. Please log in again.') {
     if (!supabase) {
@@ -1094,6 +1101,9 @@ export function AuthResumePage({ backendUrl }) {
     setError('')
     setMessage('Saving reviewed profile...')
     setConfirmPending(true)
+    confirmControllerRef.current?.abort()
+    const confirmController = new AbortController()
+    confirmControllerRef.current = confirmController
     try {
       const token = await getSessionToken()
       const confirmed = await confirmCloudResume(
@@ -1101,23 +1111,48 @@ export function AuthResumePage({ backendUrl }) {
         resumeId,
         extractionAttempt,
         normalizeCloudProfile(draftProfile),
-        { backendUrl },
+        { backendUrl, signal: confirmController.signal },
       )
+      if (confirmController.signal.aborted) {
+        return
+      }
       setPhase('confirmed')
-      const current = await fetchCurrentCloudResume(token, { backendUrl })
-      setCurrentResume(current.ready ? current.resume : null)
       setReviewCandidate(null)
-      setResumeRecord(current.ready ? current.resume : { ...(resumeRecord || {}), id: resumeId, status: confirmed.status })
-      setMessage(
-        confirmed.ready && current.ready
-          ? 'Resume confirmed and activated.'
-          : 'Resume confirmed. Active resume is not ready yet.',
-      )
+      try {
+        const current = await fetchCurrentCloudResume(token, { backendUrl, signal: confirmController.signal })
+        if (confirmController.signal.aborted) {
+          return
+        }
+        setCurrentResume(current.ready ? current.resume : null)
+        setResumeRecord((currentRecord) => (
+          current.ready ? current.resume : { ...(currentRecord || {}), id: resumeId, status: confirmed.status }
+        ))
+        setMessage(
+          confirmed.ready && current.ready
+            ? 'Resume confirmed and activated.'
+            : 'Resume confirmed. Active resume is not ready yet.',
+        )
+      } catch (refreshError) {
+        if (confirmController.signal.aborted || refreshError.name === 'AbortError') {
+          return
+        }
+        setCurrentResume(null)
+        setResumeRecord((currentRecord) => ({ ...(currentRecord || {}), id: resumeId, status: confirmed.status }))
+        setMessage('Resume confirmed. Refresh to load active resume status.')
+      }
     } catch (confirmError) {
+      if (confirmController.signal.aborted || confirmError.name === 'AbortError') {
+        return
+      }
       setError(confirmError.message || 'Could not confirm the reviewed profile.')
       setMessage('')
     } finally {
-      setConfirmPending(false)
+      if (!confirmController.signal.aborted) {
+        setConfirmPending(false)
+      }
+      if (confirmControllerRef.current === confirmController) {
+        confirmControllerRef.current = null
+      }
     }
   }
 
@@ -1166,7 +1201,7 @@ export function AuthResumePage({ backendUrl }) {
               {phase === 'uploading' ? 'Uploading resume...' : phase === 'extracting' ? 'Analyzing resume...' : 'Upload and Extract'}
             </button>
           </form>
-          {draftProfile && (
+          {draftProfile && phase !== 'confirmed' && (
             <form className="auth-form auth-review-form" onSubmit={handleConfirmProfile}>
               <div className="auth-section-heading">
                 <FileText size={18} aria-hidden="true" />

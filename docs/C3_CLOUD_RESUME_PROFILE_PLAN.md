@@ -15,6 +15,14 @@ website UI.
 [ ] C3.5 delete/rebuild/status + closure pending
 ```
 
+C3.4 migration note: `20260804134140_add_cloud_resume_chunk_activation.sql`
+has been applied to live `saiia-dev`, so it remains unchanged. Its
+pre-launch `SET NOT NULL` and normal index creation are acceptable for the tiny
+development dataset; future production-scale lock mitigation should use a
+separate migration strategy. Follow-up function/RPC corrections use
+`20260804151715_fix_cloud_resume_activation_profile_parsing.sql` instead of
+rewriting applied history.
+
 C3 product goal:
 
 ```text
@@ -310,8 +318,9 @@ Confirmation/activation reconciliation:
 
 - `POST /api/resumes/{resume_id}/confirm` writes reviewed normalized fields
   only to `resumes.confirmed_profile`; it does not update `profiles`.
-- Profile upsert/update and resume activation must be atomic during
-  `POST /api/resumes/{resume_id}/index` activation.
+- Profile upsert/update and resume activation are atomic during the C3.4
+  `POST /api/resumes/{resume_id}/confirm` activation path after chunks are
+  built.
 - Preferred C3 plan: upsert the `profiles` row from
   `resumes.confirmed_profile` inside the same activation transaction, because
   a user may not have a cloud `profiles` row yet.
@@ -319,9 +328,9 @@ Confirmation/activation reconciliation:
   update affects exactly one row and abort activation otherwise.
 - Avoid any state where `profiles` is upserted/updated without the same
   transaction also updating resume/chunk activation state.
-- If C3.2 cannot make profile upsert, ready status, active resume switch, and
-  chunk-generation switch atomic through REST, C3.2 must add a transactional
-  RPC before implementation.
+- C3.4 uses a backend-only transactional RPC behind
+  `POST /api/resumes/{resume_id}/confirm` for profile upsert, ready status,
+  active resume switch, and chunk-generation switch.
 
 ## Endpoint Plan
 
@@ -333,7 +342,6 @@ GET    /api/resumes/current
 GET    /api/resumes/review-candidate
 POST   /api/resumes/{resume_id}/extract
 POST   /api/resumes/{resume_id}/confirm
-POST   /api/resumes/{resume_id}/index
 GET    /api/resumes/{resume_id}/status
 DELETE /api/resumes/{resume_id}
 ```
@@ -349,7 +357,10 @@ C3.2 implemented the backend-only subset:
 
 C3.2 intentionally did not add frontend upload/review UI, cloud index
 activation, delete polish, desktop sync, sessions, billing, payment, email,
-admin, or final website UI.
+admin, or final website UI. C3.4 implements activation through
+`POST /api/resumes/{resume_id}/confirm`; a separate `/index` route is not part
+of the implemented C3.4 contract and may only be reconsidered later for C3.5
+rebuild/delete/status work.
 
 Recommended behavior:
 

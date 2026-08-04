@@ -1219,14 +1219,14 @@ POST   /api/resumes
 GET    /api/resumes/current
 POST   /api/resumes/{resume_id}/extract
 POST   /api/resumes/{resume_id}/confirm
-POST   /api/resumes/{resume_id}/index
 GET    /api/resumes/{resume_id}/status
 DELETE /api/resumes/{resume_id}
 ```
 
 C3.2 implemented the backend subset for upload/status/extract/confirm. C3.4
 implements chunk generation and activation through the existing confirm route;
-`DELETE` remains for C3.5.
+no separate C3.4 `/index` route is implemented. `DELETE` and any explicit
+rebuild/status polish remain for C3.5.
 
 ## Upload validation
 

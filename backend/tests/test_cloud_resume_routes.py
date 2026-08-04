@@ -299,6 +299,33 @@ def test_status_extract_and_confirm_are_user_owned(client: TestClient, fake_serv
     assert confirm_response.json()["chunk_count"] == 1
 
 
+def test_confirm_activation_conflict_returns_safe_409(client: TestClient) -> None:
+    class ConfirmConflictService(FakeRouteService):
+        def confirm_resume(
+            self,
+            *,
+            user_id: str,
+            resume_id: str,
+            extraction_attempt: int,
+            confirmed_profile: dict[str, Any],
+        ):
+            self.user_ids.append(user_id)
+            raise CloudResumeConflictError("Resume state changed. Please refresh and try again.")
+
+    service = ConfirmConflictService()
+    client.app.dependency_overrides[resumes_api.get_cloud_resume_service] = lambda: service
+
+    response = client.post(
+        f"/api/resumes/{RESUME_ID}/confirm",
+        headers={"Authorization": f"Bearer {_token()}"},
+        json={"extraction_attempt": 1, "profile": {"full_name": "Test User"}},
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Resume state changed. Please refresh and try again."}
+    assert "service-role-unit-test-value" not in response.text
+
+
 def test_malformed_resume_id_returns_422_before_service_call(client: TestClient, fake_service: FakeRouteService) -> None:
     response = client.get("/api/resumes/not-a-uuid/status", headers={"Authorization": f"Bearer {_token()}"})
 

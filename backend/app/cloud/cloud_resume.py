@@ -52,6 +52,7 @@ CLOUD_INDEX_PROFILE_FIELDS = (
 )
 SUPABASE_HTTP_POOL_SIZE = 20
 SUPABASE_SELECT_ATTEMPT_TIMEOUT = 5
+SUPABASE_ACTIVE_CHUNK_LIMIT = 50
 
 
 class CloudResumeError(RuntimeError):
@@ -437,6 +438,25 @@ class SupabaseCloudResumeClient:
         if response.status_code not in {200, 201, 204}:
             self._raise_response("resume_chunks", "insert", response)
 
+    def delete_resume_chunks(self, *, user_id: str, resume_id: str, generation_id: str | None = None) -> None:
+        params = {
+            "user_id": f"eq.{user_id}",
+            "resume_id": f"eq.{resume_id}",
+        }
+        if generation_id is not None:
+            params["generation_id"] = f"eq.{generation_id}"
+        try:
+            response = self._session.delete(
+                f"{self._rest_url}/resume_chunks",
+                headers={**self._headers, "Prefer": "return=minimal"},
+                params=params,
+                timeout=10,
+            )
+        except requests.RequestException as exc:
+            self._raise_request("resume_chunks", "delete", exc)
+        if response.status_code not in {200, 204}:
+            self._raise_response("resume_chunks", "delete", response)
+
     def activate_resume(
         self,
         *,
@@ -462,6 +482,9 @@ class SupabaseCloudResumeClient:
         except requests.RequestException as exc:
             self._raise_request("resumes", "activate", exc)
         if response.status_code != 200:
+            if response.status_code in {400, 409} and self._safe_error_code(response) == "P0001":
+                self._log_failure("resumes", "activate", response)
+                raise CloudResumeConflictError("Resume state changed. Please refresh and try again.")
             self._raise_response("resumes", "activate", response)
         data = response.json()
         if not isinstance(data, list) or not data:
@@ -475,21 +498,33 @@ class SupabaseCloudResumeClient:
         resume_id: str,
         generation_id: str,
     ) -> list[dict[str, Any]]:
-        try:
-            response = self._session.get(
-                f"{self._rest_url}/resume_chunks",
-                headers=self._headers,
-                params={
-                    "select": "id,resume_id,section,chunk_text,metadata,generation_id",
-                    "user_id": f"eq.{user_id}",
-                    "resume_id": f"eq.{resume_id}",
-                    "generation_id": f"eq.{generation_id}",
-                    "order": "created_at.asc",
-                },
-                timeout=SUPABASE_SELECT_ATTEMPT_TIMEOUT,
-            )
-        except requests.RequestException as exc:
-            self._raise_request("resume_chunks", "select", exc)
+        query = {
+            "select": "id,resume_id,section,chunk_text,metadata,generation_id",
+            "user_id": f"eq.{user_id}",
+            "resume_id": f"eq.{resume_id}",
+            "generation_id": f"eq.{generation_id}",
+            "order": "created_at.asc",
+            "limit": str(SUPABASE_ACTIVE_CHUNK_LIMIT),
+        }
+        for attempt in (1, 2):
+            try:
+                response = self._session.get(
+                    f"{self._rest_url}/resume_chunks",
+                    headers=self._headers,
+                    params=query,
+                    timeout=SUPABASE_SELECT_ATTEMPT_TIMEOUT,
+                )
+                break
+            except requests.RequestException as exc:
+                if attempt == 1:
+                    logger.warning(
+                        "Supabase cloud resume chunk select retry: target=resume_chunks operation=select stage=request_retry error_type=%s",
+                        type(exc).__name__,
+                    )
+                    continue
+                self._raise_request("resume_chunks", "select", exc)
+        else:
+            raise CloudResumeError("Supabase cloud resume operation failed.")
         if response.status_code != 200:
             self._raise_response("resume_chunks", "select", response)
         data = response.json()
@@ -684,6 +719,7 @@ class CloudResumeService:
         )
         generation_id = str(uuid4())
         stage = "build_chunks"
+        inserted_generation = False
         try:
             chunks = self._build_resume_chunks(
                 user_id=user_id,
@@ -692,7 +728,9 @@ class CloudResumeService:
                 confirmed_profile=normalized_profile,
             )
             stage = "insert_chunks"
+            self._client.delete_resume_chunks(user_id=user_id, resume_id=resume_id)
             self._client.insert_resume_chunks(chunks)
+            inserted_generation = True
             stage = "activate_resume"
             updated = self._client.activate_resume(
                 user_id=user_id,
@@ -701,8 +739,15 @@ class CloudResumeService:
                 generation_id=generation_id,
                 confirmed_profile=normalized_profile,
             )
+        except CloudResumeConflictError as exc:
+            self._log_index_failure(stage, exc)
+            if inserted_generation:
+                self._discard_generation(user_id=user_id, resume_id=resume_id, generation_id=generation_id)
+            raise
         except (CloudResumeError, ResumeIndexError) as exc:
             self._log_index_failure(stage, exc)
+            if inserted_generation:
+                self._discard_generation(user_id=user_id, resume_id=resume_id, generation_id=generation_id)
             self._mark_index_failed(
                 resume_id=resume_id,
                 user_id=user_id,
@@ -759,6 +804,17 @@ class CloudResumeService:
                 }
             )
         return self._indexer.retrieve_from_chunks(chunks, question=question, category=category, limit=limit)
+
+    def _discard_generation(self, *, user_id: str, resume_id: str, generation_id: str) -> None:
+        try:
+            self._client.delete_resume_chunks(user_id=user_id, resume_id=resume_id, generation_id=generation_id)
+        except CloudResumeError:
+            logger.warning(
+                "Could not discard inactive cloud resume chunk generation: user_id=%s resume_id=%s generation_id=%s",
+                user_id,
+                resume_id,
+                generation_id,
+            )
 
     def _build_resume_chunks(
         self,
