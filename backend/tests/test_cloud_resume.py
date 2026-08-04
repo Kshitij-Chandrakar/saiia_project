@@ -658,17 +658,17 @@ def test_active_chunk_select_is_bounded_and_filters_owner_resume_generation() ->
     session = FakeRestSession()
     session.get_response = FakeResponse(
         200,
-        [{"id": f"chunk-{index}", "chunk_text": "safe chunk"} for index in range(SUPABASE_ACTIVE_CHUNK_HARD_LIMIT)],
+        [{"id": f"chunk-{index}", "chunk_text": "safe chunk"} for index in range(SUPABASE_ACTIVE_CHUNK_HARD_LIMIT + 1)],
     )
     client = _supabase_client_with_session(session)
 
-    with pytest.raises(CloudResumeError):
-        client.get_active_resume_chunks(
-            user_id=USER_A,
-            resume_id=RESUME_ID,
-            generation_id="20000000-0000-4000-8000-000000000001",
-        )
+    chunks = client.get_active_resume_chunks(
+        user_id=USER_A,
+        resume_id=RESUME_ID,
+        generation_id="20000000-0000-4000-8000-000000000001",
+    )
 
+    assert len(chunks) == SUPABASE_ACTIVE_CHUNK_HARD_LIMIT
     assert len(session.get_calls) == SUPABASE_ACTIVE_CHUNK_HARD_LIMIT // SUPABASE_ACTIVE_CHUNK_PAGE_SIZE
     first_params = session.get_calls[0]["params"]
     assert first_params["user_id"] == f"eq.{USER_A}"
@@ -698,6 +698,22 @@ def test_active_chunk_select_exhausted_retry_raises_safe_error(
     ]
     assert len(request_error_records) == 1
     assert "synthetic stale connection" not in caplog.text
+
+
+def test_supabase_delete_inactive_chunks_uses_null_or_nonactive_generation_filter() -> None:
+    session = FakeRestSession()
+    client = _supabase_client_with_session(session)
+
+    client.delete_inactive_resume_chunks(
+        user_id=USER_A,
+        resume_id=RESUME_ID,
+        active_generation_id="20000000-0000-4000-8000-000000000001",
+    )
+
+    params = session.delete_calls[0]["params"]
+    assert params["user_id"] == f"eq.{USER_A}"
+    assert params["resume_id"] == f"eq.{RESUME_ID}"
+    assert params["or"] == "(generation_id.is.null,generation_id.neq.20000000-0000-4000-8000-000000000001)"
 
 
 def test_confirm_requires_needs_review_and_matching_attempt() -> None:
@@ -841,6 +857,14 @@ def test_successful_activation_prunes_prior_chunks_for_same_resume_only() -> Non
             {
                 "user_id": USER_A,
                 "resume_id": RESUME_ID,
+                "generation_id": None,
+                "section": "legacy",
+                "chunk_text": "legacy null generation chunk",
+                "metadata": {},
+            },
+            {
+                "user_id": USER_A,
+                "resume_id": RESUME_ID,
                 "generation_id": "old-generation",
                 "section": "summary",
                 "chunk_text": "old private chunk",
@@ -879,6 +903,7 @@ def test_successful_activation_prunes_prior_chunks_for_same_resume_only() -> Non
         "resume_id": RESUME_ID,
         "active_generation_id": ready_record.active_chunk_generation,
     }
+    assert not any(chunk["chunk_text"] == "legacy null generation chunk" for chunk in client.chunks)
     assert not any(chunk["chunk_text"] == "old private chunk" for chunk in client.chunks)
     assert any(chunk["chunk_text"] == "other resume chunk" for chunk in client.chunks)
     assert any(chunk["chunk_text"] == "other user chunk" for chunk in client.chunks)

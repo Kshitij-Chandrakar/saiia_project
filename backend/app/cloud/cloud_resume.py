@@ -466,7 +466,7 @@ class SupabaseCloudResumeClient:
                 params={
                     "user_id": f"eq.{user_id}",
                     "resume_id": f"eq.{resume_id}",
-                    "generation_id": f"neq.{active_generation_id}",
+                    "or": f"(generation_id.is.null,generation_id.neq.{active_generation_id})",
                 },
                 timeout=10,
             )
@@ -529,10 +529,10 @@ class SupabaseCloudResumeClient:
             if len(page) < SUPABASE_ACTIVE_CHUNK_PAGE_SIZE:
                 return rows
             offset += SUPABASE_ACTIVE_CHUNK_PAGE_SIZE
-        logger.error(
-            "Supabase cloud resume failure: target=resume_chunks operation=select status=chunk_limit_exceeded"
+        logger.warning(
+            "Supabase cloud resume chunk retrieval bounded: target=resume_chunks operation=select status=chunk_limit_reached"
         )
-        raise CloudResumeError("Supabase cloud resume operation failed.")
+        return rows
 
     def _select_resume_chunk_page(
         self,
