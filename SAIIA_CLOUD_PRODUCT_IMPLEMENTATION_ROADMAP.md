@@ -278,6 +278,7 @@ C12 Payment provider integration
 C13 Usage limits and backend feature gates
 C14 Final Figma website implementation and integration
 C15 Privacy, export, retention, and deletion
+C15.5 Internal admin, support, and audit console
 C16 QA, deployment, packaging readiness, and release
 ```
 
@@ -2789,6 +2790,443 @@ Do not store private content in audit logs.
 
 ---
 
+# C15.5 — Internal Admin, Support, and Audit Console
+
+## Status
+
+```text
+[ ] Not started
+```
+
+## Goal
+
+Build a secure internal admin/support console where trusted SAIIA admins can manage support, account state, billing/usage visibility, privacy operations, and admin membership.
+
+This is internal/admin tooling, not part of the normal candidate/user dashboard. It must not be implemented before C15.5, and it must not become a shortcut around RLS, user ownership, privacy rules, or backend authorization checks.
+
+## Why C15.5 comes after C15
+
+Admin access touches sensitive user data: profiles, resumes, transcripts, sessions, billing, usage, privacy/export/delete workflows, and audit logs. C15 defines the privacy, export, retention, and deletion rules first, and C15.5 admin tools must follow those rules.
+
+Admin support must not be added during C2, C3, or C5 because early admin shortcuts would create privilege and security debt before user ownership, storage, privacy, and deletion behavior are complete.
+
+## Scope
+
+- admin authentication verification
+- admin RBAC
+- admin invitation/add-admin flow
+- admin list/suspend/remove/role-change flow
+- user search and account support
+- safe user/account summary view
+- profile/resume/session/billing/usage metadata views
+- privacy/export/delete support tools
+- break-glass workflow for raw sensitive data
+- audit log for every admin action
+- system health/config summary view
+- tests and manual validation
+
+## Out of scope
+
+- public admin signup
+- frontend-only admin flags
+- service-role access from browser
+- unaudited raw resume/transcript access
+- direct payment-state override
+- deleting audit logs from admin UI
+- admin access before C15.5
+- institution/multi-tenant organization administration unless separately approved
+- sales CRM, analytics warehouse, or marketing admin unless separately approved
+
+## Admin roles
+
+Use a role-based model, not a single `is_admin` boolean.
+
+- `owner`: can manage all admins, ownership, highest-risk settings, and last-owner recovery.
+- `super_admin`: can manage most admin/support operations, but cannot remove the last owner.
+- `support_admin`: can help users and view support-safe metadata, but cannot access raw resume/transcript data by default.
+- `billing_admin`: can view billing/usage and support billing issues; payment provider webhooks remain authoritative.
+- `privacy_admin`: can manage export/delete workflows and privacy review tasks.
+- `security_auditor`: can view audit/security events, but cannot mutate user data.
+- `readonly_admin`: can view high-level operational dashboards only.
+
+Rules:
+
+- owner can manage all admins and ownership
+- super_admin can manage most admin/support operations but cannot remove the last owner
+- support_admin can help users but cannot access raw resume/transcript by default
+- billing_admin can view billing/usage and support billing issues but payment webhook remains authoritative
+- privacy_admin can manage export/delete workflows
+- security_auditor can view audit/security events but not mutate user data
+- readonly_admin can view high-level operational dashboards only
+
+## Permissions model
+
+Future C15.5 permission groups:
+
+```text
+admins:read
+admins:invite
+admins:update_role
+admins:suspend
+users:read
+users:update_status
+users:force_logout
+support_notes:create
+profile:metadata_read
+resume:metadata_read
+resume:raw_read_break_glass
+sessions:metadata_read
+transcripts:summary_read
+transcripts:raw_read_break_glass
+billing:read
+billing:support_action
+usage:read
+usage:adjust
+privacy:read
+privacy:export_trigger
+privacy:delete_review
+audit:read
+system:read
+system:flags_update
+```
+
+This permissions map is future planning only and must not be implemented before C15.5.
+
+## Database planning
+
+Future C15.5-owned tables:
+
+`admin_memberships`:
+
+- id
+- user_id references auth.users(id)
+- role
+- status: active | suspended | revoked | invited
+- invited_by_user_id
+- created_at
+- updated_at
+- last_admin_action_at
+
+`admin_invites`:
+
+- id
+- email
+- role
+- invite_token_hash
+- invited_by_user_id
+- expires_at
+- accepted_at
+- revoked_at
+- created_at
+
+`admin_audit_logs`:
+
+- id
+- actor_user_id
+- actor_role
+- action
+- target_type
+- target_user_id
+- target_record_id
+- reason
+- metadata
+- ip_hash_or_safe_ref
+- user_agent_safe_ref
+- created_at
+
+`admin_break_glass_requests`:
+
+- id
+- actor_user_id
+- target_user_id
+- data_type
+- reason
+- status: requested | approved | denied | expired | used
+- approved_by_user_id
+- expires_at
+- created_at
+- used_at
+
+`admin_system_flags`:
+
+- id
+- key
+- value
+- updated_by_user_id
+- updated_at
+
+Rules:
+
+- no service-role keys stored
+- no raw JWTs stored
+- no passwords stored
+- invite tokens stored hashed only
+- audit logs append-only from application behavior
+- destructive actions require reason
+
+## Future API route plan
+
+These routes are future C15.5-owned planning only.
+
+Admin identity:
+
+```text
+GET /api/admin/me
+```
+
+Admin membership:
+
+```text
+GET /api/admin/admins
+POST /api/admin/admins/invite
+GET /api/admin/admin-invites
+POST /api/admin/admin-invites/{invite_id}/revoke
+POST /api/admin/admin-invites/accept
+PATCH /api/admin/admins/{admin_user_id}/role
+PATCH /api/admin/admins/{admin_user_id}/suspend
+PATCH /api/admin/admins/{admin_user_id}/restore
+DELETE /api/admin/admins/{admin_user_id}
+```
+
+User support:
+
+```text
+GET /api/admin/users
+GET /api/admin/users/{user_id}
+PATCH /api/admin/users/{user_id}/status
+POST /api/admin/users/{user_id}/force-logout
+POST /api/admin/users/{user_id}/send-password-reset
+POST /api/admin/users/{user_id}/support-note
+```
+
+Profile/resume support:
+
+```text
+GET /api/admin/users/{user_id}/profile/summary
+GET /api/admin/users/{user_id}/resumes
+GET /api/admin/users/{user_id}/resume-status
+POST /api/admin/users/{user_id}/resume/retry-extraction
+POST /api/admin/users/{user_id}/resume/rebuild-index
+```
+
+Sessions/transcripts:
+
+```text
+GET /api/admin/users/{user_id}/sessions
+GET /api/admin/sessions/{session_id}/metadata
+GET /api/admin/sessions/{session_id}/transcript-summary
+```
+
+Break-glass:
+
+```text
+POST /api/admin/break-glass/request
+POST /api/admin/break-glass/{request_id}/approve
+GET /api/admin/users/{user_id}/resume/raw?break_glass_id=...
+GET /api/admin/sessions/{session_id}/transcript/raw?break_glass_id=...
+```
+
+Billing/usage:
+
+```text
+GET /api/admin/users/{user_id}/subscription
+GET /api/admin/users/{user_id}/usage
+POST /api/admin/users/{user_id}/usage-adjustment
+GET /api/admin/plans
+PATCH /api/admin/plans/{plan_id}
+```
+
+Privacy/export/delete:
+
+```text
+GET /api/admin/privacy/requests
+GET /api/admin/users/{user_id}/privacy-summary
+POST /api/admin/users/{user_id}/trigger-export
+POST /api/admin/users/{user_id}/trigger-delete-review
+POST /api/admin/users/{user_id}/confirm-delete
+```
+
+Audit/system:
+
+```text
+GET /api/admin/audit-logs
+GET /api/admin/security/events
+GET /api/admin/system/health
+GET /api/admin/system/config-summary
+PATCH /api/admin/system/flags/{flag_key}
+```
+
+No `/api/admin` route may trust frontend role claims alone. Every admin route must verify the Supabase user token, load admin membership server-side, check role permission, and write an audit log for sensitive actions.
+
+## Future frontend route plan
+
+Future C15.5-owned admin frontend routes:
+
+```text
+/admin
+/admin/users
+/admin/users/:userId
+/admin/admins
+/admin/invites
+/admin/audit
+/admin/billing
+/admin/usage
+/admin/privacy
+/admin/system
+/admin/break-glass
+```
+
+UI states:
+
+- not admin
+- admin suspended
+- loading permissions
+- permission denied
+- break-glass required
+- destructive confirmation
+- audit reason required
+- action succeeded
+- action failed
+- invite expired
+- last-owner protection
+
+## Admin invite/add-admin flow
+
+1. owner/super_admin enters invite email and role
+2. backend validates actor permission
+3. backend creates hashed invite token
+4. invitation email is sent through the approved email system when available
+5. invitee must authenticate through Supabase
+6. backend matches invite email to authenticated user
+7. admin_membership is created/activated
+8. audit log is written
+9. invite expires or can be revoked
+
+Rules:
+
+- only owner can invite owner
+- super_admin can invite non-owner roles if allowed
+- no self-promotion
+- no last-owner removal
+- no public admin registration
+- all admin role changes audited
+
+## Break-glass sensitive-data access
+
+- raw resume text and raw transcripts are not visible by default
+- support/admin views show metadata and summaries first
+- raw sensitive access requires break-glass request
+- break-glass requires reason
+- high-risk access requires approval by owner/super_admin/privacy_admin depending on data type
+- break-glass expires
+- every use is audited
+- UI must clearly mark sensitive access
+- access should be minimized and time-limited
+
+## Billing/usage admin rules
+
+- payment provider webhook remains authoritative
+- admin cannot simply mark a payment successful
+- admin may view subscription/usage state
+- usage adjustments require reason and audit log
+- plan edits require high privilege
+- billing actions should avoid exposing card/payment secrets
+
+## Privacy/delete admin rules
+
+- privacy/delete workflows depend on C15
+- admin can help trigger export/delete review
+- destructive deletion requires confirmation and reason
+- user-owned files, rows, and derived data cleanup must follow C15 rules
+- billing/legal retention exceptions must be documented
+
+## Security rules
+
+- no service-role key in frontend
+- no frontend-only `admin=true` flag
+- no localStorage role authority
+- no unaudited admin action
+- no raw resume/transcript access by default
+- no admin can delete audit logs from the UI
+- no last-owner deletion
+- no open admin registration
+- no admin invite without owner/super_admin permission
+- no destructive action without reason
+- no cross-user user data access without admin route, permission check, and audit log
+- no admin data access from normal user routes
+- no payment status override without provider/webhook consistency
+
+## Tests
+
+- non-admin rejected
+- suspended admin rejected
+- readonly admin cannot mutate
+- support admin cannot access billing mutation
+- billing admin cannot access raw resumes
+- privacy admin can trigger export/delete workflows but cannot bypass confirmation
+- super_admin can invite support_admin
+- owner can invite owner
+- last owner cannot be removed
+- invite token expires
+- invite token is hashed
+- revoked invite cannot be used
+- every sensitive action creates audit log
+- raw resume requires break-glass
+- raw transcript requires break-glass
+- break-glass expires
+- destructive delete requires reason
+- service-role key absent from frontend bundle
+- normal user routes/RLS behavior unaffected
+- admin cannot access another user's data through normal user endpoints
+- payment webhook remains authoritative
+
+## Manual validation
+
+- create first owner safely
+- invite support admin
+- accept invite
+- login as support admin
+- verify allowed user support views
+- verify forbidden billing/privacy/raw data actions
+- login as billing admin
+- verify billing/usage visibility
+- login as privacy admin
+- trigger export/delete review flow
+- attempt last-owner removal and confirm blocked
+- attempt raw resume/transcript access without break-glass and confirm blocked
+- approve break-glass and confirm access expires
+- verify audit logs for every action
+
+## C15.5 exit criteria
+
+- admin roles exist
+- admin invite/add-admin flow works
+- admin routes are protected by backend RBAC
+- admin frontend exists
+- all admin actions are audited
+- raw sensitive data access requires break-glass
+- billing/usage/user support views work
+- privacy/export/delete support tools work
+- service-role key never reaches frontend
+- last-owner protection works
+- tests pass
+- manual validation passes
+- docs are updated
+- no normal user route was weakened
+
+## C15.5 subphases
+
+- C15.5.1 — Admin architecture and threat model
+- C15.5.2 — Admin schema and RBAC permissions
+- C15.5.3 — Admin verification dependency and audit logging
+- C15.5.4 — Admin invite/add-admin flow
+- C15.5.5 — User/support management APIs
+- C15.5.6 — Billing/usage/privacy admin APIs
+- C15.5.7 — Admin frontend console
+- C15.5.8 — Admin security closure and manual validation
+
+---
+
 # C16 â€” QA, Deployment, Packaging Readiness, and Release
 
 ## Status
@@ -3009,9 +3447,14 @@ auth.users
     +-- usage_monthly
     +-- email_events
     +-- payment_events
+    +-- admin_memberships          (future C15.5)
+    +-- admin_invites              (future C15.5)
+    +-- admin_audit_logs           (future C15.5)
+    +-- admin_break_glass_requests (future C15.5)
+    +-- admin_system_flags         (future C15.5)
 ```
 
-Not every table must be created in C1. Create each table in the phase that owns it, using migrations.
+Not every table must be created in C1. Create each table in the phase that owns it, using migrations. The admin-owned tables above belong to future C15.5, not the C1 cloud foundation.
 
 ---
 
@@ -3033,6 +3476,7 @@ Expected API groups:
 /api/usage/*
 /api/settings/*
 /api/privacy/*
+/api/admin/*     (future C15.5 only)
 ```
 
 Existing desktop routes such as transcription, classification, and generation must remain compatible until an intentional migration is completed.
@@ -3264,6 +3708,26 @@ Decision finalized during C7/C15.
 
 Exact retention periods require product/privacy decision before C15 completion.
 
+### Admin role set
+
+Owner, super_admin, support_admin, billing_admin, privacy_admin, security_auditor, and readonly_admin are the planned starting roles. Final permissions require C15.5 threat modeling.
+
+### Raw sensitive-data access policy
+
+Decide which raw resume/transcript fields can ever be viewed by staff, and which must stay inaccessible even through break-glass.
+
+### Break-glass approval policy
+
+Decide which roles can approve high-risk sensitive-data access and how long approvals remain valid.
+
+### Admin invite ownership policy
+
+Decide first-owner bootstrap, owner-only role grants, invite expiry, and last-owner recovery rules.
+
+### Support/admin retention and audit-log retention policy
+
+Decide how long admin audit logs, support notes, invite records, and break-glass records are retained.
+
 ---
 
 ## 16. Major Risks and Mitigations
@@ -3304,6 +3768,26 @@ Mitigation: pricing foundation only after session intelligence works.
 
 Mitigation: privacy inventory, deletion flow, no raw audio/screenshots by default.
 
+### Risk: admin privilege escalation
+
+Mitigation: backend-only admin membership checks, role permissions, no frontend-only admin authority, and last-owner protection.
+
+### Risk: unaudited staff access
+
+Mitigation: audit every sensitive admin action, require reasons for destructive actions, and make audit logs append-only from application behavior.
+
+### Risk: support/admin data overexposure
+
+Mitigation: metadata-first support views, break-glass for raw sensitive data, and least-privilege admin roles.
+
+### Risk: last-owner lockout
+
+Mitigation: explicit last-owner removal prevention and documented first-owner/recovery process.
+
+### Risk: break-glass misuse
+
+Mitigation: reason-required, approval-gated, time-limited break-glass access with audit logging for every request, approval, and use.
+
 ---
 
 ## 17. Final Product Acceptance
@@ -3326,6 +3810,7 @@ The C0â€“C16 track is complete when:
 - usage limits are backend-enforced
 - approved Figma website is integrated
 - users can export/delete data
+- admin/support console exists with audited RBAC, if required for internal operations before release
 - staging and production QA pass
 - known limitations are documented
 - no major rewrite is required for release

@@ -68,7 +68,9 @@ This PRD does not include:
 - commercial administration
 - institution administration
 
-Those commercial features belong to PRD B.
+Internal admin/support console planning is tracked as future phase C15.5 after privacy/export/retention/deletion rules are defined. It is not part of the normal candidate dashboard. Institution or commercial administration remains future/expanded scope unless separately approved.
+
+Those commercial features belong to PRD B or later explicitly approved internal-admin scope.
 
 ### 5.2 Permanent Screen Intelligence Non-Goals
 
