@@ -282,6 +282,8 @@ C15.5 Internal admin, support, and audit console
 C16 QA, deployment, packaging readiness, and release
 ```
 
+C15.5 is a conditional release gate: it must be completed before C16 only if SAIIA needs internal staff/admin/support operations for that release. If not required, the deferral decision must be recorded before C16 acceptance.
+
 ---
 
 # C0 â€” Desktop Core Stabilization
@@ -2795,8 +2797,10 @@ Do not store private content in audit logs.
 ## Status
 
 ```text
-[ ] Not started
+[ ] Not started - future conditional release phase
 ```
+
+C15.5 is required before C16 only if SAIIA needs internal staff/admin/support operations for that release. If the product decision is that no internal admin/support console is needed before release, C16 may pass with C15.5 explicitly deferred, but that decision must be recorded in the open decisions register and final acceptance must mark C15.5 as deferred/not required for that release.
 
 ## Goal
 
@@ -2871,26 +2875,95 @@ admins:suspend
 users:read
 users:update_status
 users:force_logout
+users:password_reset
 support_notes:create
+support_notes:read
+support_notes:delete_review
 profile:metadata_read
 resume:metadata_read
+resume:retry_extraction
+resume:rebuild_index
 resume:raw_read_break_glass
 sessions:metadata_read
 transcripts:summary_read
 transcripts:raw_read_break_glass
 billing:read
 billing:support_action
+plans:read
+plans:update
 usage:read
 usage:adjust
 privacy:read
 privacy:export_trigger
 privacy:delete_review
 audit:read
+break_glass:request
+break_glass:approve
 system:read
 system:flags_update
 ```
 
 This permissions map is future planning only and must not be implemented before C15.5.
+
+Role-to-permission matrix:
+
+| Role | Planned permission groups |
+|---|---|
+| owner | all C15.5 permissions, including ownership transfer and break-glass approval, with last-owner protection |
+| super_admin | admins:read, admins:invite, admins:update_role for non-owner roles, admins:suspend, users:read, users:update_status, users:force_logout, users:password_reset, support_notes:read, support_notes:create, support_notes:delete_review, profile:metadata_read, resume:metadata_read, resume:retry_extraction, resume:rebuild_index, sessions:metadata_read, transcripts:summary_read, billing:read, billing:support_action, plans:read, usage:read, usage:adjust, privacy:read, privacy:export_trigger, privacy:delete_review, audit:read, break_glass:request, break_glass:approve, system:read, system:flags_update |
+| support_admin | users:read, users:update_status where support-safe, users:password_reset, support_notes:read, support_notes:create, profile:metadata_read, resume:metadata_read, resume:retry_extraction, resume:rebuild_index, sessions:metadata_read, transcripts:summary_read, break_glass:request, system:read |
+| billing_admin | users:read, support_notes:read, support_notes:create, billing:read, billing:support_action, plans:read, usage:read, usage:adjust, audit:read |
+| privacy_admin | users:read, support_notes:read, support_notes:create, support_notes:delete_review, profile:metadata_read, resume:metadata_read, sessions:metadata_read, transcripts:summary_read, privacy:read, privacy:export_trigger, privacy:delete_review, audit:read, break_glass:request, break_glass:approve |
+| security_auditor | users:read at audit-safe metadata level, audit:read, system:read |
+| readonly_admin | users:read at high-level metadata only, billing:read summary only, usage:read summary only, audit:read summary only, system:read |
+
+Route-to-permission matrix:
+
+| Planned route | Required permission |
+|---|---|
+| GET /api/admin/me | admins:read |
+| GET /api/admin/admins | admins:read |
+| POST /api/admin/admins/invite | admins:invite |
+| GET /api/admin/admin-invites | admins:read |
+| POST /api/admin/admin-invites/{invite_id}/revoke | admins:invite |
+| POST /api/admin/admin-invites/accept | valid invite plus authenticated matching user; no role claim trusted from frontend |
+| PATCH /api/admin/admins/{admin_user_id}/role | admins:update_role |
+| PATCH /api/admin/admins/{admin_user_id}/suspend | admins:suspend |
+| PATCH /api/admin/admins/{admin_user_id}/restore | admins:suspend |
+| DELETE /api/admin/admins/{admin_user_id} | admins:suspend and last-owner protection |
+| GET /api/admin/users | users:read |
+| GET /api/admin/users/{user_id} | users:read |
+| PATCH /api/admin/users/{user_id}/status | users:update_status |
+| POST /api/admin/users/{user_id}/force-logout | users:force_logout |
+| POST /api/admin/users/{user_id}/send-password-reset | users:password_reset |
+| POST /api/admin/users/{user_id}/support-note | support_notes:create |
+| GET /api/admin/users/{user_id}/profile/summary | profile:metadata_read |
+| GET /api/admin/users/{user_id}/resumes | resume:metadata_read |
+| GET /api/admin/users/{user_id}/resume-status | resume:metadata_read |
+| POST /api/admin/users/{user_id}/resume/retry-extraction | resume:retry_extraction |
+| POST /api/admin/users/{user_id}/resume/rebuild-index | resume:rebuild_index |
+| GET /api/admin/users/{user_id}/sessions | sessions:metadata_read |
+| GET /api/admin/sessions/{session_id}/metadata | sessions:metadata_read |
+| GET /api/admin/sessions/{session_id}/transcript-summary | transcripts:summary_read |
+| POST /api/admin/break-glass/request | break_glass:request |
+| POST /api/admin/break-glass/{request_id}/approve | break_glass:approve |
+| GET /api/admin/users/{user_id}/resume/raw?break_glass_id=... | resume:raw_read_break_glass plus valid single-use break-glass grant |
+| GET /api/admin/sessions/{session_id}/transcript/raw?break_glass_id=... | transcripts:raw_read_break_glass plus valid single-use break-glass grant |
+| GET /api/admin/users/{user_id}/subscription | billing:read |
+| GET /api/admin/users/{user_id}/usage | usage:read |
+| POST /api/admin/users/{user_id}/usage-adjustment | usage:adjust |
+| GET /api/admin/plans | plans:read |
+| PATCH /api/admin/plans/{plan_id} | plans:update |
+| GET /api/admin/privacy/requests | privacy:read |
+| GET /api/admin/users/{user_id}/privacy-summary | privacy:read |
+| POST /api/admin/users/{user_id}/trigger-export | privacy:export_trigger |
+| POST /api/admin/users/{user_id}/trigger-delete-review | privacy:delete_review |
+| POST /api/admin/users/{user_id}/confirm-delete | privacy:delete_review |
+| GET /api/admin/audit-logs | audit:read |
+| GET /api/admin/security/events | audit:read |
+| GET /api/admin/system/health | system:read |
+| GET /api/admin/system/config-summary | system:read |
+| PATCH /api/admin/system/flags/{flag_key} | system:flags_update |
 
 ## Database planning
 
@@ -2934,6 +3007,21 @@ Future C15.5-owned tables:
 - user_agent_safe_ref
 - created_at
 
+`admin_support_notes`:
+
+- id
+- target_user_id
+- author_admin_user_id
+- author_admin_role
+- body
+- visibility: internal_support | privacy_review | billing_review
+- status: active | redacted | deletion_pending | deleted
+- retention_class
+- related_audit_log_id
+- created_at
+- updated_at
+- deleted_at
+
 `admin_break_glass_requests`:
 
 - id
@@ -2961,8 +3049,26 @@ Rules:
 - no raw JWTs stored
 - no passwords stored
 - invite tokens stored hashed only
-- audit logs append-only from application behavior
+- audit logs append-only from application behavior and database enforcement
 - destructive actions require reason
+- admin_support_notes body length capped, for example 2,000 or 4,000 characters
+- admin_support_notes must not contain raw resume, transcript, audio, screenshot, token, key, or password content
+- admin_support_notes are user-targeted and author-owned by admin id
+- admin_support_notes fall under C15 retention/export/delete governance
+- normal users must not read admin_support_notes through RLS or normal user routes
+- admin_support_notes reads/writes require admin route, backend RBAC, audit logging, and reason where sensitive
+- admin_support_notes deletion/redaction follows C15 privacy/legal retention rules
+- support-note creation must create or link an admin_audit_logs row
+
+`admin_audit_logs` immutability rules:
+
+- append-only must be enforced at the database layer, not only by application behavior
+- no normal UPDATE or DELETE policy
+- no-update/no-delete behavior must be validated for normal admin and user-access paths
+- no admin UI update/delete action
+- service-role maintenance must not silently mutate logs
+- exceptional maintenance must use a restricted, documented, separately audited maintenance path
+- correction or superseding log entries are preferred over editing old logs
 
 ## Future API route plan
 
@@ -3122,6 +3228,13 @@ Rules:
 - every use is audited
 - UI must clearly mark sensitive access
 - access should be minimized and time-limited
+- raw access must atomically validate authenticated actor, target_user_id, target_record_id, data_type, approval status, expiry, and unused state
+- authorization is single-use and must be consumed or marked used atomically in the same transaction as the access grant/check
+- replay and concurrent reuse must be rejected
+- requester cannot approve their own request
+- approver must have `break_glass:approve` and the required role for the data type
+- raw access actor must match the approved actor or a documented approved access subject
+- target mismatch and data-type mismatch must be rejected
 
 ## Billing/usage admin rules
 
@@ -3155,9 +3268,25 @@ Rules:
 - no cross-user user data access without admin route, permission check, and audit log
 - no admin data access from normal user routes
 - no payment status override without provider/webhook consistency
+- MFA or step-up authentication is required by default for high-risk admin actions
+- C15.5 implementation must enforce MFA/step-up auth for high-risk actions or document a threat-model exception with compensating controls before build starts
+
+High-risk actions requiring MFA/step-up by default:
+
+- admin role changes
+- admin invite and ownership changes
+- break-glass approval
+- break-glass raw access/use
+- privacy delete confirmation
+- account suspension/restore when high risk
+- usage adjustments
+- plan updates
+- system flag updates
 
 ## Tests
 
+- route-to-permission matrix coverage
+- each role only has assigned permissions
 - non-admin rejected
 - suspended admin rejected
 - readonly admin cannot mutate
@@ -3174,10 +3303,24 @@ Rules:
 - raw resume requires break-glass
 - raw transcript requires break-glass
 - break-glass expires
+- break-glass self-approval rejected
+- break-glass target binding enforced
+- break-glass data-type binding enforced
+- break-glass replay rejected
+- break-glass concurrent-use rejected
+- expired and already-used break-glass approvals rejected
+- audit-log UPDATE rejected
+- audit-log DELETE rejected
+- restricted maintenance path audited
+- support-note ownership verified
+- support-note retention/deletion verified
+- support-note raw sensitive data prohibited
+- MFA/step-up required for high-risk actions
 - destructive delete requires reason
 - service-role key absent from frontend bundle
 - normal user routes/RLS behavior unaffected
 - admin cannot access another user's data through normal user endpoints
+- admin access through normal user endpoints rejected
 - payment webhook remains authoritative
 
 ## Manual validation
@@ -3195,16 +3338,33 @@ Rules:
 - attempt last-owner removal and confirm blocked
 - attempt raw resume/transcript access without break-glass and confirm blocked
 - approve break-glass and confirm access expires
+- attempt break-glass self-approval and confirm blocked
+- attempt break-glass replay/concurrent reuse and confirm blocked
+- attempt break-glass target/data-type mismatch and confirm blocked
+- attempt admin_audit_logs UPDATE and DELETE through normal admin paths and confirm blocked
+- verify restricted audit-log maintenance path creates a separate audit record
+- create support note and verify admin ownership, retention class, and audit link
+- verify support notes reject raw sensitive resume/transcript/audio/screenshot content
+- verify MFA/step-up challenge for high-risk actions
+- verify normal user routes cannot access admin data
 - verify audit logs for every action
 
 ## C15.5 exit criteria
 
+C15.5 is complete only if it is required for the release and all criteria below pass. If it is not required, it must remain clearly deferred/not required in the release decision record and final acceptance.
+
 - admin roles exist
+- role-to-permission and route-to-permission matrices are implemented and validated
 - admin invite/add-admin flow works
 - admin routes are protected by backend RBAC
 - admin frontend exists
 - all admin actions are audited
+- audit logs are database-enforced append-only, with UPDATE/DELETE rejection validated
+- restricted maintenance path is separately audited
+- support notes are implemented with ownership, retention/deletion, sensitive-content prohibition, and audit linkage
 - raw sensitive data access requires break-glass
+- break-glass is single-use, target-bound, data-type-bound, expiry-bound, self-approval-safe, and replay/concurrent-use-safe
+- MFA/step-up authentication is enforced for high-risk actions or an approved threat-model exception with compensating controls is recorded
 - billing/usage/user support views work
 - privacy/export/delete support tools work
 - service-role key never reaches frontend
@@ -3450,6 +3610,7 @@ auth.users
     +-- admin_memberships          (future C15.5)
     +-- admin_invites              (future C15.5)
     +-- admin_audit_logs           (future C15.5)
+    +-- admin_support_notes        (future C15.5)
     +-- admin_break_glass_requests (future C15.5)
     +-- admin_system_flags         (future C15.5)
 ```
@@ -3728,6 +3889,10 @@ Decide first-owner bootstrap, owner-only role grants, invite expiry, and last-ow
 
 Decide how long admin audit logs, support notes, invite records, and break-glass records are retained.
 
+### C15.5 conditional release gate
+
+Decide whether internal admin/support operations are required for the target release. If not required, record C15.5 as deferred/not required for that release before C16 final acceptance.
+
 ---
 
 ## 16. Major Risks and Mitigations
@@ -3810,7 +3975,7 @@ The C0â€“C16 track is complete when:
 - usage limits are backend-enforced
 - approved Figma website is integrated
 - users can export/delete data
-- admin/support console exists with audited RBAC, if required for internal operations before release
+- admin/support console exists with audited RBAC if required for internal operations before release; otherwise C15.5 is explicitly recorded as deferred/not required for that release
 - staging and production QA pass
 - known limitations are documented
 - no major rewrite is required for release
