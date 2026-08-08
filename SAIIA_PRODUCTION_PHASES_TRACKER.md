@@ -75,6 +75,12 @@ C3 current status:
 [~] Active - C3.1 Cloud Resume/Profile Storage Planning + Audit complete; C3.2 Backend Cloud Resume API merged and live smoke-tested; C3.3 frontend authenticated upload/review UI implemented under `/auth/resume`; C3.4 cloud RAG/index activation implemented through backend chunk generation and ready-resume activation; C3.4.5 GPT-based resume extraction provider implemented with live GPT smoke pending; no C3.5 delete closure, C4, C5, sessions, billing, payment, email provider, admin console, or final website UI started
 ```
 
+C15.5 future admin/support status:
+
+```text
+[-] Future / not started - Internal admin, support, and audit console is intentionally planned for C15.5 after C15 privacy/export/retention/deletion rules, not during C2, C3, or C5. Supabase Dashboard remains the temporary developer-only admin/debug tool until C15.5 is explicitly started.
+```
+
 Primary references:
 
 - `SAIIA_PRODUCTION_PRD_CORE.md`
