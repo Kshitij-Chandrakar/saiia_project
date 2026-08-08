@@ -1168,12 +1168,16 @@ export function AuthResumePage({ backendUrl }) {
     }
   }
 
-  async function handleDeleteResume() {
-    const targetResume = currentResume || reviewCandidate || resumeRecord
+  async function handleDeleteResume(targetResumeArg = null) {
+    const targetResume = targetResumeArg || currentResume || reviewCandidate || resumeRecord
     if (!targetResume?.id || deletePending || rebuildPending || confirmPending || ['uploading', 'extracting'].includes(phase)) {
       return
     }
-    if (!window.confirm('Delete this cloud resume?')) {
+    const resumeLabel = [targetResume.original_filename, targetResume.status].filter(Boolean).join(' - ')
+    const confirmMessage = resumeLabel
+      ? `Delete this cloud resume (${resumeLabel})?`
+      : 'Delete this cloud resume?'
+    if (!window.confirm(confirmMessage)) {
       return
     }
 
@@ -1183,11 +1187,19 @@ export function AuthResumePage({ backendUrl }) {
     try {
       const token = await getSessionToken()
       await deleteCloudResume(token, targetResume.id, { backendUrl })
-      setCurrentResume(null)
-      setReviewCandidate(null)
-      setResumeRecord(null)
-      setDraftProfile(null)
-      setExtractionAttempt(null)
+      if (currentResume?.id === targetResume.id) {
+        setCurrentResume(null)
+      }
+      if (reviewCandidate?.id === targetResume.id) {
+        setReviewCandidate(null)
+      }
+      if (resumeRecord?.id === targetResume.id) {
+        setResumeRecord(null)
+      }
+      if ((reviewCandidate?.id === targetResume.id) || (resumeRecord?.id === targetResume.id)) {
+        setDraftProfile(null)
+        setExtractionAttempt(null)
+      }
       clearSelectedResumeFile()
       setPhase('idle')
       setMessage('Resume deleted.')
@@ -1243,7 +1255,7 @@ export function AuthResumePage({ backendUrl }) {
               <button className="auth-secondary-button" type="button" onClick={handleRebuildIndex} disabled={busy || !currentResume.is_active}>
                 {rebuildPending ? 'Rebuilding index...' : 'Rebuild Index'}
               </button>
-              <button className="auth-secondary-button" type="button" onClick={handleDeleteResume} disabled={busy}>
+              <button className="auth-secondary-button" type="button" onClick={() => handleDeleteResume(currentResume)} disabled={busy}>
                 {deletePending ? 'Deleting resume...' : 'Delete Resume'}
               </button>
             </div>
@@ -1257,7 +1269,7 @@ export function AuthResumePage({ backendUrl }) {
               <button className="auth-secondary-button" type="button" onClick={handleExtractCandidate} disabled={busy}>
                 {phase === 'extracting' ? 'Analyzing resume...' : 'Extract Again'}
               </button>
-              <button className="auth-secondary-button" type="button" onClick={handleDeleteResume} disabled={busy}>
+              <button className="auth-secondary-button" type="button" onClick={() => handleDeleteResume(reviewCandidate)} disabled={busy}>
                 {deletePending ? 'Deleting resume...' : 'Delete Resume'}
               </button>
             </div>
@@ -1304,7 +1316,7 @@ export function AuthResumePage({ backendUrl }) {
               <button type="submit" disabled={confirmPending || phase === 'confirmed'}>
                 {phase === 'confirmed' ? 'Resume confirmed' : confirmPending ? 'Saving reviewed profile...' : 'Confirm Reviewed Profile'}
               </button>
-              <button className="auth-secondary-button" type="button" onClick={handleDeleteResume} disabled={busy}>
+              <button className="auth-secondary-button" type="button" onClick={() => handleDeleteResume(resumeRecord || reviewCandidate)} disabled={busy}>
                 {deletePending ? 'Deleting resume...' : 'Delete Resume'}
               </button>
             </form>

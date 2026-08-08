@@ -601,9 +601,13 @@ Default delete for `DELETE /api/resumes/{resume_id}`:
 - checks `resumes.user_id = current_user.user_id`
 - removes object from the private `resumes` bucket
 - deletes `resume_chunks` for that user/resume
-- deletes the `resumes` row
-- leaves confirmed `profiles` row intact unless the request explicitly asks to
-  clear profile-derived fields and that behavior is implemented/test-covered
+- keeps a tombstoned `resumes` metadata row with `status = 'deleted'`,
+  `is_active = false`, and no active chunk generation
+- retains `resumes.confirmed_profile` on the tombstoned metadata row until C15
+  privacy/retention/deletion rules define broader erasure behavior
+- leaves the confirmed `profiles` row intact unless a later C15-governed
+  request explicitly clears profile-derived fields and that behavior is
+  implemented/test-covered
 
 Account deletion and broader retention belong to C15.
 

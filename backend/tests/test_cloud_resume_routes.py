@@ -354,6 +354,23 @@ def test_delete_and_rebuild_routes_are_user_owned(client: TestClient, fake_servi
     assert fake_service.user_ids == [TEST_USER_ID, TEST_USER_ID]
 
 
+def test_delete_route_returns_safe_failure_when_chunk_cleanup_fails(client: TestClient) -> None:
+    class DeleteFailureService(FakeRouteService):
+        def delete_resume(self, *, user_id: str, resume_id: str):
+            self.user_ids.append(user_id)
+            raise CloudResumeError("chunk cleanup failed with raw text: SECRET RESUME BODY")
+
+    service = DeleteFailureService()
+    client.app.dependency_overrides[resumes_api.get_cloud_resume_service] = lambda: service
+
+    response = client.delete(f"/api/resumes/{RESUME_ID}", headers={"Authorization": f"Bearer {_token()}"})
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "Supabase cloud resume operation failed."}
+    assert "SECRET RESUME BODY" not in response.text
+    assert service.user_ids == [TEST_USER_ID]
+
+
 def test_confirm_activation_conflict_returns_safe_409(client: TestClient) -> None:
     class ConfirmConflictService(FakeRouteService):
         def confirm_resume(
