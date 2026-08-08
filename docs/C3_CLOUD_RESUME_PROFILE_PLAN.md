@@ -12,8 +12,8 @@ website UI.
 [x] C3.2 backend cloud resume API implemented
 [x] C3.3 frontend authenticated upload/review UI implemented
 [x] C3.4 cloud resume indexing/RAG ownership implemented
-[x] C3.4.5 GPT-based resume extraction provider implemented; live GPT smoke pending
-[ ] C3.5 delete/rebuild/status + closure pending
+[x] C3.4.5 GPT-based resume extraction provider implemented
+[x] C3.5 delete/rebuild/status + closure implemented
 ```
 
 C3.4 migration note: `20260804134140_add_cloud_resume_chunk_activation.sql`
@@ -601,9 +601,13 @@ Default delete for `DELETE /api/resumes/{resume_id}`:
 - checks `resumes.user_id = current_user.user_id`
 - removes object from the private `resumes` bucket
 - deletes `resume_chunks` for that user/resume
-- deletes the `resumes` row
-- leaves confirmed `profiles` row intact unless the request explicitly asks to
-  clear profile-derived fields and that behavior is implemented/test-covered
+- keeps a tombstoned `resumes` metadata row with `status = 'deleted'`,
+  `is_active = false`, and no active chunk generation
+- retains `resumes.confirmed_profile` on the tombstoned metadata row until C15
+  privacy/retention/deletion rules define broader erasure behavior
+- leaves the confirmed `profiles` row intact unless a later C15-governed
+  request explicitly clears profile-derived fields and that behavior is
+  implemented/test-covered
 
 Account deletion and broader retention belong to C15.
 
@@ -671,8 +675,9 @@ flow remains usable without login.
   existing editable review/confirm/indexing flow. Default model is
   `gpt-5-mini`; missing GPT config or provider failures fall back to local
   extraction.
-- C3.5 delete/rebuild/status + closure: finish delete/rebuild/status behavior,
-  run live/manual validation, and close C3.
+- C3.5 delete/rebuild/status + closure: implemented authenticated delete,
+  rebuild-index, truthful status/current/review behavior, frontend controls,
+  focused tests, and manual smoke checklist.
 
 ## Implementation Checklist
 
@@ -696,11 +701,11 @@ flow remains usable without login.
   after indexing succeeds.
 - [x] Build/rebuild `resume_chunks` filtered by `user_id` and `resume_id`.
 - [x] Add status behavior.
-- [ ] Add delete behavior.
+- [x] Add delete behavior.
 - [x] Preserve existing local desktop routes.
 - [x] Add focused backend tests.
 - [x] Add frontend auth/upload tests during C3.3.
-- [ ] Add manual live Supabase validation checklist for saiia-dev.
+- [x] Add manual live Supabase validation checklist for saiia-dev.
 
 ## Acceptance Criteria
 
@@ -716,7 +721,8 @@ C3 is complete only when:
 - extraction failure does not overwrite an existing valid profile
 - resume chunks are rebuilt under the authenticated `user_id`
 - retrieval never crosses users
-- delete removes expected file, metadata, and chunks
+- delete marks resume metadata deleted/inactive and removes the expected
+  storage object and user-owned chunks
 - existing local desktop resume/profile/RAG flow still works without login
 - no service-role key reaches frontend or logs
 - tests and manual validation pass
@@ -826,12 +832,19 @@ Manual validation:
 - confirm profile and verify `profiles` row does not update until successful
   index/activation
 - rebuild index and verify `resume_chunks.user_id`
+- verify rebuild keeps the current resume ready and changes
+  `active_chunk_generation`
 - verify successful activation updates or creates the test user's `profiles`
   row atomically with the active ready resume switch
 - attempt a second user access check
 - delete resume and verify cleanup of storage objects, `resumes`,
   `resume_chunks`, test profile rows, and candidate `confirmed_profile` or
   draft/candidate data if present during validation
+- verify `GET /api/resumes/current` returns `ready:false` after deletion
+- upload a fresh synthetic resume after deletion and confirm the flow still
+  reaches ready state
+- verify API responses and UI do not expose `raw_resume_text`, access tokens,
+  service-role values, provider raw responses, or full chunk text
 - confirm local `/profile-setup` still works without login
 
 ## Risks and Blockers

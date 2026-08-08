@@ -25,6 +25,7 @@ from app.cloud.cloud_resume import (
 USER_A = "00000000-0000-4000-8000-000000000001"
 USER_B = "00000000-0000-4000-8000-000000000002"
 RESUME_ID = "10000000-0000-4000-8000-000000000001"
+ALLOWED_TEST_INDEX_STATUSES = {"not_indexed", "pending", "indexed", "failed", "needs_rebuild"}
 
 
 def test_supabase_client_configures_blocking_http_pool(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -112,6 +113,9 @@ class FakeCloudResumeClient:
         except KeyError as exc:
             raise CloudResumeError("storage download failed") from exc
 
+    def delete_resume_object(self, storage_path: str) -> None:
+        self.objects.pop(storage_path, None)
+
     def get_resume(self, resume_id: str, user_id: str) -> CloudResumeRecord:
         try:
             return self.records[(user_id, resume_id)]
@@ -136,6 +140,8 @@ class FakeCloudResumeClient:
 
     def update_resume(self, resume_id: str, user_id: str, payload: dict[str, object]) -> CloudResumeRecord:
         self.updates.append({"resume_id": resume_id, "user_id": user_id, "payload": payload})
+        if "index_status" in payload and payload["index_status"] not in ALLOWED_TEST_INDEX_STATUSES:
+            raise CloudResumeError("index status check constraint failed")
         current = self.records[(user_id, resume_id)]
         updated = _record(**{**current.__dict__, **payload})
         self.records[(user_id, resume_id)] = updated
@@ -204,6 +210,35 @@ class FakeCloudResumeClient:
                 "active_chunk_generation": generation_id,
                 "failure_code": None,
                 "failure_message": None,
+            }
+        )
+        self.records[(user_id, resume_id)] = updated
+        return updated
+
+    def activate_rebuilt_resume_generation(
+        self,
+        *,
+        user_id: str,
+        resume_id: str,
+        expected_active_generation: str,
+        new_generation_id: str,
+    ) -> CloudResumeRecord:
+        current = self.records[(user_id, resume_id)]
+        if (
+            current.status != "ready"
+            or not current.is_active
+            or current.active_chunk_generation != expected_active_generation
+        ):
+            raise CloudResumeConflictError("Resume state changed. Please refresh and try again.")
+        updated = _record(
+            **{
+                **current.__dict__,
+                "index_status": "indexed",
+                "active_chunk_generation": new_generation_id,
+                "failure_code": None,
+                "failure_message": None,
+                "failed_at": None,
+                "last_error_at": None,
             }
         )
         self.records[(user_id, resume_id)] = updated
@@ -1174,6 +1209,244 @@ def test_active_cloud_resume_retrieval_filters_active_generation() -> None:
 
     assert retrieval["retrieval_used"] is True
     assert retrieval["retrieved_chunks"][0]["source"] == "cloud_resume"
+
+
+def test_delete_active_resume_marks_deleted_clears_chunks_and_current() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(
+        status="ready",
+        is_active=True,
+        active_chunk_generation="active-generation",
+        confirmed_profile={"professional_summary": "Private profile"},
+    )
+    client.objects[f"{USER_A}/{RESUME_ID}/resume.txt"] = b"private resume"
+    client.chunks.append(
+        {
+            "user_id": USER_A,
+            "resume_id": RESUME_ID,
+            "generation_id": "active-generation",
+            "section": "summary",
+            "chunk_text": "Private profile",
+            "metadata": {},
+        }
+    )
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    result = service.delete_resume(user_id=USER_A, resume_id=RESUME_ID)
+
+    deleted = client.records[(USER_A, RESUME_ID)]
+    assert result.status == "deleted"
+    assert result.ready is False
+    assert deleted.status == "deleted"
+    assert deleted.is_active is False
+    assert deleted.active_chunk_generation is None
+    assert deleted.index_status == "not_indexed"
+    assert client.chunks == []
+    assert client.objects == {}
+    assert service.get_current_resume(USER_A) is None
+
+
+def test_delete_already_deleted_resume_is_idempotent() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(status="deleted", is_active=False, active_chunk_generation=None)
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    result = service.delete_resume(user_id=USER_A, resume_id=RESUME_ID)
+
+    assert result.status == "deleted"
+    assert result.is_active is False
+    assert client.records[(USER_A, RESUME_ID)].status == "deleted"
+
+
+def test_delete_cross_user_resume_is_rejected() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_B, RESUME_ID)] = _record(user_id=USER_B, status="ready", is_active=True)
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    with pytest.raises(CloudResumeNotFoundError):
+        service.delete_resume(user_id=USER_A, resume_id=RESUME_ID)
+
+
+def test_delete_chunk_cleanup_failure_raises_retryable_error_without_success() -> None:
+    client = FakeCloudResumeClient()
+    client.fail_chunk_delete = True
+    client.records[(USER_A, RESUME_ID)] = _record(
+        status="ready",
+        is_active=True,
+        active_chunk_generation="active-generation",
+    )
+    client.chunks.append(
+        {
+            "user_id": USER_A,
+            "resume_id": RESUME_ID,
+            "generation_id": "active-generation",
+            "section": "summary",
+            "chunk_text": "Private profile",
+            "metadata": {},
+        }
+    )
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    with pytest.raises(CloudResumeError):
+        service.delete_resume(user_id=USER_A, resume_id=RESUME_ID)
+
+    assert client.chunks
+    assert client.records[(USER_A, RESUME_ID)].status == "deleted"
+    client.fail_chunk_delete = False
+
+    result = service.delete_resume(user_id=USER_A, resume_id=RESUME_ID)
+
+    assert result.status == "deleted"
+    assert client.chunks == []
+
+
+def test_rebuild_ready_active_resume_switches_generation_and_prunes_old_chunks() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(
+        status="ready",
+        is_active=True,
+        confirmed_profile={"professional_summary": "Updated cloud profile"},
+        active_chunk_generation="old-generation",
+    )
+    client.chunks.append(
+        {
+            "user_id": USER_A,
+            "resume_id": RESUME_ID,
+            "generation_id": "old-generation",
+            "section": "summary",
+            "chunk_text": "Old profile",
+            "metadata": {},
+        }
+    )
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    result = service.rebuild_resume_index(user_id=USER_A, resume_id=RESUME_ID)
+
+    ready_record = client.records[(USER_A, RESUME_ID)]
+    assert result.status == "ready"
+    assert result.index_status == "indexed"
+    assert result.chunk_count == 1
+    assert result.active_chunk_generation == ready_record.active_chunk_generation
+    assert ready_record.active_chunk_generation != "old-generation"
+    assert any(chunk["generation_id"] == ready_record.active_chunk_generation for chunk in client.chunks)
+    assert not any(chunk["generation_id"] == "old-generation" for chunk in client.chunks)
+    assert "raw_resume_text" not in str(client.chunk_inserts)
+
+
+def test_rebuild_rejects_deleted_or_unconfirmed_resume() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(status="deleted", is_active=False, confirmed_profile=None)
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    with pytest.raises(CloudResumeConflictError):
+        service.rebuild_resume_index(user_id=USER_A, resume_id=RESUME_ID)
+
+
+def test_rebuild_failure_preserves_existing_active_generation() -> None:
+    class FailingRebuildClient(FakeCloudResumeClient):
+        def activate_rebuilt_resume_generation(
+            self,
+            *,
+            user_id: str,
+            resume_id: str,
+            expected_active_generation: str,
+            new_generation_id: str,
+        ) -> CloudResumeRecord:
+            raise CloudResumeError("update failed with raw text: SECRET RESUME BODY")
+
+    client = FailingRebuildClient()
+    client.records[(USER_A, RESUME_ID)] = _record(
+        status="ready",
+        is_active=True,
+        confirmed_profile={"professional_summary": "Updated cloud profile"},
+        active_chunk_generation="old-generation",
+    )
+    client.chunks.append(
+        {
+            "user_id": USER_A,
+            "resume_id": RESUME_ID,
+            "generation_id": "old-generation",
+            "section": "summary",
+            "chunk_text": "Old active profile",
+            "metadata": {},
+        }
+    )
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    with pytest.raises(CloudResumeError):
+        service.rebuild_resume_index(user_id=USER_A, resume_id=RESUME_ID)
+
+    assert client.records[(USER_A, RESUME_ID)].active_chunk_generation == "old-generation"
+    assert [chunk["chunk_text"] for chunk in client.chunks] == ["Old active profile"]
+
+
+def test_stale_rebuild_activation_discards_new_generation_and_preserves_active_resume() -> None:
+    class StaleRebuildClient(FakeCloudResumeClient):
+        def insert_resume_chunks(self, chunks: list[dict[str, object]]) -> None:
+            super().insert_resume_chunks(chunks)
+            current = self.records[(USER_A, RESUME_ID)]
+            self.records[(USER_A, RESUME_ID)] = _record(
+                **{**current.__dict__, "active_chunk_generation": "concurrent-generation"}
+            )
+
+    client = StaleRebuildClient()
+    client.records[(USER_A, RESUME_ID)] = _record(
+        status="ready",
+        is_active=True,
+        confirmed_profile={"professional_summary": "Updated cloud profile"},
+        active_chunk_generation="old-generation",
+    )
+    client.chunks.append(
+        {
+            "user_id": USER_A,
+            "resume_id": RESUME_ID,
+            "generation_id": "old-generation",
+            "section": "summary",
+            "chunk_text": "Old active profile",
+            "metadata": {},
+        }
+    )
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    with pytest.raises(CloudResumeConflictError):
+        service.rebuild_resume_index(user_id=USER_A, resume_id=RESUME_ID)
+
+    assert client.records[(USER_A, RESUME_ID)].active_chunk_generation == "concurrent-generation"
+    assert [chunk["chunk_text"] for chunk in client.chunks] == ["Old active profile"]
+
+
+def test_concurrent_delete_blocks_rebuild_from_restoring_deleted_resume() -> None:
+    class DeleteDuringRebuildClient(FakeCloudResumeClient):
+        def insert_resume_chunks(self, chunks: list[dict[str, object]]) -> None:
+            super().insert_resume_chunks(chunks)
+            current = self.records[(USER_A, RESUME_ID)]
+            self.records[(USER_A, RESUME_ID)] = _record(
+                **{
+                    **current.__dict__,
+                    "status": "deleted",
+                    "is_active": False,
+                    "active_chunk_generation": None,
+                    "index_status": "not_indexed",
+                }
+            )
+
+    client = DeleteDuringRebuildClient()
+    client.records[(USER_A, RESUME_ID)] = _record(
+        status="ready",
+        is_active=True,
+        confirmed_profile={"professional_summary": "Updated cloud profile"},
+        active_chunk_generation="old-generation",
+    )
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    with pytest.raises(CloudResumeConflictError):
+        service.rebuild_resume_index(user_id=USER_A, resume_id=RESUME_ID)
+
+    deleted = client.records[(USER_A, RESUME_ID)]
+    assert deleted.status == "deleted"
+    assert deleted.is_active is False
+    assert deleted.active_chunk_generation is None
+    assert client.chunks == []
 
 
 def test_confirm_rejects_unknown_raw_or_oversized_profile_fields() -> None:

@@ -130,6 +130,25 @@ class ConfirmResult:
     active: bool = False
 
 
+@dataclass(frozen=True)
+class DeleteResult:
+    resume_id: str
+    status: str
+    is_active: bool
+    ready: bool
+    message: str
+
+
+@dataclass(frozen=True)
+class RebuildResult:
+    resume_id: str
+    status: str
+    index_status: str
+    active_chunk_generation: str
+    chunk_count: int
+    message: str
+
+
 def _record_from_payload(payload: dict[str, Any]) -> CloudResumeRecord:
     return CloudResumeRecord(
         id=str(payload.get("id", "")),
@@ -330,6 +349,44 @@ class SupabaseCloudResumeClient:
             raise CloudResumeConflictError("Resume state changed. Please refresh and try again.")
         return _record_from_payload(data[0])
 
+    def activate_rebuilt_resume_generation(
+        self,
+        *,
+        user_id: str,
+        resume_id: str,
+        expected_active_generation: str,
+        new_generation_id: str,
+    ) -> CloudResumeRecord:
+        try:
+            response = self._session.patch(
+                f"{self._rest_url}/resumes",
+                headers={**self._headers, "Prefer": "return=representation"},
+                params={
+                    "id": f"eq.{resume_id}",
+                    "user_id": f"eq.{user_id}",
+                    "status": "eq.ready",
+                    "is_active": "eq.true",
+                    "active_chunk_generation": f"eq.{expected_active_generation}",
+                },
+                json={
+                    "index_status": "indexed",
+                    "active_chunk_generation": new_generation_id,
+                    "failure_code": None,
+                    "failure_message": None,
+                    "failed_at": None,
+                    "last_error_at": None,
+                },
+                timeout=10,
+            )
+        except requests.RequestException as exc:
+            self._raise_request("resumes", "rebuild_activate", exc)
+        if response.status_code != 200:
+            self._raise_response("resumes", "rebuild_activate", response)
+        data = response.json()
+        if not isinstance(data, list) or not data:
+            raise CloudResumeConflictError("Resume state changed. Please refresh and try again.")
+        return _record_from_payload(data[0])
+
     def get_resume(self, resume_id: str, user_id: str) -> CloudResumeRecord:
         rows = self._select_resumes(
             {"id": f"eq.{resume_id}", "user_id": f"eq.{user_id}", "limit": "1"}
@@ -423,6 +480,21 @@ class SupabaseCloudResumeClient:
         if response.status_code != 200:
             self._raise_response("storage.objects", "download", response)
         return response.content
+
+    def delete_resume_object(self, storage_path: str) -> None:
+        try:
+            response = self._session.delete(
+                f"{self._storage_url}/object/{self._resume_bucket}/{storage_path}",
+                headers={
+                    "apikey": self._service_role_key,
+                    "Authorization": f"Bearer {self._service_role_key}",
+                },
+                timeout=10,
+            )
+        except requests.RequestException as exc:
+            self._raise_request("storage.objects", "delete", exc)
+        if response.status_code not in {200, 204, 404}:
+            self._raise_response("storage.objects", "delete", response)
 
     def insert_resume_chunks(self, chunks: list[dict[str, Any]]) -> None:
         if not chunks:
@@ -643,6 +715,86 @@ class CloudResumeService:
 
     def get_status(self, *, user_id: str, resume_id: str) -> CloudResumeRecord:
         return self._client.get_resume(resume_id, user_id)
+
+    def delete_resume(self, *, user_id: str, resume_id: str) -> DeleteResult:
+        current = self._client.get_resume(resume_id, user_id)
+        if current.status != "deleted" or current.is_active or current.active_chunk_generation:
+            self._client.update_resume(
+                resume_id,
+                user_id,
+                {
+                    "status": "deleted",
+                    "is_active": False,
+                    "active_chunk_generation": None,
+                    "index_status": "not_indexed",
+                    "review_required": False,
+                    "failure_code": None,
+                    "failure_message": None,
+                    "last_error_at": None,
+                },
+            )
+        self._client.delete_resume_chunks(user_id=user_id, resume_id=resume_id)
+        try:
+            self._client.delete_resume_object(current.storage_path)
+        except CloudResumeError as exc:
+            logger.warning(
+                "Cloud resume storage cleanup failed stage=delete_storage error_type=%s resume_id=%s user_id=%s",
+                type(exc).__name__,
+                resume_id,
+                user_id,
+            )
+            raise CloudResumeError(SAFE_FAILURE_MESSAGE) from exc
+        return DeleteResult(
+            resume_id=resume_id,
+            status="deleted",
+            is_active=False,
+            ready=False,
+            message="Resume deleted.",
+        )
+
+    def rebuild_resume_index(self, *, user_id: str, resume_id: str) -> RebuildResult:
+        current = self._client.get_resume(resume_id, user_id)
+        if current.status != "ready" or not current.is_active or not current.confirmed_profile or not current.active_chunk_generation:
+            raise CloudResumeConflictError("Resume is not ready for index rebuild.")
+        expected_generation = current.active_chunk_generation
+
+        generation_id = str(uuid4())
+        inserted_generation = False
+        try:
+            chunks = self._build_resume_chunks(
+                user_id=user_id,
+                resume_id=resume_id,
+                generation_id=generation_id,
+                confirmed_profile=current.confirmed_profile,
+            )
+            self._client.insert_resume_chunks(chunks)
+            inserted_generation = True
+            updated = self._client.activate_rebuilt_resume_generation(
+                user_id=user_id,
+                resume_id=resume_id,
+                expected_active_generation=expected_generation,
+                new_generation_id=generation_id,
+            )
+            self._prune_inactive_generations(user_id=user_id, resume_id=resume_id, active_generation_id=generation_id)
+        except CloudResumeConflictError as exc:
+            self._log_index_failure("rebuild_activate", exc)
+            if inserted_generation:
+                self._discard_generation(user_id=user_id, resume_id=resume_id, generation_id=generation_id)
+            raise
+        except (CloudResumeError, ResumeIndexError) as exc:
+            self._log_index_failure("rebuild_index", exc)
+            if inserted_generation:
+                self._discard_generation(user_id=user_id, resume_id=resume_id, generation_id=generation_id)
+            raise CloudResumeError(SAFE_FAILURE_MESSAGE) from exc
+
+        return RebuildResult(
+            resume_id=updated.id,
+            status=updated.status,
+            index_status=updated.index_status,
+            active_chunk_generation=updated.active_chunk_generation or generation_id,
+            chunk_count=len(chunks),
+            message="Resume index rebuilt.",
+        )
 
     def extract_resume(self, *, user_id: str, resume_id: str) -> ExtractResult:
         current = self._client.get_resume(resume_id, user_id)

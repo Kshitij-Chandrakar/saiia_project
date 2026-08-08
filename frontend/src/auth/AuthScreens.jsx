@@ -5,11 +5,13 @@ import { Eye, EyeOff, FileText, LogOut, Upload } from 'lucide-react'
 import {
   bootstrapProfile,
   confirmCloudResume,
+  deleteCloudResume,
   extractCloudResume,
   fetchCloudResumeStatus,
   fetchCurrentCloudResume,
   fetchCurrentUser,
   fetchReviewCandidate,
+  rebuildCloudResumeIndex,
   uploadCloudResume,
 } from './authApi'
 import { supabase } from './supabaseClient'
@@ -933,9 +935,12 @@ export function AuthResumePage({ backendUrl }) {
   const [extractionAttempt, setExtractionAttempt] = useState(null)
   const [phase, setPhase] = useState('loading')
   const [confirmPending, setConfirmPending] = useState(false)
+  const [deletePending, setDeletePending] = useState(false)
+  const [rebuildPending, setRebuildPending] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const confirmControllerRef = useRef(null)
+  const fileInputRef = useRef(null)
 
   useEffect(() => {
     return () => {
@@ -1016,6 +1021,13 @@ export function AuthResumePage({ backendUrl }) {
     setMessage('')
   }
 
+  function clearSelectedResumeFile() {
+    setFile(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
   function updateDraftField(field, value) {
     setDraftProfile((current) => ({
       ...normalizeCloudProfile(current || {}),
@@ -1056,6 +1068,7 @@ export function AuthResumePage({ backendUrl }) {
       setDraftProfile(normalizeCloudProfile(extracted.profile))
       setExtractionAttempt(extracted.extraction_attempt)
       setReviewCandidate({ ...uploaded, status: extracted.status, extraction_attempt: extracted.extraction_attempt })
+      clearSelectedResumeFile()
       setPhase('needs_review')
       setMessage(extracted.review_required ? 'Some fields need manual review.' : 'Review extracted profile.')
     } catch (resumeError) {
@@ -1155,7 +1168,74 @@ export function AuthResumePage({ backendUrl }) {
     }
   }
 
-  const busy = ['loading', 'uploading', 'extracting'].includes(phase)
+  async function handleDeleteResume(targetResumeArg = null) {
+    const targetResume = targetResumeArg || currentResume || reviewCandidate || resumeRecord
+    if (!targetResume?.id || deletePending || rebuildPending || confirmPending || ['uploading', 'extracting'].includes(phase)) {
+      return
+    }
+    const resumeLabel = [targetResume.original_filename, targetResume.status].filter(Boolean).join(' - ')
+    const confirmMessage = resumeLabel
+      ? `Delete this cloud resume (${resumeLabel})?`
+      : 'Delete this cloud resume?'
+    if (!window.confirm(confirmMessage)) {
+      return
+    }
+
+    setDeletePending(true)
+    setError('')
+    setMessage('Deleting resume...')
+    try {
+      const token = await getSessionToken()
+      await deleteCloudResume(token, targetResume.id, { backendUrl })
+      if (currentResume?.id === targetResume.id) {
+        setCurrentResume(null)
+      }
+      if (reviewCandidate?.id === targetResume.id) {
+        setReviewCandidate(null)
+      }
+      if (resumeRecord?.id === targetResume.id) {
+        setResumeRecord(null)
+        clearSelectedResumeFile()
+      }
+      if ((reviewCandidate?.id === targetResume.id) || (resumeRecord?.id === targetResume.id)) {
+        setDraftProfile(null)
+        setExtractionAttempt(null)
+      }
+      setPhase('idle')
+      setMessage('Resume deleted.')
+    } catch (deleteError) {
+      setError(deleteError.message || 'Could not delete the resume. Try again.')
+      setMessage('')
+    } finally {
+      setDeletePending(false)
+    }
+  }
+
+  async function handleRebuildIndex() {
+    if (!currentResume?.id || rebuildPending || deletePending || confirmPending || ['uploading', 'extracting'].includes(phase)) {
+      return
+    }
+
+    setRebuildPending(true)
+    setError('')
+    setMessage('Rebuilding resume index...')
+    try {
+      const token = await getSessionToken()
+      await rebuildCloudResumeIndex(token, currentResume.id, { backendUrl })
+      const current = await fetchCurrentCloudResume(token, { backendUrl })
+      setCurrentResume(current.ready ? current.resume : null)
+      setResumeRecord((currentRecord) => (current.ready ? current.resume : currentRecord))
+      setPhase('idle')
+      setMessage('Resume index rebuilt.')
+    } catch (rebuildError) {
+      setError(rebuildError.message || 'Could not rebuild the resume index. Try again.')
+      setMessage('')
+    } finally {
+      setRebuildPending(false)
+    }
+  }
+
+  const busy = ['loading', 'uploading', 'extracting'].includes(phase) || confirmPending || deletePending || rebuildPending
   const uploadDisabled = busy || !file || Boolean(validateCloudResumeFile(file))
 
   return (
@@ -1172,6 +1252,12 @@ export function AuthResumePage({ backendUrl }) {
             <div className="auth-user-summary">
               <p>Current ready resume</p>
               <span>{currentResume.original_filename} - {currentResume.status}</span>
+              <button className="auth-secondary-button" type="button" onClick={handleRebuildIndex} disabled={busy || !currentResume.is_active}>
+                {rebuildPending ? 'Rebuilding index...' : 'Rebuild Index'}
+              </button>
+              <button className="auth-secondary-button" type="button" onClick={() => handleDeleteResume(currentResume)} disabled={busy}>
+                {deletePending ? 'Deleting resume...' : 'Delete Resume'}
+              </button>
             </div>
           ) : (
             <p className="auth-message info">No active ready resume yet.</p>
@@ -1183,12 +1269,16 @@ export function AuthResumePage({ backendUrl }) {
               <button className="auth-secondary-button" type="button" onClick={handleExtractCandidate} disabled={busy}>
                 {phase === 'extracting' ? 'Analyzing resume...' : 'Extract Again'}
               </button>
+              <button className="auth-secondary-button" type="button" onClick={() => handleDeleteResume(reviewCandidate)} disabled={busy}>
+                {deletePending ? 'Deleting resume...' : 'Delete Resume'}
+              </button>
             </div>
           )}
           <form className="auth-form auth-cloud-resume-form" onSubmit={handleUploadAndExtract}>
             <label>
               Resume file
               <input
+                ref={fileInputRef}
                 type="file"
                 accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
                 onChange={handleFileChange}
@@ -1225,6 +1315,9 @@ export function AuthResumePage({ backendUrl }) {
               ))}
               <button type="submit" disabled={confirmPending || phase === 'confirmed'}>
                 {phase === 'confirmed' ? 'Resume confirmed' : confirmPending ? 'Saving reviewed profile...' : 'Confirm Reviewed Profile'}
+              </button>
+              <button className="auth-secondary-button" type="button" onClick={() => handleDeleteResume(resumeRecord || reviewCandidate)} disabled={busy}>
+                {deletePending ? 'Deleting resume...' : 'Delete Resume'}
               </button>
             </form>
           )}

@@ -22,9 +22,16 @@ function projectCloudResume(record) {
     status: record.status,
     is_active: Boolean(record.is_active),
     extraction_attempt: Number(record.extraction_attempt || 0),
+    parser_provider: record.parser_provider || null,
+    parser_status: record.parser_status || null,
+    extraction_status: record.extraction_status || null,
+    index_status: record.index_status || null,
     review_required: Boolean(record.review_required),
     confirmed_at: record.confirmed_at || null,
     active_chunk_generation: record.active_chunk_generation || null,
+    failure_code: record.failure_code || null,
+    failure_message: record.failure_message || null,
+    updated_at: record.updated_at || null,
   }
 }
 
@@ -229,5 +236,47 @@ export async function confirmCloudResume(accessToken, resumeId, extractionAttemp
       signal,
     }),
     'Unable to confirm the resume profile.',
+  )
+}
+
+
+export async function deleteCloudResume(accessToken, resumeId, options = {}) {
+  const token = requireAccessToken(accessToken)
+  const {
+    backendUrl = DEFAULT_BACKEND_URL,
+    fetchImpl = fetch,
+    signal,
+  } = options
+
+  return parseJsonResponse(
+    await fetchImpl(`${backendUrl}/api/resumes/${encodeURIComponent(resumeId)}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      signal,
+    }),
+    'Unable to delete the resume.',
+  )
+}
+
+
+export async function rebuildCloudResumeIndex(accessToken, resumeId, options = {}) {
+  const token = requireAccessToken(accessToken)
+  const {
+    backendUrl = DEFAULT_BACKEND_URL,
+    fetchImpl = fetch,
+    signal,
+  } = options
+
+  return parseJsonResponse(
+    await fetchImpl(`${backendUrl}/api/resumes/${encodeURIComponent(resumeId)}/rebuild-index`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      signal,
+    }),
+    'Unable to rebuild the resume index.',
   )
 }

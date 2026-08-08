@@ -13,6 +13,7 @@ const resumePageSource = source.match(/export function AuthResumePage[\s\S]*?exp
 const statusLogoutSource = statusPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n  \}\n\n  return \(/)?.[0] || ''
 const dashboardLogoutSource = dashboardPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n  \}\n\n  return \(/)?.[0] || ''
 const resumeRefreshCatchSource = resumePageSource.match(/catch \(refreshError\) \{[\s\S]*?\}\s*catch \(confirmError\)/)?.[0] || ''
+const resumeDeleteSource = resumePageSource.match(/async function handleDeleteResume\(targetResumeArg = null\) \{[\s\S]*?\n  \}\n\n  async function handleRebuildIndex/)?.[0] || ''
 
 assert.ok(signupPageSource, 'AuthSignupPage source slice should be found')
 assert.ok(loginPageSource, 'AuthLoginPage source slice should be found')
@@ -22,6 +23,7 @@ assert.ok(resumePageSource, 'AuthResumePage source slice should be found')
 assert.ok(statusLogoutSource, 'AuthStatusPage handleLogout source slice should be found')
 assert.ok(dashboardLogoutSource, 'AuthDashboardPage handleLogout source slice should be found')
 assert.ok(resumeRefreshCatchSource, 'AuthResumePage refresh catch source slice should be found')
+assert.ok(resumeDeleteSource, 'AuthResumePage handleDeleteResume source slice should be found')
 
 
 test('profile bootstrap behavior is shared by status and dashboard pages', () => {
@@ -161,12 +163,16 @@ test('cloud resume upload validates files and calls upload extract status flow',
   assert.match(source, /const MAX_RESUME_FILE_BYTES = 5 \* 1024 \* 1024/)
   assert.match(source, /const SUPPORTED_RESUME_EXTENSIONS = new Set\(\['\.pdf', '\.docx', '\.txt'\]\)/)
   assert.match(source, /function validateCloudResumeFile\(file\)/)
+  assert.match(resumePageSource, /const fileInputRef = useRef\(null\)/)
+  assert.match(resumePageSource, /function clearSelectedResumeFile\(\) \{[\s\S]*setFile\(null\)[\s\S]*fileInputRef\.current\.value = ''/)
   assert.match(resumePageSource, /disabled=\{uploadDisabled\}/)
   assert.match(resumePageSource, /disabled=\{busy\}/)
+  assert.match(resumePageSource, /ref=\{fileInputRef\}/)
   assert.match(resumePageSource, /uploadCloudResume\(token, file, \{ backendUrl \}\)/)
   assert.match(resumePageSource, /const uploadedStatus = await fetchCloudResumeStatus\(token, uploaded\.id, \{ backendUrl \}\)/)
   assert.match(resumePageSource, /if \(uploadedStatus\.status !== 'uploaded'\) \{[\s\S]*return/)
   assert.match(resumePageSource, /extractCloudResume\(token, uploaded\.id, \{ backendUrl \}\)/)
+  assert.match(resumePageSource, /clearSelectedResumeFile\(\)[\s\S]*setPhase\('needs_review'\)/)
   assert.match(resumePageSource, /Extraction failed\. Try again or upload another file\./)
   assert.match(resumePageSource, /catch \(resumeError\) \{[\s\S]*setMessage\(''\)/)
 })
@@ -206,4 +212,31 @@ test('cloud resume page refreshes current state after confirmation', () => {
   assert.doesNotMatch(resumeRefreshCatchSource, /Could not confirm/)
   assert.match(resumePageSource, /draftProfile && phase !== 'confirmed'/)
   assert.doesNotMatch(resumePageSource, /setCurrentResume\(.*confirmed|status: 'ready'|is_active: true/)
+})
+
+
+test('cloud resume page supports delete and rebuild lifecycle controls safely', () => {
+  assert.match(source, /deleteCloudResume,/)
+  assert.match(source, /rebuildCloudResumeIndex,/)
+  assert.match(resumePageSource, /const \[deletePending, setDeletePending\] = useState\(false\)/)
+  assert.match(resumePageSource, /const \[rebuildPending, setRebuildPending\] = useState\(false\)/)
+  assert.match(resumePageSource, /async function handleDeleteResume\(targetResumeArg = null\)/)
+  assert.match(resumePageSource, /const targetResume = targetResumeArg \|\| currentResume \|\| reviewCandidate \|\| resumeRecord/)
+  assert.match(resumePageSource, /Delete this cloud resume \(\$\{resumeLabel\}\)\?/)
+  assert.match(resumePageSource, /deleteCloudResume\(token, targetResume\.id, \{ backendUrl \}\)/)
+  assert.match(resumePageSource, /if \(currentResume\?\.id === targetResume\.id\) \{[\s\S]*setCurrentResume\(null\)/)
+  assert.match(resumePageSource, /if \(reviewCandidate\?\.id === targetResume\.id\) \{[\s\S]*setReviewCandidate\(null\)/)
+  assert.match(resumeDeleteSource, /if \(resumeRecord\?\.id === targetResume\.id\) \{[\s\S]*setResumeRecord\(null\)[\s\S]*clearSelectedResumeFile\(\)/)
+  assert.doesNotMatch(resumeDeleteSource, /setExtractionAttempt\(null\)[\s\S]*clearSelectedResumeFile\(\)/)
+  assert.match(resumePageSource, /Resume deleted\./)
+  assert.match(resumePageSource, /onClick=\{\(\) => handleDeleteResume\(currentResume\)\}/)
+  assert.match(resumePageSource, /onClick=\{\(\) => handleDeleteResume\(reviewCandidate\)\}/)
+  assert.match(resumePageSource, /onClick=\{\(\) => handleDeleteResume\(resumeRecord \|\| reviewCandidate\)\}/)
+  assert.match(resumePageSource, /async function handleRebuildIndex\(\)/)
+  assert.match(resumePageSource, /rebuildCloudResumeIndex\(token, currentResume\.id, \{ backendUrl \}\)/)
+  assert.match(resumePageSource, /fetchCurrentCloudResume\(token, \{ backendUrl \}\)/)
+  assert.match(resumePageSource, /Resume index rebuilt\./)
+  assert.match(resumePageSource, /disabled=\{busy \|\| !currentResume\.is_active\}/)
+  assert.match(resumePageSource, /deletePending \? 'Deleting resume\.\.\.' : 'Delete Resume'/)
+  assert.match(resumePageSource, /rebuildPending \? 'Rebuilding index\.\.\.' : 'Rebuild Index'/)
 })

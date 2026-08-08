@@ -4,9 +4,9 @@
 **Document type:** Detailed implementation roadmap and execution source of truth  
 **Track:** Desktop stabilization â†’ Cloud account system â†’ Website integration â†’ Session intelligence â†’ Subscription and release  
 **Version:** 1.1  
-**Last updated:** 2026-08-04
+**Last updated:** 2026-08-08
 **Created:** 2026-07-10  
-**Current active phase:** C3.4.5 - GPT-based resume extraction provider implemented; manual smoke pending
+**Current active phase:** C3.5 - Cloud resume delete, rebuild, status, and closure implemented
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -1139,7 +1139,7 @@ After a verified user first enters the dashboard:
 ## Status
 
 ```text
-[x] C3.4.5 GPT-based resume extraction provider implemented with backend-only `gpt-5-mini` structured extraction and local fallback - C3.4 activation remains implemented; C3.5 pending
+[x] C3.5 cloud resume delete/rebuild/status closure implemented after C3.4.5 GPT-based resume extraction provider
 ```
 
 ## Goal
@@ -1182,8 +1182,8 @@ Move resume upload, extraction review, profile saving, and resume indexing into 
 - [x] C3.2 backend API merged and live smoke-tested.
 - [x] C3.3 frontend upload/review UI implemented at `/auth/resume`.
 - [x] C3.4 cloud chunk generation/RAG activation implemented.
-- [x] C3.4.5 GPT-based resume extraction provider implemented; live GPT smoke pending.
-- [ ] C3.5 delete/rebuild/status closure pending.
+- [x] C3.4.5 GPT-based resume extraction provider implemented.
+- [x] C3.5 delete/rebuild/status closure implemented.
 
 ## Existing capability to reuse
 
@@ -1226,12 +1226,14 @@ POST   /api/resumes/{resume_id}/extract
 POST   /api/resumes/{resume_id}/confirm
 GET    /api/resumes/{resume_id}/status
 DELETE /api/resumes/{resume_id}
+POST   /api/resumes/{resume_id}/rebuild-index
 ```
 
 C3.2 implemented the backend subset for upload/status/extract/confirm. C3.4
 implements chunk generation and activation through the existing confirm route;
-no separate C3.4 `/index` route is implemented. `DELETE` and any explicit
-rebuild/status polish remain for C3.5.
+no separate C3.4 `/index` route is implemented. C3.5 implements authenticated
+`DELETE /api/resumes/{resume_id}` and
+`POST /api/resumes/{resume_id}/rebuild-index` plus frontend lifecycle controls.
 
 ## Upload validation
 
@@ -4284,7 +4286,7 @@ The C0â€“C16 track is complete when:
 
 ```text
 C0 remains complete. C0.9 is not fully complete: C0.9.6 has implementation present with Chrome/Edge real-page validation pending, and C0.9.7 through C0.9.13 are deferred by explicit product-priority decision.
-C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 auth surface closure is complete through C2.5. C3.1 planning, C3.2 backend cloud resume API, C3.3 frontend authenticated upload/review UI, C3.4 cloud resume indexing/RAG activation, and C3.4.5 GPT-based resume extraction provider are complete through implementation. C3.4.5 live GPT smoke and C3.5 delete/rebuild/status closure remain pending. No C5 desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started. Next: complete C3.4.5 manual smoke, then begin C3.5 only after explicit approval.
+C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 auth surface closure is complete through C2.5. C3.1 planning, C3.2 backend cloud resume API, C3.3 frontend authenticated upload/review UI, C3.4 cloud resume indexing/RAG activation, C3.4.5 GPT-based resume extraction provider, and C3.5 delete/rebuild/status closure are complete through implementation. No C5 desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started. Next recommended phase: C4 - Job Target / JD Cloud Sync, only after explicit approval.
 ```
 
 The completed C0.9.2 manual validation covered:
