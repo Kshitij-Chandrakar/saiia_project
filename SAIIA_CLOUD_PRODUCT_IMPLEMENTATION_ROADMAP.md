@@ -2928,7 +2928,7 @@ Route-to-permission matrix:
 | GET /api/admin/admin-invites | admins:read |
 | POST /api/admin/admin-invites/{invite_id}/revoke | admins:invite |
 | POST /api/admin/admin-invites/accept | valid invite plus authenticated matching user; no role claim trusted from frontend |
-| PATCH /api/admin/admins/{admin_user_id}/role | admins:update_role |
+| PATCH /api/admin/admins/{admin_user_id}/role | admins:update_role; generic role route cannot create or remove owner role |
 | PATCH /api/admin/admins/{admin_user_id}/suspend | admins:suspend |
 | PATCH /api/admin/admins/{admin_user_id}/restore | admins:suspend |
 | DELETE /api/admin/admins/{admin_user_id} | admins:suspend and last-owner protection |
@@ -2984,6 +2984,16 @@ Future C15.5-owned tables:
 - created_at
 - updated_at
 - last_admin_action_at
+
+Membership cardinality:
+
+- one authoritative admin membership per user
+- `user_id` must be unique
+- no multiple active/suspended/revoked rows for the same user
+- role/status updates must be transactional
+- concurrent role/status changes must serialize or conflict safely
+- permission resolution loads exactly one active membership server-side
+- suspended/revoked membership grants no permissions
 
 `admin_invites`:
 
@@ -3072,6 +3082,24 @@ Rules:
 - support-note redaction/delete review requires `support_notes:delete_review`, reason, audit log, and C15 retention/legal check
 - RLS must deny normal user access and require backend/admin-controlled access
 
+Support-note visibility-to-role matrix:
+
+| Visibility | Role access |
+|---|---|
+| internal_support | support_admin may read/create only internal_support; super_admin may read/create with reason/audit; owner may read/create with audit |
+| privacy_review | privacy_admin may read/create only privacy_review; super_admin may read/create with reason/audit; owner may read/create with audit |
+| billing_review | billing_admin may read/create only billing_review; super_admin may read/create with reason/audit; owner may read/create with audit |
+
+Additional support-note visibility rules:
+
+- `support_notes:read` is necessary but not sufficient
+- `support_notes:create` is necessary but not sufficient
+- backend must enforce both permission and visibility-to-role matrix
+- cross-visibility access is denied by default
+- `security_auditor` may read all visibility metadata/audit view only, with no create or mutate permission
+- `readonly_admin` may read high-level metadata only, with no body access unless explicitly approved later
+- normal users cannot read support notes
+
 `admin_audit_logs` immutability rules:
 
 - append-only must be enforced at the database layer, not only by application behavior
@@ -3081,6 +3109,30 @@ Rules:
 - service-role maintenance must not silently mutate logs
 - exceptional maintenance must use a restricted, documented, separately audited maintenance path
 - correction or superseding log entries are preferred over editing old logs
+
+`admin_system_flags` allowlisted flag catalog:
+
+- every mutable flag key must be defined in a future allowlisted flag catalog
+- each catalog entry must define key, type, allowed values/range, protected flag, required permission, step-up requirement for high-risk flags, and audit reason requirement
+- supported value types are boolean, string enum, integer bounded, and json schema
+- unknown flag keys are rejected
+- invalid typed values are rejected
+- protected flags cannot be changed through normal admin UI
+- security/lifecycle-critical flags require stricter approval or are read-only
+- `PATCH /api/admin/system/flags/{flag_key}` must validate against the catalog server-side before persistence
+
+C15.5 retention/delete/anonymization plan:
+
+| Table | ON DELETE behavior | Identifier handling | Retention/export/delete behavior |
+|---|---|---|---|
+| admin_memberships | restrict physical delete while audit records reference membership; status becomes revoked/deleted where needed | retain or pseudonymized user_id/admin_id according to C15 retention window | not exported to normal users except required metadata; account deletion preserves audit-safe membership history only |
+| admin_invites | invite rows expire/revoke instead of hard delete during active retention | invite email may be hashed/pseudonymized after expiry window | excluded from user export by default; deleted or pseudonymized per C15 retention rules |
+| admin_audit_logs | append-only; no normal ON DELETE path | actor/target references retained only as long as C15 allows, then pseudonymized where needed | audit preservation required; export only audit-safe metadata when legally/product-required |
+| admin_support_notes | redacted/deletion_pending/deleted states instead of raw hard delete until retention review completes | target_user_id and author_admin_user_id retained or pseudonymized per C15 | raw internal notes omitted from C15 user exports by default; redacted metadata only when required; deletion review audited |
+| admin_break_glass_requests | expire/use/deny states preserved as audit-safe records | actor/target identifiers pseudonymized after retention window where allowed | retain audit-safe metadata only; raw sensitive payload never stored |
+| admin_system_flags | no user-owned delete behavior; changes recorded through audit log | should not contain personal data | not part of user export/delete except audit references if required |
+
+Account deletion tests must cover each C15.5 table when admin records exist.
 
 ## Future API route plan
 
@@ -3233,6 +3285,22 @@ Rules:
 - no public admin registration
 - all admin role changes audited
 
+Invite accept contract:
+
+- validate invite_token_hash
+- validate authenticated email matches invite email
+- require accepted_at is null
+- require revoked_at is null
+- require expires_at > now
+- create or activate admin_membership
+- set accepted_at
+- write audit log
+- all accept steps must happen in one transaction
+- concurrent acceptance cannot create duplicate membership
+- replay after accepted_at is rejected
+- revoked or expired invite is rejected
+- invite role cannot bypass owner/super_admin invitation rules
+
 ## Ownership transfer rules
 
 - only an active owner can transfer ownership
@@ -3247,6 +3315,10 @@ Rules:
 - backend must reload admin membership server-side before transfer
 - transfer must be atomic with audit log creation
 - failed transfer must not partially change roles
+- generic role route cannot create owner role
+- generic role route cannot remove owner role
+- suspend/delete routes cannot suspend/delete an owner if that violates last-owner protection
+- every ownership change must use `POST /api/admin/admins/{admin_user_id}/transfer-ownership`
 
 ## Break-glass sensitive-data access
 
@@ -3318,6 +3390,7 @@ High-risk actions requiring MFA/step-up by default:
 
 - route-to-permission matrix coverage
 - each role only has assigned permissions
+- support-note cross-visibility access denied by default
 - non-admin rejected
 - suspended admin rejected
 - readonly admin cannot mutate
@@ -3352,6 +3425,18 @@ High-risk actions requiring MFA/step-up by default:
 - normal user support-note access rejected
 - support-note C15 user exports follow the documented redacted-metadata decision
 - support-note audit link exists
+- one authoritative admin membership per user enforced by unique user_id
+- concurrent role changes serialize or conflict safely
+- conflicting active/suspended membership rows rejected
+- generic role patch to owner rejected
+- generic role patch removing owner rejected
+- unsafe owner suspend/delete blocked
+- unknown flag rejected
+- invalid flag value rejected
+- protected flag mutation rejected
+- valid allowlisted flag update accepted
+- accepted-invite replay rejected
+- concurrent invite acceptance cannot create duplicate membership
 - owner can transfer ownership to eligible admin
 - non-owner cannot transfer ownership
 - super_admin cannot transfer ownership unless explicitly approved later
@@ -3390,15 +3475,22 @@ High-risk actions requiring MFA/step-up by default:
 - verify restricted audit-log maintenance path creates a separate audit record
 - create support note and verify admin ownership, retention class, and audit link
 - verify support-note read/create/redaction/delete-review permissions by role
+- verify support-note visibility-to-role matrix and cross-visibility denial
 - verify normal users cannot read support notes
 - verify C15 user exports omit raw internal support notes and include only redacted metadata when required
 - verify support-note retention/deletion review is audited
 - verify support notes reject raw sensitive resume/transcript/audio/screenshot content
 - transfer ownership from owner to eligible admin and verify audit log
 - attempt ownership transfer as non-owner and super_admin and confirm blocked
+- attempt generic role patch to create/remove owner and confirm blocked
+- attempt unsafe owner suspend/delete and confirm blocked
 - attempt ownership transfer without MFA/step-up and confirm blocked
 - attempt unsafe last-owner transfer and confirm blocked
 - simulate failed ownership transfer and confirm no partial role change
+- accept admin invite once, then verify accepted_at replay is rejected
+- simulate concurrent invite acceptance and verify one membership only
+- verify unknown/protected/invalid system flag updates are rejected
+- verify account deletion behavior when admin records exist
 - verify MFA/step-up challenge for high-risk actions
 - verify normal user routes cannot access admin data
 - verify audit logs for every action
@@ -3409,6 +3501,10 @@ C15.5 is complete only if it is required for the release and all criteria below 
 
 - admin roles exist
 - role-to-permission and route-to-permission matrices are implemented and validated
+- support-note visibility-to-role matrix is implemented and validated
+- admin_memberships has one authoritative membership per user and concurrent role/status changes are safe
+- admin_system_flags use an allowlisted flag catalog with unknown/protected/invalid updates rejected
+- admin invite acceptance is atomic, exactly-once, replay-safe, and concurrency-safe
 - admin invite/add-admin flow works
 - admin routes are protected by backend RBAC
 - admin frontend exists
