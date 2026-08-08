@@ -2872,6 +2872,7 @@ admins:read
 admins:invite
 admins:update_role
 admins:suspend
+admins:transfer_ownership
 users:read
 users:update_status
 users:force_logout
@@ -2909,7 +2910,7 @@ Role-to-permission matrix:
 
 | Role | Planned permission groups |
 |---|---|
-| owner | all C15.5 permissions, including ownership transfer and break-glass approval, with last-owner protection |
+| owner | all C15.5 permissions, including admins:transfer_ownership and break-glass approval, with last-owner protection |
 | super_admin | admins:read, admins:invite, admins:update_role for non-owner roles, admins:suspend, users:read, users:update_status, users:force_logout, users:password_reset, support_notes:read, support_notes:create, support_notes:delete_review, profile:metadata_read, resume:metadata_read, resume:retry_extraction, resume:rebuild_index, sessions:metadata_read, transcripts:summary_read, billing:read, billing:support_action, plans:read, usage:read, usage:adjust, privacy:read, privacy:export_trigger, privacy:delete_review, audit:read, break_glass:request, break_glass:approve, system:read, system:flags_update |
 | support_admin | users:read, users:update_status where support-safe, users:password_reset, support_notes:read, support_notes:create, profile:metadata_read, resume:metadata_read, resume:retry_extraction, resume:rebuild_index, sessions:metadata_read, transcripts:summary_read, break_glass:request, system:read |
 | billing_admin | users:read, support_notes:read, support_notes:create, billing:read, billing:support_action, plans:read, usage:read, usage:adjust, audit:read |
@@ -2931,12 +2932,16 @@ Route-to-permission matrix:
 | PATCH /api/admin/admins/{admin_user_id}/suspend | admins:suspend |
 | PATCH /api/admin/admins/{admin_user_id}/restore | admins:suspend |
 | DELETE /api/admin/admins/{admin_user_id} | admins:suspend and last-owner protection |
+| POST /api/admin/admins/{admin_user_id}/transfer-ownership | admins:transfer_ownership |
 | GET /api/admin/users | users:read |
 | GET /api/admin/users/{user_id} | users:read |
 | PATCH /api/admin/users/{user_id}/status | users:update_status |
 | POST /api/admin/users/{user_id}/force-logout | users:force_logout |
 | POST /api/admin/users/{user_id}/send-password-reset | users:password_reset |
+| GET /api/admin/users/{user_id}/support-notes | support_notes:read |
 | POST /api/admin/users/{user_id}/support-note | support_notes:create |
+| POST /api/admin/users/{user_id}/support-notes/{note_id}/redact | support_notes:delete_review |
+| POST /api/admin/users/{user_id}/support-notes/{note_id}/delete-review | support_notes:delete_review |
 | GET /api/admin/users/{user_id}/profile/summary | profile:metadata_read |
 | GET /api/admin/users/{user_id}/resumes | resume:metadata_read |
 | GET /api/admin/users/{user_id}/resume-status | resume:metadata_read |
@@ -3020,7 +3025,9 @@ Future C15.5-owned tables:
 - related_audit_log_id
 - created_at
 - updated_at
+- redacted_at
 - deleted_at
+- deletion_reviewed_by_admin_user_id
 
 `admin_break_glass_requests`:
 
@@ -3059,6 +3066,11 @@ Rules:
 - admin_support_notes reads/writes require admin route, backend RBAC, audit logging, and reason where sensitive
 - admin_support_notes deletion/redaction follows C15 privacy/legal retention rules
 - support-note creation must create or link an admin_audit_logs row
+- admin_support_notes are internal operational records
+- C15 user exports omit raw internal support notes by default
+- C15 user exports may include only redacted or summarized support-note metadata when legally or product-required
+- support-note redaction/delete review requires `support_notes:delete_review`, reason, audit log, and C15 retention/legal check
+- RLS must deny normal user access and require backend/admin-controlled access
 
 `admin_audit_logs` immutability rules:
 
@@ -3092,6 +3104,7 @@ PATCH /api/admin/admins/{admin_user_id}/role
 PATCH /api/admin/admins/{admin_user_id}/suspend
 PATCH /api/admin/admins/{admin_user_id}/restore
 DELETE /api/admin/admins/{admin_user_id}
+POST /api/admin/admins/{admin_user_id}/transfer-ownership
 ```
 
 User support:
@@ -3102,7 +3115,10 @@ GET /api/admin/users/{user_id}
 PATCH /api/admin/users/{user_id}/status
 POST /api/admin/users/{user_id}/force-logout
 POST /api/admin/users/{user_id}/send-password-reset
+GET /api/admin/users/{user_id}/support-notes
 POST /api/admin/users/{user_id}/support-note
+POST /api/admin/users/{user_id}/support-notes/{note_id}/redact
+POST /api/admin/users/{user_id}/support-notes/{note_id}/delete-review
 ```
 
 Profile/resume support:
@@ -3217,6 +3233,21 @@ Rules:
 - no public admin registration
 - all admin role changes audited
 
+## Ownership transfer rules
+
+- only an active owner can transfer ownership
+- target must be an active authenticated admin account
+- target role must become owner or be promoted atomically during transfer
+- last-owner protection must remain enforced
+- no self-demotion that leaves zero owners
+- MFA/step-up authentication is required before transfer
+- reason is required
+- audit log is required
+- ownership transfer cannot be authorized from frontend role claims
+- backend must reload admin membership server-side before transfer
+- transfer must be atomic with audit log creation
+- failed transfer must not partially change roles
+
 ## Break-glass sensitive-data access
 
 - raw resume text and raw transcripts are not visible by default
@@ -3313,8 +3344,22 @@ High-risk actions requiring MFA/step-up by default:
 - audit-log DELETE rejected
 - restricted maintenance path audited
 - support-note ownership verified
+- support-note read permission enforced
+- support-note create permission enforced
+- support-note redaction/delete-review permission enforced
 - support-note retention/deletion verified
 - support-note raw sensitive data prohibited
+- normal user support-note access rejected
+- support-note C15 user exports follow the documented redacted-metadata decision
+- support-note audit link exists
+- owner can transfer ownership to eligible admin
+- non-owner cannot transfer ownership
+- super_admin cannot transfer ownership unless explicitly approved later
+- ownership transfer requires MFA/step-up
+- ownership transfer writes audit log
+- last-owner protection blocks unsafe ownership transfer
+- failed ownership transfer does not partially change roles
+- ownership-transfer route requires `admins:transfer_ownership`
 - MFA/step-up required for high-risk actions
 - destructive delete requires reason
 - service-role key absent from frontend bundle
@@ -3344,7 +3389,16 @@ High-risk actions requiring MFA/step-up by default:
 - attempt admin_audit_logs UPDATE and DELETE through normal admin paths and confirm blocked
 - verify restricted audit-log maintenance path creates a separate audit record
 - create support note and verify admin ownership, retention class, and audit link
+- verify support-note read/create/redaction/delete-review permissions by role
+- verify normal users cannot read support notes
+- verify C15 user exports omit raw internal support notes and include only redacted metadata when required
+- verify support-note retention/deletion review is audited
 - verify support notes reject raw sensitive resume/transcript/audio/screenshot content
+- transfer ownership from owner to eligible admin and verify audit log
+- attempt ownership transfer as non-owner and super_admin and confirm blocked
+- attempt ownership transfer without MFA/step-up and confirm blocked
+- attempt unsafe last-owner transfer and confirm blocked
+- simulate failed ownership transfer and confirm no partial role change
 - verify MFA/step-up challenge for high-risk actions
 - verify normal user routes cannot access admin data
 - verify audit logs for every action
@@ -3362,6 +3416,9 @@ C15.5 is complete only if it is required for the release and all criteria below 
 - audit logs are database-enforced append-only, with UPDATE/DELETE rejection validated
 - restricted maintenance path is separately audited
 - support notes are implemented with ownership, retention/deletion, sensitive-content prohibition, and audit linkage
+- support-note read/create/redaction/delete-review permissions are validated
+- C15 user exports omit raw internal support notes by default and include only redacted metadata when required
+- ownership transfer is implemented with `admins:transfer_ownership`, owner-only authorization, MFA/step-up, atomic role change, audit logging, and last-owner protection
 - raw sensitive data access requires break-glass
 - break-glass is single-use, target-bound, data-type-bound, expiry-bound, self-approval-safe, and replay/concurrent-use-safe
 - MFA/step-up authentication is enforced for high-risk actions or an approved threat-model exception with compensating controls is recorded
