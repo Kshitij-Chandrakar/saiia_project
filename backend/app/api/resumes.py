@@ -85,6 +85,23 @@ class ConfirmResponse(BaseModel):
     active: bool = False
 
 
+class DeleteResumeResponse(BaseModel):
+    resume_id: str
+    status: str
+    is_active: bool
+    ready: bool
+    message: str
+
+
+class RebuildIndexResponse(BaseModel):
+    resume_id: str
+    status: str
+    index_status: str
+    active_chunk_generation: str
+    chunk_count: int
+    message: str
+
+
 @lru_cache(maxsize=1)
 def _cached_cloud_resume_service() -> CloudResumeService:
     return CloudResumeService()
@@ -202,6 +219,45 @@ def get_cloud_resume_status(
     except Exception as exc:
         raise _handle_cloud_error(exc) from exc
     return _resume_response(record)
+
+
+@router.delete("/{resume_id}", response_model=DeleteResumeResponse)
+def delete_cloud_resume(
+    resume_id: UUID,
+    current_user: CurrentUserDep,
+    service: CloudResumeServiceDep,
+) -> DeleteResumeResponse:
+    try:
+        result = service.delete_resume(user_id=current_user.user_id, resume_id=str(resume_id))
+    except Exception as exc:
+        raise _handle_cloud_error(exc) from exc
+    return DeleteResumeResponse(
+        resume_id=result.resume_id,
+        status=result.status,
+        is_active=result.is_active,
+        ready=result.ready,
+        message=result.message,
+    )
+
+
+@router.post("/{resume_id}/rebuild-index", response_model=RebuildIndexResponse)
+def rebuild_cloud_resume_index(
+    resume_id: UUID,
+    current_user: CurrentUserDep,
+    service: CloudResumeServiceDep,
+) -> RebuildIndexResponse:
+    try:
+        result = service.rebuild_resume_index(user_id=current_user.user_id, resume_id=str(resume_id))
+    except Exception as exc:
+        raise _handle_cloud_error(exc) from exc
+    return RebuildIndexResponse(
+        resume_id=result.resume_id,
+        status=result.status,
+        index_status=result.index_status,
+        active_chunk_generation=result.active_chunk_generation,
+        chunk_count=result.chunk_count,
+        message=result.message,
+    )
 
 
 @router.post("/{resume_id}/extract", response_model=ExtractResponse)

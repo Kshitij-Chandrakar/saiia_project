@@ -152,6 +152,33 @@ class FakeRouteService:
         result.extraction_attempt = extraction_attempt
         return result
 
+    def delete_resume(self, *, user_id: str, resume_id: str):
+        self.user_ids.append(user_id)
+
+        class Result:
+            status = "deleted"
+            is_active = False
+            ready = False
+            message = "Resume deleted."
+
+        result = Result()
+        result.resume_id = resume_id
+        return result
+
+    def rebuild_resume_index(self, *, user_id: str, resume_id: str):
+        self.user_ids.append(user_id)
+
+        class Result:
+            status = "ready"
+            index_status = "indexed"
+            active_chunk_generation = "new-generation"
+            chunk_count = 2
+            message = "Resume index rebuilt."
+
+        result = Result()
+        result.resume_id = resume_id
+        return result
+
 
 @pytest.fixture
 def fake_service(client: TestClient) -> FakeRouteService:
@@ -299,6 +326,32 @@ def test_status_extract_and_confirm_are_user_owned(client: TestClient, fake_serv
     assert confirm_response.json()["active"] is True
     assert confirm_response.json()["chunks_indexed"] is True
     assert confirm_response.json()["chunk_count"] == 1
+
+
+def test_delete_and_rebuild_routes_are_user_owned(client: TestClient, fake_service: FakeRouteService) -> None:
+    headers = {"Authorization": f"Bearer {_token()}"}
+
+    delete_response = client.delete(f"/api/resumes/{RESUME_ID}", headers=headers)
+    rebuild_response = client.post(f"/api/resumes/{RESUME_ID}/rebuild-index", headers=headers)
+
+    assert delete_response.status_code == 200
+    assert delete_response.json() == {
+        "resume_id": RESUME_ID,
+        "status": "deleted",
+        "is_active": False,
+        "ready": False,
+        "message": "Resume deleted.",
+    }
+    assert rebuild_response.status_code == 200
+    assert rebuild_response.json() == {
+        "resume_id": RESUME_ID,
+        "status": "ready",
+        "index_status": "indexed",
+        "active_chunk_generation": "new-generation",
+        "chunk_count": 2,
+        "message": "Resume index rebuilt.",
+    }
+    assert fake_service.user_ids == [TEST_USER_ID, TEST_USER_ID]
 
 
 def test_confirm_activation_conflict_returns_safe_409(client: TestClient) -> None:

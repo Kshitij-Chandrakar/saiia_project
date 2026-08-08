@@ -4,11 +4,13 @@ import test from 'node:test'
 import {
   bootstrapProfile,
   confirmCloudResume,
+  deleteCloudResume,
   extractCloudResume,
   fetchCloudResumeStatus,
   fetchCurrentCloudResume,
   fetchCurrentUser,
   fetchReviewCandidate,
+  rebuildCloudResumeIndex,
   uploadCloudResume,
 } from './authApi.js'
 import { getSupabaseAuthConfig, hasSupabaseAuthConfig } from './supabaseClient.js'
@@ -153,6 +155,31 @@ test('cloud resume helpers call authenticated backend routes', async () => {
         }),
       }
     }
+    if (url.endsWith('/rebuild-index')) {
+      return {
+        ok: true,
+        json: async () => ({
+          resume_id: 'resume-id',
+          status: 'ready',
+          index_status: 'indexed',
+          active_chunk_generation: 'new-generation',
+          chunk_count: 2,
+          message: 'Resume index rebuilt.',
+        }),
+      }
+    }
+    if (init.method === 'DELETE') {
+      return {
+        ok: true,
+        json: async () => ({
+          resume_id: 'resume-id',
+          status: 'deleted',
+          is_active: false,
+          ready: false,
+          message: 'Resume deleted.',
+        }),
+      }
+    }
     return {
       ok: true,
       json: async () => ({
@@ -161,12 +188,15 @@ test('cloud resume helpers call authenticated backend routes', async () => {
         original_filename: 'resume.txt',
         file_size: 6,
         status: 'uploaded',
-        is_active: false,
-        extraction_attempt: 0,
-        parser_provider: 'pending',
-        failure_message: 'private diagnostic',
-      }),
-    }
+          is_active: false,
+          extraction_attempt: 0,
+          parser_provider: 'pending',
+          parser_status: 'pending',
+          extraction_status: 'pending',
+          index_status: 'not_indexed',
+          failure_message: 'private diagnostic',
+        }),
+      }
   }
 
   const uploaded = await uploadCloudResume(rawToken, new Blob(['resume'], { type: 'text/plain' }), {
@@ -181,6 +211,8 @@ test('cloud resume helpers call authenticated backend routes', async () => {
     fetchImpl,
     signal: controller.signal,
   })
+  await rebuildCloudResumeIndex(rawToken, 'resume-id', { fetchImpl, signal: controller.signal })
+  await deleteCloudResume(rawToken, 'resume-id', { fetchImpl, signal: controller.signal })
 
   assert.deepEqual(calls.map((call) => [call.init.method, call.url]), [
     ['POST', 'http://localhost:8000/api/resumes'],
@@ -189,11 +221,15 @@ test('cloud resume helpers call authenticated backend routes', async () => {
     ['GET', 'http://localhost:8000/api/resumes/resume-id/status'],
     ['POST', 'http://localhost:8000/api/resumes/resume-id/extract'],
     ['POST', 'http://localhost:8000/api/resumes/resume-id/confirm'],
+    ['POST', 'http://localhost:8000/api/resumes/resume-id/rebuild-index'],
+    ['DELETE', 'http://localhost:8000/api/resumes/resume-id'],
   ])
   assert.equal(calls.every((call) => call.init.headers.Authorization === `Bearer ${rawToken}`), true)
   assert.equal(calls.every((call) => call.init.signal === controller.signal), true)
   assert.equal('Content-Type' in calls[0].init.headers, false)
   assert.equal(calls[5].init.headers['Content-Type'], 'application/json')
+  assert.equal('Content-Type' in calls[6].init.headers, false)
+  assert.equal('Content-Type' in calls[7].init.headers, false)
   assert.deepEqual(JSON.parse(calls[5].init.body), {
     extraction_attempt: 1,
     profile: { full_name: 'Edited User' },
@@ -205,13 +241,18 @@ test('cloud resume helpers call authenticated backend routes', async () => {
     status: 'uploaded',
     is_active: false,
     extraction_attempt: 0,
+    parser_provider: 'pending',
+    parser_status: 'pending',
+    extraction_status: 'pending',
+    index_status: 'not_indexed',
     review_required: false,
     confirmed_at: null,
     active_chunk_generation: null,
+    failure_code: null,
+    failure_message: 'private diagnostic',
+    updated_at: null,
   })
   assert.equal('storage_path' in uploaded, false)
-  assert.equal('parser_provider' in uploaded, false)
-  assert.equal('failure_message' in uploaded, false)
 })
 
 
