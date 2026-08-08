@@ -36,7 +36,7 @@ This tracker is the live execution log for the production build.
 Current active execution phase:
 
 ```text
-C3.4 - Cloud resume indexing/RAG activation implemented; C3.5 delete/rebuild/status closure pending
+C3.4.5 - GPT-based resume extraction provider implemented; live GPT smoke pending; C3.5 delete/rebuild/status closure pending
 ```
 
 Screen Intelligence documentation:
@@ -72,7 +72,7 @@ C2 current status:
 C3 current status:
 
 ```text
-[~] Active - C3.1 Cloud Resume/Profile Storage Planning + Audit complete; C3.2 Backend Cloud Resume API merged and live smoke-tested; C3.3 frontend authenticated upload/review UI implemented under `/auth/resume`; C3.4 cloud RAG/index activation implemented through backend chunk generation and ready-resume activation; no C3.5 delete closure, C4, C5, sessions, billing, payment, email provider, admin console, or final website UI started
+[~] Active - C3.1 Cloud Resume/Profile Storage Planning + Audit complete; C3.2 Backend Cloud Resume API merged and live smoke-tested; C3.3 frontend authenticated upload/review UI implemented under `/auth/resume`; C3.4 cloud RAG/index activation implemented through backend chunk generation and ready-resume activation; C3.4.5 GPT-based resume extraction provider implemented with live GPT smoke pending; no C3.5 delete closure, C4, C5, sessions, billing, payment, email provider, admin console, or final website UI started
 ```
 
 Primary references:
@@ -1534,7 +1534,7 @@ P17 Protected commercial edition
 # Current Immediate Next Phase
 
 ```text
-C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is merged and live smoke-tested. C3.3 frontend authenticated upload/review UI is implemented under `/auth/resume`. C3.4 cloud RAG/index activation is implemented through user-owned chunk generation, backend-only activation, and ready-current resume behavior. Next phase is C3.5 delete/rebuild/status closure only after explicit approval. No C3.5 delete closure, C4, C5 desktop login/cloud sync, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI work has started.
+C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is merged and live smoke-tested. C3.3 frontend authenticated upload/review UI is implemented under `/auth/resume`. C3.4 cloud RAG/index activation is implemented through user-owned chunk generation, backend-only activation, and ready-current resume behavior. C3.4.5 GPT-based resume extraction provider is implemented with live GPT smoke pending. Next phase is C3.5 delete/rebuild/status closure only after explicit approval. No C3.5 delete closure, C4, C5 desktop login/cloud sync, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI work has started.
 ```
 
 P6B/P8/P9 consolidation records are preserved as historical desktop validation notes, not as the current execution authority.

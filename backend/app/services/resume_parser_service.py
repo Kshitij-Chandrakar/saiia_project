@@ -5,6 +5,7 @@ from typing import Any
 from app.config import settings
 from app.nlp.answer_generator import ProviderError
 from app.services.affinda_resume_parser import AffindaResumeParser, AffindaResumeParserError
+from app.services.resume_gpt_parser_service import ResumeGptParserService
 from app.services.resume_service import ResumeService
 
 logger = logging.getLogger("resume_parser_service")
@@ -14,6 +15,7 @@ class ResumeParserService:
     def __init__(self) -> None:
         self.resume_service = ResumeService()
         self.affinda_parser = AffindaResumeParser(self.resume_service)
+        self.gpt_parser = ResumeGptParserService(resume_service=self.resume_service)
 
     def extract_profile(self, *, filename: str, content: bytes) -> dict[str, Any]:
         resume_text = self.resume_service.extract_text(filename=filename, content=content)
@@ -27,11 +29,37 @@ class ResumeParserService:
                 resume_text=resume_text,
                 fallback_provider=fallback_provider,
             )
+        if requested_provider == "gpt":
+            return self._extract_with_gpt(resume_text=resume_text, fallback_provider=fallback_provider)
 
         local_profile = self._extract_local_profile(resume_text)
         return self._build_result(
             profile=local_profile,
             parser_provider="local",
+            fallback_used=False,
+            fallback_message="",
+            extracted_text_length=len(resume_text),
+        )
+
+    def _extract_with_gpt(self, *, resume_text: str, fallback_provider: str) -> dict[str, Any]:
+        try:
+            gpt_profile = self.gpt_parser.extract_profile(resume_text)
+        except ProviderError as exc:
+            logger.warning("GPT resume parsing unavailable, using local extraction instead: %s", exc.error_type)
+            if fallback_provider == "local":
+                local_profile = self._extract_local_profile(resume_text)
+                return self._build_result(
+                    profile=local_profile,
+                    parser_provider="local",
+                    fallback_used=True,
+                    fallback_message="GPT resume parsing unavailable, local extraction used.",
+                    extracted_text_length=len(resume_text),
+                )
+            raise
+
+        return self._build_result(
+            profile=gpt_profile,
+            parser_provider="gpt",
             fallback_used=False,
             fallback_message="",
             extracted_text_length=len(resume_text),

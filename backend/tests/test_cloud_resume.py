@@ -500,6 +500,40 @@ def test_txt_extract_succeeds_when_affinda_and_provider_local_are_unavailable(
     assert updated.extraction_status == "completed"
 
 
+def test_cloud_extract_uses_gpt_parser_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(resume_parser_module.settings, "RESUME_PARSER_PROVIDER", "gpt")
+    monkeypatch.setattr(resume_parser_module.settings, "RESUME_PARSER_FALLBACK", "local")
+    parser = ResumeParserService()
+    monkeypatch.setattr(
+        parser.gpt_parser,
+        "extract_profile",
+        lambda resume_text: parser.resume_service.normalize_profile_fields(
+            {
+                "full_name": "Cloud GPT User",
+                "email": "cloud.gpt@example.com",
+                "professional_summary": "Backend engineer with FastAPI projects.",
+                "top_skills": "Python, FastAPI",
+                "projects": "Cloud Resume UI",
+                "education": "B.Tech CSE",
+                "extraction_confidence": "high",
+            },
+            resume_text,
+        ),
+    )
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(status="uploaded", extraction_attempt=0)
+    client.objects[f"{USER_A}/{RESUME_ID}/resume.txt"] = b"Cloud GPT User\nPython FastAPI"
+    service = CloudResumeService(client=client, parser=parser)
+
+    result = service.extract_resume(user_id=USER_A, resume_id=RESUME_ID)
+
+    assert result.status == "needs_review"
+    assert result.parser_provider == "gpt"
+    assert result.profile["full_name"] == "Cloud GPT User"
+    assert result.profile["email"] == "cloud.gpt@example.com"
+    assert client.records[(USER_A, RESUME_ID)].parser_provider == "gpt"
+
+
 def test_extract_retry_from_failed_status_can_succeed() -> None:
     client = FakeCloudResumeClient()
     client.records[(USER_A, RESUME_ID)] = _record(status="failed", extraction_attempt=1)

@@ -12,6 +12,7 @@ website UI.
 [x] C3.2 backend cloud resume API implemented
 [x] C3.3 frontend authenticated upload/review UI implemented
 [x] C3.4 cloud resume indexing/RAG ownership implemented
+[x] C3.4.5 GPT-based resume extraction provider implemented; live GPT smoke pending
 [ ] C3.5 delete/rebuild/status + closure pending
 ```
 
@@ -66,6 +67,22 @@ Resume extraction services:
   missing fields, review-required state, and extracted text length.
 - These services can be reused for C3. They must be wrapped by authenticated
   cloud endpoints instead of rewritten.
+
+C3.4.5 GPT extraction provider:
+
+- `RESUME_PARSER_PROVIDER=gpt` selects backend-only GPT structured extraction.
+- `RESUME_GPT_PARSER_ENABLED=true` enables the provider when `OPENAI_API_KEY`
+  and `RESUME_GPT_MODEL` are available.
+- Default model: `RESUME_GPT_MODEL=gpt-5-mini`.
+- Default timeout: `RESUME_GPT_TIMEOUT_SECONDS=20`.
+- Default input cap: `RESUME_GPT_MAX_INPUT_CHARS=30000`.
+- GPT receives deterministic local text extraction output only; raw
+  PDF/DOCX bytes are not sent directly to GPT.
+- If GPT config is missing, times out, returns invalid JSON, or fails schema
+  validation, the parser falls back to local extraction and preserves the
+  editable review flow.
+- GPT/OpenAI keys stay backend-only. The frontend receives only normalized
+  editable fields and provider/fallback metadata.
 
 Local resume index behavior:
 
@@ -649,6 +666,11 @@ flow remains usable without login.
   the ready resume through a backend-only transactional RPC, and adds a
   service-level retrieval method that filters by `user_id`, active resume, and
   active chunk generation.
+- C3.4.5 GPT-based resume extraction provider: implemented backend-only GPT
+  structured extraction after deterministic local text extraction, before the
+  existing editable review/confirm/indexing flow. Default model is
+  `gpt-5-mini`; missing GPT config or provider failures fall back to local
+  extraction.
 - C3.5 delete/rebuild/status + closure: finish delete/rebuild/status behavior,
   run live/manual validation, and close C3.
 
@@ -666,6 +688,8 @@ flow remains usable without login.
   resume lifecycle tables, profile resume-derived fields, chunks, and storage.
 - [x] Insert/update `resumes` metadata with parser/extraction/index status.
 - [x] Reuse `ResumeParserService` for extraction.
+- [x] Add GPT structured extraction provider for higher-quality editable
+  resume drafts without exposing API keys to frontend.
 - [x] Return editable draft profile fields without marking them confirmed.
 - [x] Confirm reviewed normalized fields into `resumes.confirmed_profile` only.
 - [x] Upsert/update `profiles` only inside the atomic activation transaction
@@ -780,6 +804,9 @@ Manual validation:
 - sign in to `http://localhost:5173/auth/dashboard`
 - use only synthetic resume fixtures created for testing; do not upload real
   resume data, real candidate PII, or customer data
+- for C3.4.5 GPT parser validation, use sanitized synthetic resumes only and
+  verify extracted email, phone, skills, education, experience, projects,
+  achievements, and certifications improve over local fallback
 - use only approved Supabase dev test accounts
 - upload synthetic TXT, PDF, DOCX resumes through the C3 UI
 - verify private object path in Supabase Storage
@@ -808,6 +835,9 @@ Manual validation:
   explicitly approved.
 - Supabase Storage uploads through REST need careful request handling and
   sanitized error logging.
+- GPT resume extraction sends bounded text-only resume content from backend to
+  OpenAI; no raw prompts, resume text, access tokens, service-role keys, or API
+  keys may be logged or exposed to frontend.
 - C1 currently grants authenticated owned-row/table and storage mutation paths;
   C3.2 must narrow those direct mutations before browser upload UI is enabled
   so users cannot bypass backend lifecycle, attempt, generation, and activation
