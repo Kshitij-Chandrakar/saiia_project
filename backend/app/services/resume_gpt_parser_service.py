@@ -227,7 +227,7 @@ class ResumeGptParserService:
                 self._raise_invalid_schema()
             value = payload[field]
             if field == "missing_fields":
-                if not isinstance(value, list):
+                if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
                     self._raise_invalid_schema()
                 continue
             if field == "manual_review_required":

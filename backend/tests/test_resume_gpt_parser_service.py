@@ -558,6 +558,18 @@ def test_gpt_parser_wrong_type_raises_invalid_schema(monkeypatch: pytest.MonkeyP
     assert exc_info.value.error_type == "invalid_schema"
 
 
+def test_gpt_parser_rejects_non_string_missing_field_items(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enable_gpt(monkeypatch)
+    parser = ResumeGptParserService(
+        openai_client=FakeOpenAIClient(_gpt_payload(missing_fields=[{"field": "email"}]))
+    )
+
+    with pytest.raises(ProviderError) as exc_info:
+        parser.extract_profile(SANITIZED_ANAND_RESUME)
+
+    assert exc_info.value.error_type == "invalid_schema"
+
+
 def test_gpt_parser_invalid_schema_falls_back_to_local(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(gpt_module.settings, "RESUME_PARSER_PROVIDER", "gpt")
     monkeypatch.setattr(gpt_module.settings, "RESUME_PARSER_FALLBACK", "local")
