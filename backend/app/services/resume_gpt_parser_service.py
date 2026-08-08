@@ -192,7 +192,25 @@ class ResumeGptParserService:
         ) from exc
 
     def _parse_response(self, response: Any) -> dict[str, Any]:
-        raw_content = str(getattr(response, "output_text", "") or "").strip()
+        status = getattr(response, "status", None)
+        if status is not None and status != "completed":
+            raise ProviderError(
+                "GPT resume parser returned an incomplete response.",
+                provider="openai",
+                model=settings.RESUME_GPT_MODEL,
+                phase="resume_gpt_extract",
+                error_type="incomplete_response",
+            )
+        try:
+            raw_content = str(getattr(response, "output_text", "") or "").strip()
+        except Exception as exc:
+            raise ProviderError(
+                "GPT resume parser returned an invalid response.",
+                provider="openai",
+                model=settings.RESUME_GPT_MODEL,
+                phase="resume_gpt_extract",
+                error_type="invalid_response",
+            ) from exc
         if not raw_content:
             raise ProviderError(
                 "GPT resume parser returned an empty response.",

@@ -32,26 +32,50 @@ B.Tech CSE, O.P. Jindal University, 2026
 
 
 class FakeOpenAIResponse:
-    def __init__(self, payload: object) -> None:
+    def __init__(self, payload: object, *, status: str | None = None) -> None:
         self.output_text = payload if isinstance(payload, str) else json.dumps(payload)
+        if status is not None:
+            self.status = status
+
+
+class RaisingOutputTextResponse:
+    status = "completed"
+
+    @property
+    def output_text(self) -> str:
+        raise RuntimeError("provider output accessor leaked raw response")
 
 
 class FakeResponses:
-    def __init__(self, payload: object = None, exc: Exception | None = None) -> None:
+    def __init__(
+        self,
+        payload: object = None,
+        exc: Exception | None = None,
+        response: object | None = None,
+        status: str | None = None,
+    ) -> None:
         self.payload = payload or {}
         self.exc = exc
+        self.response = response
+        self.status = status
         self.calls: list[dict[str, object]] = []
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
         if self.exc:
             raise self.exc
-        return FakeOpenAIResponse(self.payload)
+        return self.response or FakeOpenAIResponse(self.payload, status=self.status)
 
 
 class FakeOpenAIClient:
-    def __init__(self, payload: object = None, exc: Exception | None = None) -> None:
-        self.responses = FakeResponses(payload, exc)
+    def __init__(
+        self,
+        payload: object = None,
+        exc: Exception | None = None,
+        response: object | None = None,
+        status: str | None = None,
+    ) -> None:
+        self.responses = FakeResponses(payload, exc, response=response, status=status)
 
 
 def _enable_gpt(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -536,6 +560,26 @@ def test_gpt_parser_invalid_json_raises_provider_error(monkeypatch: pytest.Monke
         parser.extract_profile(SANITIZED_ANAND_RESUME)
 
 
+def test_gpt_parser_incomplete_response_status_raises_provider_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enable_gpt(monkeypatch)
+    parser = ResumeGptParserService(openai_client=FakeOpenAIClient(_gpt_payload(), status="incomplete"))
+
+    with pytest.raises(ProviderError) as exc_info:
+        parser.extract_profile(SANITIZED_ANAND_RESUME)
+
+    assert exc_info.value.error_type == "incomplete_response"
+
+
+def test_gpt_parser_output_text_accessor_error_raises_provider_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enable_gpt(monkeypatch)
+    parser = ResumeGptParserService(openai_client=FakeOpenAIClient(response=RaisingOutputTextResponse()))
+
+    with pytest.raises(ProviderError) as exc_info:
+        parser.extract_profile(SANITIZED_ANAND_RESUME)
+
+    assert exc_info.value.error_type == "invalid_response"
+
+
 def test_gpt_parser_missing_declared_field_raises_invalid_schema(monkeypatch: pytest.MonkeyPatch) -> None:
     _enable_gpt(monkeypatch)
     payload = _gpt_payload()
@@ -583,6 +627,33 @@ def test_gpt_parser_invalid_schema_falls_back_to_local(monkeypatch: pytest.Monke
                 provider="openai",
                 model="gpt-5-mini",
                 error_type="invalid_schema",
+            )
+        ),
+    )
+
+    result = parser.extract_profile(filename="resume.txt", content=SANITIZED_ANAND_RESUME.encode("utf-8"))
+
+    assert result["parser_provider"] == "local"
+    assert result["fallback_used"] is True
+
+
+@pytest.mark.parametrize("error_type", ["incomplete_response", "invalid_response"])
+def test_gpt_parser_response_failures_fall_back_to_local(
+    monkeypatch: pytest.MonkeyPatch,
+    error_type: str,
+) -> None:
+    monkeypatch.setattr(gpt_module.settings, "RESUME_PARSER_PROVIDER", "gpt")
+    monkeypatch.setattr(gpt_module.settings, "RESUME_PARSER_FALLBACK", "local")
+    parser = ResumeParserService()
+    monkeypatch.setattr(
+        parser.gpt_parser,
+        "extract_profile",
+        lambda _: (_ for _ in ()).throw(
+            ProviderError(
+                "response failure",
+                provider="openai",
+                model="gpt-5-mini",
+                error_type=error_type,
             )
         ),
     )
