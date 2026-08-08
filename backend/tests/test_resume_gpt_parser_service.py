@@ -62,6 +62,40 @@ def _enable_gpt(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(gpt_module.settings, "RESUME_GPT_MAX_INPUT_CHARS", 30000)
 
 
+def _gpt_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "full_name": "Test User",
+        "email": "",
+        "phone": "",
+        "location": "",
+        "current_title": "",
+        "target_role": "",
+        "professional_summary": "Backend developer with AI project experience.",
+        "education": "",
+        "degree": "",
+        "branch": "",
+        "college": "",
+        "college_university": "",
+        "university": "",
+        "graduation_year": "",
+        "top_skills": "",
+        "technical_skills": "",
+        "soft_skills": "",
+        "tools_frameworks": "",
+        "projects": "",
+        "experience": "",
+        "work_experience": "",
+        "certifications": "",
+        "achievements": "",
+        "extraction_confidence": "medium",
+        "missing_fields": [],
+        "manual_review_required": False,
+        "manual_review_message": "",
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_gpt_parser_extracts_sanitized_anand_resume_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     _enable_gpt(monkeypatch)
     payload = {
@@ -286,6 +320,38 @@ def test_gpt_parser_cleans_markdown_mailto_email(monkeypatch: pytest.MonkeyPatch
     assert "[" not in profile["email"]
 
 
+def test_gpt_parser_keeps_achievements_for_colon_heading(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enable_gpt(monkeypatch)
+    parser = ResumeGptParserService(
+        openai_client=FakeOpenAIClient(
+            _gpt_payload(achievements="Won university innovation challenge")
+        )
+    )
+
+    profile = parser.extract_profile("TEST USER\n\nAchievements:\nWon university innovation challenge")
+
+    assert profile["achievements"] == "Won university innovation challenge"
+
+
+def test_gpt_parser_preserves_raw_resume_text_after_field_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enable_gpt(monkeypatch)
+    raw_text = "TEST USER\nEmail: [test@example.com](mailto:test@example.com)\nBuilt multi - agent project"
+    parser = ResumeGptParserService(
+        openai_client=FakeOpenAIClient(
+            _gpt_payload(
+                email="[test@example.com](mailto:test@example.com)",
+                professional_summary="Built multi - agent project",
+            )
+        )
+    )
+
+    profile = parser.extract_profile(raw_text)
+
+    assert profile["raw_resume_text"] == raw_text
+    assert profile["email"] == "test@example.com"
+    assert profile["professional_summary"] == "Built multi-agent project"
+
+
 def test_gpt_parser_keeps_achievements_empty_without_explicit_section(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -468,6 +534,86 @@ def test_gpt_parser_invalid_json_raises_provider_error(monkeypatch: pytest.Monke
 
     with pytest.raises(ProviderError):
         parser.extract_profile(SANITIZED_ANAND_RESUME)
+
+
+def test_gpt_parser_missing_declared_field_raises_invalid_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enable_gpt(monkeypatch)
+    payload = _gpt_payload()
+    payload.pop("email")
+    parser = ResumeGptParserService(openai_client=FakeOpenAIClient(payload))
+
+    with pytest.raises(ProviderError) as exc_info:
+        parser.extract_profile(SANITIZED_ANAND_RESUME)
+
+    assert exc_info.value.error_type == "invalid_schema"
+
+
+def test_gpt_parser_wrong_type_raises_invalid_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enable_gpt(monkeypatch)
+    parser = ResumeGptParserService(openai_client=FakeOpenAIClient(_gpt_payload(email=["test@example.com"])))
+
+    with pytest.raises(ProviderError) as exc_info:
+        parser.extract_profile(SANITIZED_ANAND_RESUME)
+
+    assert exc_info.value.error_type == "invalid_schema"
+
+
+def test_gpt_parser_invalid_schema_falls_back_to_local(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(gpt_module.settings, "RESUME_PARSER_PROVIDER", "gpt")
+    monkeypatch.setattr(gpt_module.settings, "RESUME_PARSER_FALLBACK", "local")
+    parser = ResumeParserService()
+    monkeypatch.setattr(
+        parser.gpt_parser,
+        "extract_profile",
+        lambda _: (_ for _ in ()).throw(
+            ProviderError(
+                "invalid schema",
+                provider="openai",
+                model="gpt-5-mini",
+                error_type="invalid_schema",
+            )
+        ),
+    )
+
+    result = parser.extract_profile(filename="resume.txt", content=SANITIZED_ANAND_RESUME.encode("utf-8"))
+
+    assert result["parser_provider"] == "local"
+    assert result["fallback_used"] is True
+
+
+def test_gpt_parser_fallback_logs_safe_metadata_only(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setattr(gpt_module.settings, "RESUME_PARSER_PROVIDER", "gpt")
+    monkeypatch.setattr(gpt_module.settings, "RESUME_PARSER_FALLBACK", "local")
+    parser = ResumeParserService()
+    monkeypatch.setattr(
+        parser.gpt_parser,
+        "extract_profile",
+        lambda _: (_ for _ in ()).throw(
+            ProviderError(
+                "provider leaked raw resume text SECRET_RESUME_BODY",
+                provider="openai",
+                model="gpt-5-mini",
+                status_code=400,
+                error_type="invalid_schema",
+                error_message="SECRET_PROVIDER_RESPONSE",
+            )
+        ),
+    )
+
+    with caplog.at_level("WARNING", logger="resume_parser_service"):
+        result = parser.extract_profile(filename="resume.txt", content=SANITIZED_ANAND_RESUME.encode("utf-8"))
+
+    assert result["parser_provider"] == "local"
+    assert "provider=openai" in caplog.text
+    assert "model=gpt-5-mini" in caplog.text
+    assert "error_type=invalid_schema" in caplog.text
+    assert "status_code=400" in caplog.text
+    assert "fallback_provider=local" in caplog.text
+    assert "SECRET_RESUME_BODY" not in caplog.text
+    assert "SECRET_PROVIDER_RESPONSE" not in caplog.text
 
 
 def test_gpt_parser_provider_error_falls_back_to_local(monkeypatch: pytest.MonkeyPatch) -> None:

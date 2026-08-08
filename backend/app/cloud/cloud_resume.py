@@ -690,6 +690,7 @@ class CloudResumeService:
 
         try:
             profile = dict(parsed.get("profile") or {})
+            profile.pop("raw_resume_text", None)
         except (AttributeError, TypeError, ValueError) as exc:
             self._log_extract_failure("normalize_draft", exc)
             self._mark_failed(

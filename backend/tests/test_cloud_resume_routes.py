@@ -127,7 +127,7 @@ class FakeRouteService:
             fallback_used = False
             missing_fields: list[str] = []
             review_required = False
-            profile = {"full_name": "Test User"}
+            profile = {"full_name": "Test User", "raw_resume_text": "private resume body"}
             extracted_text_length = 12
 
         result = Result()
@@ -293,6 +293,8 @@ def test_status_extract_and_confirm_are_user_owned(client: TestClient, fake_serv
     assert fake_service.user_ids == [TEST_USER_ID, TEST_USER_ID, TEST_USER_ID]
     assert fake_service.confirm_payloads == [{"full_name": "Test User"}]
     assert confirm_response.json()["status"] == "ready"
+    assert "raw_resume_text" not in extract_response.json()["profile"]
+    assert "private resume body" not in extract_response.text
     assert confirm_response.json()["ready"] is True
     assert confirm_response.json()["active"] is True
     assert confirm_response.json()["chunks_indexed"] is True

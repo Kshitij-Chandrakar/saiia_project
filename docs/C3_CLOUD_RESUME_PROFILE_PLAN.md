@@ -804,9 +804,20 @@ Manual validation:
 - sign in to `http://localhost:5173/auth/dashboard`
 - use only synthetic resume fixtures created for testing; do not upload real
   resume data, real candidate PII, or customer data
-- for C3.4.5 GPT parser validation, use sanitized synthetic resumes only and
-  verify extracted email, phone, skills, education, experience, projects,
-  achievements, and certifications improve over local fallback
+- for C3.4.5 GPT parser validation, use fixed sanitized synthetic resume
+  fixtures only; do not use real resumes or real candidate PII
+- record expected field-level values for each GPT fixture before testing:
+  email, phone, top/technical/soft skills, education, experience, projects,
+  achievements, and certifications
+- C3.4.5 GPT validation passes only when the extracted values match the
+  fixture criteria, `professional_summary` excludes header/contact text,
+  achievements come only from explicit achievements/awards/honors sections,
+  planned/in-progress work is not rewritten as completed work, and known weak
+  fields improve over local fallback
+- C3.4.5 GPT validation fails if GPT misses fields that are explicit in the
+  fixture, invents unsupported facts, copies contact lines into summaries,
+  duplicates training/projects into achievements, or performs no measurable
+  improvement over local fallback for the known weak fields
 - use only approved Supabase dev test accounts
 - upload synthetic TXT, PDF, DOCX resumes through the C3 UI
 - verify private object path in Supabase Storage

@@ -61,7 +61,7 @@ COMMA_SPACED_FIELDS = {
     "tools_frameworks",
 }
 ACHIEVEMENT_SECTION_RE = re.compile(
-    r"(?im)^\s*(achievements?|awards?|honou?rs?|accomplishments?)\s*$"
+    r"(?im)^\s*(achievements?|awards?|honou?rs?|accomplishments?)\s*:?\s*$"
 )
 EMAIL_RE = re.compile(r"[\w.!#$%&'*+/=?^`{|}~-]+@[\w.-]+\.[A-Za-z]{2,}")
 TEXT_LIMITS = {
@@ -133,9 +133,9 @@ class ResumeGptParserService:
             self._raise_provider_error(exc)
 
         parsed = self._parse_response(response)
+        self._validate_payload_schema(parsed)
         sanitized = self._sanitize_payload(parsed)
         normalized = self._resume_service.normalize_profile_fields(sanitized, bounded_text)
-        normalized["raw_resume_text"] = bounded_text
         normalized["extraction_confidence"] = self._normalize_confidence(
             sanitized.get("extraction_confidence") or normalized.get("extraction_confidence")
         )
@@ -150,6 +150,7 @@ class ResumeGptParserService:
             sanitized.get("achievements", "") if self._has_explicit_achievements_section(bounded_text) else ""
         )
         self._clean_normalized_profile(normalized)
+        normalized["raw_resume_text"] = bounded_text
         return normalized
 
     def _openai_client(self) -> Any:
@@ -219,6 +220,31 @@ class ResumeGptParserService:
                 error_type="invalid_schema",
             )
         return parsed
+
+    def _validate_payload_schema(self, payload: dict[str, Any]) -> None:
+        for field in GPT_PROFILE_FIELDS:
+            if field not in payload:
+                self._raise_invalid_schema()
+            value = payload[field]
+            if field == "missing_fields":
+                if not isinstance(value, list):
+                    self._raise_invalid_schema()
+                continue
+            if field == "manual_review_required":
+                if not isinstance(value, bool):
+                    self._raise_invalid_schema()
+                continue
+            if not isinstance(value, str):
+                self._raise_invalid_schema()
+
+    def _raise_invalid_schema(self) -> None:
+        raise ProviderError(
+            "GPT resume parser returned an invalid schema.",
+            provider="openai",
+            model=settings.RESUME_GPT_MODEL,
+            phase="resume_gpt_extract",
+            error_type="invalid_schema",
+        )
 
     def _sanitize_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         sanitized: dict[str, Any] = {}

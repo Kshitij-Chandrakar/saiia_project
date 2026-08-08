@@ -45,7 +45,14 @@ class ResumeParserService:
         try:
             gpt_profile = self.gpt_parser.extract_profile(resume_text)
         except ProviderError as exc:
-            logger.warning("GPT resume parsing unavailable, using local extraction instead: %s", exc.error_type)
+            logger.warning(
+                "GPT resume parsing unavailable; using fallback provider=%s model=%s error_type=%s status_code=%s fallback_provider=%s",
+                exc.provider or "openai",
+                exc.model or settings.RESUME_GPT_MODEL,
+                exc.error_type or "provider_error",
+                exc.status_code,
+                fallback_provider,
+            )
             if fallback_provider == "local":
                 local_profile = self._extract_local_profile(resume_text)
                 return self._build_result(
@@ -80,7 +87,12 @@ class ResumeParserService:
                 resume_text=resume_text,
             )
         except AffindaResumeParserError as exc:
-            logger.warning("Affinda parsing unavailable, using local extraction instead: %s", exc)
+            logger.warning(
+                "Affinda parsing unavailable; using fallback provider=affinda model=affinda error_type=%s status_code=%s fallback_provider=%s",
+                type(exc).__name__,
+                getattr(exc, "status_code", None),
+                fallback_provider,
+            )
             if fallback_provider == "local":
                 local_profile = self._extract_local_profile(resume_text)
                 return self._build_result(

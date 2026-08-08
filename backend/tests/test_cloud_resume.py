@@ -461,7 +461,7 @@ def test_extract_uses_attempt_guard_and_returns_request_scoped_draft() -> None:
     assert result.status == "needs_review"
     assert result.extraction_attempt == 1
     assert result.profile["full_name"] == "Test User"
-    assert "raw_resume_text" in result.profile
+    assert "raw_resume_text" not in result.profile
     assert client.records[(USER_A, RESUME_ID)].status == "needs_review"
     assert client.records[(USER_A, RESUME_ID)].extraction_attempt == 1
     assert client.compare_calls[0]["from_statuses"] == {"uploaded", "failed", "timeout", "cancelled", "needs_review", "indexing"}
