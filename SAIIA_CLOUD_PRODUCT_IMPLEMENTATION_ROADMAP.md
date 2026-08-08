@@ -2869,6 +2869,7 @@ Future C15.5 permission groups:
 
 ```text
 admins:read
+admins:self_read
 admins:invite
 admins:update_role
 admins:suspend
@@ -2876,6 +2877,8 @@ admins:transfer_ownership
 admins:revoke_non_owner
 users:read
 users:update_status
+users:security_status_update
+users:billing_status_update
 users:force_logout
 users:password_reset
 support_notes:create
@@ -2899,6 +2902,7 @@ usage:adjust
 privacy:read
 privacy:export_trigger
 privacy:delete_review
+privacy:delete_confirm
 audit:read
 break_glass:request
 break_glass:approve
@@ -2913,18 +2917,18 @@ Role-to-permission matrix:
 | Role | Planned permission groups |
 |---|---|
 | owner | all C15.5 permissions, including admins:transfer_ownership and break-glass approval, with last-owner protection |
-| super_admin | admins:read, admins:invite, admins:update_role for non-owner roles, admins:suspend, admins:revoke_non_owner, users:read, users:update_status, users:force_logout, users:password_reset, support_notes:read, support_notes:metadata_read, support_notes:create, support_notes:delete_review, profile:metadata_read, resume:metadata_read, resume:retry_extraction, resume:rebuild_index, sessions:metadata_read, transcripts:summary_read, billing:read, billing:support_action, plans:read, usage:read, usage:adjust, privacy:read, privacy:export_trigger, privacy:delete_review, audit:read, break_glass:request, break_glass:approve, system:read, system:flags_update |
-| support_admin | users:read, users:update_status limited to active/support_locked/user_requested_hold transitions, users:password_reset, support_notes:read, support_notes:metadata_read, support_notes:create, profile:metadata_read, resume:metadata_read, resume:retry_extraction, resume:rebuild_index, sessions:metadata_read, transcripts:summary_read, break_glass:request, system:read |
-| billing_admin | users:read, support_notes:read, support_notes:create, billing:read, billing:support_action, plans:read, usage:read, usage:adjust, audit:read |
-| privacy_admin | users:read, support_notes:read, support_notes:create, support_notes:delete_review, profile:metadata_read, resume:metadata_read, sessions:metadata_read, transcripts:summary_read, privacy:read, privacy:export_trigger, privacy:delete_review, audit:read, break_glass:request, break_glass:approve |
-| security_auditor | users:read at audit-safe metadata level, support_notes:metadata_read, audit:read, system:read |
-| readonly_admin | users:read at high-level metadata only, support_notes:metadata_read, billing:read summary only, usage:read summary only, audit:read summary only, system:read |
+| super_admin | admins:self_read, admins:read, admins:invite, admins:update_role for non-owner roles, admins:suspend, admins:revoke_non_owner, users:read, users:update_status, users:security_status_update, users:billing_status_update, users:force_logout, users:password_reset, support_notes:read, support_notes:metadata_read, support_notes:create, support_notes:delete_review, profile:metadata_read, resume:metadata_read, resume:retry_extraction, resume:rebuild_index, sessions:metadata_read, transcripts:summary_read, billing:read, billing:support_action, plans:read, usage:read, usage:adjust, privacy:read, privacy:export_trigger, privacy:delete_review, privacy:delete_confirm, audit:read, break_glass:request, break_glass:approve, system:read, system:flags_update |
+| support_admin | admins:self_read, users:read, users:update_status limited to active/support_locked/user_requested_hold transitions, users:password_reset, support_notes:read, support_notes:metadata_read, support_notes:create, profile:metadata_read, resume:metadata_read, resume:retry_extraction, resume:rebuild_index, sessions:metadata_read, transcripts:summary_read, break_glass:request, system:read |
+| billing_admin | admins:self_read, users:read, users:billing_status_update, support_notes:read, support_notes:create, billing:read, billing:support_action, plans:read, usage:read, usage:adjust, audit:read |
+| privacy_admin | admins:self_read, users:read, users:update_status for user_requested_hold only, support_notes:read, support_notes:create, support_notes:delete_review, profile:metadata_read, resume:metadata_read, sessions:metadata_read, transcripts:summary_read, privacy:read, privacy:export_trigger, privacy:delete_review, privacy:delete_confirm, audit:read, break_glass:request, break_glass:approve |
+| security_auditor | admins:self_read, users:read at audit-safe metadata level, support_notes:metadata_read, audit:read, system:read |
+| readonly_admin | admins:self_read, users:read at high-level metadata only, support_notes:metadata_read, billing:read summary only, usage:read summary only, audit:read summary only, system:read |
 
 Route-to-permission matrix:
 
 | Planned route | Required permission |
 |---|---|
-| GET /api/admin/me | admins:read |
+| GET /api/admin/me | admins:self_read |
 | GET /api/admin/admins | admins:read |
 | POST /api/admin/admins/invite | admins:invite |
 | GET /api/admin/admin-invites | admins:read |
@@ -2937,7 +2941,7 @@ Route-to-permission matrix:
 | POST /api/admin/admins/{admin_user_id}/transfer-ownership | admins:transfer_ownership |
 | GET /api/admin/users | users:read |
 | GET /api/admin/users/{user_id} | users:read |
-| PATCH /api/admin/users/{user_id}/status | users:update_status |
+| PATCH /api/admin/users/{user_id}/status | transition-specific permission: users:update_status, users:security_status_update, users:billing_status_update, privacy:delete_review, or privacy:delete_confirm |
 | POST /api/admin/users/{user_id}/force-logout | users:force_logout |
 | POST /api/admin/users/{user_id}/send-password-reset | users:password_reset |
 | GET /api/admin/users/{user_id}/support-notes/metadata | support_notes:metadata_read |
@@ -2972,6 +2976,22 @@ Route-to-permission matrix:
 | GET /api/admin/system/health | system:read |
 | GET /api/admin/system/config-summary | system:read |
 | PATCH /api/admin/system/flags/{flag_key} | system:flags_update |
+
+Role-based field projection rules for `GET /api/admin/users` and `GET /api/admin/users/{user_id}`:
+
+| Role | Server-side user projection |
+|---|---|
+| support_admin | id, email, account_status, created_at, last_seen_at if available, support-safe profile summary, resume/status metadata only; no billing details, no privacy/delete request details unless needed for support, no raw resume/transcript/session content, no internal security flags |
+| security_auditor | id, account_status, admin/security event references, audit-safe metadata only; no email unless explicitly required for investigation, no support note body, no billing/payment details, no raw resume/transcript/session content |
+| readonly_admin | aggregate/high-level metadata only, id or pseudonymized id where possible, account_status summary; no email by default, no support note body, no billing/payment details, no raw resume/transcript/session content, no privacy/delete request details |
+| owner/super_admin | broader admin detail view according to permission checks, still no raw sensitive data without break-glass |
+
+User projection rules:
+
+- `users:read` is necessary but not sufficient
+- backend must apply role-based field projection server-side
+- `/api/admin/me` verifies the Supabase token, loads exactly one active admin_membership server-side, and returns only the caller's own admin identity, role, status, permissions, and safe UI flags
+- suspended, revoked, or invited memberships cannot access the admin surface
 
 ## Database planning
 
@@ -3051,13 +3071,33 @@ Membership cardinality:
 - id
 - actor_user_id
 - target_user_id
+- target_record_id
+- target_record_type: resume | session | transcript | other approved type
 - data_type
 - reason
 - status: requested | approved | denied | expired | used
 - approved_by_user_id
+- grant_hash_or_safe_ref
 - expires_at
 - created_at
 - used_at
+
+`admin_delete_review_requests`:
+
+- id
+- target_user_id
+- requested_by_admin_user_id
+- approved_by_admin_user_id
+- status: requested | approved | denied | expired | consumed | cancelled
+- reason
+- approval_reason
+- expires_at
+- approved_at
+- consumed_at
+- created_at
+- updated_at
+- related_audit_log_id
+- consumed_by_admin_user_id
 
 `admin_system_flags`:
 
@@ -3135,9 +3175,14 @@ Status transition rules:
 
 - `users:update_status` is necessary but not sufficient
 - route handler must enforce the transition table server-side
-- security-related transitions require security/super_admin-level permission
-- deletion transitions require privacy delete workflow and pending approved delete request
-- billing restrictions require billing permission
+- active <-> support_locked requires `users:update_status`; allowed roles are support_admin, super_admin, owner
+- active <-> user_requested_hold requires `users:update_status`; allowed roles are support_admin, privacy_admin, super_admin, owner; reason and audit are required
+- any -> disabled_by_security requires `users:security_status_update`; owner/super_admin may mutate; security_auditor may recommend only unless later approved; step-up and audit are required
+- disabled_by_security -> active requires `users:security_status_update`; allowed roles are owner or super_admin; step-up and audit are required
+- any -> billing_restricted requires `users:billing_status_update`; allowed roles are billing_admin, super_admin, owner; audit is required
+- billing_restricted -> active requires `users:billing_status_update`; allowed roles are billing_admin, super_admin, owner; audit is required
+- any -> pending_deletion requires `privacy:delete_review`; allowed roles are privacy_admin, super_admin, owner; pending approved delete-review request tied to target_user_id, step-up/re-auth, and audit are required
+- pending_deletion -> deleted requires `privacy:delete_confirm`; allowed roles are privacy_admin, super_admin, owner; approved unexpired unconsumed delete-review request tied to target_user_id, atomic request consumption, and audit are required
 
 `admin_audit_logs` immutability rules:
 
@@ -3386,6 +3431,9 @@ Invite accept contract:
 - logs, traces, analytics, error reports, request dumps, and audit metadata must redact this header
 - never place break-glass grant IDs in URLs, query strings, browser history, or frontend route params
 - audit logs should record a safe grant reference/hash, not the raw grant value
+- resume raw access must validate target_user_id plus target_record_id matching resume_id or the current resume record
+- transcript raw access must validate target_user_id plus target_record_id matching session_id
+- the `X-SAIIA-Break-Glass-Grant` header must be atomically checked against actor, target_user_id, target_record_id, target_record_type/data_type, approval status, expiry, and unused state
 
 ## Billing/usage admin rules
 
@@ -3413,6 +3461,11 @@ Invite accept contract:
 - missing, mismatched, expired, already-consumed, or replayed requests are rejected
 - audit log is written for trigger, approval, confirmation, cancellation, and failure
 - `privacy:delete_review` is necessary but not sufficient
+- trigger-delete-review creates `admin_delete_review_requests` in requested state
+- approval moves requested -> approved
+- confirm-delete requires approved, unexpired, unconsumed `admin_delete_review_requests` tied to target_user_id
+- missing, mismatched, expired, denied, cancelled, consumed, or replayed delete-review requests are rejected
+- every `admin_delete_review_requests` state transition writes an audit log
 
 ## Security rules
 
@@ -3447,9 +3500,16 @@ High-risk actions requiring MFA/step-up by default:
 ## Tests
 
 - route-to-permission matrix coverage
+- role-based field projection hides forbidden user fields for support_admin, security_auditor, and readonly_admin
+- `/api/admin/me` works for every active admin role with `admins:self_read`
+- `/api/admin/me` rejects suspended/revoked/invited memberships
 - each role only has assigned permissions
 - support-note cross-visibility access denied by default
 - support_admin status transitions limited to support_locked and user_requested_hold flows
+- authorized and denied disabled_by_security status transitions
+- authorized and denied billing_restricted status transitions
+- pending_deletion requires approved delete-review request
+- deleted requires atomic confirm-delete request consumption
 - non-admin rejected
 - suspended admin rejected
 - readonly admin cannot mutate
@@ -3469,6 +3529,8 @@ High-risk actions requiring MFA/step-up by default:
 - break-glass self-approval rejected
 - break-glass target binding enforced
 - break-glass data-type binding enforced
+- break-glass resume target mismatch rejected
+- break-glass transcript/session target mismatch rejected
 - break-glass replay rejected
 - break-glass concurrent-use rejected
 - expired and already-used break-glass approvals rejected
@@ -3502,8 +3564,11 @@ High-risk actions requiring MFA/step-up by default:
 - missing delete request rejected
 - delete request target mismatch rejected
 - expired delete request rejected
+- denied delete request rejected
+- cancelled delete request rejected
 - already-consumed delete request rejected
 - delete request replay rejected
+- concurrent confirm-delete cannot consume the same request twice
 - successful delete confirmation consumes request atomically
 - deleting a user with admin records does not mutate global admin_system_flags
 - owner can transfer ownership to eligible admin
@@ -3836,15 +3901,19 @@ auth.users
     +-- usage_monthly
     +-- email_events
     +-- payment_events
+    +-- user-linked branch (future C15.5)
     +-- admin_memberships          (future C15.5)
     +-- admin_invites              (future C15.5)
     +-- admin_audit_logs           (future C15.5)
     +-- admin_support_notes        (future C15.5)
     +-- admin_break_glass_requests (future C15.5)
+    +-- admin_delete_review_requests (future C15.5)
+
+global admin branch
     +-- admin_system_flags         (future C15.5)
 ```
 
-Not every table must be created in C1. Create each table in the phase that owns it, using migrations. The admin-owned tables above belong to future C15.5, not the C1 cloud foundation.
+Not every table must be created in C1. Create each table in the phase that owns it, using migrations. The admin-owned tables above belong to future C15.5, not the C1 cloud foundation. `admin_system_flags` is not user-owned, user/account deletion must not mutate it, and any user reference on it must be an audit-safe or pseudonymized reference if needed.
 
 ---
 
