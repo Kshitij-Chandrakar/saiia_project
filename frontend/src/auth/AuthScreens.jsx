@@ -1195,12 +1195,12 @@ export function AuthResumePage({ backendUrl }) {
       }
       if (resumeRecord?.id === targetResume.id) {
         setResumeRecord(null)
+        clearSelectedResumeFile()
       }
       if ((reviewCandidate?.id === targetResume.id) || (resumeRecord?.id === targetResume.id)) {
         setDraftProfile(null)
         setExtractionAttempt(null)
       }
-      clearSelectedResumeFile()
       setPhase('idle')
       setMessage('Resume deleted.')
     } catch (deleteError) {

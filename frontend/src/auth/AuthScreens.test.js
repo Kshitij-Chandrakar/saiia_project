@@ -13,6 +13,7 @@ const resumePageSource = source.match(/export function AuthResumePage[\s\S]*?exp
 const statusLogoutSource = statusPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n  \}\n\n  return \(/)?.[0] || ''
 const dashboardLogoutSource = dashboardPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n  \}\n\n  return \(/)?.[0] || ''
 const resumeRefreshCatchSource = resumePageSource.match(/catch \(refreshError\) \{[\s\S]*?\}\s*catch \(confirmError\)/)?.[0] || ''
+const resumeDeleteSource = resumePageSource.match(/async function handleDeleteResume\(targetResumeArg = null\) \{[\s\S]*?\n  \}\n\n  async function handleRebuildIndex/)?.[0] || ''
 
 assert.ok(signupPageSource, 'AuthSignupPage source slice should be found')
 assert.ok(loginPageSource, 'AuthLoginPage source slice should be found')
@@ -22,6 +23,7 @@ assert.ok(resumePageSource, 'AuthResumePage source slice should be found')
 assert.ok(statusLogoutSource, 'AuthStatusPage handleLogout source slice should be found')
 assert.ok(dashboardLogoutSource, 'AuthDashboardPage handleLogout source slice should be found')
 assert.ok(resumeRefreshCatchSource, 'AuthResumePage refresh catch source slice should be found')
+assert.ok(resumeDeleteSource, 'AuthResumePage handleDeleteResume source slice should be found')
 
 
 test('profile bootstrap behavior is shared by status and dashboard pages', () => {
@@ -224,8 +226,8 @@ test('cloud resume page supports delete and rebuild lifecycle controls safely', 
   assert.match(resumePageSource, /deleteCloudResume\(token, targetResume\.id, \{ backendUrl \}\)/)
   assert.match(resumePageSource, /if \(currentResume\?\.id === targetResume\.id\) \{[\s\S]*setCurrentResume\(null\)/)
   assert.match(resumePageSource, /if \(reviewCandidate\?\.id === targetResume\.id\) \{[\s\S]*setReviewCandidate\(null\)/)
-  assert.match(resumePageSource, /if \(resumeRecord\?\.id === targetResume\.id\) \{[\s\S]*setResumeRecord\(null\)/)
-  assert.match(resumePageSource, /setExtractionAttempt\(null\)[\s\S]*\}[\s\S]*clearSelectedResumeFile\(\)/)
+  assert.match(resumeDeleteSource, /if \(resumeRecord\?\.id === targetResume\.id\) \{[\s\S]*setResumeRecord\(null\)[\s\S]*clearSelectedResumeFile\(\)/)
+  assert.doesNotMatch(resumeDeleteSource, /setExtractionAttempt\(null\)[\s\S]*clearSelectedResumeFile\(\)/)
   assert.match(resumePageSource, /Resume deleted\./)
   assert.match(resumePageSource, /onClick=\{\(\) => handleDeleteResume\(currentResume\)\}/)
   assert.match(resumePageSource, /onClick=\{\(\) => handleDeleteResume\(reviewCandidate\)\}/)
