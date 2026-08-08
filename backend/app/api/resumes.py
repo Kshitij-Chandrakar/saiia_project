@@ -146,6 +146,12 @@ def _handle_cloud_error(exc: Exception) -> HTTPException:
     )
 
 
+def _safe_profile_response(profile: dict[str, Any]) -> dict[str, Any]:
+    safe_profile = dict(profile)
+    safe_profile.pop("raw_resume_text", None)
+    return safe_profile
+
+
 @router.post("", response_model=CloudResumeResponse, status_code=status.HTTP_201_CREATED)
 def upload_cloud_resume(
     current_user: CurrentUserDep,
@@ -216,7 +222,7 @@ def extract_cloud_resume(
         fallback_used=result.fallback_used,
         missing_fields=result.missing_fields,
         review_required=result.review_required,
-        profile=result.profile,
+        profile=_safe_profile_response(result.profile),
         extracted_text_length=result.extracted_text_length,
     )
 

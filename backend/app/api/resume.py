@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Any, Optional
 
@@ -80,7 +81,11 @@ class ResumeIndexStatusResponse(BaseModel):
 async def extract_resume(file: UploadFile = File(...)):
     try:
         content = await file.read()
-        structured = resume_parser_service.extract_profile(filename=file.filename or "", content=content)
+        structured = await asyncio.to_thread(
+            resume_parser_service.extract_profile,
+            filename=file.filename or "",
+            content=content,
+        )
         response_payload = dict(structured)
         profile_payload = response_payload.pop("profile", {}) or {}
 

@@ -74,8 +74,15 @@ class Settings:
     SCREEN_FULL_CAPTURE_RESTORE_SCROLL = (
         os.getenv("SCREEN_FULL_CAPTURE_RESTORE_SCROLL", "true").strip().lower() == "true"
     )
-    RESUME_PARSER_PROVIDER = os.getenv("RESUME_PARSER_PROVIDER", "local").strip().lower()
+    RESUME_PARSER_PROVIDER = os.getenv("RESUME_PARSER_PROVIDER", "gpt").strip().lower()
     RESUME_PARSER_FALLBACK = os.getenv("RESUME_PARSER_FALLBACK", "local").strip().lower()
+    RESUME_GPT_PARSER_ENABLED = os.getenv("RESUME_GPT_PARSER_ENABLED", "true").strip().lower() == "true"
+    RESUME_GPT_MODEL = os.getenv("RESUME_GPT_MODEL", "gpt-5-mini").strip()
+    RESUME_GPT_TIMEOUT_SECONDS = float(os.getenv("RESUME_GPT_TIMEOUT_SECONDS", "20"))
+    RESUME_GPT_MAX_INPUT_CHARS = int(os.getenv("RESUME_GPT_MAX_INPUT_CHARS", "30000"))
+    RESUME_GPT_REASONING_EFFORT = os.getenv("RESUME_GPT_REASONING_EFFORT", "minimal").strip().lower()
+    RESUME_GPT_MAX_OUTPUT_TOKENS = int(os.getenv("RESUME_GPT_MAX_OUTPUT_TOKENS", "2500"))
+    RESUME_GPT_MAX_RETRIES = int(os.getenv("RESUME_GPT_MAX_RETRIES", "0"))
     AFFINDA_API_KEY = os.getenv("AFFINDA_API_KEY", "").strip()
     AFFINDA_WORKSPACE = os.getenv("AFFINDA_WORKSPACE", "").strip()
     AFFINDA_DOCUMENT_TYPE = os.getenv("AFFINDA_DOCUMENT_TYPE", "").strip()
