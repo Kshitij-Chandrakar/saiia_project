@@ -70,18 +70,23 @@ The main process should own:
 
 ## Recommended Desktop Login Flow
 
-Use browser-based OAuth/PKCE or email-link auth with a custom protocol callback handled by Electron main process.
+Use browser-based OAuth/PKCE with custom protocol callback `saiia://auth/callback`, handled by the Electron main process.
 
 Planned flow:
 
 1. Desktop startup shows signed-out state.
 2. User chooses login.
-3. Electron opens the system browser or a locked auth window to Supabase Auth.
-4. Supabase redirects to a registered desktop callback such as `saiia://auth/callback`.
-5. Electron main process handles the callback, validates state/nonce, exchanges the code for a Supabase session, and stores the session securely.
-6. Main process calls `GET /api/auth/me` to verify the backend accepts the access token.
-7. Main process calls `POST /api/auth/profile/bootstrap` if needed.
-8. Renderer receives only a safe connected-state payload.
+3. Electron main process generates a PKCE `code_verifier` and code challenge.
+4. Electron main process stores a one-time `state`/nonce with expiry.
+5. Electron opens the system browser or a locked auth window to Supabase Auth.
+6. Supabase redirects to the registered desktop callback `saiia://auth/callback`.
+7. Electron main process handles the callback and requires the expected `code` and `state`.
+8. Main process validates state/nonce before exchanging the code for a Supabase session.
+9. Reused, expired, missing, or mismatched callback values are rejected before session exchange.
+10. Main process stores the session securely.
+11. Main process calls `GET /api/auth/me` to verify the backend accepts the access token.
+12. Main process calls `POST /api/auth/profile/bootstrap` if needed.
+13. Renderer receives only a safe connected-state payload.
 
 Why this path:
 
@@ -89,6 +94,7 @@ Why this path:
 - It avoids asking users to copy tokens.
 - It keeps refresh tokens out of the renderer.
 - It does not require new backend login endpoints.
+- Email-link or `token_hash` auth is not part of C5.2 unless approved later.
 
 Fallback for development only:
 
@@ -108,8 +114,9 @@ Preferred implementation:
 
 If `safeStorage` is unavailable:
 
-- Do not persist refresh tokens silently.
 - Fall back to session-only login and require login again after restart.
+- Do not write a plaintext session file.
+- Do not write a plaintext refresh-token file.
 - Record the degraded state in UI without exposing token details.
 
 Do not add a new native credential dependency in C5.1. If later product requirements need stronger cross-platform credential storage than `safeStorage`, evaluate `keytar` or OS credential APIs in a separate implementation step.
@@ -126,6 +133,10 @@ Add only narrow auth/session IPC in C5 implementation:
 
 IPC handlers must:
 
+- validate the sender is the expected `BrowserWindow`
+- validate `event.senderFrame` exists and is not destroyed/missing
+- validate the sender origin for the allowed dev Vite URL
+- validate the sender origin and path for packaged `loadFile` mode
 - validate arguments
 - return safe DTOs only
 - avoid exposing generic `fetch` or arbitrary URL calls
@@ -161,7 +172,10 @@ Rules:
 - Refresh token stays in main process storage/memory.
 - Only one refresh should run at a time.
 - Failed refresh clears the session and returns token-expired state.
-- Logout must call Supabase sign-out where possible, then clear local secure storage.
+- Logout must call Supabase sign-out where possible, then clear encrypted session storage and in-memory session state.
+- Logout must also clear cached profile, settings, startup context, resume context, and cloud job context.
+- User switch must clear the previous user's cached cloud data before exposing the new connected state.
+- Restart after logout must not expose old cached cloud data.
 - App restart should restore only if secure persisted session exists and can be refreshed.
 - Offline startup with a saved session should show offline/last-known-safe state, not pretend cloud sync succeeded.
 
@@ -242,11 +256,23 @@ Out of scope for C5.2 unless explicitly approved:
 ## Required Tests
 
 - Electron main session manager stores refresh token only in encrypted main-process storage.
+- When `safeStorage` is unavailable, session-only login does not persist a session or refresh token to disk.
 - Preload does not expose raw tokens or generic cloud fetch.
-- Login callback rejects missing or mismatched state.
+- Login callback rejects missing `state` or missing `code`.
+- Login callback rejects mismatched state/nonce.
+- Login callback rejects expired state.
+- Login callback rejects reused callback/state.
+- Session exchange is not attempted after an invalid callback.
+- Auth/cloud IPC rejects unexpected `BrowserWindow`.
+- Auth/cloud IPC rejects unexpected frame.
+- Auth/cloud IPC rejects unexpected origin.
+- Auth/cloud IPC rejects destroyed or missing `senderFrame`.
 - Backend verification calls include bearer access token.
 - `401` maps to signed-out/token-expired state and clears invalid session.
-- Logout clears Supabase session and local encrypted session file.
+- Logout clears Supabase session, local encrypted session file, and cached cloud startup/profile/settings/context data.
+- Previous user data is unavailable after logout.
+- Previous user data is unavailable after app restart.
+- Previous user data is unavailable after login as another user.
 - Renderer receives safe user summary only.
 - Offline startup preserves local mode and does not claim cloud sync success.
 - No-auth desktop can still use existing local/no-context behavior.
@@ -255,5 +281,4 @@ Out of scope for C5.2 unless explicitly approved:
 
 - Confirm final Supabase redirect URL and custom protocol registration for packaged builds.
 - Decide whether login opens system browser or an Electron auth window.
-- Decide whether to persist sessions on machines where `safeStorage` is unavailable.
 - Decide when local profile/JD data should be migrated or left local.
