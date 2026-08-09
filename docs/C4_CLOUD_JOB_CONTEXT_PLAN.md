@@ -128,12 +128,12 @@ C4 requirement vs current cloud schema:
 | Responsibilities | Present as JSONB array | Reuse; normalize local prose/list text into arrays. |
 | Seniority | Present as text | Reuse; local extractor must be extended in C4.2/4.3 without disrupting current local fields. |
 | Domain keywords | Present as JSONB array | Reuse; local extractor must be extended for cloud extraction response. |
-| Optional location | Missing | Migration required if C4 UI/API stores it. |
-| Optional employment type | Missing | Migration required if C4 UI/API stores it. |
+| Optional location | Missing | C4.2 migration required. |
+| Optional employment type | Missing | C4.2 migration required. |
 | Active/inactive state | Present as `is_active` | Reuse; adjust default behavior. |
-| Source-file metadata | Missing | Migration required if uploaded JD metadata is retained. |
+| Source-file metadata | Missing | C4.2 migration required. |
 
-Recommended C4.2 migration:
+Mandatory C4.2 migration:
 
 - Add `location text not null default ''`.
 - Add `employment_type text not null default ''`.
@@ -232,16 +232,19 @@ Request fields:
 - `domain_keywords`
 - `location`
 - `employment_type`
-- `source_file_metadata`
 - optional `activate`
+- optional `extraction_receipt_id`
 
 Validation:
 
 - At least one meaningful field is required.
 - Array fields must be arrays of bounded strings.
-- `source_file_metadata` is server-derived only. Sanitized filename, detected MIME type, byte size, and extraction source must come from the received file or endpoint path.
-- Reject client-provided metadata that conflicts with server-derived values.
+- `source_file_metadata` must not be accepted as a client-submitted save field.
+- For `/extract` -> save, bind server-derived metadata to a short-lived server-side extraction receipt. Save may reference `extraction_receipt_id`; the backend resolves it to server-derived metadata only after verifying the receipt belongs to the current user, is unexpired, and matches the normalized JD text/hash being saved.
+- For manual save/create without extraction, persist empty `{}` metadata.
+- Reject any request that submits `source_file_metadata` directly or sends metadata conflicting with the server-side extraction receipt.
 - POST must be safe to retry, including `activate: true`. C4.2 must either require an idempotency key with server-side replay handling or implement a deterministic per-user deduplication rule over normalized create payloads. Recommendation: require an `Idempotency-Key` header for create requests and store/replay the first completed result for the verified user and normalized request hash.
+- Validate `Idempotency-Key` before hashing, storing, or using it: 1 to 80 characters, ASCII letters/digits plus `.`, `_`, `-`, and `:` only. Reject missing, oversized, non-ASCII, or otherwise invalid keys with `400`.
 
 ### `GET /api/job-contexts/{id}`
 
@@ -271,6 +274,8 @@ Support both paste and file upload with one endpoint only if FastAPI form handli
 
 - `multipart/form-data` with optional `file` and/or `job_description_text`.
 - At least one source is required.
+- Explicit provider-processing consent is required, e.g. `provider_processing_consent=true`.
+- Missing or false consent must reject before text extraction provider prompt construction or any Groq/provider call.
 - If both are provided, combine only if explicitly intended; otherwise prefer text and document behavior.
 
 Response:
@@ -288,6 +293,7 @@ Response:
   "location": "",
   "employment_type": "",
   "source_file_metadata": {},
+  "extraction_receipt_id": "opaque-server-token",
   "extracted_text_length": 0
 }
 ```
@@ -295,6 +301,8 @@ Response:
 Extraction must not persist a row. Existing saved context must survive extraction/provider failure.
 
 `job_description` in the cloud extraction response should be the full/raw text that would be saved if the user confirms. If the reused local extractor produces a concise summary, expose that summary only as transient `job_description_summary`; do not add a persisted summary database column in C4.1 or C4.2 unless separately approved.
+
+`source_file_metadata` in the extraction response is response-only and server-derived. If the user saves extracted content, the save request should pass only the `extraction_receipt_id`, not the metadata object.
 
 Before building any provider prompt, serializing an extraction response, or persisting a saved context, C4.2 must enforce the maximum extracted UTF-8 JD text limit. Oversized extracted text should fail with a safe validation error that does not echo the JD.
 
@@ -343,6 +351,7 @@ Reuse current P3 logic; do not rewrite extraction because the target is cloud:
 - Keep using `ResumeService.extract_text()` for PDF/DOCX/TXT file text extraction.
 - Show a user notice before cloud extraction that raw JD text will be sent to the configured extraction provider.
 - Require explicit user action/consent for extraction; save/create without extraction must remain possible for users who do not consent to provider processing.
+- `/api/job-contexts/extract` must reject missing or false provider-processing consent before any provider call.
 - Preserve the existing local `JobContextExtractResponse` and local string fields:
   - `target_role`
   - `company_name`
@@ -497,8 +506,12 @@ Backend unit/route tests:
 - Create derives `user_id` from verified token and ignores request `user_id`.
 - List returns only service-owned user rows from fake service.
 - List responses exclude raw full `job_description` and source metadata that could reveal private JD contents.
+- Raw JD content appears only in authorized owner detail responses and successful extraction responses. It remains forbidden in list responses, error responses, diagnostics/logs, unauthenticated responses, and cross-user responses.
 - Get/update/delete map other-user/missing rows to 404.
 - Create validates at least one meaningful field.
+- Create rejects direct client-submitted `source_file_metadata`.
+- Create with `extraction_receipt_id` resolves server-derived metadata only for the verified user, matching normalized JD hash, and unexpired receipt.
+- End-to-end `/extract` -> save test proves source metadata comes from the server receipt, not the client payload.
 - Create rejects payloads over the 128 KiB JSON body limit.
 - Multipart extraction rejects bodies over the 6 MiB read limit and files over the 5 MiB file limit.
 - Extraction rejects extracted UTF-8 JD text over 100,000 bytes before prompt construction, response serialization, or persistence.
@@ -507,6 +520,7 @@ Backend unit/route tests:
 - Reusing an idempotency key with a conflicting payload is rejected safely.
 - Array fields normalize and reject oversized/invalid values.
 - Extract from pasted text returns editable fields and does not save.
+- Extract rejects missing/false provider-processing consent before provider call.
 - Extract from file reuses text extraction and validates file metadata.
 - File extraction metadata is server-derived; conflicting client-provided metadata is rejected.
 - Extraction/provider failure does not overwrite existing saved context.
@@ -520,7 +534,7 @@ Backend unit/route tests:
 
 Migration tests:
 
-- `job_contexts` has `location`, `employment_type`, `source_file_metadata` if migration is added.
+- `job_contexts` has `location`, `employment_type`, and `source_file_metadata`; C4.2 migration for these columns is mandatory.
 - `is_active` default is false after migration.
 - One-active partial unique index remains.
 - Activation RPC exists, is service-role-only, and is not executable by `anon` or `authenticated`.
@@ -575,7 +589,7 @@ C4.1 - Audit, architecture, and implementation plan
 
 C4.2 - Authenticated cloud Job Context backend + required migration
 
-- Add migration if gaps are accepted.
+- Add the mandatory migration for `location`, `employment_type`, `source_file_metadata`, `is_active` default, backend-only writes, and activation RPC.
 - Add backend-only service/client.
 - Add authenticated FastAPI routes.
 - Add backend and migration tests.
