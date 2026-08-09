@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import test from 'node:test'
+import vm from 'node:vm'
 
 const require = createRequire(import.meta.url)
 const {
@@ -39,6 +41,7 @@ function createManager(options = {}) {
   const manager = new DesktopAuthSessionManager({
     supabaseUrl: 'https://project.supabase.co',
     supabaseAnonKey: 'anon-key',
+    desktopAuthProvider: 'google',
     backendUrl: 'http://localhost:8000',
     sessionPath: path.join(dir, 'session.bin'),
     safeStorage: createSafeStorage(true),
@@ -89,6 +92,14 @@ function createManager(options = {}) {
   }
 }
 
+function deferred() {
+  let resolve
+  const promise = new Promise((nextResolve) => {
+    resolve = nextResolve
+  })
+  return { promise, resolve }
+}
+
 function callbackUrlFor(manager, params = {}) {
   const url = new URL(CALLBACK_URL)
   Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value))
@@ -118,8 +129,10 @@ test('safeStorage unavailable keeps session-only login without plaintext persist
   const ctx = createManager({ safeStorage: createSafeStorage(false) })
   try {
     await ctx.manager.startLogin()
-    await ctx.manager.handleAuthCallback(callbackUrlFor(ctx.manager, { code: 'auth-code' }))
+    const state = await ctx.manager.handleAuthCallback(callbackUrlFor(ctx.manager, { code: 'auth-code' }))
 
+    assert.equal(state.status, AUTH_STATUSES.CONNECTED)
+    assert.equal(ctx.manager.session.refresh_token, 'refresh-token')
     assert.equal(ctx.manager.getSafeState().safeStorageAvailable, false)
     assert.throws(() => readFileSync(ctx.manager.sessionPath, 'utf8'))
   } finally {
@@ -127,13 +140,42 @@ test('safeStorage unavailable keeps session-only login without plaintext persist
   }
 })
 
-test('PKCE request uses S256, exact redirect_uri, and original code_verifier during exchange', async () => {
+test('startLogin includes configured provider and fails safely when provider or browser launch is unavailable', async () => {
+  const missingProvider = createManager({ desktopAuthProvider: '' })
+  try {
+    const state = await missingProvider.manager.startLogin()
+    assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(state.error, 'Desktop cloud auth is not configured.')
+    assert.equal(missingProvider.manager.pendingLogin, null)
+  } finally {
+    missingProvider.cleanup()
+  }
+
+  const browserFailure = createManager({
+    openExternal: async () => {
+      throw new Error('browser failed')
+    },
+  })
+  try {
+    const state = await browserFailure.manager.startLogin()
+    assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(state.error, 'Could not open browser for login.')
+    assert.equal(browserFailure.manager.pendingLogin, null)
+  } finally {
+    browserFailure.cleanup()
+  }
+})
+
+test('PKCE request uses configured provider, S256, exact redirect_uri, and original code_verifier during exchange', async () => {
   const ctx = createManager()
   try {
     await ctx.manager.startLogin()
     const authUrl = new URL(ctx.opened[0])
     const storedVerifier = ctx.manager.pendingLogin.code_verifier
 
+    assert.equal(ctx.manager.getSafeState().status, AUTH_STATUSES.SIGNING_IN)
+    assert.notEqual(ctx.manager.pendingLogin, null)
+    assert.equal(authUrl.searchParams.get('provider'), 'google')
     assert.equal(authUrl.searchParams.get('code_challenge_method'), 'S256')
     assert.equal(authUrl.searchParams.get('redirect_uri'), CALLBACK_URL)
 
@@ -171,24 +213,34 @@ test('callback rejects missing state, missing code without auth error, mismatche
   const ctx = createManager({ now: () => 1000, loginTtlMs: 100 })
   try {
     await ctx.manager.startLogin()
-    assert.equal((await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?code=auth-code`)).status, AUTH_STATUSES.SIGNED_OUT)
+    let result = await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?code=auth-code`)
+    assert.equal(result.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(result.error, 'Invalid authentication callback.')
 
     await ctx.manager.startLogin()
-    assert.equal((await ctx.manager.handleAuthCallback(callbackUrlFor(ctx.manager))).status, AUTH_STATUSES.SIGNED_OUT)
+    result = await ctx.manager.handleAuthCallback(callbackUrlFor(ctx.manager))
+    assert.equal(result.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(result.error, 'Invalid authentication callback.')
 
     await ctx.manager.startLogin()
-    assert.equal((await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?code=auth-code&state=wrong`)).status, AUTH_STATUSES.SIGNED_OUT)
+    result = await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?code=auth-code&state=wrong`)
+    assert.equal(result.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(result.error, 'Invalid or expired authentication attempt.')
 
     ctx.manager.now = () => 2000
     await ctx.manager.startLogin()
     ctx.manager.pendingLogin.expires_at = 1500
-    assert.equal((await ctx.manager.handleAuthCallback(callbackUrlFor(ctx.manager, { code: 'auth-code' }))).status, AUTH_STATUSES.SIGNED_OUT)
+    result = await ctx.manager.handleAuthCallback(callbackUrlFor(ctx.manager, { code: 'auth-code' }))
+    assert.equal(result.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(result.error, 'Invalid or expired authentication attempt.')
 
     ctx.manager.now = () => 1000
     await ctx.manager.startLogin()
     const url = callbackUrlFor(ctx.manager, { code: 'auth-code' })
-    await ctx.manager.handleAuthCallback(url)
-    assert.equal((await ctx.manager.handleAuthCallback(url)).status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal((await ctx.manager.handleAuthCallback(url)).status, AUTH_STATUSES.CONNECTED)
+    result = await ctx.manager.handleAuthCallback(url)
+    assert.equal(result.status, AUTH_STATUSES.CONNECTED)
+    assert.equal(result.error, 'Invalid or expired authentication attempt.')
   } finally {
     ctx.cleanup()
   }
@@ -202,6 +254,8 @@ test('authorization denial consumes pending login and skips token exchange', asy
     const result = await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?error=access_denied&state=${state}`)
 
     assert.equal(result.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(result.user_id, null)
+    assert.equal(result.email, null)
     assert.equal(ctx.manager.pendingLogin, null)
     assert.equal(ctx.calls.some((call) => call.url.includes('grant_type=pkce')), false)
   } finally {
@@ -209,15 +263,31 @@ test('authorization denial consumes pending login and skips token exchange', asy
   }
 })
 
+test('authorization denial restores an existing connected session without token exchange', async () => {
+  const ctx = createManager()
+  try {
+    ctx.manager.session = { access_token: 'existing-access', refresh_token: 'existing-refresh' }
+    ctx.manager.user = { user_id: 'user-1', email: 'user@example.com' }
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    await ctx.manager.startLogin()
+    const state = ctx.manager.pendingLogin.state
+    const result = await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?error=access_denied&state=${state}`)
+
+    assert.equal(result.status, AUTH_STATUSES.CONNECTED)
+    assert.equal(result.user_id, 'user-1')
+    assert.equal(ctx.calls.some((call) => call.url.includes('grant_type=pkce')), false)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
 test('overlapping login attempts reject old callbacks and discard old exchange commits', async () => {
-  let releaseExchange
+  const exchange = deferred()
   const ctx = createManager({
     fetchImpl: async (url, init = {}) => {
       ctx.calls.push({ url, init })
       if (url.includes('grant_type=pkce')) {
-        await new Promise((resolve) => {
-          releaseExchange = resolve
-        })
+        await exchange.promise
         return jsonResponse(200, {
           access_token: 'old-access-token',
           refresh_token: 'old-refresh-token',
@@ -235,7 +305,7 @@ test('overlapping login attempts reject old callbacks and discard old exchange c
     const activeUrl = callbackUrlFor(ctx.manager, { code: 'active-code' })
     const activePromise = ctx.manager.handleAuthCallback(activeUrl)
     await ctx.manager.startLogin()
-    releaseExchange()
+    exchange.resolve()
     await activePromise
     assert.equal(ctx.manager.session, null)
   } finally {
@@ -251,9 +321,12 @@ test('backend verification uses bearer token and bootstrap always follows auth v
 
     const me = ctx.calls.find((call) => call.url.endsWith('/api/auth/me'))
     const bootstrap = ctx.calls.find((call) => call.url.endsWith('/api/auth/profile/bootstrap'))
+    const meIndex = ctx.calls.findIndex((call) => call.url.endsWith('/api/auth/me'))
+    const bootstrapIndex = ctx.calls.findIndex((call) => call.url.endsWith('/api/auth/profile/bootstrap'))
     assert.equal(me.init.headers.Authorization, 'Bearer access-token')
     assert.equal(bootstrap.init.method, 'POST')
     assert.equal(bootstrap.init.headers.Authorization, 'Bearer access-token')
+    assert.equal(meIndex < bootstrapIndex, true)
   } finally {
     ctx.cleanup()
   }
@@ -271,16 +344,79 @@ test('bootstrap 502 maps to bootstrap-failed instead of invalid session', async 
   }
 })
 
+test('verification ignores stale session after logout during auth-me request', async () => {
+  const meGate = deferred()
+  const session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.endsWith('/api/auth/me')) {
+        await meGate.promise
+        return jsonResponse(200, { user_id: 'user-1', email: 'user@example.com' })
+      }
+      return jsonResponse(200, {})
+    },
+  })
+  try {
+    ctx.manager.session = session
+    const promise = ctx.manager._verifyAndBootstrap(session)
+    await ctx.manager.logout()
+    meGate.resolve()
+    const state = await promise
+
+    assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(state.user_id, null)
+    assert.equal(ctx.manager.user, null)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('verification ignores stale session after logout during bootstrap request', async () => {
+  const bootstrapGate = deferred()
+  const session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.endsWith('/api/auth/me')) {
+        return jsonResponse(200, { user_id: 'user-1', email: 'user@example.com' })
+      }
+      if (url.endsWith('/api/auth/profile/bootstrap')) {
+        await bootstrapGate.promise
+        return jsonResponse(200, { ok: true })
+      }
+      return jsonResponse(200, {})
+    },
+  })
+  try {
+    ctx.manager.session = session
+    const promise = ctx.manager._verifyAndBootstrap(session)
+    await new Promise((resolve) => setImmediate(resolve))
+    await ctx.manager.logout()
+    bootstrapGate.resolve()
+    const state = await promise
+
+    assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(state.user_id, null)
+    assert.equal(ctx.manager.user, null)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
 test('401 clears invalid session while 503 refresh preserves valid secure session and cache', async () => {
   const expired = createManager({ refreshStatus: 401 })
   try {
     expired.manager.session = { access_token: 'old-access', refresh_token: 'old-refresh' }
     expired.manager.user = { user_id: 'user-1', email: 'user@example.com' }
     expired.manager.cloudCache.profile = { full_name: 'Old User' }
+    expired.manager._writeStoredSession(expired.manager.session)
+    assert.equal(existsSync(expired.manager.sessionPath), true)
     const state = await expired.manager.refreshSession()
     assert.equal(state.status, AUTH_STATUSES.TOKEN_EXPIRED)
     assert.equal(expired.manager.session, null)
     assert.equal(expired.manager.cloudCache.profile, null)
+    assert.equal(existsSync(expired.manager.sessionPath), false)
   } finally {
     expired.cleanup()
   }
@@ -296,6 +432,111 @@ test('401 clears invalid session while 503 refresh preserves valid secure sessio
     assert.deepEqual(unavailable.manager.cloudCache.profile, { full_name: 'Old User' })
   } finally {
     unavailable.cleanup()
+  }
+})
+
+test('request timeouts map backend checks to offline and refresh cleanup settles single-flight promise', async () => {
+  const ctx = createManager({
+    requestTimeoutMs: 1,
+    fetchImpl: async (_url, init = {}) => {
+      await new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+      })
+    },
+  })
+  try {
+    ctx.manager.session = { access_token: 'old-access', refresh_token: 'old-refresh' }
+    assert.equal((await ctx.manager._backendJson('/api/auth/me', 'GET', 'old-access')).status, 0)
+
+    const state = await ctx.manager.refreshSession()
+    assert.equal(state.status, AUTH_STATUSES.OFFLINE)
+    assert.equal(ctx.manager.refreshPromise, null)
+    assert.equal(ctx.manager.session.refresh_token, 'old-refresh')
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('delayed refresh response cannot overwrite a newer signed-out state', async () => {
+  const refreshGate = deferred()
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.includes('/auth/v1/token?grant_type=refresh_token')) {
+        await refreshGate.promise
+        return jsonResponse(200, {
+          access_token: 'late-access-token',
+          refresh_token: 'late-refresh-token',
+        })
+      }
+      return jsonResponse(200, {})
+    },
+  })
+  try {
+    ctx.manager.session = { access_token: 'old-access', refresh_token: 'old-refresh' }
+    const promise = ctx.manager.refreshSession()
+    await ctx.manager.logout()
+    refreshGate.resolve()
+    const state = await promise
+
+    assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(ctx.manager.session, null)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('refreshStartupContext is single-flight and avoids duplicate verification calls', async () => {
+  const meGate = deferred()
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.endsWith('/api/auth/me')) {
+        await meGate.promise
+        return jsonResponse(200, { user_id: 'user-1', email: 'user@example.com' })
+      }
+      if (url.endsWith('/api/auth/profile/bootstrap')) {
+        return jsonResponse(200, { ok: true })
+      }
+      return jsonResponse(200, {})
+    },
+  })
+  try {
+    ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+    const first = ctx.manager.refreshStartupContext()
+    const second = ctx.manager.refreshStartupContext()
+    meGate.resolve()
+    await Promise.all([first, second])
+
+    assert.equal(ctx.calls.filter((call) => call.url.endsWith('/api/auth/me')).length, 1)
+    assert.equal(ctx.calls.filter((call) => call.url.endsWith('/api/auth/profile/bootstrap')).length, 1)
+    assert.equal(ctx.manager.sessionGeneration, 1)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('safeStorage persistence failures do not block in-memory login or refresh success', async () => {
+  const brokenSafeStorage = {
+    isEncryptionAvailable: () => true,
+    encryptString: () => {
+      throw new Error('encryption failed')
+    },
+    decryptString: () => '',
+  }
+  const ctx = createManager({ safeStorage: brokenSafeStorage })
+  try {
+    await ctx.manager.startLogin()
+    const loginState = await ctx.manager.handleAuthCallback(callbackUrlFor(ctx.manager, { code: 'auth-code' }))
+    assert.equal(loginState.status, AUTH_STATUSES.CONNECTED)
+    assert.equal(ctx.manager.session.refresh_token, 'refresh-token')
+    assert.equal(existsSync(ctx.manager.sessionPath), false)
+
+    const refreshState = await ctx.manager.refreshSession()
+    assert.equal(refreshState.status, AUTH_STATUSES.CONNECTED)
+    assert.equal(ctx.manager.session.refresh_token, 'refreshed-refresh-token')
+  } finally {
+    ctx.cleanup()
   }
 })
 
@@ -373,6 +614,18 @@ test('auth IPC sender validation rejects unexpected window, frame, origin, and a
 
   assert.equal(validate({ sender: { window: expectedWindow }, senderFrame: { url: 'http://localhost:5173/' } }), true)
   assert.throws(() => validate({ sender: { window: wrongWindow }, senderFrame: { url: 'http://localhost:5173/' } }), /Unauthorized IPC sender/)
+  assert.throws(() => createIpcSenderValidator({
+    getExpectedWindow: () => null,
+    BrowserWindow,
+    devOrigin: 'http://localhost:5173',
+    isPackaged: false,
+  })({ sender: { window: expectedWindow }, senderFrame: { url: 'http://localhost:5173/' } }), /Unauthorized IPC sender/)
+  assert.throws(() => createIpcSenderValidator({
+    getExpectedWindow: () => ({ isDestroyed: () => true }),
+    BrowserWindow: { fromWebContents: () => ({ isDestroyed: () => true }) },
+    devOrigin: 'http://localhost:5173',
+    isPackaged: false,
+  })({ sender: { window: expectedWindow }, senderFrame: { url: 'http://localhost:5173/' } }), /Unauthorized IPC sender/)
   assert.throws(() => validate({ sender: { window: expectedWindow }, senderFrame: null }), /Unauthorized IPC frame/)
   assert.throws(() => validate({ sender: { window: expectedWindow }, senderFrame: { url: 'http://evil.test/' } }), /Unauthorized IPC origin/)
   assert.throws(() => validate({ sender: { window: expectedWindow }, senderFrame: { url: 'http://localhost:5173/', isDestroyed: () => true } }), /Unauthorized IPC frame/)
@@ -383,29 +636,78 @@ test('auth IPC sender validation accepts only the packaged app file path in pack
   const BrowserWindow = {
     fromWebContents: (sender) => sender.window,
   }
+  const packagedIndexPath = path.join(tmpdir(), 'saiia_project', 'frontend', 'dist', 'index.html')
   const validate = createIpcSenderValidator({
     getExpectedWindow: () => expectedWindow,
     BrowserWindow,
     isPackaged: true,
-    packagedIndexPath: 'E:\\saiia_project\\saiia_project\\frontend\\dist\\index.html',
+    packagedIndexPath,
   })
 
   assert.equal(validate({
     sender: { window: expectedWindow },
-    senderFrame: { url: 'file:///E:/saiia_project/saiia_project/frontend/dist/index.html' },
+    senderFrame: { url: pathToFileURL(packagedIndexPath).toString() },
   }), true)
   assert.throws(() => validate({
     sender: { window: expectedWindow },
-    senderFrame: { url: 'file:///E:/saiia_project/saiia_project/frontend/dist/other.html' },
+    senderFrame: { url: pathToFileURL(path.join(path.dirname(packagedIndexPath), 'other.html')).toString() },
   }), /Unauthorized IPC path/)
 })
 
-test('preload exposes narrow auth methods without raw tokens or generic fetch', () => {
+test('preload exposes exact narrow auth methods without raw tokens or generic fetch', () => {
   const source = readFileSync(new URL('../electron/preload.cjs', import.meta.url), 'utf8')
-  assert.match(source, /getAuthState/)
-  assert.match(source, /startAuthLogin/)
-  assert.match(source, /logoutAuth/)
-  assert.match(source, /getCloudStartupContext/)
-  assert.match(source, /refreshCloudStartupContext/)
-  assert.doesNotMatch(source, /access_token|refresh_token|Authorization|fetch\(/)
+  const exposed = {}
+  const electronStub = {
+    contextBridge: {
+      exposeInMainWorld: (name, value) => {
+        exposed[name] = value
+      },
+    },
+    ipcRenderer: {
+      invoke: async (channel) => channel,
+      send: () => {},
+      on: () => {},
+      removeListener: () => {},
+    },
+  }
+  vm.runInNewContext(source, {
+    require: (id) => {
+      if (id === 'electron') {
+        return electronStub
+      }
+      return require(id)
+    },
+  })
+
+  assert.deepEqual(Object.keys(exposed.saiia).sort(), [
+    'captureActiveWindow',
+    'captureActiveWindowSequence',
+    'captureScreen',
+    'getAuthState',
+    'getCloudStartupContext',
+    'listScreenSources',
+    'logoutAuth',
+    'refreshCloudStartupContext',
+    'startAuthLogin',
+  ].sort())
+  assert.equal('access_token' in exposed.saiia, false)
+  assert.equal('refresh_token' in exposed.saiia, false)
+  assert.equal('fetch' in exposed.saiia, false)
+})
+
+test('main process exits second instances before protocol registration and buffers early callbacks', () => {
+  const source = readFileSync(new URL('../electron/main.cjs', import.meta.url), 'utf8')
+  const secondInstanceExit = source.indexOf('process.exit(0)')
+  const protocolRegistration = source.indexOf('registerDesktopAuthProtocol()')
+  const managerCreation = source.indexOf('desktopAuthSessionManager = createDesktopAuthSessionManager()')
+  const initializeAwait = source.indexOf('await desktopAuthSessionManager.initialize()')
+  const bufferedDrain = source.indexOf('bufferedCallbacks.forEach')
+  const argvCallback = source.indexOf('handleDesktopAuthCallbackFromArgv(process.argv)')
+
+  assert.equal(secondInstanceExit >= 0, true)
+  assert.equal(protocolRegistration > secondInstanceExit, true)
+  assert.match(source, /bufferedDesktopAuthCallbacks\.push\(value\)/)
+  assert.equal(managerCreation < initializeAwait, true)
+  assert.equal(initializeAwait < bufferedDrain, true)
+  assert.equal(bufferedDrain < argvCallback, true)
 })

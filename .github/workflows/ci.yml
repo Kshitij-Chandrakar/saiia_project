@@ -99,8 +99,13 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+      - name: Frontend Node tests
+        working-directory: frontend
+        run: node --test src/desktop_auth_session.test.js src/auth/*.test.js
+
       - name: Electron syntax checks
         run: |
+          node --check frontend/electron/desktop_auth_session.cjs
           node --check frontend/electron/main.cjs
           node --check frontend/electron/preload.cjs
 

@@ -19,8 +19,10 @@ const {
   createIpcSenderValidator,
 } = require('./desktop_auth_session.cjs')
 
-if (!app.requestSingleInstanceLock()) {
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+if (!hasSingleInstanceLock) {
   app.quit()
+  process.exit(0)
 }
 
 registerDesktopAuthProtocol()
@@ -51,6 +53,7 @@ let foregroundWindowPollTimer = null
 let foregroundWindowPollInFlight = null
 let desktopAuthSessionManager = null
 let validateMainWindowIpcSender = null
+let bufferedDesktopAuthCallbacks = []
 
 const overlayState = {
   answer: '',
@@ -154,6 +157,11 @@ function getDesktopAuthConfig() {
   return {
     supabaseUrl: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '',
+    desktopAuthProvider:
+      process.env.SAIIA_DESKTOP_AUTH_PROVIDER ||
+      process.env.VITE_SAIIA_DESKTOP_AUTH_PROVIDER ||
+      process.env.VITE_SUPABASE_DESKTOP_AUTH_PROVIDER ||
+      '',
     backendUrl: process.env.SAIIA_BACKEND_URL || process.env.VITE_BACKEND_URL || 'http://localhost:8000',
   }
 }
@@ -187,12 +195,19 @@ function handleDesktopAuthCallback(rawUrl) {
     return false
   }
   if (!desktopAuthSessionManager) {
+    bufferedDesktopAuthCallbacks.push(value)
     return true
   }
   desktopAuthSessionManager.handleAuthCallback(value).catch((error) => {
     console.error('Desktop auth callback failed.', error?.message || 'Authentication failed.')
   })
   return true
+}
+
+function takeBufferedDesktopAuthCallbacks() {
+  const callbacks = bufferedDesktopAuthCallbacks
+  bufferedDesktopAuthCallbacks = []
+  return callbacks
 }
 
 function handleDesktopAuthCallbackFromArgv(argv = []) {
@@ -1406,8 +1421,9 @@ function checkScreenSharing() {
   }
 }
 
-app.on('ready', () => {
+app.on('ready', async () => {
   desktopAuthSessionManager = createDesktopAuthSessionManager()
+  const bufferedCallbacks = takeBufferedDesktopAuthCallbacks()
   validateMainWindowIpcSender = createIpcSenderValidator({
     getExpectedWindow: () => mainWindow,
     BrowserWindow,
@@ -1415,9 +1431,10 @@ app.on('ready', () => {
     isPackaged: app.isPackaged,
     packagedIndexPath: getPackagedIndexPath(),
   })
-  desktopAuthSessionManager.initialize().catch((error) => {
+  await desktopAuthSessionManager.initialize().catch((error) => {
     console.error('Desktop auth session restore failed.', error?.message || 'Authentication restore failed.')
   })
+  bufferedCallbacks.forEach((url) => handleDesktopAuthCallback(url))
   handleDesktopAuthCallbackFromArgv(process.argv)
 
   buildApplicationMenu()

@@ -16,6 +16,7 @@ const AUTH_STATUSES = Object.freeze({
 const CALLBACK_URL = 'saiia://auth/callback'
 const DEFAULT_BACKEND_URL = 'http://localhost:8000'
 const DEFAULT_LOGIN_TTL_MS = 10 * 60 * 1000
+const DEFAULT_REQUEST_TIMEOUT_MS = 15000
 
 function base64Url(buffer) {
   return Buffer.from(buffer)
@@ -111,8 +112,10 @@ class DesktopAuthSessionManager {
     this.supabaseUrl = String(options.supabaseUrl || '').replace(/\/+$/, '')
     this.supabaseAnonKey = String(options.supabaseAnonKey || '')
     this.backendUrl = String(options.backendUrl || DEFAULT_BACKEND_URL).replace(/\/+$/, '')
+    this.desktopAuthProvider = String(options.desktopAuthProvider || '').trim()
     this.redirectUri = String(options.redirectUri || CALLBACK_URL)
     this.loginTtlMs = Number(options.loginTtlMs || DEFAULT_LOGIN_TTL_MS)
+    this.requestTimeoutMs = Number(options.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS)
     this.fetchImpl = options.fetchImpl || fetch
     this.openExternal = options.openExternal || (async () => {})
     this.safeStorage = options.safeStorage || null
@@ -128,6 +131,7 @@ class DesktopAuthSessionManager {
     this.loginAttemptGeneration = 0
     this.sessionGeneration = 0
     this.refreshPromise = null
+    this.startupRefreshPromise = null
     this.cloudCache = this._emptyCloudCache()
   }
 
@@ -142,7 +146,7 @@ class DesktopAuthSessionManager {
   }
 
   getSafeState() {
-    const user = safeUser(this.user)
+    const user = this.status === AUTH_STATUSES.SIGNED_OUT ? safeUser(null) : safeUser(this.user)
     return {
       status: this.status,
       user_id: user.user_id,
@@ -163,7 +167,17 @@ class DesktopAuthSessionManager {
   }
 
   async startLogin() {
-    this._requireAuthConfig()
+    const previous = {
+      status: this.status,
+      error: this.error,
+      session: this.session,
+      user: this.user,
+    }
+    try {
+      this._requireAuthConfig()
+    } catch (error) {
+      return this._restoreAfterLoginLaunchFailure(previous, error.message)
+    }
     this.loginAttemptGeneration += 1
     const attemptGeneration = this.loginAttemptGeneration
     const codeVerifier = randomToken(48)
@@ -181,7 +195,11 @@ class DesktopAuthSessionManager {
     }
     this.status = AUTH_STATUSES.SIGNING_IN
     this.error = ''
-    await this.openExternal(this._buildAuthUrl(this.pendingLogin))
+    try {
+      await this.openExternal(this._buildAuthUrl(this.pendingLogin))
+    } catch {
+      return this._restoreAfterLoginLaunchFailure(previous, 'Could not open browser for login.')
+    }
     return this.getSafeState()
   }
 
@@ -192,6 +210,7 @@ class DesktopAuthSessionManager {
     authUrl.searchParams.set('code_challenge', record.code_challenge)
     authUrl.searchParams.set('code_challenge_method', record.code_challenge_method)
     authUrl.searchParams.set('state', record.state)
+    authUrl.searchParams.set('provider', this.desktopAuthProvider)
     return authUrl.toString()
   }
 
@@ -219,8 +238,12 @@ class DesktopAuthSessionManager {
     }
 
     if (authError && !code) {
-      this.status = AUTH_STATUSES.SIGNED_OUT
-      this.error = 'Authentication was cancelled.'
+      if (this.session && this.user) {
+        this.status = AUTH_STATUSES.CONNECTED
+        this.error = 'Authentication was cancelled.'
+        return this.getSafeState()
+      }
+      this._clearLocalSession(AUTH_STATUSES.SIGNED_OUT, 'Authentication was cancelled.')
       return this.getSafeState()
     }
     if (!code) {
@@ -290,12 +313,18 @@ class DesktopAuthSessionManager {
       this._clearLocalSession(AUTH_STATUSES.SIGNED_OUT)
       return this.getSafeState()
     }
+    const refreshSession = this.session
+    const refreshGeneration = this.sessionGeneration
     try {
       const response = await this.fetchImpl(`${this.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
         method: 'POST',
         headers: this._supabaseHeaders(),
         body: JSON.stringify({ refresh_token: this.session.refresh_token }),
+        signal: this._requestSignal(),
       })
+      if (this.session !== refreshSession || this.sessionGeneration !== refreshGeneration) {
+        return this.getSafeState()
+      }
       if ([400, 401, 403].includes(response.status)) {
         this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
         return this.getSafeState()
@@ -322,7 +351,12 @@ class DesktopAuthSessionManager {
   }
 
   async _verifyAndBootstrap(session) {
+    const entrySession = session
+    const entryGeneration = this.sessionGeneration
     const verified = await this._backendJson('/api/auth/me', 'GET', session.access_token)
+    if (this.session !== entrySession || this.sessionGeneration !== entryGeneration) {
+      return this.getSafeState()
+    }
     if (verified.status === 401) {
       this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
       return this.getSafeState()
@@ -344,8 +378,16 @@ class DesktopAuthSessionManager {
     }
     this.user = nextUser
     this.sessionGeneration += 1
+    const bootstrapGeneration = this.sessionGeneration
 
     const bootstrapped = await this._backendJson('/api/auth/profile/bootstrap', 'POST', session.access_token)
+    if (
+      this.session !== entrySession ||
+      this.sessionGeneration !== bootstrapGeneration ||
+      this.user?.user_id !== nextUser.user_id
+    ) {
+      return this.getSafeState()
+    }
     if (bootstrapped.status === 502) {
       this.status = AUTH_STATUSES.BOOTSTRAP_FAILED
       this.error = 'Profile setup could not be completed.'
@@ -379,6 +421,7 @@ class DesktopAuthSessionManager {
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
+        signal: this._requestSignal(),
       })
       const payload = await response.json().catch(() => ({}))
       return { ok: response.ok, status: response.status, payload }
@@ -419,6 +462,16 @@ class DesktopAuthSessionManager {
   }
 
   async refreshStartupContext() {
+    if (this.startupRefreshPromise) {
+      return this.startupRefreshPromise
+    }
+    this.startupRefreshPromise = this._refreshStartupContextOnce().finally(() => {
+      this.startupRefreshPromise = null
+    })
+    return this.startupRefreshPromise
+  }
+
+  async _refreshStartupContextOnce() {
     if (this.session?.access_token) {
       await this._verifyAndBootstrap(this.session)
     }
@@ -487,9 +540,14 @@ class DesktopAuthSessionManager {
     if (!this._canPersist() || !this.sessionPath) {
       return
     }
-    const encrypted = this.safeStorage.encryptString(JSON.stringify(session))
-    fs.mkdirSync(path.dirname(this.sessionPath), { recursive: true })
-    fs.writeFileSync(this.sessionPath, encrypted)
+    try {
+      const encrypted = this.safeStorage.encryptString(JSON.stringify(session))
+      fs.mkdirSync(path.dirname(this.sessionPath), { recursive: true })
+      fs.writeFileSync(this.sessionPath, encrypted, { mode: 0o600 })
+      try {
+        fs.chmodSync(this.sessionPath, 0o600)
+      } catch {}
+    } catch {}
   }
 
   _deleteStoredSession() {
@@ -509,15 +567,45 @@ class DesktopAuthSessionManager {
   }
 
   _requireAuthConfig() {
-    if (!this.supabaseUrl || !this.supabaseAnonKey) {
+    if (!this.supabaseUrl || !this.supabaseAnonKey || !this.desktopAuthProvider) {
       throw new Error('Desktop cloud auth is not configured.')
     }
   }
 
-  _authFailure(message) {
+  _authFailure(message, options = {}) {
+    if (options.clearPending) {
+      this.pendingLogin = null
+    }
+    if (this.session && this.user) {
+      this.status = AUTH_STATUSES.CONNECTED
+      this.error = safeErrorMessage(message, 'Authentication failed.')
+      return this.getSafeState()
+    }
+    this.session = null
+    this.user = null
     this.status = AUTH_STATUSES.SIGNED_OUT
     this.error = safeErrorMessage(message, 'Authentication failed.')
     return this.getSafeState()
+  }
+
+  _restoreAfterLoginLaunchFailure(previous, message) {
+    this.pendingLogin = null
+    this.session = previous.session || null
+    this.user = previous.session && previous.user ? previous.user : null
+    this.status = this.session && this.user ? previous.status : AUTH_STATUSES.SIGNED_OUT
+    if (this.status === AUTH_STATUSES.SIGNING_IN) {
+      this.status = AUTH_STATUSES.SIGNED_OUT
+      this.user = null
+    }
+    this.error = safeErrorMessage(message, 'Authentication failed.')
+    return this.getSafeState()
+  }
+
+  _requestSignal() {
+    if (this.requestTimeoutMs > 0 && typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+      return AbortSignal.timeout(this.requestTimeoutMs)
+    }
+    return undefined
   }
 }
 
