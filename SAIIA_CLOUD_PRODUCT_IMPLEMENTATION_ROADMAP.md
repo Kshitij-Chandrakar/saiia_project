@@ -6,7 +6,7 @@
 **Version:** 1.1  
 **Last updated:** 2026-08-09
 **Created:** 2026-07-10  
-**Current active phase:** C4 - Job target and job-description cloud sync in progress; C4.1 audit/design complete; C4.2 backend + migration implemented locally pending PR review/merge and live Supabase validation; C4.3 frontend job-target UI next
+**Current active phase:** C4 - Job target and job-description cloud sync in progress; C4.1 audit/design complete; C4.2 backend + migration implemented locally and live Supabase smoke validation passed on saiia-dev; C4.3 frontend job-target UI next after PR review/merge
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -1322,8 +1322,15 @@ Do not make extracted values authoritative until user confirms.
 ## Status
 
 ```text
-[~] In progress - C4.1 cloud job-context audit, architecture, and implementation plan complete in `docs/C4_CLOUD_JOB_CONTEXT_PLAN.md`; C4.2 authenticated backend job-context API plus required migration implemented locally with backend/migration tests passing; live Supabase migration/smoke validation is not yet applied; no frontend UI, C5 desktop sync, or generation integration has been implemented; C4.3 authenticated job-target frontend UI is next after PR review/merge
+[~] In progress - C4.1 cloud job-context audit, architecture, and implementation plan complete in `docs/C4_CLOUD_JOB_CONTEXT_PLAN.md`; C4.2 authenticated backend job-context API plus required migration implemented locally with backend/migration tests passing and live Supabase smoke validation passed on saiia-dev; no frontend UI, C5 desktop sync, or generation integration has been implemented; C4.3 authenticated job-target frontend UI is next after PR review/merge
 ```
+
+Latest C4.2 live validation:
+
+- Result: passed against linked Supabase project `saiia-dev` / `rbmxfazjbldmkomdpyzl` on 2026-08-09.
+- Command/tests run: `git status --short --branch`; `rg -n "C4\\.2|live Supabase|live smoke|Current active phase|Current Next Action|job-context" SAIIA_CLOUD_PRODUCT_IMPLEMENTATION_ROADMAP.md SAIIA_PRODUCTION_PHASES_TRACKER.md docs/C4_CLOUD_JOB_CONTEXT_PLAN.md`; inline Python smoke via `@' <C4.2 live Supabase smoke script> '@ | python -` from the repository root using `.env`, Supabase REST/Auth/Admin APIs, and FastAPI `TestClient`; inline Python default check via `@' <service-role insert with is_active omitted, readback, cleanup> '@ | python -`.
+- Smoke covered: migration columns, `is_active` database default false, idempotency table existence/RLS, service-role-only activation/create RPC exposure, blocked authenticated direct `INSERT`/`UPDATE`/`DELETE`, authenticated FastAPI create/list/detail/patch/activate/delete/no-context lifecycle, cross-user blocking, extraction consent rejection, and dual-source extraction rejection.
+- Scope exclusions remain: no C4 frontend UI, no C5 desktop sync, and no generation integration.
 
 ## Goal
 
@@ -4286,7 +4293,7 @@ The C0â€“C16 track is complete when:
 
 ```text
 C0 remains complete. C0.9 is not fully complete: C0.9.6 has implementation present with Chrome/Edge real-page validation pending, and C0.9.7 through C0.9.13 are deferred by explicit product-priority decision.
-C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 auth surface closure is complete through C2.5. C3.1 planning, C3.2 backend cloud resume API, C3.3 frontend authenticated upload/review UI, C3.4 cloud resume indexing/RAG activation, C3.4.5 GPT-based resume extraction provider, and C3.5 delete/rebuild/status closure are complete through implementation. C4 - Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing; live Supabase migration/smoke validation is not yet applied. No C4 frontend management UI, C4 generation integration, C5 desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started. C4.3 authenticated job-target frontend UI is next after PR review/merge.
+C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 auth surface closure is complete through C2.5. C3.1 planning, C3.2 backend cloud resume API, C3.3 frontend authenticated upload/review UI, C3.4 cloud resume indexing/RAG activation, C3.4.5 GPT-based resume extraction provider, and C3.5 delete/rebuild/status closure are complete through implementation. C4 - Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing and live Supabase smoke validation passed on saiia-dev. No C4 frontend management UI, C4 generation integration, C5 desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started. C4.3 authenticated job-target frontend UI is next after PR review/merge.
 ```
 
 The completed C0.9.2 manual validation covered:
