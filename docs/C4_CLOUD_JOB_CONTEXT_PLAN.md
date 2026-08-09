@@ -188,14 +188,14 @@ These limits are C4.2 contract inputs, not C4.1 runtime behavior.
 
 ### `GET /api/job-contexts`
 
-Returns a paginated page of the current user's saved job targets ordered by `is_active desc, updated_at desc`.
+Returns a cursor-paginated page of the current user's saved job targets ordered by `updated_at desc, id desc`, with active status included in each item.
 
 List responses return summary fields only. They must not include raw full `job_description`; use bounded summaries/derived display fields such as `job_description_preview` and counts instead.
 
 Query parameters:
 
 - `limit`: default 20, maximum 50.
-- `offset`: default 0, minimum 0.
+- `cursor`: optional opaque cursor containing the previous page's last `updated_at` and `id`.
 
 `job_description_preview` must be derived server-side from raw JD text and capped at 240 characters.
 
@@ -223,8 +223,7 @@ Response:
   ],
   "active_id": null,
   "limit": 20,
-  "offset": 0,
-  "total": 0
+  "next_cursor": null
 }
 ```
 
@@ -256,9 +255,15 @@ Validation:
 - Reject any request that submits `source_file_metadata` directly or sends metadata conflicting with the server-side extraction receipt.
 - POST must be safe to retry, including `activate: true`, and must require an `Idempotency-Key` header.
 - Validate `Idempotency-Key` before hashing, storing, or using it: 1 to 80 characters, ASCII letters/digits plus `.`, `_`, `-`, and `:` only. Reject missing, oversized, non-ASCII, or otherwise invalid keys with `400`.
-- C4.2 must atomically reserve `(verified_user_id, idempotency_key)` before creating the job row.
-- The reservation stores the normalized request payload hash and eventual completed response.
-- If the key already exists with the same normalized payload hash and completed response, replay the original completed result without creating or activating another row.
+- C4.2 must handle reservation, normalized payload hash validation, job row creation, optional activation, and idempotency completion in one database transaction.
+- If any transaction step fails, the reservation rolls back with the job row and activation changes.
+- The idempotency record must not store raw JD text or a completed response containing raw `job_description`.
+- Store only non-sensitive replay material: verified user id, idempotency key, normalized payload hash, status, created job-context id, activation result status, created/updated timestamps, expiry timestamp, and safe error/status code if needed.
+- Matching retries replay by re-reading the created context according to the endpoint's normal authorization/response rules. Create replay must not return raw JD unless the create response contract explicitly permits it; prefer returning id/status and requiring detail fetch for raw JD.
+- If the referenced context was deleted before replay, return a safe gone/not-found style result without returning deleted/raw JD data.
+- Idempotency records must expire and be cleaned up. Recommended expiry: 24 hours.
+- If C4.2 cannot keep all steps in one transaction, it must instead define leased reservations with expiry, `pending`/`completed`/`failed` states, recovery of stale pending records, and no raw JD in any idempotency row.
+- If the key already exists with the same normalized payload hash and completed non-sensitive result reference, replay the original completed result without creating or activating another row.
 - If the key exists with a different normalized payload hash, reject safely with `409 Conflict`.
 - If concurrent same-key requests race before completion, one request owns the reservation and the others return a safe in-progress/retry conflict or replay after completion; they must not create duplicate rows.
 
@@ -285,6 +290,8 @@ Response should include the activated record and `active_id`.
 ### `POST /api/job-contexts/extract`
 
 Extracts structured fields without saving.
+
+This route must be authenticated with `CurrentUserDep`. It must enforce per-user provider-call limits before text extraction prompt construction or any Groq/provider call. When the user's extraction quota is exceeded, return `429 Too Many Requests` and do not call the provider.
 
 Support both paste and file upload with one endpoint only if FastAPI form handling stays simple:
 
@@ -404,6 +411,8 @@ Reuse current P3 logic; do not rewrite extraction because the target is cloud:
 Cloud extraction provider privacy boundary:
 
 - Current local extraction uses Groq. C4.2 must document the configured provider behavior before enabling cloud extraction in UI copy and release notes.
+- Add a provider budget and circuit breaker around the Groq `requests.post` extraction path before C4.3 exposes the flow in UI.
+- The circuit breaker should stop provider calls after repeated provider failures/timeouts and return a safe retry-later response without sending the JD.
 - Verify and document Groq API retention/training behavior for the configured account/plan at implementation time.
 - Use Zero Data Retention or equivalent provider-side retention controls if available for the deployed account.
 - If Zero Data Retention is unavailable, the UI notice must say provider processing may be subject to the provider's API retention policy.
@@ -523,7 +532,7 @@ Backend unit/route tests:
 - Cloud job-context routes reject missing/invalid JWT.
 - Create derives `user_id` from verified token and ignores request `user_id`.
 - List returns only service-owned user rows from fake service.
-- List enforces pagination defaults and maximum page size.
+- List uses cursor pagination with `updated_at`/`id`, enforces default and maximum page size, rejects invalid cursors, and returns a bounded `next_cursor`.
 - List caps `job_description_preview` at 240 characters.
 - List responses exclude raw full `job_description` and source metadata that could reveal private JD contents.
 - Raw JD content appears only in authorized owner detail responses and successful extraction responses. It remains forbidden in list responses, error responses, diagnostics/logs, unauthenticated responses, and cross-user responses.
@@ -543,8 +552,15 @@ Backend unit/route tests:
 - Retried create with `activate: true` is idempotent and leaves exactly one active context.
 - Reusing an idempotency key with a conflicting normalized payload hash is rejected safely.
 - Concurrent same-key create requests do not create duplicate rows; exactly one reservation wins and matching retries replay or return a safe retry conflict until completion.
+- Failure-injection tests prove reservation, job row creation, optional activation, and idempotency completion commit or roll back together.
+- Idempotency records do not store raw JD or completed raw-detail responses.
+- Replaying after the context is deleted does not return deleted context data or raw JD.
+- Expired idempotency records are cleaned up and no longer replay stale data.
 - Array fields normalize and reject oversized/invalid values.
 - Extract from pasted text returns editable fields and does not save.
+- Extract requires authentication before validation/provider work.
+- Extract enforces per-user provider-call quota before provider work; exceeded quota returns 429 and provider is not called.
+- Extract provider budget/circuit-breaker tests prove Groq `requests.post` is not called when the budget is exhausted or circuit is open.
 - Extract rejects missing/false provider-processing consent before provider call.
 - Extract rejects requests that include both `file` and `job_description_text`.
 - Extract from file reuses text extraction and validates file metadata.
