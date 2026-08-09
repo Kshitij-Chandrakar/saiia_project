@@ -77,22 +77,26 @@ Planned flow:
 1. Desktop startup shows signed-out state.
 2. User chooses login.
 3. Electron main process starts Supabase Auth PKCE.
-4. Main process generates a PKCE `code_verifier`, derived `code_challenge`, `state`/nonce, exact `redirect_uri`, and expiry.
-5. `code_challenge_method` must be `S256`.
-6. Main process stores `code_verifier`, `code_challenge`, `state`/nonce, `redirect_uri`, and expiry together in one main-process pending-login record.
-7. Electron opens the system browser or a locked auth window to Supabase Auth.
-8. Supabase redirects to the registered desktop callback `saiia://auth/callback`.
-9. Callback `redirect_uri` must exactly match the `redirect_uri` used when starting auth.
-10. Electron main process handles the callback and requires the expected `code` and `state`.
-11. Main process validates callback values against the pending-login record before exchange.
-12. The pending-login record is atomically consumed before exchanging the code.
-13. Main process exchanges the callback code with the original retained `code_verifier` from the consumed record.
-14. Reused callbacks fail because the pending-login record has already been consumed.
-15. Reused, expired, missing, or mismatched callback values are rejected before session exchange.
-16. Main process stores the session securely.
-17. Main process calls `GET /api/auth/me` to verify the backend accepts the access token.
-18. Main process always calls `POST /api/auth/profile/bootstrap` after `GET /api/auth/me` succeeds.
-19. Renderer receives only a safe connected-state payload.
+4. Main process increments/replaces the active login attempt generation.
+5. Main process generates a PKCE `code_verifier`, derived `code_challenge`, `state`/nonce, exact `redirect_uri`, and expiry.
+6. `code_challenge_method` must be `S256`.
+7. Main process stores `code_verifier`, `code_challenge`, `state`/nonce, `redirect_uri`, expiry, and attempt generation together in one main-process pending-login record.
+8. Electron opens the system browser or a locked auth window to Supabase Auth.
+9. Supabase redirects to the registered desktop callback `saiia://auth/callback`.
+10. Callback `redirect_uri` must exactly match the `redirect_uri` used when starting auth.
+11. Electron main process handles the callback and requires the expected `code` and `state`.
+12. Main process validates callback values against the pending-login record before exchange.
+13. The pending-login record is atomically consumed before exchanging the code.
+14. Main process exchanges the callback code with the original retained `code_verifier` from the consumed record.
+15. After token exchange completes, before installing or persisting the session, main process re-checks that the consumed attempt generation is still the active generation.
+16. If the generation no longer matches, main process discards the exchanged session and does not persist or cache it.
+17. Only the latest active login attempt may commit a session.
+18. Reused callbacks fail because the pending-login record has already been consumed.
+19. Reused, expired, missing, or mismatched callback values are rejected before session exchange.
+20. Main process stores the session securely.
+21. Main process calls `GET /api/auth/me` to verify the backend accepts the access token.
+22. Main process always calls `POST /api/auth/profile/bootstrap` after `GET /api/auth/me` succeeds.
+23. Renderer receives only a safe connected-state payload.
 
 Authorization-denial callback:
 
@@ -105,9 +109,11 @@ Concurrent login behavior:
 
 - Allow only one pending login at a time.
 - A second `auth:start-login` attempt must atomically cancel/invalidate the previous pending-login record before creating a new one.
+- Starting a new login increments/replaces the active attempt generation.
 - Only the latest pending-login record is valid.
 - If a callback from the old login arrives later, reject it because its state does not match the active pending-login record.
 - Callbacks must consume only the active matching state.
+- A consumed older attempt must still re-check attempt generation after exchange and before session commit.
 - This overlapping login behavior must be deterministic when callbacks arrive out of order.
 
 Why this path:
@@ -214,9 +220,13 @@ Rules:
 Cloud request/cache-write rules:
 
 - Every cloud request must be tagged with the current session generation and `user_id`.
+- At request start, capture `session_generation` and `user_id`.
+- Response handling must use only those captured values, not mutable current values.
 - Logout increments or invalidates the session generation before cleanup.
 - User switch increments or invalidates the session generation before exposing new user state.
 - Cloud responses may update cache only if their session generation and `user_id` still match current state.
+- Generation/user validation and cache write must happen as one serialized/atomic operation with logout cleanup and user-switch cleanup.
+- If logout or user switch happens between validation and attempted write, the write must be rejected.
 - Stale delayed responses after logout or user switch must be discarded.
 - Active requests may also be cancelled, but cache writes must still validate session generation and `user_id`.
 
@@ -299,12 +309,15 @@ Out of scope for C5.2 unless explicitly approved:
 - Electron main session manager stores refresh token only in encrypted main-process storage.
 - When `safeStorage` is unavailable, session-only login does not persist a session or refresh token to disk.
 - Preload does not expose raw tokens or generic cloud fetch.
-- Login callback rejects missing `state` or missing `code`.
+- Login callback rejects missing state.
+- Login callback rejects missing code only when no valid authorization error is present.
+- Login callback accepts `error` plus matching state plus no code as the authorization-denial/cancellation path.
 - Login callback rejects mismatched state/nonce.
 - Login callback rejects expired state.
 - Login callback rejects reused callback/state.
 - Login callback validates only the active pending-login record.
 - Overlapping login attempts where callbacks arrive out of order reject the old callback and accept only the latest active state.
+- Login A consumes its record, login B starts before A exchange completes, A exchange completes later, A session is discarded, and only B can commit if B callback succeeds.
 - Authorization-denial callback with `access_denied` consumes the matching pending-login record and skips token exchange.
 - Session exchange is not attempted after an invalid callback.
 - Request/exchange layer requires `code_challenge_method` to be `S256`.
@@ -323,6 +336,7 @@ Out of scope for C5.2 unless explicitly approved:
 - Invalid refresh failure clears credentials and cached cloud data.
 - Delayed cloud response after logout cannot repopulate cache.
 - Delayed cloud response from previous user cannot overwrite cache after user switch.
+- Interleaving where logout or user switch happens between cache validation and write is rejected.
 - Valid current-user response can still update cache.
 - Logout clears Supabase session, local encrypted session file, and cached cloud startup/profile/settings/context data.
 - Failed remote Supabase sign-out still clears local credentials and cached user data.
