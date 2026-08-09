@@ -36,7 +36,7 @@ This tracker is the live execution log for the production build.
 Current active execution phase:
 
 ```text
-C4 - Job target and job-description cloud sync in progress; C4.1 audit/design complete; C4.2 backend + migration implemented locally and live Supabase smoke validation passed on saiia-dev; C4.3 main website job-target UI cancelled/re-scoped; job target selection moves to desktop startup/session setup after desktop cloud identity work
+C5.1 - Desktop authenticated cloud identity audit and planning; C5 desktop auth implementation, desktop startup/session setup UI, C4.4 generation integration, and C5 sync are not started
 ```
 
 Screen Intelligence documentation:
@@ -92,8 +92,14 @@ C4.3 product decision record:
 
 - Result: main website `/job-contexts` UI is cancelled/re-scoped and should not be committed as product UI.
 - Replacement direction: job target/JD selection moves into the desktop app startup/session setup flow where the user chooses active resume, active job target/JD, answer model, audio source, and answer preferences before starting an interview session.
-- Dependency: this likely belongs with or after C5 desktop authenticated cloud synchronization because the desktop app needs authenticated cloud identity before it can load cloud resumes and job contexts.
+- Dependency: this belongs during or after C5, once desktop authenticated cloud identity is available, because the desktop app needs that identity before it can load cloud resumes and job contexts.
 - Scope exclusions remain: no new desktop implementation, no C4.4 generation integration, no C5 desktop login/cloud sync, no backend runtime changes, and no migration changes.
+
+C5.1 current status:
+
+```text
+[~] Planning - Desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`; no desktop auth runtime, token persistence, startup/session setup UI, cloud sync engine, or C4.4 generation integration has been implemented
+```
 
 C15.5 future admin/support status:
 
@@ -1560,7 +1566,7 @@ P17 Protected commercial edition
 # Current Immediate Next Phase
 
 ```text
-C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is merged and live smoke-tested. C3.3 frontend authenticated upload/review UI is implemented under `/auth/resume`. C3.4 cloud RAG/index activation is implemented through user-owned chunk generation, backend-only activation, and ready-current resume behavior. C3.4.5 GPT-based resume extraction provider is implemented. C3.5 delete/rebuild/status closure is implemented. C4 Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing and live Supabase smoke validation passed on saiia-dev. C4.3 main website job-target UI is cancelled/re-scoped; job target selection moves to desktop startup/session setup after desktop authenticated cloud identity exists. No C4 generation integration, C5 desktop login/cloud sync, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI work has started.
+C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is merged and live smoke-tested. C3.3 frontend authenticated upload/review UI is implemented under `/auth/resume`. C3.4 cloud RAG/index activation is implemented through user-owned chunk generation, backend-only activation, and ready-current resume behavior. C3.4.5 GPT-based resume extraction provider is implemented. C3.5 delete/rebuild/status closure is implemented. C4 Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing and live Supabase smoke validation passed on saiia-dev. C4.3 main website job-target UI is cancelled/re-scoped; job target selection moves to desktop startup/session setup after desktop authenticated cloud identity exists. C5.1 desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`. No C4 generation integration, C5 desktop login/cloud sync, desktop startup/session setup UI, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI work has started.
 ```
 
 P6B/P8/P9 consolidation records are preserved as historical desktop validation notes, not as the current execution authority.
