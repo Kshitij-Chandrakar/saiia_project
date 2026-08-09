@@ -4,9 +4,9 @@
 **Document type:** Detailed implementation roadmap and execution source of truth  
 **Track:** Desktop stabilization â†’ Cloud account system â†’ Website integration â†’ Session intelligence â†’ Subscription and release  
 **Version:** 1.1  
-**Last updated:** 2026-08-08
+**Last updated:** 2026-08-09
 **Created:** 2026-07-10  
-**Current active phase:** C3.5 - Cloud resume delete, rebuild, status, and closure implemented
+**Current active phase:** C4 - Job target and job-description cloud sync in progress; C4.1 audit/design complete; C4.2 backend implementation next
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -1322,7 +1322,7 @@ Do not make extracted values authoritative until user confirms.
 ## Status
 
 ```text
-[ ] Not started
+[~] In progress - C4.1 cloud job-context audit, architecture, and implementation plan complete in `docs/C4_CLOUD_JOB_CONTEXT_PLAN.md`; C4.2 authenticated backend job-context API/migration is next; no C4 runtime/cloud job-context functionality is complete yet
 ```
 
 ## Goal
@@ -4286,7 +4286,7 @@ The C0â€“C16 track is complete when:
 
 ```text
 C0 remains complete. C0.9 is not fully complete: C0.9.6 has implementation present with Chrome/Edge real-page validation pending, and C0.9.7 through C0.9.13 are deferred by explicit product-priority decision.
-C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 auth surface closure is complete through C2.5. C3.1 planning, C3.2 backend cloud resume API, C3.3 frontend authenticated upload/review UI, C3.4 cloud resume indexing/RAG activation, C3.4.5 GPT-based resume extraction provider, and C3.5 delete/rebuild/status closure are complete through implementation. No C5 desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started. Next recommended phase: C4 - Job Target / JD Cloud Sync, only after explicit approval.
+C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 auth surface closure is complete through C2.5. C3.1 planning, C3.2 backend cloud resume API, C3.3 frontend authenticated upload/review UI, C3.4 cloud resume indexing/RAG activation, C3.4.5 GPT-based resume extraction provider, and C3.5 delete/rebuild/status closure are complete through implementation. C4 - Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend implementation next. No C4 runtime cloud job-context CRUD, C4 frontend management UI, C4 generation integration, C5 desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started.
 ```
 
 The completed C0.9.2 manual validation covered:
