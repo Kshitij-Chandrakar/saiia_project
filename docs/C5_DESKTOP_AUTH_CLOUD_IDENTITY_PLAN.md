@@ -101,6 +101,15 @@ Authorization-denial callback:
 - The renderer receives a cancellation/authentication-failure state.
 - Token exchange is not attempted for denial callbacks.
 
+Concurrent login behavior:
+
+- Allow only one pending login at a time.
+- A second `auth:start-login` attempt must atomically cancel/invalidate the previous pending-login record before creating a new one.
+- Only the latest pending-login record is valid.
+- If a callback from the old login arrives later, reject it because its state does not match the active pending-login record.
+- Callbacks must consume only the active matching state.
+- This overlapping login behavior must be deterministic when callbacks arrive out of order.
+
 Why this path:
 
 - It reuses Supabase Auth and existing backend JWT verification.
@@ -202,6 +211,15 @@ Rules:
 - App restart should restore only if secure persisted session exists and can be refreshed.
 - Offline startup with a saved session should show offline/last-known-safe state, not pretend cloud sync succeeded.
 
+Cloud request/cache-write rules:
+
+- Every cloud request must be tagged with the current session generation and `user_id`.
+- Logout increments or invalidates the session generation before cleanup.
+- User switch increments or invalidates the session generation before exposing new user state.
+- Cloud responses may update cache only if their session generation and `user_id` still match current state.
+- Stale delayed responses after logout or user switch must be discarded.
+- Active requests may also be cancelled, but cache writes must still validate session generation and `user_id`.
+
 ## Offline, No-Auth, and Local Behavior
 
 No auth remains a supported state.
@@ -283,14 +301,17 @@ Out of scope for C5.2 unless explicitly approved:
 - Preload does not expose raw tokens or generic cloud fetch.
 - Login callback rejects missing `state` or missing `code`.
 - Login callback rejects mismatched state/nonce.
-- Login callback rejects verifier mismatch.
-- Login callback rejects `code_challenge_method` mismatch.
-- Login callback rejects `redirect_uri` mismatch.
 - Login callback rejects expired state.
 - Login callback rejects reused callback/state.
+- Login callback validates only the active pending-login record.
+- Overlapping login attempts where callbacks arrive out of order reject the old callback and accept only the latest active state.
+- Authorization-denial callback with `access_denied` consumes the matching pending-login record and skips token exchange.
 - Session exchange is not attempted after an invalid callback.
-- Successful callback exchange uses the original stored `code_verifier` from the consumed pending-login record.
-- Denial callback with `access_denied` consumes the matching pending-login record and skips token exchange.
+- Request/exchange layer requires `code_challenge_method` to be `S256`.
+- Request/exchange layer rejects code_challenge_method mismatch.
+- Request/exchange layer uses the exact stored `redirect_uri`.
+- Request/exchange layer uses the original stored `code_verifier` during exchange.
+- Request/exchange layer rejects verifier mismatch.
 - Auth/cloud IPC rejects unexpected `BrowserWindow`.
 - Auth/cloud IPC rejects unexpected frame.
 - Auth/cloud IPC rejects unexpected origin.
@@ -300,6 +321,9 @@ Out of scope for C5.2 unless explicitly approved:
 - `502` from profile bootstrap enters profile-bootstrap failure state, not invalid-session state.
 - Transient refresh failure preserves secure session and cached cloud data.
 - Invalid refresh failure clears credentials and cached cloud data.
+- Delayed cloud response after logout cannot repopulate cache.
+- Delayed cloud response from previous user cannot overwrite cache after user switch.
+- Valid current-user response can still update cache.
 - Logout clears Supabase session, local encrypted session file, and cached cloud startup/profile/settings/context data.
 - Failed remote Supabase sign-out still clears local credentials and cached user data.
 - Previous user data is unavailable after logout.
