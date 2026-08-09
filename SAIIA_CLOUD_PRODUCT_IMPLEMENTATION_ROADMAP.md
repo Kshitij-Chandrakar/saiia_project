@@ -1336,7 +1336,7 @@ Latest C4.3 product decision:
 
 - Result: main website `/job-contexts` UI is cancelled/re-scoped and should not be committed as product UI.
 - Replacement direction: job target/JD selection moves into the desktop app startup/session setup flow where the user chooses active resume, active job target/JD, answer model, audio source, and answer preferences before starting an interview session.
-- Dependency: this likely belongs with or after C5 desktop authenticated cloud synchronization because the desktop app needs authenticated cloud identity before it can load cloud resumes and job contexts.
+- Dependency: this belongs during or after C5, once desktop authenticated cloud identity is available, because the desktop app needs that identity before it can load cloud resumes and job contexts.
 - Scope exclusions remain: no new desktop implementation, no C4.4 generation integration, no C5 desktop login/cloud sync, no backend runtime changes, and no migration changes.
 
 ## Goal
@@ -1360,7 +1360,7 @@ Job target/JD setup belongs in the desktop app startup/session setup flow after 
 - language/audio source
 - answer preferences
 
-This desktop setup UI is deferred until with or after C5 desktop authenticated cloud identity. It is not implemented by C4.2 or C4.3.
+This desktop setup UI is deferred until during or after C5, once desktop authenticated cloud identity is available. It is not implemented by C4.2 or C4.3.
 
 ## Data requirements
 
@@ -1431,7 +1431,7 @@ Superseded C4.3 website criteria:
 
 Deferred criteria:
 
-- desktop startup job-target selection/create/edit moves to a later desktop setup phase with or after C5 desktop authenticated cloud identity
+- desktop startup job-target selection/create/edit moves to a later desktop setup phase during or after C5, once desktop authenticated cloud identity is available
 - desktop/backend generation can retrieve the active job context in C4.4 or later
 - no-context generation fallback remains preserved when generation integration is implemented
 
@@ -1447,7 +1447,7 @@ Deferred criteria:
 
 ## Goal
 
-Connect the Electron desktop app to the same account, profile, resume context, settings, and job target used by the website.
+Connect the Electron desktop app to the same account, profile, resume context, settings, and shared cloud job-target record selected in the desktop startup/session setup flow.
 
 ## Login options
 
