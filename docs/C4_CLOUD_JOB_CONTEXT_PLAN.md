@@ -153,7 +153,7 @@ Register a new authenticated router at `/api/job-contexts`. Keep existing `/api/
 
 All routes must use `CurrentUserDep`; request bodies must not accept or trust `user_id`.
 
-Cloud persisted `job_description` is the full/raw JD text. Authorized cloud CRUD responses may return it to the owning authenticated user, but raw JD text must never appear in normal logs, error payloads, diagnostics, unauthenticated responses, or cross-user responses.
+Cloud persisted `job_description` is the full/raw JD text. Authorized detail CRUD responses may return it to the owning authenticated user, but list responses must not return the raw full JD. Raw JD text must never appear in normal logs, error payloads, diagnostics, unauthenticated responses, or cross-user responses.
 
 ### Planned C4.2 Input Limits
 
@@ -178,13 +178,18 @@ New C4.2 constants to define in the cloud job-context backend:
 | Metadata string value length | 256 characters |
 | Metadata object size | 2,048 serialized UTF-8 bytes |
 | Total JSON request body size | 128 KiB serialized UTF-8 bytes |
-| Multipart request size | JD file size plus bounded form fields; reject files over 5 MiB before extraction |
+| Multipart body read limit | 6 MiB total request body before parsing |
+| Multipart file size | 5 MiB file bytes, reusing `MAX_RESUME_FILE_BYTES` |
+| Maximum extracted UTF-8 JD text | 100,000 bytes before prompt construction, response serialization, or persistence |
+| Multipart non-file form fields | Bounded by the same per-field limits above and the 6 MiB total body limit |
 
 These limits are C4.2 contract inputs, not C4.1 runtime behavior.
 
 ### `GET /api/job-contexts`
 
 Returns all current user's saved job targets ordered by `is_active desc, updated_at desc`.
+
+List responses return summary fields only. They must not include raw full `job_description`; use bounded summaries/derived display fields such as `job_description_preview` and counts instead.
 
 Response:
 
@@ -195,14 +200,14 @@ Response:
       "id": "uuid",
       "company": "",
       "position": "",
-      "job_description": "",
+      "job_description_preview": "",
+      "job_description_length": 0,
       "required_skills": [],
       "responsibilities": [],
       "seniority": "",
       "domain_keywords": [],
       "location": "",
       "employment_type": "",
-      "source_file_metadata": {},
       "is_active": false,
       "created_at": "",
       "updated_at": ""
@@ -234,11 +239,15 @@ Validation:
 
 - At least one meaningful field is required.
 - Array fields must be arrays of bounded strings.
-- `source_file_metadata` may include safe metadata only: sanitized filename, MIME type, byte size, extraction source, not raw file bytes.
+- `source_file_metadata` is server-derived only. Sanitized filename, detected MIME type, byte size, and extraction source must come from the received file or endpoint path.
+- Reject client-provided metadata that conflicts with server-derived values.
+- POST must be safe to retry, including `activate: true`. C4.2 must either require an idempotency key with server-side replay handling or implement a deterministic per-user deduplication rule over normalized create payloads. Recommendation: require an `Idempotency-Key` header for create requests and store/replay the first completed result for the verified user and normalized request hash.
 
 ### `GET /api/job-contexts/{id}`
 
 Returns one context belonging to the verified user. Other-user IDs map to 404.
+
+This is the only read endpoint that may return the full raw `job_description`, and only to the owning authenticated user.
 
 ### `PATCH /api/job-contexts/{id}`
 
@@ -287,13 +296,15 @@ Extraction must not persist a row. Existing saved context must survive extractio
 
 `job_description` in the cloud extraction response should be the full/raw text that would be saved if the user confirms. If the reused local extractor produces a concise summary, expose that summary only as transient `job_description_summary`; do not add a persisted summary database column in C4.1 or C4.2 unless separately approved.
 
+Before building any provider prompt, serializing an extraction response, or persisting a saved context, C4.2 must enforce the maximum extracted UTF-8 JD text limit. Oversized extracted text should fail with a safe validation error that does not echo the JD.
+
 ## Activation Transaction and Concurrency Strategy
 
 Use the database as the concurrency boundary:
 
 1. Backend verifies Supabase JWT and derives `current_user.user_id`.
 2. Backend calls a service-role-only RPC with `p_user_id` and `p_job_context_id`.
-3. RPC acquires a transaction-scoped advisory lock keyed by `p_user_id`, or an equivalent verified per-user serialization mechanism, before changing active rows.
+3. RPC acquires a transaction-scoped serialization guard before changing active rows.
 4. RPC verifies the target row exists for `p_user_id`.
 5. RPC updates all `public.job_contexts` rows for `p_user_id` to `is_active = false` except target.
 6. RPC updates target row to `is_active = true`.
@@ -302,6 +313,21 @@ Use the database as the concurrency boundary:
 The existing partial unique index remains the final invariant. If concurrent activations for different targets race despite serialization, one transaction must win cleanly; the backend should map lock/uniqueness/state conflicts to `409` with a safe refresh-and-retry message.
 
 Deleting an active context should be a simple owned-row delete. The partial unique index naturally allows zero active rows.
+
+Preferred C4.2 serialization design:
+
+- Use `pg_advisory_xact_lock(bigint)` with a PostgreSQL-supported bigint key derived from `p_user_id`, not the raw UUID.
+- Derive the key as `hashtextextended(p_user_id::text, 0)` or an equivalent stable PostgreSQL bigint expression.
+- Collision behavior: a hash collision would unnecessarily serialize two different users but must not permit cross-user data access or break correctness. Different users should otherwise activate in parallel.
+- If advisory locking is rejected during C4.2 implementation, use an equivalent per-user row lock, such as locking an owned profile/settings row with `SELECT ... FOR UPDATE` before activation. That fallback requires proving the row exists or creating a dedicated lock row; do not silently skip serialization.
+
+Timeout behavior:
+
+- Set a short transaction-local `lock_timeout`, recommended 2 seconds.
+- Set a transaction-local `statement_timeout`, recommended 5 seconds.
+- Use a backend database/RPC call timeout, recommended 8 seconds.
+- Map lock waits, uniqueness conflicts, and recoverable serialization conflicts to `409 Conflict` with a safe refresh-and-retry message.
+- Map unsafe or unrecoverable database timeouts/connectivity failures to `503 Service Unavailable`.
 
 Activation RPC privilege contract:
 
@@ -315,6 +341,8 @@ Activation RPC privilege contract:
 Reuse current P3 logic; do not rewrite extraction because the target is cloud:
 
 - Keep using `ResumeService.extract_text()` for PDF/DOCX/TXT file text extraction.
+- Show a user notice before cloud extraction that raw JD text will be sent to the configured extraction provider.
+- Require explicit user action/consent for extraction; save/create without extraction must remain possible for users who do not consent to provider processing.
 - Preserve the existing local `JobContextExtractResponse` and local string fields:
   - `target_role`
   - `company_name`
@@ -345,6 +373,15 @@ Reuse current P3 logic; do not rewrite extraction because the target is cloud:
 - Keep "do not invent missing requirements" in the prompt and add tests that absent fields stay empty.
 - Do not save extraction output until the user confirms.
 - Avoid raw JD text in logs and exception messages.
+
+Cloud extraction provider privacy boundary:
+
+- Current local extraction uses Groq. C4.2 must document the configured provider behavior before enabling cloud extraction in UI copy and release notes.
+- Verify and document Groq API retention/training behavior for the configured account/plan at implementation time.
+- Use Zero Data Retention or equivalent provider-side retention controls if available for the deployed account.
+- If Zero Data Retention is unavailable, the UI notice must say provider processing may be subject to the provider's API retention policy.
+- App-side deletion must remove persisted raw JD text and server-derived source metadata from Supabase when a job context is deleted.
+- Normal logs, errors, exceptions, diagnostics, and analytics must contain only safe metadata such as byte length, sanitized filename, MIME type, operation, status, and safe error code.
 
 ## Frontend Implementation Plan
 
@@ -459,16 +496,27 @@ Backend unit/route tests:
 - Cloud job-context routes reject missing/invalid JWT.
 - Create derives `user_id` from verified token and ignores request `user_id`.
 - List returns only service-owned user rows from fake service.
+- List responses exclude raw full `job_description` and source metadata that could reveal private JD contents.
 - Get/update/delete map other-user/missing rows to 404.
 - Create validates at least one meaningful field.
+- Create rejects payloads over the 128 KiB JSON body limit.
+- Multipart extraction rejects bodies over the 6 MiB read limit and files over the 5 MiB file limit.
+- Extraction rejects extracted UTF-8 JD text over 100,000 bytes before prompt construction, response serialization, or persistence.
+- Create with the same idempotency key and identical normalized payload returns/replays the same result without duplicate rows.
+- Retried create with `activate: true` is idempotent and leaves exactly one active context.
+- Reusing an idempotency key with a conflicting payload is rejected safely.
 - Array fields normalize and reject oversized/invalid values.
 - Extract from pasted text returns editable fields and does not save.
 - Extract from file reuses text extraction and validates file metadata.
+- File extraction metadata is server-derived; conflicting client-provided metadata is rejected.
 - Extraction/provider failure does not overwrite existing saved context.
 - Activate calls backend-only service/RPC and maps conflicts to 409.
 - Concurrent activation of two different targets for the same user serializes through the advisory lock or equivalent mechanism, leaves exactly one active row, and maps stale/conflicting requests to a safe 409 where applicable.
+- Concurrent activation for different users runs independently except for documented advisory-hash collision behavior.
+- Lock timeout and recoverable serialization conflicts map to 409; unrecoverable DB timeout/connectivity maps to 503.
 - Delete active context returns valid no-context state.
 - Response/error bodies do not include service-role key or raw JD text.
+- Cloud extraction requires user consent/notice before sending raw JD to Groq or any configured provider.
 
 Migration tests:
 
@@ -478,6 +526,7 @@ Migration tests:
 - Activation RPC exists, is service-role-only, and is not executable by `anon` or `authenticated`.
 - Activation RPC migration explicitly revokes execute from `PUBLIC`, `anon`, and `authenticated`, and grants execute only to `service_role`.
 - Direct authenticated job-context `INSERT`, `UPDATE`, and `DELETE` are revoked; authenticated read access remains appropriate for own-row reads.
+- Activation RPC uses a PostgreSQL-supported serialization key or row-lock strategy; tests cover same-user serialization and different-user parallelism.
 
 Generation tests:
 
