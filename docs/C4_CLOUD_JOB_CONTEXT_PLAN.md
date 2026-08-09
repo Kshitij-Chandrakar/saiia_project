@@ -9,7 +9,7 @@ Scope: C4.1 audit and plan only. No C4.2+ runtime code, migrations, live databas
 SAIIA currently has two separate job-context worlds:
 
 - Desktop/local P3 runtime exists under the unauthenticated local backend route prefix `/api/job-context`.
-- Cloud foundation already has a Supabase `public.job_contexts` table, RLS policies, grants, and a one-active-per-user partial unique index.
+- Migration history defines a Supabase `public.job_contexts` table, RLS policies, grants, and a one-active-per-user partial unique index.
 - No authenticated cloud job-context FastAPI routes or React/Vite job-target management page exist yet.
 - Current answer generation still loads local job context through `JobContextService`, not Supabase.
 
@@ -74,7 +74,7 @@ Local generation behavior:
 - `AnswerGenerator._build_prompt()` includes target role, company, JD summary, required skills, responsibilities, preferred qualifications, and company notes only when candidate context is included.
 - Provider fallback paths intentionally pass no job context in some error/fallback branches.
 
-## Exact Current Supabase `job_contexts` Schema
+## Migration-Defined Supabase `job_contexts` Schema/State
 
 Verified in `supabase/migrations/20260731121714_create_base_cloud_schema.sql`:
 
@@ -113,6 +113,8 @@ Verified ownership/RLS/grants:
 - `supabase/migrations/20260801115446_grant_cloud_table_privileges.sql` grants select/insert/update/delete to both `authenticated` and `service_role`.
 - C3 hardening migration revokes authenticated direct writes for `profiles`, `resumes`, and `resume_chunks`, but not for `job_contexts`.
 
+This is migration-defined state only. Live deployed Supabase schema, RLS, grants, ownership behavior, and RPC privileges remain pending validation for C4.2; C4.1 did not query or mutate the live database.
+
 ## Schema Gap Analysis
 
 C4 requirement vs current cloud schema:
@@ -121,7 +123,7 @@ C4 requirement vs current cloud schema:
 | --- | --- | --- |
 | Company | Present as `company` | Reuse. |
 | Position | Present as `position` | Reuse. |
-| Raw job description | Present as `job_description` | Reuse as raw text, despite current roadmap wording calling it raw. |
+| Raw job description | Present as `job_description` | Reuse as the full/raw JD text. |
 | Required skills | Present as JSONB array | Reuse; normalize local comma/newline strings into arrays. |
 | Responsibilities | Present as JSONB array | Reuse; normalize local prose/list text into arrays. |
 | Seniority | Present as text | Reuse; local extractor must be extended in C4.2/4.3 without disrupting current local fields. |
@@ -139,8 +141,9 @@ Recommended C4.2 migration:
 - Add check constraint `jsonb_typeof(source_file_metadata) = 'object'`.
 - Change `is_active` default from `true` to `false` so multiple saved inactive targets are safe by default.
 - Add a backend-only activation RPC, e.g. `public.activate_job_context(p_user_id uuid, p_job_context_id uuid)`, that deactivates other contexts for the same user and activates the selected row in one transaction.
-- Revoke direct authenticated insert/update/delete on `public.job_contexts` if C4 follows the C3 backend-only write model.
-- Grant execute on activation RPC only to `service_role`.
+- Lock the C4.2 access model to C3's backend-only mutation pattern: revoke direct authenticated `INSERT`, `UPDATE`, and `DELETE` on `public.job_contexts`; retain appropriate authenticated read access; grant write privileges to `service_role` for backend operations.
+- Do not modify already-applied historical migrations in C4.2; add a new forward migration.
+- Revoke `EXECUTE` on the activation RPC from `PUBLIC`, `anon`, and `authenticated`; grant `EXECUTE` only to `service_role`.
 
 Do not create this migration in C4.1.
 
@@ -149,6 +152,35 @@ Do not create this migration in C4.1.
 Register a new authenticated router at `/api/job-contexts`. Keep existing `/api/job-context` local router unchanged for desktop-local P3 until C5.
 
 All routes must use `CurrentUserDep`; request bodies must not accept or trust `user_id`.
+
+Cloud persisted `job_description` is the full/raw JD text. Authorized cloud CRUD responses may return it to the owning authenticated user, but raw JD text must never appear in normal logs, error payloads, diagnostics, unauthenticated responses, or cross-user responses.
+
+### Planned C4.2 Input Limits
+
+Existing verified project limits to reuse:
+
+- JD upload size: reuse `MAX_RESUME_FILE_BYTES = 5 * 1024 * 1024` from `backend/app/services/resume_service.py`.
+- Supported JD upload types: reuse the existing PDF/DOCX/TXT document set from `ResumeService` and `CloudResumeService`.
+- Sanitized source filename: reuse the cloud resume filename sanitizer ceiling of 120 characters including extension.
+
+New C4.2 constants to define in the cloud job-context backend:
+
+| Field | Limit |
+| --- | ---: |
+| `company` | 160 characters |
+| `position` | 160 characters |
+| `job_description` | 100,000 characters |
+| `seniority` | 80 characters |
+| `location` | 160 characters |
+| `employment_type` | 80 characters |
+| `required_skills`, `responsibilities`, `domain_keywords` item count | 50 items per array |
+| Array item length | 160 characters |
+| Metadata string value length | 256 characters |
+| Metadata object size | 2,048 serialized UTF-8 bytes |
+| Total JSON request body size | 128 KiB serialized UTF-8 bytes |
+| Multipart request size | JD file size plus bounded form fields; reject files over 5 MiB before extraction |
+
+These limits are C4.2 contract inputs, not C4.1 runtime behavior.
 
 ### `GET /api/job-contexts`
 
@@ -239,6 +271,7 @@ Response:
   "company": "",
   "position": "",
   "job_description": "",
+  "job_description_summary": "",
   "required_skills": [],
   "responsibilities": [],
   "seniority": "",
@@ -252,33 +285,62 @@ Response:
 
 Extraction must not persist a row. Existing saved context must survive extraction/provider failure.
 
+`job_description` in the cloud extraction response should be the full/raw text that would be saved if the user confirms. If the reused local extractor produces a concise summary, expose that summary only as transient `job_description_summary`; do not add a persisted summary database column in C4.1 or C4.2 unless separately approved.
+
 ## Activation Transaction and Concurrency Strategy
 
 Use the database as the concurrency boundary:
 
 1. Backend verifies Supabase JWT and derives `current_user.user_id`.
 2. Backend calls a service-role-only RPC with `p_user_id` and `p_job_context_id`.
-3. RPC verifies the target row exists for `p_user_id`.
-4. RPC updates all `public.job_contexts` rows for `p_user_id` to `is_active = false` except target.
-5. RPC updates target row to `is_active = true`.
-6. RPC returns the activated row.
+3. RPC acquires a transaction-scoped advisory lock keyed by `p_user_id`, or an equivalent verified per-user serialization mechanism, before changing active rows.
+4. RPC verifies the target row exists for `p_user_id`.
+5. RPC updates all `public.job_contexts` rows for `p_user_id` to `is_active = false` except target.
+6. RPC updates target row to `is_active = true`.
+7. RPC returns the activated row.
 
-The existing partial unique index remains the final invariant. If concurrent activations race, one transaction must win cleanly; the backend should map conflicts to `409` with a safe refresh-and-retry message.
+The existing partial unique index remains the final invariant. If concurrent activations for different targets race despite serialization, one transaction must win cleanly; the backend should map lock/uniqueness/state conflicts to `409` with a safe refresh-and-retry message.
 
 Deleting an active context should be a simple owned-row delete. The partial unique index naturally allows zero active rows.
+
+Activation RPC privilege contract:
+
+- `REVOKE EXECUTE ON FUNCTION public.activate_job_context(uuid, uuid) FROM PUBLIC;`
+- `REVOKE EXECUTE ON FUNCTION public.activate_job_context(uuid, uuid) FROM anon;`
+- `REVOKE EXECUTE ON FUNCTION public.activate_job_context(uuid, uuid) FROM authenticated;`
+- `GRANT EXECUTE ON FUNCTION public.activate_job_context(uuid, uuid) TO service_role;`
 
 ## Extraction Reuse Strategy
 
 Reuse current P3 logic; do not rewrite extraction because the target is cloud:
 
 - Keep using `ResumeService.extract_text()` for PDF/DOCX/TXT file text extraction.
-- Factor or adapt `JobContextService.build_context_fields()` so cloud extraction can return C4 fields:
+- Preserve the existing local `JobContextExtractResponse` and local string fields:
+  - `target_role`
+  - `company_name`
+  - `job_description`
+  - `required_skills`
+  - `responsibilities`
+  - `preferred_qualifications`
+  - `company_notes`
+- Add a separate cloud extraction DTO/adapter so C4 does not break P3 behavior.
+- The cloud adapter maps extracted/local values into:
+  - `company`
+  - `position`
+  - `seniority`
+  - `required_skills[]`
+  - `responsibilities[]`
+  - `domain_keywords[]`
+  - optional `location`
+  - optional `employment_type`
+- Factor or adapt `JobContextService.build_context_fields()` behind that adapter so cloud extraction can return C4 fields:
   - map `target_role` to `position`
   - map `company_name` to `company`
   - add `seniority`
   - add `domain_keywords`
   - optionally add `location`
   - optionally add `employment_type`
+- Keep cloud persisted `job_description` as the full/raw JD text; if the local extractor returns a concise description, map it to transient `job_description_summary` only.
 - Normalize extracted skills/responsibilities/domain keywords into arrays for cloud storage, while preserving local P3 string fields.
 - Keep "do not invent missing requirements" in the prompt and add tests that absent fields stay empty.
 - Do not save extraction output until the user confirms.
@@ -380,10 +442,10 @@ Verified current security foundation:
 
 C4 concerns to address:
 
-- `job_contexts` still has authenticated direct insert/update/delete grants and RLS write policies; C4 should decide whether to harden to backend-only writes like C3.
+- `job_contexts` still has authenticated direct insert/update/delete grants and RLS write policies in migration-defined state; C4.2 must harden this to backend-only writes like C3 by adding a new migration that revokes authenticated direct writes while retaining appropriate authenticated reads.
 - Current `is_active default true` is unsafe for multi-target creation because a second insert can violate the one-active partial unique index unless the backend overrides it.
 - Existing local extraction logs uploaded filename. C4 should sanitize filenames before storing metadata or logging.
-- Raw private JD text must not be logged.
+- Raw private JD text must not be logged, emitted in safe diagnostics, included in error payloads, or returned from unauthenticated/cross-user requests.
 - Frontend must not send or choose `user_id`.
 - Other-user IDs must return 404, not reveal existence.
 - Activation race behavior must be covered by database uniqueness plus RPC transaction tests.
@@ -404,6 +466,7 @@ Backend unit/route tests:
 - Extract from file reuses text extraction and validates file metadata.
 - Extraction/provider failure does not overwrite existing saved context.
 - Activate calls backend-only service/RPC and maps conflicts to 409.
+- Concurrent activation of two different targets for the same user serializes through the advisory lock or equivalent mechanism, leaves exactly one active row, and maps stale/conflicting requests to a safe 409 where applicable.
 - Delete active context returns valid no-context state.
 - Response/error bodies do not include service-role key or raw JD text.
 
@@ -413,7 +476,8 @@ Migration tests:
 - `is_active` default is false after migration.
 - One-active partial unique index remains.
 - Activation RPC exists, is service-role-only, and is not executable by `anon` or `authenticated`.
-- Direct authenticated job-context writes are revoked if C4 adopts backend-only writes.
+- Activation RPC migration explicitly revokes execute from `PUBLIC`, `anon`, and `authenticated`, and grants execute only to `service_role`.
+- Direct authenticated job-context `INSERT`, `UPDATE`, and `DELETE` are revoked; authenticated read access remains appropriate for own-row reads.
 
 Generation tests:
 
@@ -439,7 +503,7 @@ Do not run during C4.1. Run after C4.2 migration/backend implementation in the d
 - Apply migration to dev only.
 - Verify columns, defaults, constraints, and partial unique index.
 - Verify RLS remains enabled.
-- Verify authenticated direct writes are allowed or blocked according to final C4.2 decision.
+- Verify authenticated direct writes are blocked and authenticated own-row reads still work.
 - Verify service-role backend can create/list/update/delete for verified user.
 - Verify user A cannot select/update/delete user B context.
 - Verify activation RPC leaves exactly one active row after concurrent/repeated activation attempts.
@@ -492,6 +556,7 @@ This structure matches the roadmap and keeps C5 out of C4.
 C4.2 should implement only:
 
 - Supabase migration for schema gaps and activation RPC.
+- Revoke authenticated direct `INSERT`/`UPDATE`/`DELETE` on `job_contexts` in a new forward migration while retaining appropriate authenticated read access and service-role writes.
 - Backend cloud job-context models, client, service, and routes.
 - Extraction service reuse for cloud extraction response shape.
 - Unit tests and migration tests.
@@ -532,8 +597,8 @@ Not expected in C4.2:
 
 ## Risks and Open Questions
 
-- Should C4 revoke direct authenticated writes on `job_contexts` now? Recommendation: yes, match C3 backend-only service-role mutation for lifecycle safety.
-- Should `job_description` store raw full JD or a summary? Current cloud schema field name and roadmap require raw JD; current local extractor returns a concise summary. C4 extraction response may need both raw input storage and extracted summary if product wants both.
+- Backend-only writes are locked for C4.2; the remaining implementation detail is the exact new migration filename and RPC body.
+- `job_description` is locked as raw/full JD text for cloud persistence. The local extractor summary remains backward-compatible and may be exposed only as transient `job_description_summary`.
 - Should `responsibilities` be an array of bullets or a single prose summary? Current cloud schema requires JSONB array; current local extraction returns a string.
 - Should job context be injected when job policy allows it but profile policy forbids profile? Current generation code effectively requires profile context too. C4.4 must decide intentionally.
 - Should uploaded JD files be retained in Supabase Storage? Current C4 requirements only need source-file metadata "if uploaded"; storing JD files adds privacy and retention scope. Recommendation: do not retain JD files in C4.2/C4.3 unless explicitly required.

@@ -72,7 +72,7 @@ C2 current status:
 C3 current status:
 
 ```text
-[x] Complete - C3.1 Cloud Resume/Profile Storage Planning + Audit complete; C3.2 Backend Cloud Resume API merged and live smoke-tested; C3.3 frontend authenticated upload/review UI implemented under `/auth/resume`; C3.4 cloud RAG/index activation implemented through backend chunk generation and ready-resume activation; C3.4.5 GPT-based resume extraction provider implemented; C3.5 delete/rebuild/status closure implemented; C4.1 planning has started after explicit approval; no C4 runtime functionality, C5, sessions, billing, payment, email provider, admin console, or final website UI started
+[x] Complete - C3.1 Cloud Resume/Profile Storage Planning + Audit complete; C3.2 Backend Cloud Resume API merged and live smoke-tested; C3.3 frontend authenticated upload/review UI implemented under `/auth/resume`; C3.4 cloud RAG/index activation implemented through backend chunk generation and ready-resume activation; C3.4.5 GPT-based resume extraction provider implemented; C3.5 delete/rebuild/status closure implemented; C4.1 audit/design complete after explicit approval; no C4 runtime functionality, C5, sessions, billing, payment, email provider, admin console, or final website UI started
 ```
 
 C4 current status:
