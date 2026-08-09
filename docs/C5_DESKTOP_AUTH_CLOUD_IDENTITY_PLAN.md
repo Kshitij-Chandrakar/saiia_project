@@ -70,26 +70,36 @@ The main process should own:
 
 ## Recommended Desktop Login Flow
 
-Use browser-based OAuth/PKCE with custom protocol callback `saiia://auth/callback`, handled by the Electron main process.
+Use Supabase Auth PKCE with custom protocol callback `saiia://auth/callback`, handled by the Electron main process. Do not mix this with Supabase OAuth integration documentation; C5.2 owns a Supabase Auth PKCE flow only.
 
 Planned flow:
 
 1. Desktop startup shows signed-out state.
 2. User chooses login.
-3. Electron main process generates a PKCE `code_verifier`, derived `code_challenge`, `state`/nonce, and expiry.
-4. Electron main process stores those values together in one main-process pending-login record.
-5. Electron opens the system browser or a locked auth window to Supabase Auth.
-6. Supabase redirects to the registered desktop callback `saiia://auth/callback`.
-7. Electron main process handles the callback and requires the expected `code` and `state`.
-8. Main process validates callback values against the pending-login record.
-9. The pending-login record is atomically consumed before exchanging the code.
-10. Main process exchanges the callback code with the original retained `code_verifier` from the consumed record.
-11. Reused callbacks fail because the pending-login record has already been consumed.
-12. Reused, expired, missing, or mismatched callback values are rejected before session exchange.
-13. Main process stores the session securely.
-14. Main process calls `GET /api/auth/me` to verify the backend accepts the access token.
-15. Main process calls `POST /api/auth/profile/bootstrap` if needed.
-16. Renderer receives only a safe connected-state payload.
+3. Electron main process starts Supabase Auth PKCE.
+4. Main process generates a PKCE `code_verifier`, derived `code_challenge`, `state`/nonce, exact `redirect_uri`, and expiry.
+5. `code_challenge_method` must be `S256`.
+6. Main process stores `code_verifier`, `code_challenge`, `state`/nonce, `redirect_uri`, and expiry together in one main-process pending-login record.
+7. Electron opens the system browser or a locked auth window to Supabase Auth.
+8. Supabase redirects to the registered desktop callback `saiia://auth/callback`.
+9. Callback `redirect_uri` must exactly match the `redirect_uri` used when starting auth.
+10. Electron main process handles the callback and requires the expected `code` and `state`.
+11. Main process validates callback values against the pending-login record before exchange.
+12. The pending-login record is atomically consumed before exchanging the code.
+13. Main process exchanges the callback code with the original retained `code_verifier` from the consumed record.
+14. Reused callbacks fail because the pending-login record has already been consumed.
+15. Reused, expired, missing, or mismatched callback values are rejected before session exchange.
+16. Main process stores the session securely.
+17. Main process calls `GET /api/auth/me` to verify the backend accepts the access token.
+18. Main process always calls `POST /api/auth/profile/bootstrap` after `GET /api/auth/me` succeeds.
+19. Renderer receives only a safe connected-state payload.
+
+Authorization-denial callback:
+
+- If the callback has `error` and `state` but no `code`, such as `access_denied`, main process validates `state` against the pending-login record.
+- When the denial state matches, main process atomically consumes the pending-login record.
+- The renderer receives a cancellation/authentication-failure state.
+- Token exchange is not attempted for denial callbacks.
 
 Why this path:
 
@@ -162,11 +172,15 @@ Main process call pattern:
    - `POST /api/auth/profile/bootstrap`
    - C3 resume routes under `/api/resumes`
    - C4.2 job-context routes under `/api/job-contexts`
-4. Treat `401` as expired/signed-out and trigger reauth.
-5. Treat `503` cloud config failures as backend unavailable/cloud not configured.
-6. Treat `502` from `POST /api/auth/profile/bootstrap` as a dedicated profile-bootstrap failure state.
-7. Do not treat profile-bootstrap `502` as an invalid session.
-8. Do not call Supabase REST/storage directly from the renderer.
+4. After `GET /api/auth/me` succeeds, always call `POST /api/auth/profile/bootstrap`.
+5. Do not use local cache to skip profile bootstrap.
+6. Profile bootstrap idempotently ensures `profiles` and `user_settings` rows exist.
+7. If conditional bootstrap skipping is ever allowed later, it must come from an explicit server response, not a local cache assumption.
+8. Treat `401` as expired/signed-out and trigger reauth.
+9. Treat `503` cloud config failures as backend unavailable/cloud not configured.
+10. Treat `502` from `POST /api/auth/profile/bootstrap` as a dedicated profile-bootstrap failure state.
+11. Do not treat profile-bootstrap `502` as an invalid session.
+12. Do not call Supabase REST/storage directly from the renderer.
 
 ## Session Refresh and Logout
 
@@ -176,7 +190,8 @@ Rules:
 
 - Refresh token stays in main process storage/memory.
 - Only one refresh should run at a time.
-- Failed refresh clears the session and returns token-expired state.
+- Transient network or `503` refresh failure preserves encrypted credentials, preserves cached cloud data, and returns offline/backend-unavailable state.
+- Invalid or expired refresh token clears encrypted credentials, clears in-memory session state, clears cached profile/settings/startup/resume/job-context data, and exposes signed-out/token-expired state.
 - `401` invalid/expired session, `502` profile-bootstrap failure, and `503` backend/cloud unavailable must be distinct states.
 - Logout must attempt Supabase sign-out where possible.
 - Logout must always run local cleanup in a finally-style path, even if remote Supabase sign-out fails due to network or service error.
@@ -268,10 +283,14 @@ Out of scope for C5.2 unless explicitly approved:
 - Preload does not expose raw tokens or generic cloud fetch.
 - Login callback rejects missing `state` or missing `code`.
 - Login callback rejects mismatched state/nonce.
+- Login callback rejects verifier mismatch.
+- Login callback rejects `code_challenge_method` mismatch.
+- Login callback rejects `redirect_uri` mismatch.
 - Login callback rejects expired state.
 - Login callback rejects reused callback/state.
 - Session exchange is not attempted after an invalid callback.
 - Successful callback exchange uses the original stored `code_verifier` from the consumed pending-login record.
+- Denial callback with `access_denied` consumes the matching pending-login record and skips token exchange.
 - Auth/cloud IPC rejects unexpected `BrowserWindow`.
 - Auth/cloud IPC rejects unexpected frame.
 - Auth/cloud IPC rejects unexpected origin.
@@ -279,6 +298,8 @@ Out of scope for C5.2 unless explicitly approved:
 - Backend verification calls include bearer access token.
 - `401` maps to signed-out/token-expired state and clears invalid session.
 - `502` from profile bootstrap enters profile-bootstrap failure state, not invalid-session state.
+- Transient refresh failure preserves secure session and cached cloud data.
+- Invalid refresh failure clears credentials and cached cloud data.
 - Logout clears Supabase session, local encrypted session file, and cached cloud startup/profile/settings/context data.
 - Failed remote Supabase sign-out still clears local credentials and cached user data.
 - Previous user data is unavailable after logout.
