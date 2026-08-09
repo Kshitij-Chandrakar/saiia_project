@@ -291,6 +291,7 @@ class DesktopAuthSessionManager {
         auth_code: code,
         code_verifier: record.code_verifier,
       }),
+      signal: this._requestSignal(),
     })
     if (!response.ok) {
       throw new Error('Authentication exchange failed.')
@@ -447,6 +448,7 @@ class DesktopAuthSessionManager {
             ...this._supabaseHeaders(),
             Authorization: `Bearer ${session.access_token}`,
           },
+          signal: this._requestSignal(),
         })
       }
     } catch {

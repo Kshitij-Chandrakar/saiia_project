@@ -94,10 +94,12 @@ function createManager(options = {}) {
 
 function deferred() {
   let resolve
-  const promise = new Promise((nextResolve) => {
+  let reject
+  const promise = new Promise((nextResolve, nextReject) => {
     resolve = nextResolve
+    reject = nextReject
   })
-  return { promise, resolve }
+  return { promise, resolve, reject }
 }
 
 function callbackUrlFor(manager, params = {}) {
@@ -182,6 +184,7 @@ test('PKCE request uses configured provider, S256, exact redirect_uri, and origi
     await ctx.manager.handleAuthCallback(callbackUrlFor(ctx.manager, { code: 'auth-code' }))
     const exchange = ctx.calls.find((call) => call.url.includes('grant_type=pkce'))
     assert.equal(JSON.parse(exchange.init.body).code_verifier, storedVerifier)
+    assert.notEqual(exchange.init.signal, undefined)
   } finally {
     ctx.cleanup()
   }
@@ -286,6 +289,7 @@ test('authorization denial restores an existing connected session without token 
 
 test('overlapping login attempts reject old callbacks and discard old exchange commits', async () => {
   const exchange = deferred()
+  let activePromise = null
   const ctx = createManager({
     fetchImpl: async (url, init = {}) => {
       ctx.calls.push({ url, init })
@@ -306,12 +310,16 @@ test('overlapping login attempts reject old callbacks and discard old exchange c
     assert.equal((await ctx.manager.handleAuthCallback(oldUrl)).status, AUTH_STATUSES.SIGNED_OUT)
 
     const activeUrl = callbackUrlFor(ctx.manager, { code: 'active-code' })
-    const activePromise = ctx.manager.handleAuthCallback(activeUrl)
+    activePromise = ctx.manager.handleAuthCallback(activeUrl)
     await ctx.manager.startLogin()
     exchange.resolve()
     await activePromise
     assert.equal(ctx.manager.session, null)
   } finally {
+    exchange.resolve()
+    if (activePromise) {
+      await activePromise.catch(() => {})
+    }
     ctx.cleanup()
   }
 })
@@ -350,6 +358,7 @@ test('bootstrap 502 maps to bootstrap-failed instead of invalid session', async 
 test('verification ignores stale session after logout during auth-me request', async () => {
   const meGate = deferred()
   const session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+  let pendingPromise = null
   const ctx = createManager({
     fetchImpl: async (url, init = {}) => {
       ctx.calls.push({ url, init })
@@ -362,15 +371,19 @@ test('verification ignores stale session after logout during auth-me request', a
   })
   try {
     ctx.manager.session = session
-    const promise = ctx.manager._verifyAndBootstrap(session)
+    pendingPromise = ctx.manager._verifyAndBootstrap(session)
     await ctx.manager.logout()
     meGate.resolve()
-    const state = await promise
+    const state = await pendingPromise
 
     assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
     assert.equal(state.user_id, null)
     assert.equal(ctx.manager.user, null)
   } finally {
+    meGate.resolve()
+    if (pendingPromise) {
+      await pendingPromise.catch(() => {})
+    }
     ctx.cleanup()
   }
 })
@@ -379,6 +392,7 @@ test('verification ignores stale session after logout during bootstrap request',
   const bootstrapGate = deferred()
   const bootstrapStarted = deferred()
   const session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+  let pendingPromise = null
   const ctx = createManager({
     fetchImpl: async (url, init = {}) => {
       ctx.calls.push({ url, init })
@@ -395,16 +409,21 @@ test('verification ignores stale session after logout during bootstrap request',
   })
   try {
     ctx.manager.session = session
-    const promise = ctx.manager._verifyAndBootstrap(session)
+    pendingPromise = ctx.manager._verifyAndBootstrap(session)
     await bootstrapStarted.promise
     await ctx.manager.logout()
     bootstrapGate.resolve()
-    const state = await promise
+    const state = await pendingPromise
 
     assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
     assert.equal(state.user_id, null)
     assert.equal(ctx.manager.user, null)
   } finally {
+    bootstrapStarted.resolve()
+    bootstrapGate.resolve()
+    if (pendingPromise) {
+      await pendingPromise.catch(() => {})
+    }
     ctx.cleanup()
   }
 })
@@ -444,7 +463,14 @@ test('request timeouts map backend checks to offline and refresh cleanup settles
   const ctx = createManager({
     requestTimeoutMs: 1,
     fetchImpl: async (_url, init = {}) => {
+      if (!init.signal) {
+        throw new Error('missing signal')
+      }
       await new Promise((_resolve, reject) => {
+        if (init.signal.aborted) {
+          reject(new Error('aborted'))
+          return
+        }
         init.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
       })
     },
@@ -464,10 +490,13 @@ test('request timeouts map backend checks to offline and refresh cleanup settles
 
 test('delayed refresh response cannot overwrite a newer signed-out state', async () => {
   const refreshGate = deferred()
+  const requestStarted = deferred()
+  let pendingPromise = null
   const ctx = createManager({
     fetchImpl: async (url, init = {}) => {
       ctx.calls.push({ url, init })
       if (url.includes('/auth/v1/token?grant_type=refresh_token')) {
+        requestStarted.resolve()
         await refreshGate.promise
         return jsonResponse(200, {
           access_token: 'late-access-token',
@@ -479,20 +508,28 @@ test('delayed refresh response cannot overwrite a newer signed-out state', async
   })
   try {
     ctx.manager.session = { access_token: 'old-access', refresh_token: 'old-refresh' }
-    const promise = ctx.manager.refreshSession()
+    pendingPromise = ctx.manager.refreshSession()
+    await requestStarted.promise
     await ctx.manager.logout()
     refreshGate.resolve()
-    const state = await promise
+    const state = await pendingPromise
 
     assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
     assert.equal(ctx.manager.session, null)
   } finally {
+    requestStarted.resolve()
+    refreshGate.resolve()
+    if (pendingPromise) {
+      await pendingPromise.catch(() => {})
+    }
     ctx.cleanup()
   }
 })
 
 test('delayed refresh json and rejected refresh after logout cannot overwrite signed-out state', async () => {
   const jsonGate = deferred()
+  const jsonStarted = deferred()
+  let jsonPromise = null
   const jsonCase = createManager({
     fetchImpl: async (url, init = {}) => {
       jsonCase.calls.push({ url, init })
@@ -501,6 +538,7 @@ test('delayed refresh json and rejected refresh after logout cannot overwrite si
           ok: true,
           status: 200,
           json: async () => {
+            jsonStarted.resolve()
             await jsonGate.promise
             return {
               access_token: 'late-access-token',
@@ -514,21 +552,30 @@ test('delayed refresh json and rejected refresh after logout cannot overwrite si
   })
   try {
     jsonCase.manager.session = { access_token: 'old-access', refresh_token: 'old-refresh' }
-    const promise = jsonCase.manager.refreshSession()
+    jsonPromise = jsonCase.manager.refreshSession()
+    await jsonStarted.promise
     await jsonCase.manager.logout()
     jsonGate.resolve()
-    const state = await promise
+    const state = await jsonPromise
     assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
     assert.equal(jsonCase.manager.session, null)
   } finally {
+    jsonStarted.resolve()
+    jsonGate.resolve()
+    if (jsonPromise) {
+      await jsonPromise.catch(() => {})
+    }
     jsonCase.cleanup()
   }
 
   const rejectGate = deferred()
+  const rejectStarted = deferred()
+  let rejectPromise = null
   const rejectCase = createManager({
     fetchImpl: async (url, init = {}) => {
       rejectCase.calls.push({ url, init })
       if (url.includes('/auth/v1/token?grant_type=refresh_token')) {
+        rejectStarted.resolve()
         await rejectGate.promise
         throw new Error('network failed')
       }
@@ -537,23 +584,33 @@ test('delayed refresh json and rejected refresh after logout cannot overwrite si
   })
   try {
     rejectCase.manager.session = { access_token: 'old-access', refresh_token: 'old-refresh' }
-    const promise = rejectCase.manager.refreshSession()
+    rejectPromise = rejectCase.manager.refreshSession()
+    await rejectStarted.promise
     await rejectCase.manager.logout()
     rejectGate.resolve()
-    const state = await promise
+    const state = await rejectPromise
     assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
     assert.equal(rejectCase.manager.session, null)
   } finally {
+    rejectStarted.resolve()
+    rejectGate.resolve()
+    if (rejectPromise) {
+      await rejectPromise.catch(() => {})
+    }
     rejectCase.cleanup()
   }
 })
 
 test('refreshStartupContext is single-flight and avoids duplicate verification calls', async () => {
   const meGate = deferred()
+  const meStarted = deferred()
+  let first = null
+  let second = null
   const ctx = createManager({
     fetchImpl: async (url, init = {}) => {
       ctx.calls.push({ url, init })
       if (url.endsWith('/api/auth/me')) {
+        meStarted.resolve()
         await meGate.promise
         return jsonResponse(200, { user_id: 'user-1', email: 'user@example.com' })
       }
@@ -565,8 +622,9 @@ test('refreshStartupContext is single-flight and avoids duplicate verification c
   })
   try {
     ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
-    const first = ctx.manager.refreshStartupContext()
-    const second = ctx.manager.refreshStartupContext()
+    first = ctx.manager.refreshStartupContext()
+    second = ctx.manager.refreshStartupContext()
+    await meStarted.promise
     meGate.resolve()
     await Promise.all([first, second])
 
@@ -574,6 +632,9 @@ test('refreshStartupContext is single-flight and avoids duplicate verification c
     assert.equal(ctx.calls.filter((call) => call.url.endsWith('/api/auth/profile/bootstrap')).length, 1)
     assert.equal(ctx.manager.sessionGeneration, 1)
   } finally {
+    meStarted.resolve()
+    meGate.resolve()
+    await Promise.all([first, second].filter(Boolean).map((promise) => promise.catch(() => {})))
     ctx.cleanup()
   }
 })
@@ -611,7 +672,9 @@ test('logout clears local credentials and cache even when remote sign-out fails'
     ctx.manager.cloudCache.profile = { full_name: 'Old User' }
 
     const state = await ctx.manager.logout()
+    const logoutCall = ctx.calls.find((call) => call.url.includes('/auth/v1/logout'))
     assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.notEqual(logoutCall.init.signal, undefined)
     assert.equal(ctx.manager.session, null)
     assert.equal(ctx.manager.cloudCache.profile, null)
     assert.throws(() => readFileSync(ctx.manager.sessionPath, 'utf8'))
