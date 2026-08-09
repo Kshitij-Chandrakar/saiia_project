@@ -3,7 +3,7 @@
 **Product:** SAIIA â€” Smart AI Interview Assistant  
 **Document Type:** Production phase checklist for developer + Codex  
 **Version:** 1.1  
-**Last updated:** 2026-08-04
+**Last updated:** 2026-08-09
 **Purpose:** Track SAIIA after MVP and guide development toward a polished production-ready application.
 
 ---
@@ -36,7 +36,7 @@ This tracker is the live execution log for the production build.
 Current active execution phase:
 
 ```text
-C4 - Job target and job-description cloud sync in progress; C4.1 audit/design complete; C4.2 authenticated backend implementation next
+C4 - Job target and job-description cloud sync in progress; C4.1 audit/design complete; C4.2 backend + migration implemented locally pending PR review/merge and live Supabase validation; C4.3 frontend job-target UI next
 ```
 
 Screen Intelligence documentation:
@@ -72,13 +72,13 @@ C2 current status:
 C3 current status:
 
 ```text
-[x] Complete - C3.1 Cloud Resume/Profile Storage Planning + Audit complete; C3.2 Backend Cloud Resume API merged and live smoke-tested; C3.3 frontend authenticated upload/review UI implemented under `/auth/resume`; C3.4 cloud RAG/index activation implemented through backend chunk generation and ready-resume activation; C3.4.5 GPT-based resume extraction provider implemented; C3.5 delete/rebuild/status closure implemented; C4.1 audit/design complete after explicit approval; no C4 runtime functionality, C5, sessions, billing, payment, email provider, admin console, or final website UI started
+[x] Complete - C3.1 Cloud Resume/Profile Storage Planning + Audit complete; C3.2 Backend Cloud Resume API merged and live smoke-tested; C3.3 frontend authenticated upload/review UI implemented under `/auth/resume`; C3.4 cloud RAG/index activation implemented through backend chunk generation and ready-resume activation; C3.4.5 GPT-based resume extraction provider implemented; C3.5 delete/rebuild/status closure implemented; C4.1 audit/design complete after explicit approval; C4.2 backend plus migration implemented locally pending PR review/merge and live Supabase validation; no C4 frontend UI, C4 generation integration, C5, sessions, billing, payment, email provider, admin console, or final website UI started
 ```
 
 C4 current status:
 
 ```text
-[~] In progress - C4.1 Cloud Job Context Audit, Architecture, and Implementation Plan complete in `docs/C4_CLOUD_JOB_CONTEXT_PLAN.md`; C4.2 authenticated cloud Job Context backend plus required migration is next; no runtime cloud job-context CRUD, frontend management UI, generation integration, or C5 desktop sync has been implemented
+[~] In progress - C4.1 Cloud Job Context Audit, Architecture, and Implementation Plan complete in `docs/C4_CLOUD_JOB_CONTEXT_PLAN.md`; C4.2 authenticated cloud Job Context backend plus required migration implemented locally with backend/migration tests passing; live Supabase migration/smoke validation is not yet applied; no frontend management UI, generation integration, or C5 desktop sync has been implemented; C4.3 authenticated job-target frontend UI is next after PR review/merge
 ```
 
 C15.5 future admin/support status:
@@ -1546,7 +1546,7 @@ P17 Protected commercial edition
 # Current Immediate Next Phase
 
 ```text
-C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is merged and live smoke-tested. C3.3 frontend authenticated upload/review UI is implemented under `/auth/resume`. C3.4 cloud RAG/index activation is implemented through user-owned chunk generation, backend-only activation, and ready-current resume behavior. C3.4.5 GPT-based resume extraction provider is implemented. C3.5 delete/rebuild/status closure is implemented. C4 Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend implementation next. No C4 runtime cloud job-context CRUD, C4 frontend management UI, C4 generation integration, C5 desktop login/cloud sync, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI work has started.
+C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is merged and live smoke-tested. C3.3 frontend authenticated upload/review UI is implemented under `/auth/resume`. C3.4 cloud RAG/index activation is implemented through user-owned chunk generation, backend-only activation, and ready-current resume behavior. C3.4.5 GPT-based resume extraction provider is implemented. C3.5 delete/rebuild/status closure is implemented. C4 Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing; live Supabase migration/smoke validation is not yet applied. No C4 frontend management UI, C4 generation integration, C5 desktop login/cloud sync, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI work has started. C4.3 authenticated job-target frontend UI is next after PR review/merge.
 ```
 
 P6B/P8/P9 consolidation records are preserved as historical desktop validation notes, not as the current execution authority.

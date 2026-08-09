@@ -7,6 +7,7 @@ C3_2_MIGRATION = MIGRATIONS_DIR / "20260803143000_add_resume_lifecycle_and_harde
 C3_4_MIGRATION = MIGRATIONS_DIR / "20260804134140_add_cloud_resume_chunk_activation.sql"
 C3_4_PARSING_FIX_MIGRATION = MIGRATIONS_DIR / "20260804151715_fix_cloud_resume_activation_profile_parsing.sql"
 C3_4_PROFILE_PRESERVE_MIGRATION = MIGRATIONS_DIR / "20260804162315_preserve_profile_fields_on_cloud_resume_activation.sql"
+C4_2_MIGRATION = MIGRATIONS_DIR / "20260809120000_add_cloud_job_context_lifecycle.sql"
 
 
 def _normalized_sql() -> str:
@@ -179,3 +180,73 @@ def test_c3_4_profile_preserve_migration_parses_soft_skills_as_skill_list() -> N
     assert "public.saiia_text_to_jsonb_lines(coalesce(p_profile->>'experience', p_profile->>'work_experience', ''))" in sql
     assert "grant execute on function public.activate_cloud_resume(uuid, uuid, integer, uuid, jsonb) to service_role" in sql
     assert "grant execute on function public.activate_cloud_resume(uuid, uuid, integer, uuid, jsonb) to anon" not in sql
+
+
+def test_c4_2_job_context_migration_adds_required_fields_and_defaults() -> None:
+    sql = " ".join(C4_2_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "add column if not exists location text not null default ''" in sql
+    assert "add column if not exists employment_type text not null default ''" in sql
+    assert "add column if not exists source_file_metadata jsonb not null default '{}'::jsonb" in sql
+    assert "alter column is_active set default false" in sql
+    assert "job_contexts_source_file_metadata_object" in sql
+    assert "check (jsonb_typeof(source_file_metadata) = 'object')" in sql
+    assert "drop index" not in sql
+    assert "job_contexts_user_updated_id_idx" in sql
+
+
+def test_c4_2_job_context_migration_hardens_authenticated_writes() -> None:
+    sql = " ".join(C4_2_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "revoke insert, update, delete on table public.job_contexts from authenticated" in sql
+    assert "grant select on table public.job_contexts to authenticated" in sql
+    assert "grant select, insert, update, delete on table public.job_contexts to service_role" in sql
+    assert "disable row level security" not in sql
+    assert " to anon" not in sql
+
+
+def test_c4_2_activation_rpc_is_service_role_only_and_owned() -> None:
+    sql = " ".join(C4_2_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "create or replace function public.activate_job_context" in sql
+    assert "set local lock_timeout = '2s'" in sql
+    assert "set local statement_timeout = '5s'" in sql
+    assert "hashtextextended(p_user_id::text, 0)" in sql
+    assert "pg_advisory_xact_lock(lock_key)" in sql
+    assert "where id = p_job_context_id and user_id = p_user_id" in sql
+    assert "where user_id = p_user_id and is_active = true and id <> p_job_context_id" in sql
+    assert "revoke all on function public.activate_job_context(uuid, uuid) from public" in sql
+    assert "revoke all on function public.activate_job_context(uuid, uuid) from anon" in sql
+    assert "revoke all on function public.activate_job_context(uuid, uuid) from authenticated" in sql
+    assert "grant execute on function public.activate_job_context(uuid, uuid) to service_role" in sql
+    assert "grant execute on function public.activate_job_context(uuid, uuid) to anon" not in sql
+
+
+def test_c4_2_idempotent_create_rpc_is_atomic_and_safe() -> None:
+    sql = " ".join(C4_2_MIGRATION.read_text(encoding="utf-8").lower().split())
+    table_sql = sql.split("); create unique index if not exists job_context_idempotency_user_key_idx", 1)[0]
+    signature = (
+        "public.create_job_context_with_idempotency( "
+        "uuid, text, text, text, text, text, jsonb, jsonb, text, jsonb, text, text, jsonb, boolean "
+        ")"
+    )
+
+    assert "create table if not exists public.job_context_idempotency_keys" in sql
+    assert "job_context_idempotency_user_key_idx" in sql
+    assert "job_context_idempotency_expires_at_idx" in sql
+    assert "alter table public.job_context_idempotency_keys enable row level security" in sql
+    assert "alter table public.job_context_idempotency_keys force row level security" in sql
+    assert "create or replace function public.create_job_context_with_idempotency" in sql
+    assert "insert into public.job_context_idempotency_keys" in sql
+    assert "insert into public.job_contexts" in sql
+    assert "update public.job_context_idempotency_keys set status = 'completed'" in sql
+    assert "if reservation.status = 'completed' and reservation.job_context_id is null then" in sql
+    assert "status := 'gone'" in sql
+    assert "request_hash" in sql
+    assert "job_context_id uuid references public.job_contexts(id) on delete set null" in sql
+    assert "job_description" not in table_sql
+    assert "completed_response" not in table_sql
+    assert f"revoke all on function {signature} from public" in sql
+    assert f"revoke all on function {signature} from anon" in sql
+    assert f"revoke all on function {signature} from authenticated" in sql
+    assert f"grant execute on function {signature} to service_role" in sql
