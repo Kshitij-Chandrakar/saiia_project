@@ -6,7 +6,7 @@
 **Version:** 1.1  
 **Last updated:** 2026-08-09
 **Created:** 2026-07-10  
-**Current active phase:** C4 - Job target and job-description cloud sync in progress; C4.1 audit/design complete; C4.2 backend + migration implemented locally and live Supabase smoke validation passed on saiia-dev; C4.3 frontend job-target UI next after PR review/merge
+**Current active phase:** C4 - Job target and job-description cloud sync in progress; C4.1 audit/design complete; C4.2 backend + migration implemented locally and live Supabase smoke validation passed on saiia-dev; C4.3 main website job-target UI cancelled/re-scoped; job target selection moves to desktop startup/session setup after desktop cloud identity work
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -1322,7 +1322,7 @@ Do not make extracted values authoritative until user confirms.
 ## Status
 
 ```text
-[~] In progress - C4.1 cloud job-context audit, architecture, and implementation plan complete in `docs/C4_CLOUD_JOB_CONTEXT_PLAN.md`; C4.2 authenticated backend job-context API plus required migration implemented locally with backend/migration tests passing and live Supabase smoke validation passed on saiia-dev; no frontend UI, C5 desktop sync, or generation integration has been implemented; C4.3 authenticated job-target frontend UI is next after PR review/merge
+[~] In progress - C4.1 cloud job-context audit, architecture, and implementation plan complete in `docs/C4_CLOUD_JOB_CONTEXT_PLAN.md`; C4.2 authenticated backend job-context API plus required migration implemented locally with backend/migration tests passing and live Supabase smoke validation passed on saiia-dev; C4.3 main website `/job-contexts` UI cancelled/re-scoped by product decision; job target selection belongs in desktop startup/session setup with active resume, active job target/JD, answer model, audio source, and answer preferences after desktop cloud identity exists; no C4 generation integration or C5 desktop sync has been implemented
 ```
 
 Latest C4.2 live validation:
@@ -1330,22 +1330,37 @@ Latest C4.2 live validation:
 - Result: passed against linked Supabase project `saiia-dev` / `rbmxfazjbldmkomdpyzl` on 2026-08-09.
 - Command/tests run: see the tracked sanitized artifact [docs/validation/C4_2_LIVE_SUPABASE_SMOKE_2026-08-09.md](docs/validation/C4_2_LIVE_SUPABASE_SMOKE_2026-08-09.md), which records the PowerShell inline Python smoke method, repository-root execution context, and assertion outcomes without secrets or private data.
 - Smoke covered: migration columns, `is_active` database default false, idempotency table existence/RLS, service-role-only activation/create RPC exposure, blocked authenticated direct `INSERT`/`UPDATE`/`DELETE`, authenticated FastAPI create/list/detail/patch/activate/delete/no-context lifecycle, cross-user blocking, extraction consent rejection, and dual-source extraction rejection.
-- Scope exclusions remain: no C4 frontend UI, no C5 desktop sync, and no generation integration.
+- Scope exclusions remain: no C4 generation integration and no C5 desktop sync.
+
+Latest C4.3 product decision:
+
+- Result: main website `/job-contexts` UI is cancelled/re-scoped and should not be committed as product UI.
+- Replacement direction: job target/JD selection moves into the desktop app startup/session setup flow where the user chooses active resume, active job target/JD, answer model, audio source, and answer preferences before starting an interview session.
+- Dependency: this belongs during or after C5, once desktop authenticated cloud identity is available, because the desktop app needs that identity before it can load cloud resumes and job contexts.
+- Scope exclusions remain: no new desktop implementation, no C4.4 generation integration, no C5 desktop login/cloud sync, no backend runtime changes, and no migration changes.
 
 ## Goal
 
 Store and synchronize company, target role, and job-description context for answer personalization.
 
-## User flow
+## Superseded website flow
 
-```text
-User enters company and position
-â†’ Pastes or uploads job description
-â†’ Backend extracts structured requirements
-â†’ User reviews
-â†’ Saves active job target
-â†’ Desktop app uses it during generation
-```
+The earlier C4.3 website flow where a `/job-contexts` page creates and manages job targets is superseded. The production website remains limited to account/cloud setup surfaces for this area: login/signup, cloud resume setup, auth status, and later billing/account work.
+
+Do not implement or commit a main website job-target management page for C4.3.
+
+## Replacement desktop direction
+
+Job target/JD setup belongs in the desktop app startup/session setup flow after desktop cloud identity exists. That future setup flow should eventually let the user choose the interview session inputs before starting:
+
+- existing cloud resume
+- existing cloud job target
+- lightweight job target/JD create or update from company, position, and pasted/uploaded JD
+- answer model
+- language/audio source
+- answer preferences
+
+This desktop setup UI is deferred until during or after C5, once desktop authenticated cloud identity is available. It is not implemented by C4.2 or C4.3.
 
 ## Data requirements
 
@@ -1387,22 +1402,38 @@ POST   /api/job-contexts/extract
 
 ## C4 tests
 
-- create
-- edit
-- delete
-- activate
-- no-context fallback
-- extraction from text/file
-- ownership/RLS
-- answer generation receives active context
+Completed C4.2 backend coverage:
+
+- create/list/detail/patch/delete/activate backend routes
+- extraction from text/file with consent and source validation
+- ownership/RLS/RPC/idempotency behavior
+- active context uniqueness and no-context state after delete
+
+Deferred coverage:
+
+- desktop startup job target selection/create/edit after desktop cloud identity exists
+- C4.4 active-context generation integration
+- generation uses only the verified user's active context
 - unrelated context is not used
 
 ## C4 exit criteria
 
-- website can create and manage job target
+Completed C4.2 backend criteria:
+
+- authenticated backend job-context APIs are implemented
+- required migration, RLS/RPC grants, backend-only writes, and idempotency are implemented
+- live Supabase smoke validation passed on saiia-dev
 - active context is stored securely
-- desktop/backend generation can retrieve it
-- no-context generation still works
+
+Superseded C4.3 website criteria:
+
+- website `/job-contexts` job-target create/manage UI is cancelled and must not be treated as an active C4 requirement
+
+Deferred criteria:
+
+- desktop startup job-target selection/create/edit moves to a later desktop setup phase during or after C5, once desktop authenticated cloud identity is available
+- desktop/backend generation can retrieve the active job context in C4.4 or later
+- no-context generation fallback remains preserved when generation integration is implemented
 
 ---
 
@@ -1416,7 +1447,7 @@ POST   /api/job-contexts/extract
 
 ## Goal
 
-Connect the Electron desktop app to the same account, profile, resume context, settings, and job target used by the website.
+Connect the Electron desktop app to the same account, profile, resume context, settings, and shared cloud job-target record selected in the desktop startup/session setup flow.
 
 ## Login options
 
@@ -4293,7 +4324,7 @@ The C0â€“C16 track is complete when:
 
 ```text
 C0 remains complete. C0.9 is not fully complete: C0.9.6 has implementation present with Chrome/Edge real-page validation pending, and C0.9.7 through C0.9.13 are deferred by explicit product-priority decision.
-C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 auth surface closure is complete through C2.5. C3.1 planning, C3.2 backend cloud resume API, C3.3 frontend authenticated upload/review UI, C3.4 cloud resume indexing/RAG activation, C3.4.5 GPT-based resume extraction provider, and C3.5 delete/rebuild/status closure are complete through implementation. C4 - Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing and live Supabase smoke validation passed on saiia-dev. No C4 frontend management UI, C4 generation integration, C5 desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started. C4.3 authenticated job-target frontend UI is next after PR review/merge.
+C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 auth surface closure is complete through C2.5. C3.1 planning, C3.2 backend cloud resume API, C3.3 frontend authenticated upload/review UI, C3.4 cloud resume indexing/RAG activation, C3.4.5 GPT-based resume extraction provider, and C3.5 delete/rebuild/status closure are complete through implementation. C4 - Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing and live Supabase smoke validation passed on saiia-dev. C4.3 main website job-target UI is cancelled/re-scoped; job target selection moves to desktop startup/session setup after desktop authenticated cloud identity exists. No C4 generation integration, C5 desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started.
 ```
 
 The completed C0.9.2 manual validation covered:
