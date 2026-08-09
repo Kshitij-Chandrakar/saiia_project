@@ -237,10 +237,13 @@ test('callback rejects missing state, missing code without auth error, mismatche
     ctx.manager.now = () => 1000
     await ctx.manager.startLogin()
     const url = callbackUrlFor(ctx.manager, { code: 'auth-code' })
+    const exchangeCountAfterFirst = () => ctx.calls.filter((call) => call.url.includes('grant_type=pkce')).length
     assert.equal((await ctx.manager.handleAuthCallback(url)).status, AUTH_STATUSES.CONNECTED)
+    const firstExchangeCount = exchangeCountAfterFirst()
     result = await ctx.manager.handleAuthCallback(url)
     assert.equal(result.status, AUTH_STATUSES.CONNECTED)
     assert.equal(result.error, 'Invalid or expired authentication attempt.')
+    assert.equal(exchangeCountAfterFirst(), firstExchangeCount)
   } finally {
     ctx.cleanup()
   }
@@ -374,6 +377,7 @@ test('verification ignores stale session after logout during auth-me request', a
 
 test('verification ignores stale session after logout during bootstrap request', async () => {
   const bootstrapGate = deferred()
+  const bootstrapStarted = deferred()
   const session = { access_token: 'access-token', refresh_token: 'refresh-token' }
   const ctx = createManager({
     fetchImpl: async (url, init = {}) => {
@@ -382,6 +386,7 @@ test('verification ignores stale session after logout during bootstrap request',
         return jsonResponse(200, { user_id: 'user-1', email: 'user@example.com' })
       }
       if (url.endsWith('/api/auth/profile/bootstrap')) {
+        bootstrapStarted.resolve()
         await bootstrapGate.promise
         return jsonResponse(200, { ok: true })
       }
@@ -391,7 +396,7 @@ test('verification ignores stale session after logout during bootstrap request',
   try {
     ctx.manager.session = session
     const promise = ctx.manager._verifyAndBootstrap(session)
-    await new Promise((resolve) => setImmediate(resolve))
+    await bootstrapStarted.promise
     await ctx.manager.logout()
     bootstrapGate.resolve()
     const state = await promise
@@ -483,6 +488,63 @@ test('delayed refresh response cannot overwrite a newer signed-out state', async
     assert.equal(ctx.manager.session, null)
   } finally {
     ctx.cleanup()
+  }
+})
+
+test('delayed refresh json and rejected refresh after logout cannot overwrite signed-out state', async () => {
+  const jsonGate = deferred()
+  const jsonCase = createManager({
+    fetchImpl: async (url, init = {}) => {
+      jsonCase.calls.push({ url, init })
+      if (url.includes('/auth/v1/token?grant_type=refresh_token')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => {
+            await jsonGate.promise
+            return {
+              access_token: 'late-access-token',
+              refresh_token: 'late-refresh-token',
+            }
+          },
+        }
+      }
+      return jsonResponse(200, {})
+    },
+  })
+  try {
+    jsonCase.manager.session = { access_token: 'old-access', refresh_token: 'old-refresh' }
+    const promise = jsonCase.manager.refreshSession()
+    await jsonCase.manager.logout()
+    jsonGate.resolve()
+    const state = await promise
+    assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(jsonCase.manager.session, null)
+  } finally {
+    jsonCase.cleanup()
+  }
+
+  const rejectGate = deferred()
+  const rejectCase = createManager({
+    fetchImpl: async (url, init = {}) => {
+      rejectCase.calls.push({ url, init })
+      if (url.includes('/auth/v1/token?grant_type=refresh_token')) {
+        await rejectGate.promise
+        throw new Error('network failed')
+      }
+      return jsonResponse(200, {})
+    },
+  })
+  try {
+    rejectCase.manager.session = { access_token: 'old-access', refresh_token: 'old-refresh' }
+    const promise = rejectCase.manager.refreshSession()
+    await rejectCase.manager.logout()
+    rejectGate.resolve()
+    const state = await promise
+    assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(rejectCase.manager.session, null)
+  } finally {
+    rejectCase.cleanup()
   }
 })
 
@@ -620,12 +682,13 @@ test('auth IPC sender validation rejects unexpected window, frame, origin, and a
     devOrigin: 'http://localhost:5173',
     isPackaged: false,
   })({ sender: { window: expectedWindow }, senderFrame: { url: 'http://localhost:5173/' } }), /Unauthorized IPC sender/)
+  const destroyedWindow = { isDestroyed: () => true }
   assert.throws(() => createIpcSenderValidator({
-    getExpectedWindow: () => ({ isDestroyed: () => true }),
-    BrowserWindow: { fromWebContents: () => ({ isDestroyed: () => true }) },
+    getExpectedWindow: () => destroyedWindow,
+    BrowserWindow: { fromWebContents: (sender) => sender.window },
     devOrigin: 'http://localhost:5173',
     isPackaged: false,
-  })({ sender: { window: expectedWindow }, senderFrame: { url: 'http://localhost:5173/' } }), /Unauthorized IPC sender/)
+  })({ sender: { window: destroyedWindow }, senderFrame: { url: 'http://localhost:5173/' } }), /Unauthorized IPC sender/)
   assert.throws(() => validate({ sender: { window: expectedWindow }, senderFrame: null }), /Unauthorized IPC frame/)
   assert.throws(() => validate({ sender: { window: expectedWindow }, senderFrame: { url: 'http://evil.test/' } }), /Unauthorized IPC origin/)
   assert.throws(() => validate({ sender: { window: expectedWindow }, senderFrame: { url: 'http://localhost:5173/', isDestroyed: () => true } }), /Unauthorized IPC frame/)
@@ -705,6 +768,11 @@ test('main process exits second instances before protocol registration and buffe
   const argvCallback = source.indexOf('handleDesktopAuthCallbackFromArgv(process.argv)')
 
   assert.equal(secondInstanceExit >= 0, true)
+  assert.equal(protocolRegistration >= 0, true)
+  assert.equal(managerCreation >= 0, true)
+  assert.equal(initializeAwait >= 0, true)
+  assert.equal(bufferedDrain >= 0, true)
+  assert.equal(argvCallback >= 0, true)
   assert.equal(protocolRegistration > secondInstanceExit, true)
   assert.match(source, /bufferedDesktopAuthCallbacks\.push\(value\)/)
   assert.equal(managerCreation < initializeAwait, true)

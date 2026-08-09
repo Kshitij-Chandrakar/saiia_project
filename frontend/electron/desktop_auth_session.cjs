@@ -315,14 +315,15 @@ class DesktopAuthSessionManager {
     }
     const refreshSession = this.session
     const refreshGeneration = this.sessionGeneration
+    const isStaleRefresh = () => this.session !== refreshSession || this.sessionGeneration !== refreshGeneration
     try {
       const response = await this.fetchImpl(`${this.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
         method: 'POST',
         headers: this._supabaseHeaders(),
-        body: JSON.stringify({ refresh_token: this.session.refresh_token }),
+        body: JSON.stringify({ refresh_token: refreshSession.refresh_token }),
         signal: this._requestSignal(),
       })
-      if (this.session !== refreshSession || this.sessionGeneration !== refreshGeneration) {
+      if (isStaleRefresh()) {
         return this.getSafeState()
       }
       if ([400, 401, 403].includes(response.status)) {
@@ -340,10 +341,16 @@ class DesktopAuthSessionManager {
         return this.getSafeState()
       }
       const session = await response.json()
+      if (isStaleRefresh()) {
+        return this.getSafeState()
+      }
       this.session = session
       this._writeStoredSession(session)
       return this._verifyAndBootstrap(session)
     } catch {
+      if (isStaleRefresh()) {
+        return this.getSafeState()
+      }
       this.status = AUTH_STATUSES.OFFLINE
       this.error = 'Cloud authentication is temporarily unavailable.'
       return this.getSafeState()

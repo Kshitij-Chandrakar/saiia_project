@@ -101,7 +101,7 @@ jobs:
 
       - name: Frontend Node tests
         working-directory: frontend
-        run: node --test src/desktop_auth_session.test.js src/auth/*.test.js
+        run: node --test src/*.test.js src/auth/*.test.js
 
       - name: Electron syntax checks
         run: |
