@@ -173,6 +173,7 @@ New C4.2 constants to define in the cloud job-context backend:
 | `seniority` | 80 characters |
 | `location` | 160 characters |
 | `employment_type` | 80 characters |
+| `job_description_preview` | 240 characters |
 | `required_skills`, `responsibilities`, `domain_keywords` item count | 50 items per array |
 | Array item length | 160 characters |
 | Metadata string value length | 256 characters |
@@ -187,9 +188,16 @@ These limits are C4.2 contract inputs, not C4.1 runtime behavior.
 
 ### `GET /api/job-contexts`
 
-Returns all current user's saved job targets ordered by `is_active desc, updated_at desc`.
+Returns a paginated page of the current user's saved job targets ordered by `is_active desc, updated_at desc`.
 
 List responses return summary fields only. They must not include raw full `job_description`; use bounded summaries/derived display fields such as `job_description_preview` and counts instead.
+
+Query parameters:
+
+- `limit`: default 20, maximum 50.
+- `offset`: default 0, minimum 0.
+
+`job_description_preview` must be derived server-side from raw JD text and capped at 240 characters.
 
 Response:
 
@@ -213,7 +221,10 @@ Response:
       "updated_at": ""
     }
   ],
-  "active_id": null
+  "active_id": null,
+  "limit": 20,
+  "offset": 0,
+  "total": 0
 }
 ```
 
@@ -243,8 +254,13 @@ Validation:
 - For `/extract` -> save, bind server-derived metadata to a short-lived server-side extraction receipt. Save may reference `extraction_receipt_id`; the backend resolves it to server-derived metadata only after verifying the receipt belongs to the current user, is unexpired, and matches the normalized JD text/hash being saved.
 - For manual save/create without extraction, persist empty `{}` metadata.
 - Reject any request that submits `source_file_metadata` directly or sends metadata conflicting with the server-side extraction receipt.
-- POST must be safe to retry, including `activate: true`. C4.2 must either require an idempotency key with server-side replay handling or implement a deterministic per-user deduplication rule over normalized create payloads. Recommendation: require an `Idempotency-Key` header for create requests and store/replay the first completed result for the verified user and normalized request hash.
+- POST must be safe to retry, including `activate: true`, and must require an `Idempotency-Key` header.
 - Validate `Idempotency-Key` before hashing, storing, or using it: 1 to 80 characters, ASCII letters/digits plus `.`, `_`, `-`, and `:` only. Reject missing, oversized, non-ASCII, or otherwise invalid keys with `400`.
+- C4.2 must atomically reserve `(verified_user_id, idempotency_key)` before creating the job row.
+- The reservation stores the normalized request payload hash and eventual completed response.
+- If the key already exists with the same normalized payload hash and completed response, replay the original completed result without creating or activating another row.
+- If the key exists with a different normalized payload hash, reject safely with `409 Conflict`.
+- If concurrent same-key requests race before completion, one request owns the reservation and the others return a safe in-progress/retry conflict or replay after completion; they must not create duplicate rows.
 
 ### `GET /api/job-contexts/{id}`
 
@@ -276,7 +292,7 @@ Support both paste and file upload with one endpoint only if FastAPI form handli
 - At least one source is required.
 - Explicit provider-processing consent is required, e.g. `provider_processing_consent=true`.
 - Missing or false consent must reject before text extraction provider prompt construction or any Groq/provider call.
-- If both are provided, combine only if explicitly intended; otherwise prefer text and document behavior.
+- If both `file` and `job_description_text` are provided, reject with `400`. Do not merge sources and do not define precedence behavior.
 
 Response:
 
@@ -313,10 +329,12 @@ Use the database as the concurrency boundary:
 1. Backend verifies Supabase JWT and derives `current_user.user_id`.
 2. Backend calls a service-role-only RPC with `p_user_id` and `p_job_context_id`.
 3. RPC acquires a transaction-scoped serialization guard before changing active rows.
-4. RPC verifies the target row exists for `p_user_id`.
+4. RPC verifies the target row matches both `id = p_job_context_id` and `user_id = p_user_id` before deactivating or activating anything.
 5. RPC updates all `public.job_contexts` rows for `p_user_id` to `is_active = false` except target.
 6. RPC updates target row to `is_active = true`.
 7. RPC returns the activated row.
+
+If the row is missing or belongs to another user, the RPC must return a safe not-found/conflict result and leave all rows unchanged.
 
 The existing partial unique index remains the final invariant. If concurrent activations for different targets race despite serialization, one transaction must win cleanly; the backend should map lock/uniqueness/state conflicts to `409` with a safe refresh-and-retry message.
 
@@ -505,6 +523,8 @@ Backend unit/route tests:
 - Cloud job-context routes reject missing/invalid JWT.
 - Create derives `user_id` from verified token and ignores request `user_id`.
 - List returns only service-owned user rows from fake service.
+- List enforces pagination defaults and maximum page size.
+- List caps `job_description_preview` at 240 characters.
 - List responses exclude raw full `job_description` and source metadata that could reveal private JD contents.
 - Raw JD content appears only in authorized owner detail responses and successful extraction responses. It remains forbidden in list responses, error responses, diagnostics/logs, unauthenticated responses, and cross-user responses.
 - Get/update/delete map other-user/missing rows to 404.
@@ -515,16 +535,24 @@ Backend unit/route tests:
 - Create rejects payloads over the 128 KiB JSON body limit.
 - Multipart extraction rejects bodies over the 6 MiB read limit and files over the 5 MiB file limit.
 - Extraction rejects extracted UTF-8 JD text over 100,000 bytes before prompt construction, response serialization, or persistence.
-- Create with the same idempotency key and identical normalized payload returns/replays the same result without duplicate rows.
+- Create requires `Idempotency-Key`.
+- Create rejects invalid or oversized `Idempotency-Key` values before hashing, storing, or service calls.
+- Create atomically reserves `(verified_user_id, idempotency_key)` before row creation.
+- Create validates the normalized payload hash against the reservation before creating the job row.
+- Create with the same idempotency key and identical normalized payload returns/replays the same completed result without duplicate rows.
 - Retried create with `activate: true` is idempotent and leaves exactly one active context.
-- Reusing an idempotency key with a conflicting payload is rejected safely.
+- Reusing an idempotency key with a conflicting normalized payload hash is rejected safely.
+- Concurrent same-key create requests do not create duplicate rows; exactly one reservation wins and matching retries replay or return a safe retry conflict until completion.
 - Array fields normalize and reject oversized/invalid values.
 - Extract from pasted text returns editable fields and does not save.
 - Extract rejects missing/false provider-processing consent before provider call.
+- Extract rejects requests that include both `file` and `job_description_text`.
 - Extract from file reuses text extraction and validates file metadata.
 - File extraction metadata is server-derived; conflicting client-provided metadata is rejected.
 - Extraction/provider failure does not overwrite existing saved context.
 - Activate calls backend-only service/RPC and maps conflicts to 409.
+- Activation RPC verifies `id = p_job_context_id` and `user_id = p_user_id` before mutating rows.
+- Cross-user activation mismatch returns safe not-found/conflict and changes no rows.
 - Concurrent activation of two different targets for the same user serializes through the advisory lock or equivalent mechanism, leaves exactly one active row, and maps stale/conflicting requests to a safe 409 where applicable.
 - Concurrent activation for different users runs independently except for documented advisory-hash collision behavior.
 - Lock timeout and recoverable serialization conflicts map to 409; unrecoverable DB timeout/connectivity maps to 503.
