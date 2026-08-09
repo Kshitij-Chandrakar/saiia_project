@@ -84,7 +84,7 @@ C4 current status:
 C4.2 live validation record:
 
 - Result: passed against linked Supabase project `saiia-dev` / `rbmxfazjbldmkomdpyzl` on 2026-08-09.
-- Command/tests run: `git status --short --branch`; `rg -n "C4\\.2|live Supabase|live smoke|Current active phase|Current Next Action|job-context" SAIIA_CLOUD_PRODUCT_IMPLEMENTATION_ROADMAP.md SAIIA_PRODUCTION_PHASES_TRACKER.md docs/C4_CLOUD_JOB_CONTEXT_PLAN.md`; inline Python smoke via `@' <C4.2 live Supabase smoke script> '@ | python -` from the repository root using `.env`, Supabase REST/Auth/Admin APIs, and FastAPI `TestClient`; inline Python default check via `@' <service-role insert with is_active omitted, readback, cleanup> '@ | python -`.
+- Command/tests run: see the tracked sanitized artifact [docs/validation/C4_2_LIVE_SUPABASE_SMOKE_2026-08-09.md](docs/validation/C4_2_LIVE_SUPABASE_SMOKE_2026-08-09.md), which records the PowerShell inline Python smoke method, repository-root execution context, and assertion outcomes without secrets or private data.
 - Smoke covered: migration columns, `is_active` database default false, idempotency table existence/RLS, service-role-only activation/create RPC exposure, blocked authenticated direct `INSERT`/`UPDATE`/`DELETE`, authenticated FastAPI create/list/detail/patch/activate/delete/no-context lifecycle, cross-user blocking, extraction consent rejection, and dual-source extraction rejection.
 - Scope exclusions remain: no C4 frontend UI, no C5 desktop sync, and no generation integration.
 
