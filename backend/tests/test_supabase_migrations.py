@@ -191,7 +191,8 @@ def test_c4_2_job_context_migration_adds_required_fields_and_defaults() -> None:
     assert "alter column is_active set default false" in sql
     assert "job_contexts_source_file_metadata_object" in sql
     assert "check (jsonb_typeof(source_file_metadata) = 'object')" in sql
-    assert "job_contexts_one_active_per_user_idx" not in sql or "drop index" not in sql
+    assert "drop index" not in sql
+    assert "job_contexts_user_updated_id_idx" in sql
 
 
 def test_c4_2_job_context_migration_hardens_authenticated_writes() -> None:
@@ -224,17 +225,28 @@ def test_c4_2_activation_rpc_is_service_role_only_and_owned() -> None:
 def test_c4_2_idempotent_create_rpc_is_atomic_and_safe() -> None:
     sql = " ".join(C4_2_MIGRATION.read_text(encoding="utf-8").lower().split())
     table_sql = sql.split("); create unique index if not exists job_context_idempotency_user_key_idx", 1)[0]
+    signature = (
+        "public.create_job_context_with_idempotency( "
+        "uuid, text, text, text, text, text, jsonb, jsonb, text, jsonb, text, text, jsonb, boolean "
+        ")"
+    )
 
     assert "create table if not exists public.job_context_idempotency_keys" in sql
     assert "job_context_idempotency_user_key_idx" in sql
+    assert "job_context_idempotency_expires_at_idx" in sql
+    assert "alter table public.job_context_idempotency_keys enable row level security" in sql
+    assert "alter table public.job_context_idempotency_keys force row level security" in sql
     assert "create or replace function public.create_job_context_with_idempotency" in sql
     assert "insert into public.job_context_idempotency_keys" in sql
     assert "insert into public.job_contexts" in sql
     assert "update public.job_context_idempotency_keys set status = 'completed'" in sql
+    assert "if reservation.status = 'completed' and reservation.job_context_id is null then" in sql
+    assert "status := 'gone'" in sql
     assert "request_hash" in sql
     assert "job_context_id uuid references public.job_contexts(id) on delete set null" in sql
     assert "job_description" not in table_sql
     assert "completed_response" not in table_sql
-    assert "revoke all on function public.create_job_context_with_idempotency" in sql
-    assert "from authenticated" in sql
-    assert "to service_role" in sql
+    assert f"revoke all on function {signature} from public" in sql
+    assert f"revoke all on function {signature} from anon" in sql
+    assert f"revoke all on function {signature} from authenticated" in sql
+    assert f"grant execute on function {signature} to service_role" in sql

@@ -37,6 +37,12 @@ create table if not exists public.job_context_idempotency_keys (
 create unique index if not exists job_context_idempotency_user_key_idx
   on public.job_context_idempotency_keys (user_id, idempotency_key);
 
+create index if not exists job_context_idempotency_expires_at_idx
+  on public.job_context_idempotency_keys (expires_at);
+
+alter table public.job_context_idempotency_keys enable row level security;
+alter table public.job_context_idempotency_keys force row level security;
+
 drop trigger if exists set_job_context_idempotency_updated_at on public.job_context_idempotency_keys;
 create trigger set_job_context_idempotency_updated_at
 before update on public.job_context_idempotency_keys
@@ -153,6 +159,15 @@ begin
 
     if reservation.request_hash <> p_request_hash then
       raise exception 'job context idempotency key conflict' using errcode = 'P0001';
+    end if;
+
+    if reservation.status = 'completed' and reservation.job_context_id is null then
+      job_context_id := null;
+      replayed := true;
+      activated := reservation.activated;
+      status := 'gone';
+      return next;
+      return;
     end if;
 
     if reservation.status = 'completed' and reservation.job_context_id is not null then

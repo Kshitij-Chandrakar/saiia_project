@@ -3,8 +3,9 @@ from typing import Any
 
 import jwt
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from app.api import job_contexts as job_contexts_api
 from app.auth.supabase_auth import AUTH_ERROR_DETAIL, get_auth_verification_config
@@ -174,6 +175,40 @@ def test_cloud_job_context_routes_require_jwt(client: TestClient) -> None:
 
     assert response.status_code == 401
     assert response.json() == {"detail": AUTH_ERROR_DETAIL}
+
+
+def _request_with_content_length(value: str) -> Request:
+    return Request({"type": "http", "headers": [(b"content-length", value.encode("ascii"))]})
+
+
+@pytest.mark.parametrize(
+    "guard",
+    [job_contexts_api._enforce_json_size, job_contexts_api._enforce_multipart_size],
+)
+def test_content_length_guards_reject_invalid_header(guard) -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        guard(_request_with_content_length("not-a-number"))
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "Invalid Content-Length header."
+
+
+def test_json_content_length_guard_rejects_oversized_body() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        job_contexts_api._enforce_json_size(_request_with_content_length(str(job_contexts_api.MAX_JSON_BODY_BYTES + 1)))
+
+    assert exc_info.value.status_code == 413
+    assert exc_info.value.detail == "Request body is too large."
+
+
+def test_multipart_content_length_guard_rejects_oversized_body() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        job_contexts_api._enforce_multipart_size(
+            _request_with_content_length(str(job_contexts_api.MAX_MULTIPART_BODY_BYTES + 1))
+        )
+
+    assert exc_info.value.status_code == 413
+    assert exc_info.value.detail == "Multipart request body is too large."
 
 
 def test_list_returns_preview_only_and_bounds_limit(client: TestClient, fake_service: FakeJobContextService) -> None:

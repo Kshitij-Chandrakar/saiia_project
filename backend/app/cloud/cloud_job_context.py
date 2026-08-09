@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import base64
+import binascii
 import hashlib
 import json
 import logging
@@ -9,7 +10,8 @@ import re
 import time
 from pathlib import PurePath
 from typing import Any, NoReturn
-from uuid import uuid4
+from urllib.parse import urlparse
+from uuid import UUID, uuid4
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -276,12 +278,19 @@ def decode_cursor(cursor: str) -> tuple[str, str]:
     try:
         padded = cursor + "=" * (-len(cursor) % 4)
         payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
-    except (ValueError, json.JSONDecodeError) as exc:
+    except (binascii.Error, UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
         raise CloudJobContextValidationError("Invalid pagination cursor.") from exc
+    if not isinstance(payload, dict):
+        raise CloudJobContextValidationError("Invalid pagination cursor.")
     updated_at = str(payload.get("updated_at") or "").strip()
     row_id = str(payload.get("id") or "").strip()
     if not updated_at or not row_id:
         raise CloudJobContextValidationError("Invalid pagination cursor.")
+    try:
+        datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+        UUID(row_id)
+    except ValueError as exc:
+        raise CloudJobContextValidationError("Invalid pagination cursor.") from exc
     return updated_at, row_id
 
 
@@ -335,6 +344,15 @@ def build_source_file_metadata(*, filename: str, content: bytes, content_type: s
     )
 
 
+def _validate_supabase_url(value: str) -> str:
+    parsed = urlparse(str(value or "").strip())
+    if parsed.scheme == "https" and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
+    if parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"} and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
+    raise SupabaseConfigurationError("Supabase URL must use HTTPS unless it targets localhost.")
+
+
 class ExtractionReceiptStore:
     def __init__(self) -> None:
         self._receipts: dict[str, ExtractionReceipt] = {}
@@ -370,6 +388,13 @@ class ExtractionReceiptStore:
 
 
 class ExtractionLimiter:
+    """Process-local extraction limiter.
+
+    This protects a single backend process. A shared store such as Redis or a
+    Supabase-backed counter should replace it before multi-worker production
+    enforcement is required.
+    """
+
     def __init__(self, *, max_calls: int = EXTRACTION_QUOTA_MAX_CALLS, window_seconds: int = EXTRACTION_QUOTA_WINDOW_SECONDS) -> None:
         self.max_calls = max_calls
         self.window_seconds = window_seconds
@@ -377,12 +402,22 @@ class ExtractionLimiter:
 
     def consume(self, user_id: str) -> None:
         now = time.time()
-        calls = [stamp for stamp in self._calls.get(user_id, []) if now - stamp < self.window_seconds]
+        self._prune(now)
+        calls = list(self._calls.get(user_id, []))
         if len(calls) >= self.max_calls:
             self._calls[user_id] = calls
             raise CloudJobContextRateLimitError("Job description extraction quota exceeded.")
         calls.append(now)
         self._calls[user_id] = calls
+
+    def _prune(self, now: float | None = None) -> None:
+        cutoff_now = time.time() if now is None else now
+        for key in list(self._calls):
+            active = [stamp for stamp in self._calls[key] if cutoff_now - stamp < self.window_seconds]
+            if active:
+                self._calls[key] = active
+            else:
+                del self._calls[key]
 
 
 class ProviderCircuitBreaker:
@@ -415,7 +450,8 @@ class SupabaseCloudJobContextClient:
         if settings.service_role_key == settings.anon_key:
             logger.error("Supabase cloud job context is misconfigured: service-role key matches anon key.")
             raise SupabaseConfigurationError("Supabase service-role configuration is not ready.")
-        self._rest_url = f"{settings.supabase_url.rstrip('/')}/rest/v1"
+        supabase_url = _validate_supabase_url(settings.supabase_url)
+        self._rest_url = f"{supabase_url}/rest/v1"
         self._session = requests.Session()
         adapter = HTTPAdapter(
             pool_connections=SUPABASE_HTTP_POOL_SIZE,
@@ -423,7 +459,6 @@ class SupabaseCloudJobContextClient:
             pool_block=True,
         )
         self._session.mount("https://", adapter)
-        self._session.mount("http://", adapter)
         self._headers = {
             "apikey": settings.service_role_key,
             "Authorization": f"Bearer {settings.service_role_key}",
@@ -535,6 +570,8 @@ class SupabaseCloudJobContextClient:
         if not isinstance(data, list) or not data or not isinstance(data[0], dict):
             raise CloudJobContextError(SAFE_FAILURE_MESSAGE)
         created = data[0]
+        if str(created.get("status") or "") == "gone":
+            raise CloudJobContextNotFoundError("Job context was not found.")
         context_id = str(created.get("job_context_id") or "")
         if not context_id:
             raise CloudJobContextError(SAFE_FAILURE_MESSAGE)
@@ -739,8 +776,8 @@ class CloudJobContextService:
         raw_text: str,
         source_file_metadata: dict[str, Any],
     ) -> CloudJobContextExtractResult:
-        self._limiter.consume(user_id)
         self._circuit_breaker.ensure_available()
+        self._limiter.consume(user_id)
         try:
             local_fields = self._local_job_context.build_context_fields(raw_text)
         except (JobContextError, ProviderError):

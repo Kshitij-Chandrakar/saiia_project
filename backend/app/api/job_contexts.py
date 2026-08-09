@@ -1,11 +1,11 @@
 from functools import lru_cache
-import json
 import logging
 from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 
 from app.auth.supabase_auth import CurrentUserDep
 from app.cloud.cloud_job_context import (
@@ -192,18 +192,18 @@ def _enforce_json_size(request: Request) -> None:
     content_length = request.headers.get("content-length")
     try:
         if content_length and int(content_length) > MAX_JSON_BODY_BYTES:
-            raise CloudJobContextValidationError("Request body is too large.")
+            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Request body is too large.")
     except ValueError as exc:
-        raise CloudJobContextValidationError("Invalid Content-Length header.") from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Content-Length header.") from exc
 
 
 def _enforce_multipart_size(request: Request) -> None:
     content_length = request.headers.get("content-length")
     try:
         if content_length and int(content_length) > MAX_MULTIPART_BODY_BYTES:
-            raise CloudJobContextValidationError("Multipart request body is too large.")
+            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Multipart request body is too large.")
     except ValueError as exc:
-        raise CloudJobContextValidationError("Invalid Content-Length header.") from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Content-Length header.") from exc
 
 
 @router.get("", response_model=CloudJobContextListResponse)
@@ -226,8 +226,7 @@ def list_job_contexts(
 
 
 @router.post("", response_model=CloudJobContextCreateResponse, status_code=status.HTTP_201_CREATED)
-async def create_job_context(
-    request: Request,
+def create_job_context(
     payload: CloudJobContextCreateRequest,
     current_user: CurrentUserDep,
     service: CloudJobContextServiceDep,
@@ -274,22 +273,22 @@ async def extract_job_context(
             if file.size is not None and file.size > MAX_RESUME_FILE_BYTES:
                 raise CloudJobContextValidationError("Job description file is too large. Please upload a file under 5 MB.")
             content = await file.read(MAX_RESUME_FILE_BYTES + 1)
-            result = service.extract_from_file(
+            result = await run_in_threadpool(
+                service.extract_from_file,
                 user_id=current_user.user_id,
                 filename=file.filename or "",
                 content=content,
                 content_type=file.content_type,
             )
         else:
-            result = service.extract_from_text(
+            result = await run_in_threadpool(
+                service.extract_from_text,
                 user_id=current_user.user_id,
                 job_description_text=job_description_text,
             )
     except Exception as exc:
         raise _handle_cloud_error(exc) from exc
-    response = _extract_response(result)
-    json.dumps(response.model_dump(), ensure_ascii=False)
-    return response
+    return _extract_response(result)
 
 
 @router.get("/{job_context_id}", response_model=CloudJobContextDetailResponse)
@@ -306,8 +305,7 @@ def get_job_context(
 
 
 @router.patch("/{job_context_id}", response_model=CloudJobContextSummaryResponse)
-async def update_job_context(
-    request: Request,
+def update_job_context(
     job_context_id: UUID,
     payload: CloudJobContextPatchRequest,
     current_user: CurrentUserDep,
