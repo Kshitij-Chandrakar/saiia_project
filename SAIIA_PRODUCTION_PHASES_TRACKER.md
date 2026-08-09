@@ -36,7 +36,7 @@ This tracker is the live execution log for the production build.
 Current active execution phase:
 
 ```text
-C5.1 - Desktop authenticated cloud identity audit and planning; C5 desktop auth implementation, desktop startup/session setup UI, C4.4 generation integration, and C5 sync are not started
+C5.2 - Desktop authenticated cloud identity implemented locally; desktop startup/session setup UI, C4.4 generation integration, cloud sync engine, and local/cloud data migration are not started
 ```
 
 Screen Intelligence documentation:
@@ -99,6 +99,12 @@ C5.1 current status:
 
 ```text
 [~] Planning - Desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`; no desktop auth runtime, token persistence, startup/session setup UI, cloud sync engine, or C4.4 generation integration has been implemented
+```
+
+C5.2 current status:
+
+```text
+[~] Implemented locally - Electron main-process desktop auth session manager, Supabase Auth PKCE `saiia://auth/callback` flow, safeStorage-backed encrypted session persistence, narrow auth/cloud IPC, backend `/api/auth/me` verification, mandatory profile bootstrap, logout cleanup, user-switch cache clearing, session generation, stale response protection, and focused tests are implemented locally; no desktop startup/session setup UI, C4.4 generation integration, cloud sync engine, backend route changes, migrations, billing/account UI, or local/cloud data migration has been started
 ```
 
 C15.5 future admin/support status:
@@ -1566,7 +1572,7 @@ P17 Protected commercial edition
 # Current Immediate Next Phase
 
 ```text
-C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is merged and live smoke-tested. C3.3 frontend authenticated upload/review UI is implemented under `/auth/resume`. C3.4 cloud RAG/index activation is implemented through user-owned chunk generation, backend-only activation, and ready-current resume behavior. C3.4.5 GPT-based resume extraction provider is implemented. C3.5 delete/rebuild/status closure is implemented. C4 Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing and live Supabase smoke validation passed on saiia-dev. C4.3 main website job-target UI is cancelled/re-scoped; job target selection moves to desktop startup/session setup after desktop authenticated cloud identity exists. C5.1 desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`. No C4 generation integration, C5 desktop login/cloud sync, desktop startup/session setup UI, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI work has started.
+C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is merged and live smoke-tested. C3.3 frontend authenticated upload/review UI is implemented under `/auth/resume`. C3.4 cloud RAG/index activation is implemented through user-owned chunk generation, backend-only activation, and ready-current resume behavior. C3.4.5 GPT-based resume extraction provider is implemented. C3.5 delete/rebuild/status closure is implemented. C4 Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing and live Supabase smoke validation passed on saiia-dev. C4.3 main website job-target UI is cancelled/re-scoped; job target selection moves to desktop startup/session setup after desktop authenticated cloud identity exists. C5.1 desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`. C5.2 desktop authenticated cloud identity is implemented locally with Electron main-process auth/session handling and focused tests. No C4 generation integration, desktop startup/session setup UI, cloud sync engine, local/cloud data migration, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI work has started.
 ```
 
 P6B/P8/P9 consolidation records are preserved as historical desktop validation notes, not as the current execution authority.
