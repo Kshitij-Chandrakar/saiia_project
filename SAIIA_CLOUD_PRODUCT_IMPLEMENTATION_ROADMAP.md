@@ -1343,16 +1343,24 @@ Latest C4.3 product decision:
 
 Store and synchronize company, target role, and job-description context for answer personalization.
 
-## User flow
+## Superseded website flow
 
-```text
-User enters company and position
-â†’ Pastes or uploads job description
-â†’ Backend extracts structured requirements
-â†’ User reviews
-â†’ Saves active job target
-â†’ Desktop app uses it during generation
-```
+The earlier C4.3 website flow where a `/job-contexts` page creates and manages job targets is superseded. The production website remains limited to account/cloud setup surfaces for this area: login/signup, cloud resume setup, auth status, and later billing/account work.
+
+Do not implement or commit a main website job-target management page for C4.3.
+
+## Replacement desktop direction
+
+Job target/JD setup belongs in the desktop app startup/session setup flow after desktop cloud identity exists. That future setup flow should eventually let the user choose the interview session inputs before starting:
+
+- existing cloud resume
+- existing cloud job target
+- lightweight job target/JD create or update from company, position, and pasted/uploaded JD
+- answer model
+- language/audio source
+- answer preferences
+
+This desktop setup UI is deferred until with or after C5 desktop authenticated cloud identity. It is not implemented by C4.2 or C4.3.
 
 ## Data requirements
 
@@ -1394,22 +1402,38 @@ POST   /api/job-contexts/extract
 
 ## C4 tests
 
-- create
-- edit
-- delete
-- activate
-- no-context fallback
-- extraction from text/file
-- ownership/RLS
-- answer generation receives active context
+Completed C4.2 backend coverage:
+
+- create/list/detail/patch/delete/activate backend routes
+- extraction from text/file with consent and source validation
+- ownership/RLS/RPC/idempotency behavior
+- active context uniqueness and no-context state after delete
+
+Deferred coverage:
+
+- desktop startup job target selection/create/edit after desktop cloud identity exists
+- C4.4 active-context generation integration
+- generation uses only the verified user's active context
 - unrelated context is not used
 
 ## C4 exit criteria
 
-- website can create and manage job target
+Completed C4.2 backend criteria:
+
+- authenticated backend job-context APIs are implemented
+- required migration, RLS/RPC grants, backend-only writes, and idempotency are implemented
+- live Supabase smoke validation passed on saiia-dev
 - active context is stored securely
-- desktop/backend generation can retrieve it
-- no-context generation still works
+
+Superseded C4.3 website criteria:
+
+- website `/job-contexts` job-target create/manage UI is cancelled and must not be treated as an active C4 requirement
+
+Deferred criteria:
+
+- desktop startup job-target selection/create/edit moves to a later desktop setup phase with or after C5 desktop authenticated cloud identity
+- desktop/backend generation can retrieve the active job context in C4.4 or later
+- no-context generation fallback remains preserved when generation integration is implemented
 
 ---
 
