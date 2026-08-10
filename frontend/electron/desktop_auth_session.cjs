@@ -116,6 +116,7 @@ class DesktopAuthSessionManager {
     this.redirectUri = String(options.redirectUri || CALLBACK_URL)
     this.loginTtlMs = Number(options.loginTtlMs || DEFAULT_LOGIN_TTL_MS)
     this.requestTimeoutMs = Number(options.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS)
+    this.requestSignalFactory = options.requestSignalFactory || null
     this.fetchImpl = options.fetchImpl || fetch
     this.openExternal = options.openExternal || (async () => {})
     this.safeStorage = options.safeStorage || null
@@ -198,6 +199,13 @@ class DesktopAuthSessionManager {
     try {
       await this.openExternal(this._buildAuthUrl(this.pendingLogin))
     } catch {
+      if (
+        this.loginAttemptGeneration !== attemptGeneration ||
+        !this.pendingLogin ||
+        this.pendingLogin.attempt_generation !== attemptGeneration
+      ) {
+        return this.getSafeState()
+      }
       return this._restoreAfterLoginLaunchFailure(previous, 'Could not open browser for login.')
     }
     return this.getSafeState()
@@ -260,6 +268,9 @@ class DesktopAuthSessionManager {
       return this.getSafeState()
     }
     this.session = session
+    this.sessionGeneration += 1
+    this.user = null
+    this._clearCloudCache()
     this._writeStoredSession(session)
     return this._verifyAndBootstrap(session)
   }
@@ -440,6 +451,8 @@ class DesktopAuthSessionManager {
 
   async logout() {
     const session = this.session
+    const logoutLoginGeneration = this.loginAttemptGeneration
+    const logoutSessionGeneration = this.sessionGeneration
     try {
       if (session?.access_token) {
         await this.fetchImpl(`${this.supabaseUrl}/auth/v1/logout`, {
@@ -454,7 +467,13 @@ class DesktopAuthSessionManager {
     } catch {
       // Local cleanup is mandatory even when remote sign-out fails.
     } finally {
-      this._clearLocalSession(AUTH_STATUSES.SIGNED_OUT)
+      if (
+        this.session === session &&
+        this.loginAttemptGeneration === logoutLoginGeneration &&
+        this.sessionGeneration === logoutSessionGeneration
+      ) {
+        this._clearLocalSession(AUTH_STATUSES.SIGNED_OUT)
+      }
     }
     return this.getSafeState()
   }
@@ -490,6 +509,7 @@ class DesktopAuthSessionManager {
   captureCloudRequestContext() {
     return {
       session_generation: this.sessionGeneration,
+      session: this.session || null,
       user_id: this.user?.user_id || null,
     }
   }
@@ -501,6 +521,7 @@ class DesktopAuthSessionManager {
     if (
       !captured ||
       captured.session_generation !== this.sessionGeneration ||
+      captured.session !== (this.session || null) ||
       !captured.user_id ||
       captured.user_id !== this.user?.user_id
     ) {
@@ -611,6 +632,9 @@ class DesktopAuthSessionManager {
   }
 
   _requestSignal() {
+    if (typeof this.requestSignalFactory === 'function') {
+      return this.requestSignalFactory()
+    }
     if (this.requestTimeoutMs > 0 && typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
       return AbortSignal.timeout(this.requestTimeoutMs)
     }

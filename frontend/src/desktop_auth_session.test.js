@@ -174,6 +174,41 @@ test('startLogin includes configured provider and fails safely when provider or 
   }
 })
 
+test('stale openExternal failure from an old login does not erase a newer login', async () => {
+  const firstOpen = deferred()
+  let openCount = 0
+  let firstLogin = null
+  const ctx = createManager({
+    openExternal: async (url) => {
+      ctx.opened.push(url)
+      openCount += 1
+      if (openCount === 1) {
+        await firstOpen.promise
+      }
+    },
+  })
+  try {
+    firstLogin = ctx.manager.startLogin()
+    const firstAttempt = ctx.manager.pendingLogin.attempt_generation
+    const secondState = await ctx.manager.startLogin()
+    const secondAttempt = ctx.manager.pendingLogin.attempt_generation
+
+    assert.equal(secondState.status, AUTH_STATUSES.SIGNING_IN)
+    assert.notEqual(firstAttempt, secondAttempt)
+
+    firstOpen.reject(new Error('old browser launch failed'))
+    const staleState = await firstLogin
+    assert.equal(staleState.status, AUTH_STATUSES.SIGNING_IN)
+    assert.equal(ctx.manager.pendingLogin.attempt_generation, secondAttempt)
+  } finally {
+    firstOpen.resolve()
+    if (firstLogin) {
+      await firstLogin.catch(() => {})
+    }
+    ctx.cleanup()
+  }
+})
+
 test('PKCE request uses configured provider, S256, exact redirect_uri, and original code_verifier during exchange', async () => {
   const ctx = createManager()
   try {
@@ -330,6 +365,61 @@ test('overlapping login attempts reject old callbacks and discard old exchange c
   }
 })
 
+test('account switch clears previous user and cache while new session is verifying', async () => {
+  const meStarted = deferred()
+  const meGate = deferred()
+  let callbackPromise = null
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.includes('/auth/v1/token?grant_type=pkce')) {
+        return jsonResponse(200, {
+          access_token: 'new-access-token',
+          refresh_token: 'new-refresh-token',
+        })
+      }
+      if (url.endsWith('/api/auth/me')) {
+        meStarted.resolve()
+        await meGate.promise
+        return jsonResponse(200, { user_id: 'user-2', email: 'two@example.com' })
+      }
+      if (url.endsWith('/api/auth/profile/bootstrap')) {
+        return jsonResponse(200, { ok: true })
+      }
+      return jsonResponse(200, {})
+    },
+  })
+  try {
+    ctx.manager.session = { access_token: 'old-access-token', refresh_token: 'old-refresh-token' }
+    ctx.manager.user = { user_id: 'user-1', email: 'one@example.com' }
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    ctx.manager.sessionGeneration = 7
+    ctx.manager.cloudCache.profile = { full_name: 'Old User' }
+    const captured = ctx.manager.captureCloudRequestContext()
+
+    await ctx.manager.startLogin()
+    callbackPromise = ctx.manager.handleAuthCallback(callbackUrlFor(ctx.manager, { code: 'auth-code' }))
+    await meStarted.promise
+
+    assert.equal(ctx.manager.session.access_token, 'new-access-token')
+    assert.equal(ctx.manager.user, null)
+    assert.equal(ctx.manager.cloudCache.profile, null)
+    assert.equal(ctx.manager.writeCloudCache(captured, { profile: { full_name: 'Stale User' } }), false)
+
+    meGate.resolve()
+    const state = await callbackPromise
+    assert.equal(state.status, AUTH_STATUSES.CONNECTED)
+    assert.equal(state.user_id, 'user-2')
+  } finally {
+    meStarted.resolve()
+    meGate.resolve()
+    if (callbackPromise) {
+      await callbackPromise.catch(() => {})
+    }
+    ctx.cleanup()
+  }
+})
+
 test('backend verification uses bearer token and bootstrap always follows auth verification', async () => {
   const ctx = createManager()
   try {
@@ -466,26 +556,53 @@ test('401 clears invalid session while 503 refresh preserves valid secure sessio
 })
 
 test('request timeouts map backend checks to offline and refresh cleanup settles single-flight promise', async () => {
+  const controllers = []
+  let requestStarted = deferred()
   const ctx = createManager({
     requestTimeoutMs: 5,
+    requestSignalFactory: () => {
+      const controller = new AbortController()
+      controllers.push(controller)
+      return controller.signal
+    },
     fetchImpl: async (_url, init = {}) => {
       assert.ok(init.signal, 'auth requests must include an AbortSignal')
-      throw abortError()
+      requestStarted.resolve()
+      await new Promise((_resolve, reject) => {
+        if (init.signal.aborted) {
+          reject(abortError())
+          return
+        }
+        init.signal.addEventListener('abort', () => reject(abortError()), { once: true })
+      })
     },
   })
+  let pendingPromise = null
   try {
     const session = { access_token: 'access-token', refresh_token: 'refresh-token' }
     ctx.manager.session = session
 
-    const verifyState = await ctx.manager._verifyAndBootstrap(session)
+    pendingPromise = ctx.manager._verifyAndBootstrap(session)
+    await requestStarted.promise
+    controllers.at(-1).abort()
+    const verifyState = await pendingPromise
     assert.equal(verifyState.status, AUTH_STATUSES.OFFLINE)
 
+    requestStarted = deferred()
     ctx.manager.session = session
-    const refreshState = await ctx.manager.refreshSession()
+    pendingPromise = ctx.manager.refreshSession()
+    await requestStarted.promise
+    controllers.at(-1).abort()
+    const refreshState = await pendingPromise
     assert.equal(refreshState.status, AUTH_STATUSES.OFFLINE)
     assert.equal(ctx.manager.refreshPromise, null)
     assert.equal(ctx.manager.session.refresh_token, 'refresh-token')
   } finally {
+    requestStarted.resolve()
+    controllers.forEach((controller) => controller.abort())
+    if (pendingPromise) {
+      await pendingPromise.catch(() => {})
+    }
     ctx.cleanup()
   }
 })
@@ -685,10 +802,55 @@ test('logout clears local credentials and cache even when remote sign-out fails'
   }
 })
 
+test('stale logout remote response cannot clear a newer session', async () => {
+  const logoutStarted = deferred()
+  const logoutGate = deferred()
+  let logoutPromise = null
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.includes('/auth/v1/logout')) {
+        logoutStarted.resolve()
+        await logoutGate.promise
+        return jsonResponse(200, {})
+      }
+      return jsonResponse(200, {})
+    },
+  })
+  try {
+    ctx.manager.session = { access_token: 'old-access-token', refresh_token: 'old-refresh-token' }
+    ctx.manager.user = { user_id: 'user-1', email: 'one@example.com' }
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    ctx.manager.sessionGeneration = 2
+
+    logoutPromise = ctx.manager.logout()
+    await logoutStarted.promise
+
+    ctx.manager.session = { access_token: 'new-access-token', refresh_token: 'new-refresh-token' }
+    ctx.manager.user = { user_id: 'user-2', email: 'two@example.com' }
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    ctx.manager.sessionGeneration += 1
+
+    logoutGate.resolve()
+    const state = await logoutPromise
+    assert.equal(state.status, AUTH_STATUSES.CONNECTED)
+    assert.equal(state.user_id, 'user-2')
+    assert.equal(ctx.manager.session.access_token, 'new-access-token')
+  } finally {
+    logoutStarted.resolve()
+    logoutGate.resolve()
+    if (logoutPromise) {
+      await logoutPromise.catch(() => {})
+    }
+    ctx.cleanup()
+  }
+})
+
 test('cloud cache writes reject stale generations after logout or user switch', () => {
   const ctx = createManager()
   try {
     ctx.manager.user = { user_id: 'user-1', email: 'one@example.com' }
+    ctx.manager.session = { access_token: 'access-one', refresh_token: 'refresh-one' }
     ctx.manager.sessionGeneration = 1
     const captured = ctx.manager.captureCloudRequestContext()
     ctx.manager._clearLocalSession(AUTH_STATUSES.SIGNED_OUT)
@@ -696,11 +858,19 @@ test('cloud cache writes reject stale generations after logout or user switch', 
     assert.equal(ctx.manager.cloudCache.profile, null)
 
     ctx.manager.user = { user_id: 'user-1', email: 'one@example.com' }
+    ctx.manager.session = { access_token: 'access-one', refresh_token: 'refresh-one' }
     ctx.manager.sessionGeneration = 2
     const previousUser = ctx.manager.captureCloudRequestContext()
     ctx.manager.user = { user_id: 'user-2', email: 'two@example.com' }
+    ctx.manager.session = { access_token: 'access-two', refresh_token: 'refresh-two' }
     ctx.manager.sessionGeneration = 3
     assert.equal(ctx.manager.writeCloudCache(previousUser, { profile: { full_name: 'Wrong User' } }), false)
+
+    ctx.manager.user = { user_id: 'user-2', email: 'two@example.com' }
+    ctx.manager.session = { access_token: 'access-three', refresh_token: 'refresh-three' }
+    const previousSession = ctx.manager.captureCloudRequestContext()
+    ctx.manager.session = { access_token: 'access-four', refresh_token: 'refresh-four' }
+    assert.equal(ctx.manager.writeCloudCache(previousSession, { profile: { full_name: 'Wrong Session' } }), false)
 
     const current = ctx.manager.captureCloudRequestContext()
     assert.equal(ctx.manager.writeCloudCache(current, { profile: { full_name: 'Current User' } }), true)
