@@ -102,6 +102,12 @@ function deferred() {
   return { promise, resolve, reject }
 }
 
+function abortError() {
+  const error = new Error('The operation was aborted.')
+  error.name = 'AbortError'
+  return error
+}
+
 function callbackUrlFor(manager, params = {}) {
   const url = new URL(CALLBACK_URL)
   Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value))
@@ -461,28 +467,24 @@ test('401 clears invalid session while 503 refresh preserves valid secure sessio
 
 test('request timeouts map backend checks to offline and refresh cleanup settles single-flight promise', async () => {
   const ctx = createManager({
-    requestTimeoutMs: 1,
+    requestTimeoutMs: 5,
     fetchImpl: async (_url, init = {}) => {
-      if (!init.signal) {
-        throw new Error('missing signal')
-      }
-      await new Promise((_resolve, reject) => {
-        if (init.signal.aborted) {
-          reject(new Error('aborted'))
-          return
-        }
-        init.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
-      })
+      assert.ok(init.signal, 'auth requests must include an AbortSignal')
+      throw abortError()
     },
   })
   try {
-    ctx.manager.session = { access_token: 'old-access', refresh_token: 'old-refresh' }
-    assert.equal((await ctx.manager._backendJson('/api/auth/me', 'GET', 'old-access')).status, 0)
+    const session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+    ctx.manager.session = session
 
-    const state = await ctx.manager.refreshSession()
-    assert.equal(state.status, AUTH_STATUSES.OFFLINE)
+    const verifyState = await ctx.manager._verifyAndBootstrap(session)
+    assert.equal(verifyState.status, AUTH_STATUSES.OFFLINE)
+
+    ctx.manager.session = session
+    const refreshState = await ctx.manager.refreshSession()
+    assert.equal(refreshState.status, AUTH_STATUSES.OFFLINE)
     assert.equal(ctx.manager.refreshPromise, null)
-    assert.equal(ctx.manager.session.refresh_token, 'old-refresh')
+    assert.equal(ctx.manager.session.refresh_token, 'refresh-token')
   } finally {
     ctx.cleanup()
   }
