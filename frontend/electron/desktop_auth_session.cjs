@@ -49,6 +49,25 @@ function safeErrorMessage(value, fallback = '') {
   return text ? text.slice(0, 160) : ''
 }
 
+function validPositiveNumber(value, fallback) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function isNonEmptyString(value) {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function validateAuthSession(value) {
+  if (!value || typeof value !== 'object') {
+    throw new Error('Invalid authentication session.')
+  }
+  if (!isNonEmptyString(value.access_token) || !isNonEmptyString(value.refresh_token)) {
+    throw new Error('Invalid authentication session.')
+  }
+  return value
+}
+
 function normalizeOrigin(url) {
   try {
     return new URL(String(url || '')).origin
@@ -114,8 +133,8 @@ class DesktopAuthSessionManager {
     this.backendUrl = String(options.backendUrl || DEFAULT_BACKEND_URL).replace(/\/+$/, '')
     this.desktopAuthProvider = String(options.desktopAuthProvider || '').trim()
     this.redirectUri = String(options.redirectUri || CALLBACK_URL)
-    this.loginTtlMs = Number(options.loginTtlMs || DEFAULT_LOGIN_TTL_MS)
-    this.requestTimeoutMs = Number(options.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS)
+    this.loginTtlMs = validPositiveNumber(options.loginTtlMs, DEFAULT_LOGIN_TTL_MS)
+    this.requestTimeoutMs = validPositiveNumber(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS)
     this.requestSignalFactory = options.requestSignalFactory || null
     this.fetchImpl = options.fetchImpl || fetch
     this.openExternal = options.openExternal || (async () => {})
@@ -307,7 +326,7 @@ class DesktopAuthSessionManager {
     if (!response.ok) {
       throw new Error('Authentication exchange failed.')
     }
-    return response.json()
+    return validateAuthSession(await response.json())
   }
 
   async refreshSession() {
@@ -327,7 +346,11 @@ class DesktopAuthSessionManager {
     }
     const refreshSession = this.session
     const refreshGeneration = this.sessionGeneration
-    const isStaleRefresh = () => this.session !== refreshSession || this.sessionGeneration !== refreshGeneration
+    let refreshedSession = null
+    const isStaleRefresh = () => (
+      this.session !== refreshSession &&
+      this.session !== refreshedSession
+    ) || this.sessionGeneration !== refreshGeneration
     try {
       const response = await this.fetchImpl(`${this.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
         method: 'POST',
@@ -352,13 +375,14 @@ class DesktopAuthSessionManager {
         this.error = 'Cloud authentication is temporarily unavailable.'
         return this.getSafeState()
       }
-      const session = await response.json()
+      const session = validateAuthSession(await response.json())
       if (isStaleRefresh()) {
         return this.getSafeState()
       }
+      refreshedSession = session
       this.session = session
       this._writeStoredSession(session)
-      return this._verifyAndBootstrap(session)
+      return await this._verifyAndBootstrap(session)
     } catch {
       if (isStaleRefresh()) {
         return this.getSafeState()
@@ -392,6 +416,10 @@ class DesktopAuthSessionManager {
     }
 
     const nextUser = safeUser(verified.payload)
+    if (!isNonEmptyString(nextUser.user_id)) {
+      this._clearLocalSession(AUTH_STATUSES.SIGNED_OUT, 'Backend authentication failed.')
+      return this.getSafeState()
+    }
     if (this.user?.user_id && nextUser.user_id && this.user.user_id !== nextUser.user_id) {
       this._clearCloudCache()
     }

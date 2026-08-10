@@ -117,6 +117,35 @@ function callbackUrlFor(manager, params = {}) {
   return url.toString()
 }
 
+test('auth duration options accept only positive finite values', () => {
+  const invalidValues = [undefined, null, '', 0, '0', -1, '-1', Number.NaN, 'NaN', Infinity, 'Infinity']
+  for (const value of invalidValues) {
+    const ctx = createManager({ loginTtlMs: value, requestTimeoutMs: value })
+    try {
+      assert.equal(ctx.manager.loginTtlMs, 10 * 60 * 1000)
+      assert.equal(ctx.manager.requestTimeoutMs, 15000)
+    } finally {
+      ctx.cleanup()
+    }
+  }
+
+  const numeric = createManager({ loginTtlMs: 1234, requestTimeoutMs: 5678 })
+  try {
+    assert.equal(numeric.manager.loginTtlMs, 1234)
+    assert.equal(numeric.manager.requestTimeoutMs, 5678)
+  } finally {
+    numeric.cleanup()
+  }
+
+  const numericStrings = createManager({ loginTtlMs: '2345', requestTimeoutMs: '6789' })
+  try {
+    assert.equal(numericStrings.manager.loginTtlMs, 2345)
+    assert.equal(numericStrings.manager.requestTimeoutMs, 6789)
+  } finally {
+    numericStrings.cleanup()
+  }
+})
+
 test('desktop auth persists session only through encrypted safeStorage path', async () => {
   const ctx = createManager()
   try {
@@ -228,6 +257,46 @@ test('PKCE request uses configured provider, S256, exact redirect_uri, and origi
     assert.notEqual(exchange.init.signal, undefined)
   } finally {
     ctx.cleanup()
+  }
+})
+
+test('PKCE exchange rejects malformed token sessions before persisting or connecting', async () => {
+  const malformedResponses = [
+    { refresh_token: 'refresh-token' },
+    { access_token: null, refresh_token: 'refresh-token' },
+    { access_token: '', refresh_token: 'refresh-token' },
+    { access_token: '   ', refresh_token: 'refresh-token' },
+    { access_token: 123, refresh_token: 'refresh-token' },
+    { access_token: 'access-token' },
+    { access_token: 'access-token', refresh_token: null },
+    { access_token: 'access-token', refresh_token: '' },
+    { access_token: 'access-token', refresh_token: '   ' },
+    { access_token: 'access-token', refresh_token: 123 },
+  ]
+
+  for (const payload of malformedResponses) {
+    const ctx = createManager({
+      fetchImpl: async (url, init = {}) => {
+        ctx.calls.push({ url, init })
+        if (url.includes('/auth/v1/token?grant_type=pkce')) {
+          return jsonResponse(200, payload)
+        }
+        return jsonResponse(200, { user_id: 'user-1', email: 'user@example.com' })
+      },
+    })
+    try {
+      await ctx.manager.startLogin()
+      const state = await ctx.manager.handleAuthCallback(callbackUrlFor(ctx.manager, { code: 'auth-code' }))
+
+      assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
+      assert.equal(state.error, 'Authentication exchange failed.')
+      assert.equal(ctx.manager.session, null)
+      assert.equal(ctx.manager.user, null)
+      assert.equal(existsSync(ctx.manager.sessionPath), false)
+      assert.equal(ctx.calls.some((call) => call.url.endsWith('/api/auth/me')), false)
+    } finally {
+      ctx.cleanup()
+    }
   }
 })
 
@@ -439,6 +508,51 @@ test('backend verification uses bearer token and bootstrap always follows auth v
   }
 })
 
+test('backend verification rejects malformed user identity and clears session cache', async () => {
+  const invalidPayloads = [
+    {},
+    { user_id: null, email: 'user@example.com' },
+    { user_id: '', email: 'user@example.com' },
+    { user_id: '   ', email: 'user@example.com' },
+  ]
+
+  for (const payload of invalidPayloads) {
+    const ctx = createManager({
+      fetchImpl: async (url, init = {}) => {
+        ctx.calls.push({ url, init })
+        if (url.endsWith('/api/auth/me')) {
+          return jsonResponse(200, payload)
+        }
+        if (url.endsWith('/api/auth/profile/bootstrap')) {
+          return jsonResponse(200, { ok: true })
+        }
+        return jsonResponse(200, {})
+      },
+    })
+    try {
+      ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+      ctx.manager.user = { user_id: 'previous-user', email: 'previous@example.com' }
+      ctx.manager.status = AUTH_STATUSES.CONNECTED
+      ctx.manager.cloudCache.profile = { full_name: 'Previous User' }
+      ctx.manager._writeStoredSession(ctx.manager.session)
+
+      const state = await ctx.manager._verifyAndBootstrap(ctx.manager.session)
+
+      assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
+      assert.equal(state.user_id, null)
+      assert.equal(state.email, null)
+      assert.equal(state.error, 'Backend authentication failed.')
+      assert.equal(ctx.manager.session, null)
+      assert.equal(ctx.manager.user, null)
+      assert.equal(ctx.manager.cloudCache.profile, null)
+      assert.equal(existsSync(ctx.manager.sessionPath), false)
+      assert.equal(ctx.calls.some((call) => call.url.endsWith('/api/auth/profile/bootstrap')), false)
+    } finally {
+      ctx.cleanup()
+    }
+  }
+})
+
 test('bootstrap 502 maps to bootstrap-failed instead of invalid session', async () => {
   const ctx = createManager({ bootstrapStatus: 502 })
   try {
@@ -552,6 +666,63 @@ test('401 clears invalid session while 503 refresh preserves valid secure sessio
     assert.deepEqual(unavailable.manager.cloudCache.profile, { full_name: 'Old User' })
   } finally {
     unavailable.cleanup()
+  }
+})
+
+test('malformed refresh token response does not replace existing session', async () => {
+  const malformedResponses = [
+    { refresh_token: 'new-refresh' },
+    { access_token: 'new-access' },
+    { access_token: '', refresh_token: 'new-refresh' },
+    { access_token: 'new-access', refresh_token: '   ' },
+  ]
+
+  for (const payload of malformedResponses) {
+    const ctx = createManager({
+      fetchImpl: async (url, init = {}) => {
+        ctx.calls.push({ url, init })
+        if (url.includes('/auth/v1/token?grant_type=refresh_token')) {
+          return jsonResponse(200, payload)
+        }
+        return jsonResponse(200, { user_id: 'user-1', email: 'user@example.com' })
+      },
+    })
+    try {
+      const existingSession = { access_token: 'old-access', refresh_token: 'old-refresh' }
+      ctx.manager.session = existingSession
+      ctx.manager.user = { user_id: 'user-1', email: 'user@example.com' }
+      ctx.manager.status = AUTH_STATUSES.CONNECTED
+
+      const state = await ctx.manager.refreshSession()
+
+      assert.equal(state.status, AUTH_STATUSES.OFFLINE)
+      assert.equal(ctx.manager.session, existingSession)
+      assert.equal(ctx.manager.session.access_token, 'old-access')
+      assert.equal(ctx.manager.session.refresh_token, 'old-refresh')
+      assert.equal(ctx.calls.some((call) => call.url.endsWith('/api/auth/me')), false)
+    } finally {
+      ctx.cleanup()
+    }
+  }
+})
+
+test('refresh bootstrap rejection stays inside refresh error handling', async () => {
+  const ctx = createManager()
+  try {
+    const existingSession = { access_token: 'old-access', refresh_token: 'old-refresh' }
+    ctx.manager.session = existingSession
+    ctx.manager.user = { user_id: 'user-1', email: 'user@example.com' }
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    ctx.manager._verifyAndBootstrap = async () => {
+      throw new Error('bootstrap blew up')
+    }
+
+    const state = await ctx.manager.refreshSession()
+
+    assert.equal(state.status, AUTH_STATUSES.OFFLINE)
+    assert.equal(ctx.manager.refreshPromise, null)
+  } finally {
+    ctx.cleanup()
   }
 })
 
