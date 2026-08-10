@@ -107,7 +107,7 @@ test('active-window resolver does not prefer stale browser cache over exact fore
     'async function captureActiveWindowSource() {'
   )
 
-  assert.match(mainSource, /const LAST_EXTERNAL_TARGET_TTL_MS = 5000/)
+  assert.match(mainSource, /const LAST_EXTERNAL_TARGET_TTL_MS = 30000/)
   assert.match(preferStored, /if \(currentSnapshot\.nativeWindowId\) \{\s*return false\s*\}/)
   assert.ok(
     resolver.indexOf('if (isUsableExternalSnapshot(foregroundWindow))') <
@@ -134,9 +134,9 @@ test('active-window resolver fails controlled instead of choosing ambiguous sour
   assert.match(fallback, /active_window_ambiguous/)
   assert.match(
     mainSource,
-    /The active window could not be identified\. Focus the question window and try Analyze Screen again\./
+    /SAIIA could not identify the active question window\./
   )
-  assert.match(handler, /active window\|target question window\|identified/)
+  assert.match(handler, /Could not identify active window\. Waiting for retry\./)
 })
 
 test('OCR panel no longer exposes preview edit or generate-from-preview controls', () => {
@@ -200,17 +200,17 @@ test('Analyze Screen empty state hides idle placeholder text', () => {
   assert.doesNotMatch(emptyStatePanel, /screenError/)
 })
 
-test('manual typed questions use the Answer display route', () => {
+test('manual typed questions use the Chat display route', () => {
   const manualSubmit = sourceBetween(
     appSource,
     'const handleManualQuestionSubmit = async (nextText) => {',
     'const handleGenerateFromProvidedScreenText = async (nextText, options = {}) => {'
   )
 
-  assert.match(manualSubmit, /setAnswerDisplayMode\('answer'\)/)
-  assert.match(manualSubmit, /mode: 'manual'/)
-  assert.doesNotMatch(manualSubmit, /setAnswerDisplayMode\('chat'\)/)
-  assert.doesNotMatch(manualSubmit, /mode: 'chat'/)
+  assert.match(manualSubmit, /setAnswerDisplayMode\('chat'\)/)
+  assert.match(manualSubmit, /mode: 'chat'/)
+  assert.doesNotMatch(manualSubmit, /setAnswerDisplayMode\('answer'\)/)
+  assert.doesNotMatch(manualSubmit, /mode: 'manual'/)
 })
 
 test('Answer and Chat toolbar buttons explicitly own their panels', () => {

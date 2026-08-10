@@ -6,15 +6,39 @@ const {
   ipcMain,
   Menu,
   screen,
+  shell,
+  safeStorage,
   systemPreferences,
 } = require('electron')
 const { execFile } = require('child_process')
 const fs = require('fs')
 const path = require('path')
+const {
+  CALLBACK_URL,
+  DesktopAuthSessionManager,
+  createIpcSenderValidator,
+} = require('./desktop_auth_session.cjs')
 
-if (!app.requestSingleInstanceLock()) {
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+if (!hasSingleInstanceLock) {
   app.quit()
+  process.exit(0)
 }
+
+registerDesktopAuthProtocol()
+
+app.on('second-instance', (_event, argv) => {
+  handleDesktopAuthCallbackFromArgv(argv)
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show()
+    mainWindow.focus()
+  }
+})
+
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  handleDesktopAuthCallback(url)
+})
 
 let mainWindow
 let overlayWindow
@@ -27,6 +51,9 @@ let lastExternalWindowSnapshot = null
 let lastExternalCaptureTarget = null
 let foregroundWindowPollTimer = null
 let foregroundWindowPollInFlight = null
+let desktopAuthSessionManager = null
+let validateMainWindowIpcSender = null
+let bufferedDesktopAuthCallbacks = []
 
 const overlayState = {
   answer: '',
@@ -121,6 +148,76 @@ const SCREEN_FULL_CAPTURE_SCROLL_AMOUNT = Math.max(0.25, Math.min(1, Number.pars
 const SCREEN_FULL_CAPTURE_RESTORE_SCROLL = String(process.env.SCREEN_FULL_CAPTURE_RESTORE_SCROLL || 'true').trim().toLowerCase() === 'true'
 const SCREEN_FULL_CAPTURE_PLATFORM_HINTS = /(leetcode|hackerrank|geeksforgeeks|problem|assessment|question|exam|quiz|mcq|constraints|example|chart|diagram|debug)/i
 const SCREEN_FULL_CAPTURE_PROCESS_HINTS = /^(chrome|msedge|firefox|brave|opera|iexplore)$/i
+
+function getDesktopAuthSessionPath() {
+  return path.join(app.getPath('userData'), 'desktop-auth-session.bin')
+}
+
+function getDesktopAuthConfig() {
+  return {
+    supabaseUrl: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '',
+    desktopAuthProvider:
+      process.env.SAIIA_DESKTOP_AUTH_PROVIDER ||
+      process.env.VITE_SAIIA_DESKTOP_AUTH_PROVIDER ||
+      process.env.VITE_SUPABASE_DESKTOP_AUTH_PROVIDER ||
+      '',
+    backendUrl: process.env.SAIIA_BACKEND_URL || process.env.VITE_BACKEND_URL || 'http://localhost:8000',
+  }
+}
+
+function getPackagedIndexPath() {
+  return path.resolve(__dirname, '../dist/index.html')
+}
+
+function registerDesktopAuthProtocol() {
+  if (process.defaultApp) {
+    app.setAsDefaultProtocolClient('saiia', process.execPath, [path.resolve(process.argv[1] || '')])
+    return
+  }
+  app.setAsDefaultProtocolClient('saiia')
+}
+
+function createDesktopAuthSessionManager() {
+  const config = getDesktopAuthConfig()
+  return new DesktopAuthSessionManager({
+    ...config,
+    redirectUri: CALLBACK_URL,
+    sessionPath: getDesktopAuthSessionPath(),
+    safeStorage,
+    openExternal: (url) => shell.openExternal(url),
+  })
+}
+
+function handleDesktopAuthCallback(rawUrl) {
+  const value = String(rawUrl || '')
+  if (!value.startsWith(CALLBACK_URL)) {
+    return false
+  }
+  if (!desktopAuthSessionManager) {
+    bufferedDesktopAuthCallbacks.push(value)
+    return true
+  }
+  desktopAuthSessionManager.handleAuthCallback(value).catch((error) => {
+    console.error('Desktop auth callback failed.', error?.message || 'Authentication failed.')
+  })
+  return true
+}
+
+function takeBufferedDesktopAuthCallbacks() {
+  const callbacks = bufferedDesktopAuthCallbacks
+  bufferedDesktopAuthCallbacks = []
+  return callbacks
+}
+
+function handleDesktopAuthCallbackFromArgv(argv = []) {
+  for (const arg of argv) {
+    if (handleDesktopAuthCallback(arg)) {
+      return true
+    }
+  }
+  return false
+}
 
 function isOwnProcessWindow(snapshot) {
   return Number(snapshot?.processId || 0) === process.pid
@@ -1324,7 +1421,22 @@ function checkScreenSharing() {
   }
 }
 
-app.on('ready', () => {
+app.on('ready', async () => {
+  desktopAuthSessionManager = createDesktopAuthSessionManager()
+  const bufferedCallbacks = takeBufferedDesktopAuthCallbacks()
+  validateMainWindowIpcSender = createIpcSenderValidator({
+    getExpectedWindow: () => mainWindow,
+    BrowserWindow,
+    devOrigin: process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173',
+    isPackaged: app.isPackaged,
+    packagedIndexPath: getPackagedIndexPath(),
+  })
+  await desktopAuthSessionManager.initialize().catch((error) => {
+    console.error('Desktop auth session restore failed.', error?.message || 'Authentication restore failed.')
+  })
+  bufferedCallbacks.forEach((url) => handleDesktopAuthCallback(url))
+  handleDesktopAuthCallbackFromArgv(process.argv)
+
   buildApplicationMenu()
   createMainWindow()
   createOverlayWindow()
@@ -1377,6 +1489,38 @@ app.on('ready', () => {
       createOverlayWindow()
     }
   })
+})
+
+function validateAuthIpc(event) {
+  if (!validateMainWindowIpcSender) {
+    throw new Error('Desktop auth IPC is not ready.')
+  }
+  validateMainWindowIpcSender(event)
+}
+
+ipcMain.handle('auth:get-state', (event) => {
+  validateAuthIpc(event)
+  return desktopAuthSessionManager.getSafeState()
+})
+
+ipcMain.handle('auth:start-login', async (event) => {
+  validateAuthIpc(event)
+  return desktopAuthSessionManager.startLogin()
+})
+
+ipcMain.handle('auth:logout', async (event) => {
+  validateAuthIpc(event)
+  return desktopAuthSessionManager.logout()
+})
+
+ipcMain.handle('cloud:get-startup-context', (event) => {
+  validateAuthIpc(event)
+  return desktopAuthSessionManager.getStartupContext()
+})
+
+ipcMain.handle('cloud:refresh-startup-context', async (event) => {
+  validateAuthIpc(event)
+  return desktopAuthSessionManager.refreshStartupContext()
 })
 
 ipcMain.on('overlay:update-state', (_event, nextState) => {

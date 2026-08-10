@@ -17,6 +17,11 @@ const electronAPI = {
   captureScreen: (sourceId) => ipcRenderer.invoke('screen:capture', sourceId),
   captureActiveWindow: () => ipcRenderer.invoke('screen:capture-active-window'),
   captureActiveWindowSequence: () => ipcRenderer.invoke('screen:capture-active-window-sequence'),
+  getAuthState: () => ipcRenderer.invoke('auth:get-state'),
+  startAuthLogin: () => ipcRenderer.invoke('auth:start-login'),
+  logoutAuth: () => ipcRenderer.invoke('auth:logout'),
+  getCloudStartupContext: () => ipcRenderer.invoke('cloud:get-startup-context'),
+  refreshCloudStartupContext: () => ipcRenderer.invoke('cloud:refresh-startup-context'),
   onOverlayState: (fn) => {
     const listener = (_event, payload) => fn(payload)
     ipcRenderer.on('overlay:state', listener)
@@ -34,5 +39,10 @@ contextBridge.exposeInMainWorld('saiia', {
   captureActiveWindow: electronAPI.captureActiveWindow,
   captureActiveWindowSequence: electronAPI.captureActiveWindowSequence,
   captureScreen: electronAPI.captureScreen,
+  getAuthState: electronAPI.getAuthState,
+  getCloudStartupContext: electronAPI.getCloudStartupContext,
   listScreenSources: electronAPI.listScreenSources,
+  logoutAuth: electronAPI.logoutAuth,
+  refreshCloudStartupContext: electronAPI.refreshCloudStartupContext,
+  startAuthLogin: electronAPI.startAuthLogin,
 })

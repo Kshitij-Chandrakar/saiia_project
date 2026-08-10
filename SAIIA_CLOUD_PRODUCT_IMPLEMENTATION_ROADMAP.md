@@ -6,7 +6,7 @@
 **Version:** 1.1  
 **Last updated:** 2026-08-09
 **Created:** 2026-07-10  
-**Current active phase:** C5.1 - Desktop authenticated cloud identity audit and planning; C5 desktop auth implementation, desktop startup/session setup UI, C4.4 generation integration, and C5 sync are not started
+**Current active phase:** C5.2 - Desktop authenticated cloud identity implemented locally; desktop startup/session setup UI, C4.4 generation integration, cloud sync engine, and local/cloud data migration are not started
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -1442,7 +1442,7 @@ Deferred criteria:
 ## Status
 
 ```text
-[~] Planning - C5.1 Desktop Authenticated Cloud Identity Audit and Plan created in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`; no desktop auth runtime, token persistence, startup/session setup UI, cloud sync engine, or C4.4 generation integration has been implemented
+[~] In progress - C5.1 Desktop Authenticated Cloud Identity Audit and Plan created in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`; C5.2 desktop authenticated cloud identity implemented locally with Electron main-process Supabase Auth PKCE, safeStorage-backed session persistence, narrow auth/cloud IPC, backend `/api/auth/me` verification, mandatory profile bootstrap, logout cleanup, and race-condition tests; desktop startup/session setup UI, C4.4 generation integration, cloud sync engine, and local/cloud data migration are not started
 ```
 
 ## Goal
@@ -1471,6 +1471,17 @@ Do not create an insecure custom token copy/paste flow unless it is an intention
 - [x] Planned narrow auth/cloud IPC with no raw token exposure to the renderer.
 - [x] Kept startup/session setup UI deferred until a later C5 implementation step.
 - [x] Did not implement desktop login, cloud sync, backend route changes, migrations, C4.4 generation integration, or frontend UI.
+
+## C5.2 implementation status
+
+- [x] Added Electron main-process desktop auth session manager.
+- [x] Added Supabase Auth PKCE request/callback handling for `saiia://auth/callback`.
+- [x] Added Electron `safeStorage` encrypted session persistence with session-only fallback when encryption is unavailable.
+- [x] Added narrow auth/cloud IPC and preload bridge methods without raw token exposure or generic fetch.
+- [x] Added backend `/api/auth/me` verification and mandatory `POST /api/auth/profile/bootstrap` after verification.
+- [x] Added logout cleanup, user-switch cache clearing, session generation, and stale cloud-response cache-write protection.
+- [x] Added focused Electron auth/session/IPC tests.
+- [x] Did not build desktop startup/session setup UI, resume/job-target selection UI, C4.4 generation integration, Supabase migrations, backend routes, billing/account UI, or local/cloud data migration.
 
 ## Secure session storage
 
@@ -4337,7 +4348,7 @@ The C0â€“C16 track is complete when:
 ```text
 C0 remains complete. C0.9 is not fully complete: C0.9.6 has implementation present with Chrome/Edge real-page validation pending, and C0.9.7 through C0.9.13 are deferred by explicit product-priority decision.
 C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 auth surface closure is complete through C2.5. C3.1 planning, C3.2 backend cloud resume API, C3.3 frontend authenticated upload/review UI, C3.4 cloud resume indexing/RAG activation, C3.4.5 GPT-based resume extraction provider, and C3.5 delete/rebuild/status closure are complete through implementation. C4 - Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing and live Supabase smoke validation passed on saiia-dev. C4.3 main website job-target UI is cancelled/re-scoped; job target selection moves to desktop startup/session setup after desktop authenticated cloud identity exists. No C4 generation integration, C5 desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started.
-C5.1 desktop authenticated cloud identity audit/design is now documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`. No desktop auth runtime, token persistence, startup/session setup UI, cloud sync engine, C4.4 generation integration, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started.
+C5.1 desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`. C5.2 desktop authenticated cloud identity is implemented locally with Electron main-process auth/session handling and focused tests. No desktop startup/session setup UI, cloud sync engine, local/cloud data migration, C4.4 generation integration, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started.
 ```
 
 The completed C0.9.2 manual validation covered:
