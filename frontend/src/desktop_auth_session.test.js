@@ -865,12 +865,14 @@ test('cloud cache writes reject stale generations after logout or user switch', 
     ctx.manager.session = { access_token: 'access-two', refresh_token: 'refresh-two' }
     ctx.manager.sessionGeneration = 3
     assert.equal(ctx.manager.writeCloudCache(previousUser, { profile: { full_name: 'Wrong User' } }), false)
+    assert.equal(ctx.manager.cloudCache.profile, null)
 
     ctx.manager.user = { user_id: 'user-2', email: 'two@example.com' }
     ctx.manager.session = { access_token: 'access-three', refresh_token: 'refresh-three' }
     const previousSession = ctx.manager.captureCloudRequestContext()
     ctx.manager.session = { access_token: 'access-four', refresh_token: 'refresh-four' }
     assert.equal(ctx.manager.writeCloudCache(previousSession, { profile: { full_name: 'Wrong Session' } }), false)
+    assert.equal(ctx.manager.cloudCache.profile, null)
 
     const current = ctx.manager.captureCloudRequestContext()
     assert.equal(ctx.manager.writeCloudCache(current, { profile: { full_name: 'Current User' } }), true)
