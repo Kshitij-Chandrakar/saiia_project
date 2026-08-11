@@ -24,6 +24,21 @@ export function normalizeDesktopAuthState(value = {}) {
   }
 }
 
+export function normalizeDesktopCloudState(value = {}, authState = normalizeDesktopAuthState()) {
+  const connected = authState.status === DESKTOP_AUTH_STATUSES.CONNECTED
+  const mode = ['cloud', 'local-only', 'unavailable'].includes(value?.mode) ? value.mode : (
+    connected ? 'cloud' : 'local-only'
+  )
+  return {
+    available: Boolean(value?.available),
+    mode,
+    profileReady: connected && Boolean(value?.profileReady),
+    resumeReady: connected && Boolean(value?.resumeReady),
+    jobContextReady: connected && Boolean(value?.jobContextReady),
+    lastError: typeof value?.lastError === 'string' ? value.lastError : '',
+  }
+}
+
 export function createDesktopAuthRequestTracker() {
   let currentRequestId = 0
   return {
@@ -38,7 +53,8 @@ export function createDesktopAuthRequestTracker() {
 }
 
 export function getDesktopAuthViewModel(value = {}) {
-  const state = normalizeDesktopAuthState(value)
+  const state = normalizeDesktopAuthState(value?.auth || value)
+  const cloud = normalizeDesktopCloudState(value?.cloud || value?.startupContext || {}, state)
   const isSigningIn = state.status === DESKTOP_AUTH_STATUSES.SIGNING_IN
   const sessionLike = [
     DESKTOP_AUTH_STATUSES.CONNECTED,
@@ -59,8 +75,11 @@ export function getDesktopAuthViewModel(value = {}) {
 
   return {
     ...state,
+    cloud,
     label: copy[0],
     detail: state.error || copy[1],
+    cloudLabel: getCloudReadinessLabel(cloud, state.status),
+    cloudDetail: getCloudReadinessDetail(cloud, state.status),
     showLogin: [
       DESKTOP_AUTH_STATUSES.SIGNED_OUT,
       DESKTOP_AUTH_STATUSES.SIGNING_IN,
@@ -70,4 +89,45 @@ export function getDesktopAuthViewModel(value = {}) {
     showRefresh: sessionLike,
     loginDisabled: isSigningIn,
   }
+}
+
+function getCloudReadinessLabel(cloud, status) {
+  if (status === DESKTOP_AUTH_STATUSES.SIGNED_OUT || status === DESKTOP_AUTH_STATUSES.TOKEN_EXPIRED) {
+    return 'Local-only mode'
+  }
+  if (cloud.mode === 'unavailable' || !cloud.available) {
+    return 'Cloud unavailable'
+  }
+  if (cloud.profileReady && cloud.resumeReady && cloud.jobContextReady) {
+    return 'Cloud ready'
+  }
+  if (!cloud.resumeReady) {
+    return 'Resume not ready'
+  }
+  if (!cloud.jobContextReady) {
+    return 'Job target not ready'
+  }
+  return 'Cloud ready'
+}
+
+function getCloudReadinessDetail(cloud, status) {
+  if (status === DESKTOP_AUTH_STATUSES.SIGNED_OUT || status === DESKTOP_AUTH_STATUSES.TOKEN_EXPIRED) {
+    return 'Local desktop tools remain available.'
+  }
+  if (cloud.mode === 'unavailable' || !cloud.available) {
+    return cloud.lastError || 'Cloud temporarily unavailable. Local desktop tools remain available.'
+  }
+  if (cloud.profileReady && cloud.resumeReady && cloud.jobContextReady) {
+    return 'Profile, resume, and job target are available for future startup setup.'
+  }
+  const missing = []
+  if (!cloud.resumeReady) {
+    missing.push('resume')
+  }
+  if (!cloud.jobContextReady) {
+    missing.push('job target')
+  }
+  return missing.length
+    ? `Cloud connected. Missing ${missing.join(' and ')} for future startup setup.`
+    : 'Cloud connected.'
 }

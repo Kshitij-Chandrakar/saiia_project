@@ -929,6 +929,273 @@ test('refreshStartupContext is single-flight and avoids duplicate verification c
   }
 })
 
+test('signed-out startup context stays local-only with conservative readiness flags', () => {
+  const ctx = createManager()
+  try {
+    const context = ctx.manager.getStartupContext()
+
+    assert.equal(context.auth.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(context.cloud.available, false)
+    assert.equal(context.cloud.mode, 'local-only')
+    assert.equal(context.cloud.profileReady, false)
+    assert.equal(context.cloud.resumeReady, false)
+    assert.equal(context.cloud.jobContextReady, false)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('connected startup context loads safe resume and job-context readiness summaries', async () => {
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.endsWith('/api/auth/me')) {
+        return jsonResponse(200, {
+          user_id: 'user-1',
+          email: 'user@example.com',
+          [['access', 'token'].join('_')]: 'must-not-leak',
+        })
+      }
+      if (url.endsWith('/api/auth/profile/bootstrap')) {
+        return jsonResponse(200, { ok: true })
+      }
+      if (url.endsWith('/api/resumes/current')) {
+        return jsonResponse(200, {
+          ready: true,
+          resume: {
+            id: 'resume-1',
+            status: 'ready',
+            is_active: true,
+            raw_resume_text: 'must-not-leak',
+          },
+        })
+      }
+      if (url.endsWith('/api/job-contexts?limit=50')) {
+        return jsonResponse(200, {
+          active_id: 'job-1',
+          items: [{
+            id: 'job-1',
+            company: 'Acme',
+            position: 'Engineer',
+            is_active: true,
+            job_description: 'must-not-leak',
+            job_description_preview: 'preview only',
+          }],
+        })
+      }
+      return jsonResponse(500, {})
+    },
+  })
+  try {
+    ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+    const context = await ctx.manager.refreshStartupContext()
+
+    assert.equal(context.auth.status, AUTH_STATUSES.CONNECTED)
+    assert.equal(context.auth.email, 'user@example.com')
+    assert.equal(context.cloud.available, true)
+    assert.equal(context.cloud.mode, 'cloud')
+    assert.equal(context.cloud.profileReady, true)
+    assert.equal(context.cloud.resumeReady, true)
+    assert.equal(context.cloud.jobContextReady, true)
+    assert.deepEqual(context.resumeContext.resume, { id: 'resume-1', status: 'ready', is_active: true })
+    assert.deepEqual(context.jobContext.active, {
+      id: 'job-1',
+      company: 'Acme',
+      position: 'Engineer',
+      is_active: true,
+    })
+    assert.equal(JSON.stringify(context).includes('must-not-leak'), false)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('startup context falls back safely when readiness routes are missing', async () => {
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.endsWith('/api/auth/me')) {
+        return jsonResponse(200, { user_id: 'user-1', email: 'user@example.com' })
+      }
+      if (url.endsWith('/api/auth/profile/bootstrap')) {
+        return jsonResponse(200, { ok: true })
+      }
+      if (url.endsWith('/api/resumes/current') || url.endsWith('/api/job-contexts?limit=50')) {
+        return jsonResponse(404, { detail: 'not found' })
+      }
+      return jsonResponse(500, {})
+    },
+  })
+  try {
+    ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+    const context = await ctx.manager.refreshStartupContext()
+
+    assert.equal(context.auth.status, AUTH_STATUSES.CONNECTED)
+    assert.equal(context.cloud.available, true)
+    assert.equal(context.cloud.mode, 'cloud')
+    assert.equal(context.cloud.profileReady, true)
+    assert.equal(context.cloud.resumeReady, false)
+    assert.equal(context.cloud.jobContextReady, false)
+    assert.equal(context.resumeContext, null)
+    assert.equal(context.jobContext, null)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('startup context reports backend unavailable without forcing logout', async () => {
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.endsWith('/api/auth/me')) {
+        return jsonResponse(503, {})
+      }
+      return jsonResponse(500, {})
+    },
+  })
+  try {
+    const session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+    ctx.manager.session = session
+    ctx.manager.user = { user_id: 'user-1', email: 'user@example.com' }
+    const context = await ctx.manager.refreshStartupContext()
+
+    assert.equal(context.auth.status, AUTH_STATUSES.BACKEND_UNAVAILABLE)
+    assert.equal(context.cloud.available, false)
+    assert.equal(context.cloud.mode, 'unavailable')
+    assert.equal(ctx.manager.session, session)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('startup context token-expired state clears invalid auth session', async () => {
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.endsWith('/api/auth/me')) {
+        return jsonResponse(401, {})
+      }
+      return jsonResponse(500, {})
+    },
+  })
+  try {
+    ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+    ctx.manager.user = { user_id: 'user-1', email: 'user@example.com' }
+    const context = await ctx.manager.refreshStartupContext()
+
+    assert.equal(context.auth.status, AUTH_STATUSES.TOKEN_EXPIRED)
+    assert.equal(context.auth.user_id, null)
+    assert.equal(context.cloud.mode, 'local-only')
+    assert.equal(ctx.manager.session, null)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('stale startup context response after logout cannot update cloud cache', async () => {
+  const resumeStarted = deferred()
+  const resumeGate = deferred()
+  let pendingPromise = null
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.endsWith('/api/auth/me')) {
+        return jsonResponse(200, { user_id: 'user-1', email: 'user@example.com' })
+      }
+      if (url.endsWith('/api/auth/profile/bootstrap')) {
+        return jsonResponse(200, { ok: true })
+      }
+      if (url.endsWith('/api/resumes/current')) {
+        resumeStarted.resolve()
+        await resumeGate.promise
+        return jsonResponse(200, { ready: true, resume: { id: 'resume-1', status: 'ready', is_active: true } })
+      }
+      if (url.endsWith('/api/job-contexts?limit=50')) {
+        return jsonResponse(200, { active_id: 'job-1', items: [{ id: 'job-1', company: 'Acme', position: 'Engineer', is_active: true }] })
+      }
+      if (url.includes('/auth/v1/logout')) {
+        return jsonResponse(200, {})
+      }
+      return jsonResponse(500, {})
+    },
+  })
+  try {
+    ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+    ctx.manager.user = { user_id: 'user-1', email: 'user@example.com' }
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    pendingPromise = ctx.manager.refreshStartupContext()
+    await resumeStarted.promise
+    await ctx.manager.logout()
+    resumeGate.resolve()
+    const context = await pendingPromise
+
+    assert.equal(context.auth.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(ctx.manager.cloudCache.resumeContext, null)
+    assert.equal(ctx.manager.cloudCache.jobContext, null)
+  } finally {
+    resumeStarted.resolve()
+    resumeGate.resolve()
+    if (pendingPromise) {
+      await pendingPromise.catch(() => {})
+    }
+    ctx.cleanup()
+  }
+})
+
+test('stale startup context response after user switch cannot expose previous user data', async () => {
+  const jobStarted = deferred()
+  const jobGate = deferred()
+  let pendingPromise = null
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.endsWith('/api/auth/me')) {
+        return jsonResponse(200, { user_id: 'user-1', email: 'one@example.com' })
+      }
+      if (url.endsWith('/api/auth/profile/bootstrap')) {
+        return jsonResponse(200, { ok: true })
+      }
+      if (url.endsWith('/api/resumes/current')) {
+        return jsonResponse(200, { ready: true, resume: { id: 'resume-old', status: 'ready', is_active: true } })
+      }
+      if (url.endsWith('/api/job-contexts?limit=50')) {
+        jobStarted.resolve()
+        await jobGate.promise
+        return jsonResponse(200, { active_id: 'job-old', items: [{ id: 'job-old', company: 'Old', position: 'Role', is_active: true }] })
+      }
+      return jsonResponse(500, {})
+    },
+  })
+  try {
+    ctx.manager.session = { access_token: 'access-one', refresh_token: 'refresh-one' }
+    ctx.manager.user = { user_id: 'user-1', email: 'one@example.com' }
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    pendingPromise = ctx.manager.refreshStartupContext()
+    await jobStarted.promise
+
+    ctx.manager.session = { access_token: 'access-two', refresh_token: 'refresh-two' }
+    ctx.manager.user = { user_id: 'user-2', email: 'two@example.com' }
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    ctx.manager.sessionGeneration += 1
+    ctx.manager._clearCloudCache()
+
+    jobGate.resolve()
+    const context = await pendingPromise
+
+    assert.equal(context.auth.user_id, 'user-2')
+    assert.equal(ctx.manager.cloudCache.resumeContext, null)
+    assert.equal(ctx.manager.cloudCache.jobContext, null)
+    assert.equal(JSON.stringify(context).includes('job-old'), false)
+  } finally {
+    jobStarted.resolve()
+    jobGate.resolve()
+    if (pendingPromise) {
+      await pendingPromise.catch(() => {})
+    }
+    ctx.cleanup()
+  }
+})
+
 test('safeStorage persistence failures do not block in-memory login or refresh success', async () => {
   const brokenSafeStorage = {
     isEncryptionAvailable: () => true,
