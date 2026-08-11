@@ -30,7 +30,7 @@ export function normalizeDesktopCloudState(value = {}, authState = normalizeDesk
     connected ? 'cloud' : 'local-only'
   )
   return {
-    available: Boolean(value?.available),
+    available: connected && Boolean(value?.available),
     mode,
     profileReady: connected && Boolean(value?.profileReady),
     resumeReady: connected && Boolean(value?.resumeReady),
@@ -92,6 +92,9 @@ export function getDesktopAuthViewModel(value = {}) {
 }
 
 function getCloudReadinessLabel(cloud, status) {
+  if (status === DESKTOP_AUTH_STATUSES.SIGNING_IN) {
+    return 'Checking cloud'
+  }
   if (status === DESKTOP_AUTH_STATUSES.SIGNED_OUT || status === DESKTOP_AUTH_STATUSES.TOKEN_EXPIRED) {
     return 'Local-only mode'
   }
@@ -111,6 +114,9 @@ function getCloudReadinessLabel(cloud, status) {
 }
 
 function getCloudReadinessDetail(cloud, status) {
+  if (status === DESKTOP_AUTH_STATUSES.SIGNING_IN) {
+    return 'Complete login in your browser. Local desktop tools remain available.'
+  }
   if (status === DESKTOP_AUTH_STATUSES.SIGNED_OUT || status === DESKTOP_AUTH_STATUSES.TOKEN_EXPIRED) {
     return 'Local desktop tools remain available.'
   }

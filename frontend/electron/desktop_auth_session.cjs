@@ -536,6 +536,7 @@ class DesktopAuthSessionManager {
       return this.getStartupContext()
     }
 
+    // Manual startup refresh intentionally re-verifies identity/bootstrap; skipping this risks stale desktop user context.
     await this._verifyAndBootstrap(this.session)
     if (this.status !== AUTH_STATUSES.CONNECTED || !this.session?.access_token || !this.user?.user_id) {
       return this.getStartupContext()
@@ -580,13 +581,7 @@ class DesktopAuthSessionManager {
     if (typeof this.beforeCacheWriteForTest === 'function') {
       this.beforeCacheWriteForTest()
     }
-    if (
-      !captured ||
-      captured.session_generation !== this.sessionGeneration ||
-      captured.session !== (this.session || null) ||
-      !captured.user_id ||
-      captured.user_id !== this.user?.user_id
-    ) {
+    if (!this._cloudRequestStillCurrent(captured)) {
       return false
     }
     this.cloudCache = {
@@ -646,6 +641,9 @@ class DesktopAuthSessionManager {
       return { ready: false, context: null, unavailable: false, message: '' }
     }
     const activeId = typeof response.payload.active_id === 'string' ? response.payload.active_id : null
+    if (!activeId) {
+      return { ready: false, context: null, unavailable: false, message: '' }
+    }
     const active = response.payload.items.find((item) => item && typeof item === 'object' && item.id === activeId) || null
     const safeActive = active
       ? {
@@ -656,7 +654,7 @@ class DesktopAuthSessionManager {
         }
       : null
     return {
-      ready: Boolean(activeId),
+      ready: Boolean(activeId && safeActive),
       context: { active_id: activeId, active: safeActive },
       unavailable: false,
       message: '',

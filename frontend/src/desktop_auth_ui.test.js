@@ -128,11 +128,30 @@ test('desktop auth unknown status falls back to signed-out login state', () => {
 })
 
 test('desktop auth signing-in state keeps login action disabled', () => {
-  const model = getDesktopAuthViewModel({ status: 'signing-in' })
+  const model = getDesktopAuthViewModel({
+    auth: { status: 'signing-in' },
+    cloud: { available: true, mode: 'cloud' },
+  })
 
   assert.equal(model.label, 'Signing in')
+  assert.equal(model.cloud.available, false)
+  assert.equal(model.cloudLabel, 'Checking cloud')
+  assert.equal(model.cloudDetail, 'Complete login in your browser. Local desktop tools remain available.')
+  assert.notEqual(model.cloudLabel, 'Cloud unavailable')
   assert.equal(model.showLogin, true)
   assert.equal(model.loginDisabled, true)
+})
+
+test('desktop cloud availability is gated by connected auth status', () => {
+  const model = getDesktopAuthViewModel({
+    auth: { status: 'offline' },
+    cloud: { available: true, mode: 'cloud', profileReady: true, resumeReady: true, jobContextReady: true },
+  })
+
+  assert.equal(model.cloud.available, false)
+  assert.equal(model.cloud.profileReady, false)
+  assert.equal(model.cloud.resumeReady, false)
+  assert.equal(model.cloud.jobContextReady, false)
 })
 
 test('desktop auth request tracker prevents stale initial state overwrite', async () => {
@@ -206,6 +225,7 @@ test('desktop auth UI uses only safe preload auth methods', () => {
   assert.match(source, /saiiaApi\?\.logoutAuth/)
   assert.match(source, /saiiaApi\?\.refreshCloudStartupContext/)
   assert.match(source, /loadStartupContext/)
+  assert.match(source, /aria-live="polite"/)
   assert.match(source, /authState\.cloudLabel/)
   assert.match(source, /authState\.cloudDetail/)
   assert.match(source, /authRequestTrackerRef\.current\.start\(\)/)

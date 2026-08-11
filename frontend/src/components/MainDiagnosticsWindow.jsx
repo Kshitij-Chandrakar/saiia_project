@@ -83,8 +83,10 @@ function DesktopAuthStatus() {
           {authState.email ? (
             <p className="desktop-auth-card__identity">{authState.email}</p>
           ) : null}
-          <p className="desktop-auth-card__cloud">{authState.cloudLabel}</p>
-          <p className="desktop-auth-card__detail">{authState.cloudDetail}</p>
+          <div aria-live="polite">
+            <p className="desktop-auth-card__cloud">{authState.cloudLabel}</p>
+            <p className="desktop-auth-card__detail">{authState.cloudDetail}</p>
+          </div>
         </div>
         <div className="desktop-auth-card__actions">
           {authState.showLogin ? (

@@ -1043,6 +1043,37 @@ test('startup context falls back safely when readiness routes are missing', asyn
   }
 })
 
+test('startup context treats empty job-context list as no active job context', async () => {
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.endsWith('/api/auth/me')) {
+        return jsonResponse(200, { user_id: 'user-1', email: 'user@example.com' })
+      }
+      if (url.endsWith('/api/auth/profile/bootstrap')) {
+        return jsonResponse(200, { ok: true })
+      }
+      if (url.endsWith('/api/resumes/current')) {
+        return jsonResponse(200, { ready: false, resume: null })
+      }
+      if (url.endsWith('/api/job-contexts?limit=50')) {
+        return jsonResponse(200, { items: [] })
+      }
+      return jsonResponse(500, {})
+    },
+  })
+  try {
+    ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+    const context = await ctx.manager.refreshStartupContext()
+
+    assert.equal(context.auth.status, AUTH_STATUSES.CONNECTED)
+    assert.equal(context.cloud.jobContextReady, false)
+    assert.equal(context.jobContext, null)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
 test('startup context reports backend unavailable without forcing logout', async () => {
   const ctx = createManager({
     fetchImpl: async (url, init = {}) => {
