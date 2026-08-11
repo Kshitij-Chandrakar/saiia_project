@@ -1352,6 +1352,13 @@ textarea::placeholder {
   color: rgba(232, 239, 247, 0.76);
 }
 
+.desktop-auth-card__cloud {
+  margin: 0.5rem 0 0;
+  color: rgba(248, 251, 255, 0.9);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
 .desktop-auth-card__identity {
   color: rgba(248, 251, 255, 0.92);
   overflow-wrap: anywhere;

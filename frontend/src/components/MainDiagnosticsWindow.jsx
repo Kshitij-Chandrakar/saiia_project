@@ -33,7 +33,7 @@ function DesktopAuthStatus() {
     if (!authRequestTrackerRef.current.isCurrent(requestId)) {
       return
     }
-    setAuthState(getDesktopAuthViewModel(payload?.auth || payload))
+    setAuthState(getDesktopAuthViewModel(payload))
   }
 
   const runAuthAction = async (action, task) => {
@@ -56,7 +56,8 @@ function DesktopAuthStatus() {
   useEffect(() => {
     let active = true
     const requestId = authRequestTrackerRef.current.start()
-    saiiaApi?.getAuthState?.()
+    const loadStartupContext = saiiaApi?.getCloudStartupContext || saiiaApi?.getAuthState
+    loadStartupContext?.()
       .then((state) => {
         if (active) {
           applyAuthState(state, requestId)
@@ -82,6 +83,10 @@ function DesktopAuthStatus() {
           {authState.email ? (
             <p className="desktop-auth-card__identity">{authState.email}</p>
           ) : null}
+          <div aria-live="polite">
+            <p className="desktop-auth-card__cloud">{authState.cloudLabel}</p>
+            <p className="desktop-auth-card__detail">{authState.cloudDetail}</p>
+          </div>
         </div>
         <div className="desktop-auth-card__actions">
           {authState.showLogin ? (

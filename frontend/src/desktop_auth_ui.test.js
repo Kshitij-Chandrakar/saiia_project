@@ -56,6 +56,50 @@ test('desktop auth connected state renders safe email and logout action', () => 
   assert.equal(JSON.stringify(model).includes('must-not-render'), false)
 })
 
+test('desktop startup context connected state renders safe cloud readiness', () => {
+  const model = getDesktopAuthViewModel({
+    auth: {
+      status: 'connected',
+      user_id: 'user-1',
+      email: 'candidate@example.com',
+    },
+    cloud: {
+      available: true,
+      mode: 'cloud',
+      profileReady: true,
+      resumeReady: true,
+      jobContextReady: true,
+      [['access', 'token'].join('_')]: 'must-not-render',
+    },
+  })
+
+  assert.equal(model.label, 'Connected')
+  assert.equal(model.cloudLabel, 'Cloud ready')
+  assert.equal(model.cloudDetail, 'Profile, resume, and job target are available for future startup setup.')
+  assert.equal(JSON.stringify(model).includes('must-not-render'), false)
+})
+
+test('desktop startup context shows conservative missing readiness without setup controls', () => {
+  const model = getDesktopAuthViewModel({
+    auth: {
+      status: 'connected',
+      user_id: 'user-1',
+      email: 'candidate@example.com',
+    },
+    cloud: {
+      available: true,
+      mode: 'cloud',
+      profileReady: true,
+      resumeReady: false,
+      jobContextReady: false,
+    },
+  })
+
+  assert.equal(model.cloudLabel, 'Resume not ready')
+  assert.match(model.cloudDetail, /Missing resume and job target/)
+  assert.equal(model.showRefresh, true)
+})
+
 test('desktop auth token-expired state does not show stale user', () => {
   const model = getDesktopAuthViewModel({
     status: 'token-expired',
@@ -84,11 +128,30 @@ test('desktop auth unknown status falls back to signed-out login state', () => {
 })
 
 test('desktop auth signing-in state keeps login action disabled', () => {
-  const model = getDesktopAuthViewModel({ status: 'signing-in' })
+  const model = getDesktopAuthViewModel({
+    auth: { status: 'signing-in' },
+    cloud: { available: true, mode: 'cloud' },
+  })
 
   assert.equal(model.label, 'Signing in')
+  assert.equal(model.cloud.available, false)
+  assert.equal(model.cloudLabel, 'Checking cloud')
+  assert.equal(model.cloudDetail, 'Complete login in your browser. Local desktop tools remain available.')
+  assert.notEqual(model.cloudLabel, 'Cloud unavailable')
   assert.equal(model.showLogin, true)
   assert.equal(model.loginDisabled, true)
+})
+
+test('desktop cloud availability is gated by connected auth status', () => {
+  const model = getDesktopAuthViewModel({
+    auth: { status: 'offline' },
+    cloud: { available: true, mode: 'cloud', profileReady: true, resumeReady: true, jobContextReady: true },
+  })
+
+  assert.equal(model.cloud.available, false)
+  assert.equal(model.cloud.profileReady, false)
+  assert.equal(model.cloud.resumeReady, false)
+  assert.equal(model.cloud.jobContextReady, false)
 })
 
 test('desktop auth request tracker prevents stale initial state overwrite', async () => {
@@ -134,13 +197,37 @@ test('desktop auth recoverable cloud states keep local desktop available', () =>
   }
 })
 
+test('desktop startup context unavailable state preserves local-only guidance', () => {
+  const model = getDesktopAuthViewModel({
+    auth: {
+      status: 'backend-unavailable',
+      user_id: 'user-1',
+      email: 'candidate@example.com',
+    },
+    cloud: {
+      available: false,
+      mode: 'unavailable',
+      lastError: 'Cloud temporarily unavailable.',
+    },
+  })
+
+  assert.equal(model.cloudLabel, 'Cloud unavailable')
+  assert.match(model.cloudDetail, /Cloud temporarily unavailable/)
+  assert.equal(model.showLogout, true)
+})
+
 test('desktop auth UI uses only safe preload auth methods', () => {
   const source = desktopAuthStatusSource()
 
+  assert.match(source, /saiiaApi\?\.getCloudStartupContext/)
   assert.match(source, /saiiaApi\?\.getAuthState/)
   assert.match(source, /saiiaApi\?\.startAuthLogin/)
   assert.match(source, /saiiaApi\?\.logoutAuth/)
   assert.match(source, /saiiaApi\?\.refreshCloudStartupContext/)
+  assert.match(source, /loadStartupContext/)
+  assert.match(source, /aria-live="polite"/)
+  assert.match(source, /authState\.cloudLabel/)
+  assert.match(source, /authState\.cloudDetail/)
   assert.match(source, /authRequestTrackerRef\.current\.start\(\)/)
   assert.match(source, /applyAuthState\(state, requestId\)/)
   assert.match(source, /runAuthAction\('login', saiiaApi\?\.startAuthLogin\)/)

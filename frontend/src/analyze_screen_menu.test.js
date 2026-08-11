@@ -240,13 +240,14 @@ test('Answer and Chat toolbar buttons explicitly own their panels', () => {
 })
 
 test('runtime diagnostics screen controls use the same contextual matrix', () => {
+  const normalizedDiagnosticsSource = diagnosticsSource.replace(/\r\n/g, '\n')
   const successControls = sourceBetween(
-    diagnosticsSource,
+    normalizedDiagnosticsSource,
     '<div className="form-actions" style={{ marginTop:',
     '                  ) : ('
   )
   const emptyControls = sourceBetween(
-    diagnosticsSource,
+    normalizedDiagnosticsSource,
     '<div className="form-actions">\n                        <button',
     '                    </>'
   )

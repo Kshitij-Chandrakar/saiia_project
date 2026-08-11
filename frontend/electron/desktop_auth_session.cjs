@@ -17,6 +17,7 @@ const CALLBACK_URL = 'saiia://auth/callback'
 const DEFAULT_BACKEND_URL = 'http://localhost:8000'
 const DEFAULT_LOGIN_TTL_MS = 10 * 60 * 1000
 const DEFAULT_REQUEST_TIMEOUT_MS = 15000
+const DEFAULT_VERIFICATION_FRESHNESS_MS = 30000
 
 function base64Url(buffer) {
   return Buffer.from(buffer)
@@ -135,6 +136,7 @@ class DesktopAuthSessionManager {
     this.redirectUri = String(options.redirectUri || CALLBACK_URL)
     this.loginTtlMs = validPositiveNumber(options.loginTtlMs, DEFAULT_LOGIN_TTL_MS)
     this.requestTimeoutMs = validPositiveNumber(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS)
+    this.verificationFreshnessMs = validPositiveNumber(options.verificationFreshnessMs, DEFAULT_VERIFICATION_FRESHNESS_MS)
     this.requestSignalFactory = options.requestSignalFactory || null
     this.fetchImpl = options.fetchImpl || fetch
     this.openExternal = options.openExternal || (async () => {})
@@ -152,6 +154,7 @@ class DesktopAuthSessionManager {
     this.sessionGeneration = 0
     this.refreshPromise = null
     this.startupRefreshPromise = null
+    this.verificationCache = null
     this.cloudCache = this._emptyCloudCache()
   }
 
@@ -159,7 +162,7 @@ class DesktopAuthSessionManager {
     return {
       profile: null,
       settings: null,
-      startupContext: null,
+      startupContext: this._buildCloudSummary(),
       resumeContext: null,
       jobContext: null,
     }
@@ -405,11 +408,13 @@ class DesktopAuthSessionManager {
       return this.getSafeState()
     }
     if (verified.status === 503 || verified.status === 0) {
+      this._clearVerificationCache()
       this.status = verified.status === 503 ? AUTH_STATUSES.BACKEND_UNAVAILABLE : AUTH_STATUSES.OFFLINE
       this.error = 'Backend is temporarily unavailable.'
       return this.getSafeState()
     }
     if (!verified.ok) {
+      this._clearVerificationCache()
       this.status = AUTH_STATUSES.BACKEND_UNAVAILABLE
       this.error = 'Backend authentication failed.'
       return this.getSafeState()
@@ -421,6 +426,7 @@ class DesktopAuthSessionManager {
       return this.getSafeState()
     }
     if (this.user?.user_id && nextUser.user_id && this.user.user_id !== nextUser.user_id) {
+      this._clearVerificationCache()
       this._clearCloudCache()
     }
     this.user = nextUser
@@ -436,6 +442,7 @@ class DesktopAuthSessionManager {
       return this.getSafeState()
     }
     if (bootstrapped.status === 502) {
+      this._clearVerificationCache()
       this.status = AUTH_STATUSES.BOOTSTRAP_FAILED
       this.error = 'Profile setup could not be completed.'
       return this.getSafeState()
@@ -445,12 +452,14 @@ class DesktopAuthSessionManager {
       return this.getSafeState()
     }
     if (bootstrapped.status === 503 || bootstrapped.status === 0) {
+      this._clearVerificationCache()
       this.status = bootstrapped.status === 503 ? AUTH_STATUSES.BACKEND_UNAVAILABLE : AUTH_STATUSES.OFFLINE
       this.error = 'Backend is temporarily unavailable.'
       return this.getSafeState()
     }
 
     if (!bootstrapped.ok) {
+      this._clearVerificationCache()
       this.status = AUTH_STATUSES.BACKEND_UNAVAILABLE
       this.error = 'Profile setup could not be completed.'
       return this.getSafeState()
@@ -458,6 +467,7 @@ class DesktopAuthSessionManager {
 
     this.status = AUTH_STATUSES.CONNECTED
     this.error = ''
+    this._storeVerificationCache(session, nextUser.user_id)
     return this.getSafeState()
   }
 
@@ -507,8 +517,12 @@ class DesktopAuthSessionManager {
   }
 
   getStartupContext() {
+    const cloud = this.status === AUTH_STATUSES.CONNECTED && this.cloudCache.startupContext
+      ? this.cloudCache.startupContext
+      : this._buildCloudSummary()
     return {
       auth: this.getSafeState(),
+      cloud,
       profile: this.cloudCache.profile,
       settings: this.cloudCache.settings,
       startupContext: this.cloudCache.startupContext,
@@ -528,9 +542,41 @@ class DesktopAuthSessionManager {
   }
 
   async _refreshStartupContextOnce() {
-    if (this.session?.access_token) {
+    if (!this.session?.access_token) {
+      return this.getStartupContext()
+    }
+
+    if (!this._hasFreshVerification(this.session)) {
       await this._verifyAndBootstrap(this.session)
     }
+    if (this.status !== AUTH_STATUSES.CONNECTED || !this.session?.access_token || !this.user?.user_id) {
+      return this.getStartupContext()
+    }
+
+    const captured = this.captureCloudRequestContext()
+    const session = this.session
+    const [resumeResult, jobContextResult] = await Promise.all([
+      this._loadResumeReadiness(session.access_token),
+      this._loadJobContextReadiness(session.access_token),
+    ])
+    if (!this._cloudRequestStillCurrent(captured)) {
+      return this.getStartupContext()
+    }
+
+    const unavailable = [resumeResult, jobContextResult].find((result) => result.unavailable)
+    const nextCache = {
+      startupContext: this._buildCloudSummary({
+        available: !unavailable,
+        mode: unavailable ? 'unavailable' : 'cloud',
+        profileReady: true,
+        resumeReady: resumeResult.ready,
+        jobContextReady: jobContextResult.ready,
+        lastError: unavailable?.message || '',
+      }),
+      resumeContext: resumeResult.context,
+      jobContext: jobContextResult.context,
+    }
+    this.writeCloudCache(captured, nextCache)
     return this.getStartupContext()
   }
 
@@ -546,13 +592,7 @@ class DesktopAuthSessionManager {
     if (typeof this.beforeCacheWriteForTest === 'function') {
       this.beforeCacheWriteForTest()
     }
-    if (
-      !captured ||
-      captured.session_generation !== this.sessionGeneration ||
-      captured.session !== (this.session || null) ||
-      !captured.user_id ||
-      captured.user_id !== this.user?.user_id
-    ) {
+    if (!this._cloudRequestStillCurrent(captured)) {
       return false
     }
     this.cloudCache = {
@@ -560,6 +600,140 @@ class DesktopAuthSessionManager {
       ...nextCache,
     }
     return true
+  }
+
+  _cloudRequestStillCurrent(captured) {
+    return Boolean(
+      captured &&
+      captured.session_generation === this.sessionGeneration &&
+      captured.session === (this.session || null) &&
+      captured.user_id &&
+      captured.user_id === this.user?.user_id,
+    )
+  }
+
+  _hasFreshVerification(session) {
+    return Boolean(
+      this.verificationCache &&
+      this.status === AUTH_STATUSES.CONNECTED &&
+      session &&
+      isNonEmptyString(session.access_token) &&
+      isNonEmptyString(this.user?.user_id) &&
+      this.verificationCache.session_generation === this.sessionGeneration &&
+      this.verificationCache.access_token === session.access_token &&
+      this.verificationCache.user_id === this.user.user_id &&
+      this.now() - this.verificationCache.verified_at <= this.verificationFreshnessMs,
+    )
+  }
+
+  _storeVerificationCache(session, userId) {
+    if (
+      this.status !== AUTH_STATUSES.CONNECTED ||
+      !session ||
+      !isNonEmptyString(session.access_token) ||
+      !isNonEmptyString(userId)
+    ) {
+      this._clearVerificationCache()
+      return
+    }
+    this.verificationCache = {
+      session_generation: this.sessionGeneration,
+      access_token: session.access_token,
+      user_id: userId,
+      verified_at: this.now(),
+    }
+  }
+
+  _clearVerificationCache() {
+    this.verificationCache = null
+  }
+
+  async _loadResumeReadiness(accessToken) {
+    const response = await this._backendJson('/api/resumes/current', 'GET', accessToken)
+    if (response.status === 401) {
+      this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
+      return this._unavailableReadiness('Session expired. Please log in again.')
+    }
+    if (response.status === 0 || response.status === 503) {
+      return this._unavailableReadiness('Cloud temporarily unavailable.')
+    }
+    if (!response.ok) {
+      return { ready: false, context: null, unavailable: false, message: '' }
+    }
+    const resume = response.payload?.resume && typeof response.payload.resume === 'object'
+      ? {
+          id: typeof response.payload.resume.id === 'string' ? response.payload.resume.id : null,
+          status: typeof response.payload.resume.status === 'string' ? response.payload.resume.status : '',
+          is_active: Boolean(response.payload.resume.is_active),
+        }
+      : null
+    return {
+      ready: Boolean(response.payload?.ready && resume),
+      context: resume ? { ready: Boolean(response.payload?.ready), resume } : null,
+      unavailable: false,
+      message: '',
+    }
+  }
+
+  async _loadJobContextReadiness(accessToken) {
+    const response = await this._backendJson('/api/job-contexts?limit=50', 'GET', accessToken)
+    if (response.status === 401) {
+      this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
+      return this._unavailableReadiness('Session expired. Please log in again.')
+    }
+    if (response.status === 0 || response.status === 503) {
+      return this._unavailableReadiness('Cloud temporarily unavailable.')
+    }
+    if (!response.ok || !Array.isArray(response.payload?.items)) {
+      return { ready: false, context: null, unavailable: false, message: '' }
+    }
+    const activeId = typeof response.payload.active_id === 'string' ? response.payload.active_id : null
+    if (!activeId) {
+      return { ready: false, context: null, unavailable: false, message: '' }
+    }
+    const active = response.payload.items.find((item) => item && typeof item === 'object' && item.id === activeId) || null
+    const safeActive = active
+      ? {
+          id: typeof active.id === 'string' ? active.id : null,
+          company: typeof active.company === 'string' ? active.company : '',
+          position: typeof active.position === 'string' ? active.position : '',
+          is_active: Boolean(active.is_active),
+        }
+      : null
+    return {
+      ready: Boolean(activeId && safeActive),
+      context: { active_id: activeId, active: safeActive },
+      unavailable: false,
+      message: '',
+    }
+  }
+
+  _unavailableReadiness(message) {
+    return {
+      ready: false,
+      context: null,
+      unavailable: true,
+      message: safeErrorMessage(message, 'Cloud temporarily unavailable.'),
+    }
+  }
+
+  _buildCloudSummary(overrides = {}) {
+    const status = overrides.authStatus || this.status
+    const connected = status === AUTH_STATUSES.CONNECTED
+    const localOnly = [AUTH_STATUSES.SIGNED_OUT, AUTH_STATUSES.TOKEN_EXPIRED].includes(status)
+    const unavailable = [
+      AUTH_STATUSES.OFFLINE,
+      AUTH_STATUSES.BACKEND_UNAVAILABLE,
+      AUTH_STATUSES.BOOTSTRAP_FAILED,
+    ].includes(status)
+    return {
+      available: typeof overrides.available === 'boolean' ? overrides.available : connected,
+      mode: overrides.mode || (connected ? 'cloud' : localOnly ? 'local-only' : unavailable ? 'unavailable' : 'local-only'),
+      profileReady: typeof overrides.profileReady === 'boolean' ? overrides.profileReady : connected,
+      resumeReady: Boolean(overrides.resumeReady),
+      jobContextReady: Boolean(overrides.jobContextReady),
+      lastError: safeErrorMessage(overrides.lastError || this.error),
+    }
   }
 
   _clearLocalSession(status, message = '') {
@@ -570,6 +744,7 @@ class DesktopAuthSessionManager {
     this.user = null
     this.status = status
     this.error = safeErrorMessage(message)
+    this._clearVerificationCache()
     this._clearCloudCache()
     this._deleteStoredSession()
   }
