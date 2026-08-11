@@ -929,6 +929,156 @@ test('refreshStartupContext is single-flight and avoids duplicate verification c
   }
 })
 
+test('refreshStartupContext skips redundant auth verification while cache is fresh', async () => {
+  let now = 1000
+  const ctx = createManager({
+    now: () => now,
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.endsWith('/api/auth/me')) {
+        return jsonResponse(200, { user_id: 'user-1', email: 'user@example.com' })
+      }
+      if (url.endsWith('/api/auth/profile/bootstrap')) {
+        return jsonResponse(200, { ok: true })
+      }
+      if (url.endsWith('/api/resumes/current')) {
+        return jsonResponse(200, { ready: true, resume: { id: 'resume-1', status: 'ready', is_active: true } })
+      }
+      if (url.endsWith('/api/job-contexts?limit=50')) {
+        return jsonResponse(200, { items: [] })
+      }
+      return jsonResponse(500, {})
+    },
+  })
+  try {
+    ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+    await ctx.manager.refreshStartupContext()
+    now += 1000
+    await ctx.manager.refreshStartupContext()
+
+    assert.equal(ctx.calls.filter((call) => call.url.endsWith('/api/auth/me')).length, 1)
+    assert.equal(ctx.calls.filter((call) => call.url.endsWith('/api/auth/profile/bootstrap')).length, 1)
+    assert.equal(ctx.calls.filter((call) => call.url.endsWith('/api/resumes/current')).length, 2)
+    assert.equal(ctx.calls.filter((call) => call.url.endsWith('/api/job-contexts?limit=50')).length, 2)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('refreshStartupContext verifies again when verification freshness expires', async () => {
+  let now = 1000
+  const ctx = createManager({
+    verificationFreshnessMs: 30000,
+    now: () => now,
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.endsWith('/api/auth/me')) {
+        return jsonResponse(200, { user_id: 'user-1', email: 'user@example.com' })
+      }
+      if (url.endsWith('/api/auth/profile/bootstrap')) {
+        return jsonResponse(200, { ok: true })
+      }
+      if (url.endsWith('/api/resumes/current')) {
+        return jsonResponse(200, { ready: false, resume: null })
+      }
+      if (url.endsWith('/api/job-contexts?limit=50')) {
+        return jsonResponse(200, { items: [] })
+      }
+      return jsonResponse(500, {})
+    },
+  })
+  try {
+    ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+    await ctx.manager.refreshStartupContext()
+    now += 31000
+    await ctx.manager.refreshStartupContext()
+
+    assert.equal(ctx.calls.filter((call) => call.url.endsWith('/api/auth/me')).length, 2)
+    assert.equal(ctx.calls.filter((call) => call.url.endsWith('/api/auth/profile/bootstrap')).length, 2)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('refreshStartupContext verifies again after token or generation changes', async () => {
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.endsWith('/api/auth/me')) {
+        return jsonResponse(200, { user_id: 'user-1', email: 'user@example.com' })
+      }
+      if (url.endsWith('/api/auth/profile/bootstrap')) {
+        return jsonResponse(200, { ok: true })
+      }
+      if (url.endsWith('/api/resumes/current')) {
+        return jsonResponse(200, { ready: false, resume: null })
+      }
+      if (url.endsWith('/api/job-contexts?limit=50')) {
+        return jsonResponse(200, { items: [] })
+      }
+      return jsonResponse(500, {})
+    },
+  })
+  try {
+    ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+    await ctx.manager.refreshStartupContext()
+
+    ctx.manager.session = { access_token: 'new-access-token', refresh_token: 'refresh-token' }
+    await ctx.manager.refreshStartupContext()
+
+    ctx.manager.sessionGeneration += 1
+    await ctx.manager.refreshStartupContext()
+
+    assert.equal(ctx.calls.filter((call) => call.url.endsWith('/api/auth/me')).length, 3)
+    assert.equal(ctx.calls.filter((call) => call.url.endsWith('/api/auth/profile/bootstrap')).length, 3)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('logout and failed startup verification invalidate verification freshness cache', async () => {
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.endsWith('/api/auth/me')) {
+        return jsonResponse(ctx.calls.some((call) => call.url.includes('/auth/v1/logout')) ? 503 : 200, {
+          user_id: 'user-1',
+          email: 'user@example.com',
+        })
+      }
+      if (url.endsWith('/api/auth/profile/bootstrap')) {
+        return jsonResponse(200, { ok: true })
+      }
+      if (url.endsWith('/api/resumes/current')) {
+        return jsonResponse(200, { ready: false, resume: null })
+      }
+      if (url.endsWith('/api/job-contexts?limit=50')) {
+        return jsonResponse(200, { items: [] })
+      }
+      if (url.includes('/auth/v1/logout')) {
+        return jsonResponse(200, {})
+      }
+      return jsonResponse(500, {})
+    },
+  })
+  try {
+    const session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+    ctx.manager.session = session
+    await ctx.manager.refreshStartupContext()
+    assert.notEqual(ctx.manager.verificationCache, null)
+
+    await ctx.manager.logout()
+    assert.equal(ctx.manager.verificationCache, null)
+
+    ctx.manager.session = session
+    await ctx.manager.refreshStartupContext()
+    assert.equal(ctx.manager.verificationCache, null)
+    assert.equal(ctx.manager.getSafeState().status, AUTH_STATUSES.BACKEND_UNAVAILABLE)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
 test('signed-out startup context stays local-only with conservative readiness flags', () => {
   const ctx = createManager()
   try {
