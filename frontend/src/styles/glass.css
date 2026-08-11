@@ -1326,6 +1326,44 @@ textarea::placeholder {
   border-color: rgba(135, 199, 255, 0.22);
 }
 
+.desktop-auth-card {
+  border-color: rgba(135, 199, 255, 0.2);
+}
+
+.desktop-auth-card__body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.desktop-auth-card__title {
+  margin: 0.28rem 0 0;
+  font-size: 0.98rem;
+  font-weight: 650;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.desktop-auth-card__detail,
+.desktop-auth-card__identity {
+  margin: 0.35rem 0 0;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: rgba(232, 239, 247, 0.76);
+}
+
+.desktop-auth-card__identity {
+  color: rgba(248, 251, 255, 0.92);
+  overflow-wrap: anywhere;
+}
+
+.desktop-auth-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
 .section-title {
   margin: 0 0 0.65rem;
   font-size: 0.82rem;

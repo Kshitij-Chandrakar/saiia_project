@@ -1,4 +1,5 @@
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
+import { createDesktopAuthRequestTracker, getDesktopAuthViewModel } from '../desktop_auth_ui.js'
 import { extractCopyableCode } from '../screen_mode_state.js'
 
 function formatTimeLabel(value) {
@@ -18,6 +19,103 @@ function MetaRow({ label, value }) {
     <div className="meta-row">
       <span className="meta-row__label">{label}</span>
       <span className="meta-row__value">{value}</span>
+    </div>
+  )
+}
+
+function DesktopAuthStatus() {
+  const [authState, setAuthState] = useState(() => getDesktopAuthViewModel())
+  const [busyAction, setBusyAction] = useState('')
+  const authRequestTrackerRef = useRef(createDesktopAuthRequestTracker())
+  const saiiaApi = typeof window !== 'undefined' ? window.saiia : null
+
+  const applyAuthState = (payload, requestId) => {
+    if (!authRequestTrackerRef.current.isCurrent(requestId)) {
+      return
+    }
+    setAuthState(getDesktopAuthViewModel(payload?.auth || payload))
+  }
+
+  const runAuthAction = async (action, task) => {
+    if (busyAction || typeof task !== 'function') {
+      return
+    }
+    const requestId = authRequestTrackerRef.current.start()
+    setBusyAction(action)
+    try {
+      applyAuthState(await task(), requestId)
+    } catch {
+      applyAuthState({ status: 'offline', error: 'Cloud temporarily unavailable.' }, requestId)
+    } finally {
+      if (authRequestTrackerRef.current.isCurrent(requestId)) {
+        setBusyAction('')
+      }
+    }
+  }
+
+  useEffect(() => {
+    let active = true
+    const requestId = authRequestTrackerRef.current.start()
+    saiiaApi?.getAuthState?.()
+      .then((state) => {
+        if (active) {
+          applyAuthState(state, requestId)
+        }
+      })
+      .catch(() => {
+        if (active) {
+          applyAuthState({ status: 'signed-out' }, requestId)
+        }
+      })
+    return () => {
+      active = false
+    }
+  }, [saiiaApi])
+
+  return (
+    <div className="glass-card desktop-auth-card" aria-label="Cloud auth status">
+      <div className="desktop-auth-card__body">
+        <div>
+          <span className="section-label">intervuAI cloud</span>
+          <p className="desktop-auth-card__title">{authState.label}</p>
+          <p className="desktop-auth-card__detail">{authState.detail}</p>
+          {authState.email ? (
+            <p className="desktop-auth-card__identity">{authState.email}</p>
+          ) : null}
+        </div>
+        <div className="desktop-auth-card__actions">
+          {authState.showLogin ? (
+            <button
+              className="icon-pill"
+              type="button"
+              disabled={authState.loginDisabled || Boolean(busyAction)}
+              onClick={() => runAuthAction('login', saiiaApi?.startAuthLogin)}
+            >
+              {busyAction === 'login' ? 'Opening login...' : 'Login'}
+            </button>
+          ) : null}
+          {authState.showRefresh ? (
+            <button
+              className="icon-pill icon-pill--ghost"
+              type="button"
+              disabled={Boolean(busyAction)}
+              onClick={() => runAuthAction('refresh', saiiaApi?.refreshCloudStartupContext)}
+            >
+              Refresh status
+            </button>
+          ) : null}
+          {authState.showLogout ? (
+            <button
+              className="icon-pill icon-pill--ghost"
+              type="button"
+              disabled={Boolean(busyAction)}
+              onClick={() => runAuthAction('logout', saiiaApi?.logoutAuth)}
+            >
+              Logout
+            </button>
+          ) : null}
+        </div>
+      </div>
     </div>
   )
 }
@@ -573,6 +671,8 @@ export default function MainDiagnosticsWindow(props) {
               and the latest answer state. The live overlay remains the primary interview
               display.
             </p>
+
+            <DesktopAuthStatus />
 
             <div className={`glass-card runtime-guide runtime-guide--${runtimeGuidance.tone}`}>
               <div className="runtime-guide__header">
