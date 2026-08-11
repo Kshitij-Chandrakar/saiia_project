@@ -98,7 +98,7 @@ C4.3 product decision record:
 C5.1 current status:
 
 ```text
-[~] Planning - Desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`; no desktop auth runtime, token persistence, startup/session setup UI, cloud sync engine, or C4.4 generation integration has been implemented
+[x] Audit/design complete - Desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`; at C5.1 time no desktop auth runtime existed, and later C5.2/C5.3/C5.4 implementation status is tracked below; startup/session setup UI, cloud sync engine, and C4.4 generation integration remain not implemented
 ```
 
 C5.2 current status:

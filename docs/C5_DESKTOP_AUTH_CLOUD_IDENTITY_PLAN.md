@@ -4,6 +4,21 @@ Date: 2026-08-09
 
 Scope: C5.1 audit and plan only. No desktop authentication runtime, startup/session setup UI, backend route, Supabase migration, C4.4 generation integration, or C5 sync implementation was added.
 
+## Implementation Status Addendum
+
+This document remains the historical C5.1 audit/design plan and source of design intent. Later implementation status is:
+
+- C5.1: audit/design plan completed.
+- C5.2: desktop authenticated cloud identity implemented locally.
+- C5.3: desktop auth status/login/logout UI implemented locally.
+- C5.4: desktop cloud startup context plumbing implemented locally.
+
+Still not implemented:
+
+- Startup setup UI; this belongs to later C6.
+- Resume/job target selection UI; this belongs to later C6.
+- C4.4 generation integration.
+
 ## Verified Current State
 
 Files reviewed:

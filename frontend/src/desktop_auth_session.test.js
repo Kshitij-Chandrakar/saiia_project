@@ -1054,7 +1054,10 @@ test('startup context treats empty job-context list as no active job context', a
         return jsonResponse(200, { ok: true })
       }
       if (url.endsWith('/api/resumes/current')) {
-        return jsonResponse(200, { ready: false, resume: null })
+        return jsonResponse(200, {
+          ready: true,
+          resume: { id: 'resume-1', status: 'ready', is_active: true },
+        })
       }
       if (url.endsWith('/api/job-contexts?limit=50')) {
         return jsonResponse(200, { items: [] })
@@ -1067,8 +1070,49 @@ test('startup context treats empty job-context list as no active job context', a
     const context = await ctx.manager.refreshStartupContext()
 
     assert.equal(context.auth.status, AUTH_STATUSES.CONNECTED)
+    assert.equal(context.cloud.available, true)
+    assert.equal(context.cloud.profileReady, true)
     assert.equal(context.cloud.jobContextReady, false)
     assert.equal(context.jobContext, null)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('startup context treats unmatched active job-context id as not ready', async () => {
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.endsWith('/api/auth/me')) {
+        return jsonResponse(200, { user_id: 'user-1', email: 'user@example.com' })
+      }
+      if (url.endsWith('/api/auth/profile/bootstrap')) {
+        return jsonResponse(200, { ok: true })
+      }
+      if (url.endsWith('/api/resumes/current')) {
+        return jsonResponse(200, {
+          ready: true,
+          resume: { id: 'resume-1', status: 'ready', is_active: true },
+        })
+      }
+      if (url.endsWith('/api/job-contexts?limit=50')) {
+        return jsonResponse(200, {
+          active_id: 'missing-job',
+          items: [{ id: 'other-job', company: 'Acme', position: 'Engineer', is_active: false }],
+        })
+      }
+      return jsonResponse(500, {})
+    },
+  })
+  try {
+    ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+    const context = await ctx.manager.refreshStartupContext()
+
+    assert.equal(context.auth.status, AUTH_STATUSES.CONNECTED)
+    assert.equal(context.cloud.available, true)
+    assert.equal(context.cloud.profileReady, true)
+    assert.equal(context.cloud.jobContextReady, false)
+    assert.deepEqual(context.jobContext, { active_id: 'missing-job', active: null })
   } finally {
     ctx.cleanup()
   }
