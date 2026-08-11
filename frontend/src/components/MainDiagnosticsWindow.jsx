@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import { getDesktopAuthViewModel } from '../desktop_auth_ui.js'
+import React, { useEffect, useRef, useState } from 'react'
+import { createDesktopAuthRequestTracker, getDesktopAuthViewModel } from '../desktop_auth_ui.js'
 import { extractCopyableCode } from '../screen_mode_state.js'
 
 function formatTimeLabel(value) {
@@ -26,9 +26,13 @@ function MetaRow({ label, value }) {
 function DesktopAuthStatus() {
   const [authState, setAuthState] = useState(() => getDesktopAuthViewModel())
   const [busyAction, setBusyAction] = useState('')
+  const authRequestTrackerRef = useRef(createDesktopAuthRequestTracker())
   const saiiaApi = typeof window !== 'undefined' ? window.saiia : null
 
-  const applyAuthState = (payload) => {
+  const applyAuthState = (payload, requestId) => {
+    if (!authRequestTrackerRef.current.isCurrent(requestId)) {
+      return
+    }
     setAuthState(getDesktopAuthViewModel(payload?.auth || payload))
   }
 
@@ -36,27 +40,31 @@ function DesktopAuthStatus() {
     if (busyAction || typeof task !== 'function') {
       return
     }
+    const requestId = authRequestTrackerRef.current.start()
     setBusyAction(action)
     try {
-      applyAuthState(await task())
+      applyAuthState(await task(), requestId)
     } catch {
-      applyAuthState({ status: 'offline', error: 'Cloud temporarily unavailable.' })
+      applyAuthState({ status: 'offline', error: 'Cloud temporarily unavailable.' }, requestId)
     } finally {
-      setBusyAction('')
+      if (authRequestTrackerRef.current.isCurrent(requestId)) {
+        setBusyAction('')
+      }
     }
   }
 
   useEffect(() => {
     let active = true
+    const requestId = authRequestTrackerRef.current.start()
     saiiaApi?.getAuthState?.()
       .then((state) => {
         if (active) {
-          applyAuthState(state)
+          applyAuthState(state, requestId)
         }
       })
       .catch(() => {
         if (active) {
-          applyAuthState({ status: 'signed-out' })
+          applyAuthState({ status: 'signed-out' }, requestId)
         }
       })
     return () => {

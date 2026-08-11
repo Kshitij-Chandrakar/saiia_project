@@ -8,14 +8,32 @@ export const DESKTOP_AUTH_STATUSES = Object.freeze({
   BACKEND_UNAVAILABLE: 'backend-unavailable',
 })
 
+const SUPPORTED_DESKTOP_AUTH_STATUSES = new Set(Object.values(DESKTOP_AUTH_STATUSES))
+
 export function normalizeDesktopAuthState(value = {}) {
-  const status = String(value?.status || DESKTOP_AUTH_STATUSES.SIGNED_OUT)
+  const candidateStatus = String(value?.status || DESKTOP_AUTH_STATUSES.SIGNED_OUT)
+  const status = SUPPORTED_DESKTOP_AUTH_STATUSES.has(candidateStatus)
+    ? candidateStatus
+    : DESKTOP_AUTH_STATUSES.SIGNED_OUT
   const connected = status === DESKTOP_AUTH_STATUSES.CONNECTED
   return {
     status,
     user_id: connected && typeof value?.user_id === 'string' ? value.user_id : null,
     email: connected && typeof value?.email === 'string' ? value.email : null,
     error: typeof value?.error === 'string' ? value.error : '',
+  }
+}
+
+export function createDesktopAuthRequestTracker() {
+  let currentRequestId = 0
+  return {
+    start() {
+      currentRequestId += 1
+      return currentRequestId
+    },
+    isCurrent(requestId) {
+      return requestId === currentRequestId
+    },
   }
 }
 
