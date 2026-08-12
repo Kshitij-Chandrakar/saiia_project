@@ -6,7 +6,7 @@
 **Version:** 1.1  
 **Last updated:** 2026-08-09
 **Created:** 2026-07-10  
-**Current active phase:** C5.4 - Desktop cloud startup context plumbing implemented locally; desktop startup/session setup UI, C4.4 generation integration, cloud sync engine, and local/cloud data migration are not started
+**Current active phase:** C6.1 - Desktop startup/session setup UI audit and plan complete; startup UI runtime, resume/job-target selection UI, C4.4 generation integration, cloud sync engine, and local/cloud data migration are not started
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -1583,12 +1583,28 @@ Desktop may cache:
 ## Status
 
 ```text
-[ ] Not started
+[~] In progress - C6.1 desktop startup/session setup UI audit and plan complete in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`; no startup UI runtime, resume/job-target selection UI, backend session routes, Supabase migrations, C4.4 generation integration, cloud sync engine, or local/cloud data migration has been implemented
 ```
 
 ## Goal
 
 Create a durable interview session model that connects desktop activity with website history.
+
+Before durable session storage is implemented, the desktop app needs a small startup/session setup surface that lets the user choose cloud or local-only mode, see auth/cloud readiness, and understand whether resume/job-target context is ready. C6.1 plans that startup shell only; C6.2+ will implement it.
+
+## C6.1 startup/session setup planning status
+
+- [x] Audited the current Electron runtime UI, C5.4 startup context shape, safe preload APIs, auth/cloud states, local-only behavior, and existing resume/job-context backend capabilities.
+- [x] Defined startup flows for signed-out, signing-in, connected/cloud-ready, missing resume, missing job target, token-expired, backend-unavailable, offline, bootstrap-failed, and explicit local-only states.
+- [x] Defined a minimal startup screen structure: header, cloud account status, resume readiness, job target/JD readiness, local-only option, Start Session action, and safe recovery messages.
+- [x] Preserved renderer security boundaries: preload-only cloud access, no tokens/raw sessions, no direct Supabase renderer access, no generic cloud fetch.
+- [x] Kept C6.1 documentation-only; no startup UI runtime, resume/job-target selection UI, backend route, migration, C4.4 generation integration, cloud/local migration, billing, or admin work was implemented.
+
+## C6 implementation split
+
+- C6.2: implement the basic desktop startup shell UI using existing C5.4 context.
+- C6.3: wire resume/job target selection or lightweight creation flow.
+- C6.4: validation, fallback behavior, stale-state tests, accessibility, and polish.
 
 ## Session lifecycle
 

@@ -36,7 +36,7 @@ This tracker is the live execution log for the production build.
 Current active execution phase:
 
 ```text
-C5.4 - Desktop cloud startup context plumbing implemented locally; desktop startup/session setup UI, C4.4 generation integration, cloud sync engine, and local/cloud data migration are not started
+C6.1 - Desktop startup/session setup UI audit and plan complete; startup UI runtime, resume/job-target selection UI, C4.4 generation integration, cloud sync engine, and local/cloud data migration are not started
 ```
 
 Screen Intelligence documentation:
@@ -117,6 +117,12 @@ C5.4 current status:
 
 ```text
 [~] Implemented locally - Desktop cloud startup context plumbing is implemented through the existing Electron main-process auth/session manager and safe preload APIs; startup context now exposes safe auth/cloud summary state, profile/bootstrap readiness, active cloud resume readiness from `/api/resumes/current`, active cloud job-target readiness from preview-only `/api/job-contexts?limit=50`, local-only/offline fallback, and stale response protection tests; no desktop startup/session setup UI, resume/job-target selection UI, C4.4 generation integration, cloud sync engine, backend route changes, migrations, billing/account UI, or local/cloud data migration has been started
+```
+
+C6.1 current status:
+
+```text
+[x] Audit/design complete - Desktop startup/session setup UI audit and plan is documented in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`; no startup UI runtime, resume/job-target selection UI, backend session routes, Supabase migrations, C4.4 generation integration, cloud sync engine, billing/admin features, or local/cloud data migration has been implemented
 ```
 
 C15.5 future admin/support status:
@@ -1584,7 +1590,7 @@ P17 Protected commercial edition
 # Current Immediate Next Phase
 
 ```text
-C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is merged and live smoke-tested. C3.3 frontend authenticated upload/review UI is implemented under `/auth/resume`. C3.4 cloud RAG/index activation is implemented through user-owned chunk generation, backend-only activation, and ready-current resume behavior. C3.4.5 GPT-based resume extraction provider is implemented. C3.5 delete/rebuild/status closure is implemented. C4 Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing and live Supabase smoke validation passed on saiia-dev. C4.3 main website job-target UI is cancelled/re-scoped; job target selection moves to desktop startup/session setup after desktop authenticated cloud identity exists. C5.1 desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`. C5.2 desktop authenticated cloud identity is implemented locally with Electron main-process auth/session handling and focused tests. C5.3 desktop auth status/login/logout UI wiring is implemented locally through existing safe preload APIs. C5.4 desktop cloud startup context plumbing is implemented locally through existing safe preload APIs and authenticated backend summary routes. No C4 generation integration, desktop startup/session setup UI, cloud sync engine, local/cloud data migration, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI work has started.
+C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is merged and live smoke-tested. C3.3 frontend authenticated upload/review UI is implemented under `/auth/resume`. C3.4 cloud RAG/index activation is implemented through user-owned chunk generation, backend-only activation, and ready-current resume behavior. C3.4.5 GPT-based resume extraction provider is implemented. C3.5 delete/rebuild/status closure is implemented. C4 Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing and live Supabase smoke validation passed on saiia-dev. C4.3 main website job-target UI is cancelled/re-scoped; job target selection moves to desktop startup/session setup after desktop authenticated cloud identity exists. C5.1 desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`. C5.2 desktop authenticated cloud identity is implemented locally with Electron main-process auth/session handling and focused tests. C5.3 desktop auth status/login/logout UI wiring is implemented locally through existing safe preload APIs. C5.4 desktop cloud startup context plumbing is implemented locally through existing safe preload APIs and authenticated backend summary routes. C6.1 desktop startup/session setup UI audit and plan is documented in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`. No C4 generation integration, desktop startup/session setup UI runtime, cloud sync engine, local/cloud data migration, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI work has started.
 ```
 
 P6B/P8/P9 consolidation records are preserved as historical desktop validation notes, not as the current execution authority.
