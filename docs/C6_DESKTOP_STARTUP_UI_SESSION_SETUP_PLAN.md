@@ -216,7 +216,7 @@ Avoid a large account dashboard, billing panel, session history view, or resume/
 - Bootstrap failed offers refresh/logout and blocks cloud start.
 - Logout and user switch clear previous-user startup data.
 - Renderer uses only preload APIs and never imports Supabase client.
-- No token/session/header strings appear in startup UI/preload tests.
+- Startup UI and preload tests must prove that token, session, and Authorization header values are not exposed. Token-shaped fixture keys and sentinel values are allowed in negative tests.
 - Keyboard and aria-live behavior are covered.
 
 ## Risks and Open Gaps

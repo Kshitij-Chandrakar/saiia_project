@@ -122,7 +122,7 @@ C5.4 current status:
 C6.1 current status:
 
 ```text
-[x] Audit/design complete - Desktop startup/session setup UI audit and plan is documented in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`; no startup UI runtime, resume/job-target selection UI, backend session routes, Supabase migrations, C4.4 generation integration, cloud sync engine, billing/admin features, or local/cloud data migration has been implemented
+[x] Audit/design complete - Desktop startup/session setup UI audit and plan is documented in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`; validation: `git diff --check` passed, runtime tests were not run because C6.1 is documentation-only, and Graphify update was attempted but blocked because a semantic-extraction LLM API key was unavailable; no startup UI runtime, resume/job-target selection UI, backend session routes, Supabase migrations, C4.4 generation integration, cloud sync engine, billing/admin features, or local/cloud data migration has been implemented
 ```
 
 C15.5 future admin/support status:
