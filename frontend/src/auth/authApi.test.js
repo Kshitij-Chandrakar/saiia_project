@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   bootstrapProfile,
   confirmCloudResume,
+  createDesktopHandoff,
   deleteCloudResume,
   extractCloudResume,
   fetchCloudResumeStatus,
@@ -115,6 +116,40 @@ test('bootstrapProfile posts bearer token and returns safe status', async () => 
   })
   assert.equal('access_token' in result, false)
   assert.equal('private_server_value' in result, false)
+})
+
+
+test('createDesktopHandoff posts authenticated state and refresh token to backend only', async () => {
+  const rawToken = 'unit-test-access-token'
+  const calls = []
+  const handoff = await createDesktopHandoff(rawToken, 'unit-test-refresh-token', 'desktop-state-123456', {
+    backendUrl: 'http://localhost:8000',
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init })
+      return {
+        ok: true,
+        json: async () => ({
+          handoff_code: 'one-time-handoff-code',
+          expires_in: 300,
+          access_token: 'must-not-leak',
+        }),
+      }
+    },
+  })
+
+  assert.equal(calls[0].url, 'http://localhost:8000/api/auth/desktop-handoff')
+  assert.equal(calls[0].init.method, 'POST')
+  assert.equal(calls[0].init.headers.Authorization, `Bearer ${rawToken}`)
+  assert.equal(calls[0].init.headers['Content-Type'], 'application/json')
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    state: 'desktop-state-123456',
+    refresh_token: 'unit-test-refresh-token',
+  })
+  assert.deepEqual(handoff, {
+    handoff_code: 'one-time-handoff-code',
+    expires_in: 300,
+  })
+  assert.equal('access_token' in handoff, false)
 })
 
 

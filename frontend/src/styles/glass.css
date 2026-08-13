@@ -1387,6 +1387,314 @@ textarea::placeholder {
   color: rgba(232, 239, 247, 0.72);
 }
 
+.startup-login-window {
+  position: fixed;
+  inset: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  width: 426px;
+  height: 384px;
+  padding: 0;
+  overflow: hidden;
+  pointer-events: auto;
+  background: #ffffff;
+  font-family: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #000000;
+}
+
+.startup-login-card {
+  box-sizing: border-box;
+  width: 426px;
+  height: 384px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 34px;
+  padding: 0;
+  overflow: hidden;
+  background: #ffffff;
+  border: none;
+  box-shadow: none;
+}
+
+.startup-login-header {
+  -webkit-app-region: drag;
+  box-sizing: border-box;
+  width: 426px;
+  height: 45px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0;
+  padding: 0 0 7px;
+  border-bottom: 1px solid #d9d9d9;
+}
+
+.startup-login-brand {
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
+  width: 126px;
+  height: 37px;
+}
+
+.startup-login-brand__mascot-frame,
+.startup-login-mascot-frame {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.startup-login-brand__mascot-frame,
+.startup-login-brand__mascot {
+  width: 37px;
+  height: 37px;
+}
+
+.startup-login-brand__mascot {
+  object-fit: cover;
+  transform: scale(1.44);
+  transform-origin: center;
+}
+
+.startup-login-brand h1 {
+  width: 80px;
+  height: 30px;
+  margin: 0;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 30px;
+  letter-spacing: -0.02em;
+  color: #000000;
+}
+
+.startup-login-close {
+  -webkit-app-region: no-drag;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-top: 14px;
+  border: 0;
+  background: transparent;
+  color: #ef4444;
+  cursor: default;
+}
+
+.startup-login-close svg {
+  display: block;
+}
+
+.startup-login-close path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.startup-login-main {
+  position: relative;
+  box-sizing: border-box;
+  width: 301px;
+  height: 305px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 15px;
+}
+
+.startup-login-main--error {
+  gap: 15px;
+}
+
+.startup-login-hero {
+  width: 301px;
+  height: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+}
+
+.startup-login-mascot-stack {
+  width: 96px;
+  height: 105px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.startup-login-mascot-frame {
+  width: 96px;
+  height: 96px;
+}
+
+.startup-login-mascot {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  transform: scale(1.52);
+  transform-origin: center;
+}
+
+.startup-login-mascot-shadow {
+  width: 52px;
+  height: 3px;
+  display: block;
+  background: #6d5de7;
+  filter: blur(5px);
+}
+
+.startup-login-copy {
+  width: 301px;
+  height: 46px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0;
+}
+
+.startup-login-copy h2 {
+  width: 301px;
+  height: 30px;
+  margin: -14px 0;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 30px;
+  text-align: center;
+  letter-spacing: -0.02em;
+  color: #000000;
+}
+
+.startup-login-copy p {
+  width: 301px;
+  height: 30px;
+  margin: 0;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 30px;
+  text-align: center;
+  letter-spacing: -0.02em;
+  color: #3f3f46;
+}
+
+.startup-login-error {
+  position: absolute;
+  top: 160px;
+  left: 0;
+  z-index: 1;
+  width: 301px;
+  height: 14px;
+  margin: 0;
+  overflow: hidden;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 14px;
+  text-align: center;
+  letter-spacing: 0;
+  color: #b42318;
+}
+
+.startup-login-button {
+  box-sizing: border-box;
+  width: 301px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 32px;
+  border: 0;
+  border-radius: 18px;
+  background: linear-gradient(4.06deg, rgba(109, 93, 231, 0.4) 3.3%, rgba(109, 93, 231, 0.75) 47.01%, #6d5de7 96.7%);
+  box-shadow: 0 4px 15px rgba(91, 77, 212, 0.25);
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 24px;
+  color: #ffffff;
+}
+
+.startup-login-button:disabled {
+  opacity: 0.74;
+}
+
+.startup-login-status {
+  display: none;
+}
+
+.startup-login-features {
+  width: 210px;
+  height: 83px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.startup-login-features li {
+  display: flex;
+  align-items: flex-end;
+  gap: 7px;
+  height: 22px;
+  color: #6e6f6f;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  letter-spacing: -0.02em;
+}
+
+.startup-login-features li:first-child {
+  height: 25px;
+  gap: 3px;
+}
+
+.startup-login-features li:last-child {
+  align-items: center;
+  gap: 10px;
+}
+
+.startup-login-feature-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+
+.startup-login-feature-icon--large {
+  width: 25px;
+  height: 25px;
+}
+
+.startup-login-feature-icon--small {
+  width: 14px;
+  height: 14px;
+}
+
+.startup-login-feature-icon path,
+.startup-login-feature-icon rect,
+.startup-login-feature-icon circle {
+  fill: none;
+  stroke: #6e6f6f;
+  stroke-width: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .status-banner {
   display: flex;
   gap: 0.75rem;

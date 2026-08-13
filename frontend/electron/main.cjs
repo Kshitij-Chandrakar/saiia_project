@@ -43,7 +43,8 @@ app.on('open-url', (event, url) => {
 let mainWindow
 let overlayWindow
 let isScreenSharing = false
-let overlayVisible = true
+let startupFlowComplete = false
+let overlayVisible = false
 let overlayOpacity = 1
 let overlayBoundsState = null
 let overlayBoundsSaveTimer = null
@@ -148,6 +149,70 @@ const SCREEN_FULL_CAPTURE_SCROLL_AMOUNT = Math.max(0.25, Math.min(1, Number.pars
 const SCREEN_FULL_CAPTURE_RESTORE_SCROLL = String(process.env.SCREEN_FULL_CAPTURE_RESTORE_SCROLL || 'true').trim().toLowerCase() === 'true'
 const SCREEN_FULL_CAPTURE_PLATFORM_HINTS = /(leetcode|hackerrank|geeksforgeeks|problem|assessment|question|exam|quiz|mcq|constraints|example|chart|diagram|debug)/i
 const SCREEN_FULL_CAPTURE_PROCESS_HINTS = /^(chrome|msedge|firefox|brave|opera|iexplore)$/i
+const DESKTOP_AUTH_ENV_KEYS = new Set([
+  'SUPABASE_URL',
+  'VITE_SUPABASE_URL',
+  'SUPABASE_ANON_KEY',
+  'VITE_SUPABASE_ANON_KEY',
+  'SAIIA_DESKTOP_AUTH_PROVIDER',
+  'VITE_SAIIA_DESKTOP_AUTH_PROVIDER',
+  'VITE_SUPABASE_DESKTOP_AUTH_PROVIDER',
+  'SAIIA_BACKEND_URL',
+  'VITE_BACKEND_URL',
+  'SAIIA_WEB_AUTH_URL',
+  'VITE_SAIIA_WEB_AUTH_URL',
+])
+
+loadDesktopEnvFiles()
+
+function loadDesktopEnvFiles() {
+  const repoRoot = path.resolve(__dirname, '../..')
+  const frontendRoot = path.resolve(__dirname, '..')
+  ;[
+    path.join(repoRoot, '.env'),
+    path.join(frontendRoot, '.env.local'),
+    path.join(frontendRoot, '.env'),
+  ].forEach(loadDesktopEnvFile)
+}
+
+function loadDesktopEnvFile(filePath) {
+  let raw
+  try {
+    raw = fs.readFileSync(filePath, 'utf8')
+  } catch {
+    return
+  }
+
+  raw.split(/\r?\n/).forEach((line) => {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) {
+      return
+    }
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(trimmed)
+    if (!match) {
+      return
+    }
+    const [, key, rawValue] = match
+    if (!DESKTOP_AUTH_ENV_KEYS.has(key)) {
+      return
+    }
+    if (Object.prototype.hasOwnProperty.call(process.env, key)) {
+      return
+    }
+    process.env[key] = parseDesktopEnvValue(rawValue)
+  })
+}
+
+function parseDesktopEnvValue(value) {
+  const trimmed = String(value || '').trim()
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1)
+  }
+  return trimmed
+}
 
 function getDesktopAuthSessionPath() {
   return path.join(app.getPath('userData'), 'desktop-auth-session.bin')
@@ -162,6 +227,7 @@ function getDesktopAuthConfig() {
       process.env.VITE_SAIIA_DESKTOP_AUTH_PROVIDER ||
       process.env.VITE_SUPABASE_DESKTOP_AUTH_PROVIDER ||
       '',
+    webAuthUrl: process.env.SAIIA_WEB_AUTH_URL || process.env.VITE_SAIIA_WEB_AUTH_URL || 'http://localhost:5173/auth/desktop-login',
     backendUrl: process.env.SAIIA_BACKEND_URL || process.env.VITE_BACKEND_URL || 'http://localhost:8000',
   }
 }
@@ -922,6 +988,9 @@ function broadcastToolbarAction(action, payload = {}) {
 }
 
 function syncOverlayVisibility(visible) {
+  if (!startupFlowComplete) {
+    visible = false
+  }
   overlayVisible = visible
 
   if ((!overlayWindow || overlayWindow.isDestroyed()) && visible) {
@@ -944,7 +1013,56 @@ function syncOverlayVisibility(visible) {
   broadcastOverlayState()
 }
 
+function completeStartupFlow() {
+  startupFlowComplete = true
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setMinimumSize(420, 260)
+    mainWindow.setSize(620, 860)
+    mainWindow.center()
+  }
+  syncOverlayVisibility(true)
+  return { ok: true }
+}
+
+function resetStartupFlow() {
+  startupFlowComplete = false
+  syncOverlayVisibility(false)
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setMinimumSize(426, 384)
+    mainWindow.setSize(426, 384)
+    mainWindow.center()
+    mainWindow.show()
+    mainWindow.focus()
+  }
+  return { ok: true }
+}
+
+function closeStartupWindow() {
+  if (!startupFlowComplete) {
+    globalShortcut.unregisterAll()
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.hide()
+      overlayWindow.close()
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.close()
+    }
+    app.quit()
+    return { ok: true, quit: true }
+  }
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.close()
+  }
+  return { ok: true }
+}
+
 function toggleOverlayVisibility() {
+  if (!startupFlowComplete) {
+    syncOverlayVisibility(false)
+    return
+  }
+
   const isCurrentlyVisible = !!(
     overlayWindow &&
     !overlayWindow.isDestroyed() &&
@@ -1313,10 +1431,10 @@ async function captureActiveWindowSequence() {
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
-    width: 620,
-    height: 860,
-    minWidth: 420,
-    minHeight: 260,
+    width: 426,
+    height: 384,
+    minWidth: 426,
+    minHeight: 384,
     autoHideMenuBar: true,
     transparent: true,
     frame: false,
@@ -1339,6 +1457,10 @@ function createMainWindow() {
 }
 
 function createOverlayWindow() {
+  if (!startupFlowComplete) {
+    return null
+  }
+
   const initialBounds = getInitialOverlayBounds()
   overlayWindow = new BrowserWindow({
     x: initialBounds.x,
@@ -1355,7 +1477,7 @@ function createOverlayWindow() {
     resizable: true,
     movable: true,
     focusable: true,
-    show: true,
+    show: false,
     backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -1439,7 +1561,6 @@ app.on('ready', async () => {
 
   buildApplicationMenu()
   createMainWindow()
-  createOverlayWindow()
   startForegroundWindowTracking()
 
   if (process.platform === 'darwin' && typeof systemPreferences.subscribeNotification === 'function') {
@@ -1458,12 +1579,21 @@ app.on('ready', async () => {
   globalShortcut.unregister('Control+Enter')
   globalShortcut.unregister('Control+Shift+Enter')
   const hideOk = globalShortcut.register('Control+H', () => {
+    if (!startupFlowComplete) {
+      return
+    }
     toggleOverlayVisibility()
   })
   const aiAnswerOk = globalShortcut.register('Control+Enter', () => {
+    if (!startupFlowComplete) {
+      return
+    }
     broadcastToolbarAction('ai-answer')
   })
   const analyzeScreenOk = globalShortcut.register('Control+Shift+Enter', () => {
+    if (!startupFlowComplete) {
+      return
+    }
     broadcastToolbarAction('analyze-screen')
   })
 
@@ -1485,7 +1615,7 @@ app.on('ready', async () => {
     if (mainWindow === null) {
       createMainWindow()
     }
-    if (overlayWindow === null) {
+    if (startupFlowComplete && overlayWindow === null) {
       createOverlayWindow()
     }
   })
@@ -1510,7 +1640,11 @@ ipcMain.handle('auth:start-login', async (event) => {
 
 ipcMain.handle('auth:logout', async (event) => {
   validateAuthIpc(event)
-  return desktopAuthSessionManager.logout()
+  const state = await desktopAuthSessionManager.logout()
+  if (state.status === 'signed-out' || state.status === 'token-expired') {
+    resetStartupFlow()
+  }
+  return state
 })
 
 ipcMain.handle('cloud:get-startup-context', (event) => {
@@ -1521,6 +1655,16 @@ ipcMain.handle('cloud:get-startup-context', (event) => {
 ipcMain.handle('cloud:refresh-startup-context', async (event) => {
   validateAuthIpc(event)
   return desktopAuthSessionManager.refreshStartupContext()
+})
+
+ipcMain.handle('startup:complete', (event) => {
+  validateAuthIpc(event)
+  return completeStartupFlow()
+})
+
+ipcMain.handle('startup:close', (event) => {
+  validateAuthIpc(event)
+  return closeStartupWindow()
 })
 
 ipcMain.on('overlay:update-state', (_event, nextState) => {
@@ -1534,6 +1678,11 @@ ipcMain.handle('overlay:get-state', () => ({
 }))
 
 ipcMain.handle('overlay:toggle-visibility', () => {
+  if (!startupFlowComplete) {
+    syncOverlayVisibility(false)
+    return { visible: false }
+  }
+
   toggleOverlayVisibility()
   return {
     visible: overlayVisible && !!(overlayWindow && overlayWindow.isVisible()),
@@ -1567,6 +1716,10 @@ ipcMain.handle('overlay:set-opacity', (_event, nextOpacity) => {
 })
 
 ipcMain.handle('toolbar:trigger', (_event, action, payload) => {
+  if (!startupFlowComplete) {
+    return { ok: false, reason: 'startup-incomplete' }
+  }
+
   broadcastToolbarAction(action, payload)
   if (action === 'end-session') {
     app.quit()

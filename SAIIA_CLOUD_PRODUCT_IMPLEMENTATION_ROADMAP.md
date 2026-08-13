@@ -6,7 +6,7 @@
 **Version:** 1.1  
 **Last updated:** 2026-08-09
 **Created:** 2026-07-10  
-**Current active phase:** C6.1 - Desktop startup/session setup UI audit and plan complete; startup UI runtime, resume/job-target selection UI, C4.4 generation integration, cloud sync engine, and local/cloud data migration are not started
+**Current active phase:** C6.2A - Startup Login Screen implemented locally; broader startup shell, resume/job-target selection UI, C4.4 generation integration, cloud sync engine, and local/cloud data migration are not started
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -1583,7 +1583,7 @@ Desktop may cache:
 ## Status
 
 ```text
-[~] In progress - C6.1 desktop startup/session setup UI audit and plan complete in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`; no startup UI runtime, resume/job-target selection UI, backend session routes, Supabase migrations, C4.4 generation integration, cloud sync engine, or local/cloud data migration has been implemented
+[~] In progress - C6.1 desktop startup/session setup UI audit and plan complete in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`; C6.2A Startup Login Screen implemented locally for signed-out/token-expired desktop startup using existing safe preload auth APIs; broader startup shell, resume/job-target selection UI, backend session routes, Supabase migrations, C4.4 generation integration, cloud sync engine, and local/cloud data migration are not implemented
 ```
 
 ## Goal
@@ -1602,7 +1602,8 @@ Before durable session storage is implemented, the desktop app needs a small sta
 
 ## C6 implementation split
 
-- C6.2: implement the basic desktop startup shell UI using existing C5.4 context.
+- C6.2A: implement the first desktop startup login screen using the provided Figma reference and existing safe preload auth login API.
+- C6.2B: implement the broader basic desktop startup shell UI using existing C5.4 context.
 - C6.3: wire resume/job target selection or lightweight creation flow.
 - C6.4: validation, fallback behavior, stale-state tests, accessibility, and polish.
 
@@ -4381,7 +4382,7 @@ The C0â€“C16 track is complete when:
 ```text
 C0 remains complete. C0.9 is not fully complete: C0.9.6 has implementation present with Chrome/Edge real-page validation pending, and C0.9.7 through C0.9.13 are deferred by explicit product-priority decision.
 C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 auth surface closure is complete through C2.5. C3.1 planning, C3.2 backend cloud resume API, C3.3 frontend authenticated upload/review UI, C3.4 cloud resume indexing/RAG activation, C3.4.5 GPT-based resume extraction provider, and C3.5 delete/rebuild/status closure are complete through implementation. C4 - Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing and live Supabase smoke validation passed on saiia-dev. C4.3 main website job-target UI is cancelled/re-scoped; job target selection moves to desktop startup/session setup after desktop authenticated cloud identity exists. No C4 generation integration, C5 desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started.
-C5.1 desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`. C5.2 desktop authenticated cloud identity is implemented locally with Electron main-process auth/session handling and focused tests. C5.3 desktop auth status/login/logout UI wiring is implemented locally using existing safe preload APIs. C5.4 desktop cloud startup context plumbing is implemented locally using existing authenticated backend summary routes and safe preload APIs. No desktop startup/session setup UI, cloud sync engine, local/cloud data migration, C4.4 generation integration, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started.
+C5.1 desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`. C5.2 desktop authenticated cloud identity is implemented locally with Electron main-process auth/session handling and focused tests. C5.3 desktop auth status/login/logout UI wiring is implemented locally using existing safe preload APIs. C5.4 desktop cloud startup context plumbing is implemented locally using existing authenticated backend summary routes and safe preload APIs. C6.2A Startup Login Screen is implemented locally; broader desktop startup/session setup UI, cloud sync engine, local/cloud data migration, C4.4 generation integration, session history, billing, usage, email-provider integration, payment, admin console, and final website UI work have not started.
 ```
 
 The completed C0.9.2 manual validation covered:

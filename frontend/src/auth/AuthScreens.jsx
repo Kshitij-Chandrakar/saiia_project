@@ -5,6 +5,7 @@ import { Eye, EyeOff, FileText, LogOut, Upload } from 'lucide-react'
 import {
   bootstrapProfile,
   confirmCloudResume,
+  createDesktopHandoff,
   deleteCloudResume,
   extractCloudResume,
   fetchCloudResumeStatus,
@@ -23,6 +24,8 @@ const PASSWORD_RESET_URL = 'http://localhost:5173/auth/reset-password'
 const DEFAULT_LOGIN_NEXT_ROUTE = '/auth/dashboard'
 const SAFE_AUTH_NEXT_ROUTES = new Set(['/auth/dashboard', '/auth/status'])
 const LOGIN_REQUIRED_MESSAGE = 'Session expired or signed out. Please log in.'
+const DESKTOP_CALLBACK_URL = 'saiia://auth/callback'
+const DESKTOP_STATE_PATTERN = /^[A-Za-z0-9._~-]{16,256}$/
 const MAX_RESUME_FILE_BYTES = 5 * 1024 * 1024
 const SUPPORTED_RESUME_TYPES = new Set([
   'application/pdf',
@@ -59,6 +62,38 @@ function getSafeAuthNextRoute(value, fallback = DEFAULT_LOGIN_NEXT_ROUTE) {
 }
 
 
+function getSafeDesktopState(value) {
+  const state = String(value || '').trim()
+  return DESKTOP_STATE_PATTERN.test(state) ? state : ''
+}
+
+
+function desktopLoginRoute(state) {
+  return `/auth/desktop-login?state=${encodeURIComponent(state)}`
+}
+
+
+function desktopSignupRoute(state) {
+  return `/auth/signup?desktop_state=${encodeURIComponent(state)}`
+}
+
+
+async function openDesktopHandoff(session, state, backendUrl) {
+  if (!session?.access_token || !session?.refresh_token || !state) {
+    throw new Error('Desktop login could not be completed.')
+  }
+  const handoff = await createDesktopHandoff(session.access_token, session.refresh_token, state, { backendUrl })
+  const handoffCode = String(handoff?.handoff_code || '').trim()
+  if (!handoffCode) {
+    throw new Error('Desktop login could not be completed.')
+  }
+  const callbackUrl = new URL(DESKTOP_CALLBACK_URL)
+  callbackUrl.searchParams.set('handoff_code', handoffCode)
+  callbackUrl.searchParams.set('state', state)
+  window.location.href = callbackUrl.toString()
+}
+
+
 function useRedirectAuthenticatedUser(targetRoute = DEFAULT_LOGIN_NEXT_ROUTE) {
   const navigate = useNavigate()
   const [checkingSession, setCheckingSession] = useState(true)
@@ -78,7 +113,10 @@ function useRedirectAuthenticatedUser(targetRoute = DEFAULT_LOGIN_NEXT_ROUTE) {
           return
         }
         if (data.session?.access_token) {
-          navigate(targetRoute, { replace: true })
+          if (targetRoute) {
+            navigate(targetRoute, { replace: true })
+          }
+          setCheckingSession(false)
           return
         }
       } catch {
@@ -170,6 +208,25 @@ function useProfileBootstrap({ backendUrl, sessionErrorMessage, disabled = false
 }
 
 
+function getAuthRedirectUrl(desktopState = '') {
+  const safeDesktopState = getSafeDesktopState(desktopState)
+  return safeDesktopState ? `${window.location.origin}${desktopLoginRoute(safeDesktopState)}` : AUTH_CALLBACK_URL
+}
+
+
+async function startGoogleLogin(desktopState = '') {
+  if (!supabase) {
+    return
+  }
+  await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: getAuthRedirectUrl(desktopState),
+    },
+  })
+}
+
+
 function AuthShell({ title, children }) {
   return (
     <main className="auth-page">
@@ -237,11 +294,12 @@ function PasswordInput({
 }
 
 
-function AuthLinks({ mode }) {
+function AuthLinks({ mode, desktopState = '' }) {
+  const safeDesktopState = getSafeDesktopState(desktopState)
   return (
     <nav className="auth-links" aria-label="Auth navigation">
-      {mode !== 'login' && <Link to="/auth/login">Login</Link>}
-      {mode !== 'signup' && <Link to="/auth/signup">Sign up</Link>}
+      {mode !== 'login' && <Link to={safeDesktopState ? desktopLoginRoute(safeDesktopState) : '/auth/login'}>Login</Link>}
+      {mode !== 'signup' && <Link to={safeDesktopState ? desktopSignupRoute(safeDesktopState) : '/auth/signup'}>Sign up</Link>}
       {mode !== 'forgot' && <Link to="/auth/forgot-password">Forgot password</Link>}
       <Link to="/auth/dashboard">Dashboard</Link>
       <Link to="/auth/resume">Cloud resume</Link>
@@ -302,11 +360,14 @@ function useAuthForm() {
 }
 
 
-export function AuthSignupPage() {
+export function AuthSignupPage({ backendUrl, desktopState = '' }) {
   const form = useAuthForm()
   const location = useLocation()
   const [searchParams] = useSearchParams()
-  const safeNextRoute = getSafeAuthNextRoute(searchParams.get('next') || location.state?.next)
+  const safeDesktopState = getSafeDesktopState(desktopState || searchParams.get('desktop_state'))
+  const safeNextRoute = safeDesktopState
+    ? desktopLoginRoute(safeDesktopState)
+    : getSafeAuthNextRoute(searchParams.get('next') || location.state?.next)
   const checkingSession = useRedirectAuthenticatedUser(safeNextRoute)
 
   async function handleSubmit(event) {
@@ -318,19 +379,32 @@ export function AuthSignupPage() {
     form.setLoading(true)
     form.setError('')
     form.setMessage('')
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email: form.email,
       password: form.password,
       options: {
-        emailRedirectTo: AUTH_CALLBACK_URL,
+        emailRedirectTo: getAuthRedirectUrl(safeDesktopState),
       },
     })
-    form.setLoading(false)
 
     if (error) {
+      form.setLoading(false)
       form.setError(error.message)
       return
     }
+    if (safeDesktopState && data.session) {
+      try {
+        await openDesktopHandoff(data.session, safeDesktopState, backendUrl)
+        form.setMessage('Login successful. You can return to intervuAI.')
+      } catch {
+        form.setError('Desktop login could not be completed. Try logging in again.')
+      } finally {
+        form.setLoading(false)
+      }
+      return
+    }
+
+    form.setLoading(false)
 
     form.setMessage('Check your email to verify your account.')
   }
@@ -371,21 +445,25 @@ export function AuthSignupPage() {
           {form.loading ? 'Creating...' : 'Sign Up'}
         </button>
       </form>
+      <button className="auth-secondary-button" type="button" onClick={() => startGoogleLogin(safeDesktopState)} disabled={!supabase || form.loading}>
+        Continue with Google
+      </button>
       <AuthMessage message={form.error} tone="error" />
       <AuthMessage message={form.message} tone="success" />
-      <AuthLinks mode="signup" />
+      <AuthLinks mode="signup" desktopState={safeDesktopState} />
     </AuthShell>
   )
 }
 
 
-export function AuthLoginPage({ backendUrl }) {
+export function AuthLoginPage({ backendUrl, desktopState = '', desktopError = '' }) {
   const form = useAuthForm()
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()
+  const safeDesktopState = getSafeDesktopState(desktopState)
   const safeNextRoute = getSafeAuthNextRoute(searchParams.get('next') || location.state?.next)
-  const checkingSession = useRedirectAuthenticatedUser(safeNextRoute)
+  const checkingSession = useRedirectAuthenticatedUser(safeDesktopState ? '' : safeNextRoute)
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -408,6 +486,11 @@ export function AuthLoginPage({ backendUrl }) {
     }
 
     try {
+      if (safeDesktopState) {
+        await openDesktopHandoff(data.session, safeDesktopState, backendUrl)
+        form.setMessage('Login successful. You can return to intervuAI.')
+        return
+      }
       if (data.session?.access_token) {
         await fetchCurrentUser(data.session.access_token, { backendUrl })
       }
@@ -455,11 +538,82 @@ export function AuthLoginPage({ backendUrl }) {
           {form.loading ? 'Checking...' : 'Login'}
         </button>
       </form>
+      <button className="auth-secondary-button" type="button" onClick={() => startGoogleLogin(safeDesktopState)} disabled={!supabase || form.loading}>
+        Continue with Google
+      </button>
       <AuthMessage message={location.state?.authMessage || ''} tone="info" />
+      <AuthMessage message={desktopError} tone="error" />
       <AuthMessage message={form.error} tone="error" />
       <AuthMessage message={form.message} tone="success" />
-      <AuthLinks mode="login" />
+      <AuthLinks mode="login" desktopState={safeDesktopState} />
     </AuthShell>
+  )
+}
+
+
+export function AuthDesktopLoginPage({ backendUrl }) {
+  const [searchParams] = useSearchParams()
+  const state = getSafeDesktopState(searchParams.get('state'))
+  const [checking, setChecking] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let ignore = false
+
+    async function continueDesktopLogin() {
+      if (!state || !supabase) {
+        setChecking(false)
+        return
+      }
+      try {
+        const { data } = await supabase.auth.getSession()
+        if (ignore) {
+          return
+        }
+        if (data.session?.access_token && data.session?.refresh_token) {
+          await openDesktopHandoff(data.session, state, backendUrl)
+          if (!ignore) {
+            setError('')
+          }
+          return
+        }
+      } catch {
+        if (!ignore) {
+          setError('Desktop login could not be completed. Try logging in again.')
+        }
+      }
+      if (!ignore) {
+        setChecking(false)
+      }
+    }
+
+    continueDesktopLogin()
+    return () => {
+      ignore = true
+    }
+  }, [backendUrl, state])
+
+  if (!state) {
+    return (
+      <AuthShell title="Desktop Login">
+        <AuthMessage message="Invalid desktop login request. Start again from the desktop app." tone="error" />
+        <AuthLinks />
+      </AuthShell>
+    )
+  }
+
+  if (checking) {
+    return (
+      <AuthShell title="Desktop Login">
+        <p className="auth-message info">Checking session...</p>
+      </AuthShell>
+    )
+  }
+
+  return (
+    <>
+      <AuthLoginPage backendUrl={backendUrl} desktopState={state} desktopError={error} />
+    </>
   )
 }
 

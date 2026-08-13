@@ -13,7 +13,7 @@ const sensitivePattern = new RegExp([
 ].join('|'))
 
 function desktopAuthStatusSource() {
-  const start = diagnosticsSource.indexOf('function DesktopAuthStatus()')
+  const start = diagnosticsSource.indexOf('function DesktopAuthStatus')
   const end = diagnosticsSource.indexOf('function getReadableErrorAction', start)
   assert.ok(start >= 0)
   assert.ok(end > start)
@@ -246,8 +246,17 @@ test('desktop auth preload remains narrow and exposes no generic cloud fetch', (
   assert.doesNotMatch(preloadSource, /fetch:/)
 })
 
+test('runtime logout returns renderer to startup login gate without stale identity', () => {
+  const source = desktopAuthStatusSource()
+
+  assert.match(source, /function DesktopAuthStatus\(\{ onSignedOut \}\)/)
+  assert.match(source, /const nextState = getDesktopAuthViewModel\(payload\)[\s\S]*?setAuthState\(nextState\)[\s\S]*?if \(shouldShowStartupLogin\(nextState\)\) {[\s\S]*?onSignedOut\?\.\(nextState\)/)
+  assert.match(diagnosticsSource, /<DesktopAuthStatus onSignedOut=\{\(\) => setStartupAuthenticated\(false\)\} \/>/)
+  assert.match(diagnosticsSource, /if \(!startupAuthenticated && shouldShowStartupLogin\(\)\) {[\s\S]*?<StartupLoginScreen/)
+})
+
 test('desktop auth wiring leaves local no-auth controls available', () => {
-  assert.match(diagnosticsSource, /<DesktopAuthStatus \/>/)
+  assert.match(diagnosticsSource, /<DesktopAuthStatus onSignedOut=\{\(\) => setStartupAuthenticated\(false\)\} \/>/)
   assert.match(diagnosticsSource, /Setup Profile/)
   assert.match(diagnosticsSource, /Start Recording \(Fallback\)/)
   assert.match(diagnosticsSource, /Analyze Active Window/)

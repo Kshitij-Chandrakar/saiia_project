@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.auth import router as auth_router
+from app.api.auth import _desktop_handoffs, router as auth_router
 from app.auth.supabase_auth import (
     AUTH_ERROR_DETAIL,
     get_auth_verification_config,
@@ -28,12 +28,14 @@ TEST_AUDIENCE = "authenticated"
 
 @pytest.fixture(autouse=True)
 def clear_supabase_auth_env(monkeypatch):
+    _desktop_handoffs.clear()
     monkeypatch.delenv(CLOUD_MODE_ENV, raising=False)
     for name in SUPABASE_REQUIRED_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
     get_supabase_settings.cache_clear()
     get_auth_verification_config.cache_clear()
     yield
+    _desktop_handoffs.clear()
     get_supabase_settings.cache_clear()
     get_auth_verification_config.cache_clear()
 
@@ -204,3 +206,83 @@ def test_profile_bootstrap_config_error_response_is_generic(monkeypatch, client:
     assert response.status_code == 503
     assert response.json() == {"detail": "Supabase cloud configuration is not ready."}
     assert "SUPABASE_SERVICE_ROLE_KEY" not in response.text
+
+
+def test_create_desktop_handoff_requires_valid_authenticated_user(client: TestClient):
+    response = client.post(
+        "/api/auth/desktop-handoff",
+        json={"state": "desktop-state-123456", "refresh_token": "refresh-token"},
+    )
+
+    assert response.status_code == 401
+    assert "refresh-token" not in response.text
+
+
+def test_desktop_handoff_exchange_works_once_and_excludes_tokens_from_create_response(client: TestClient):
+    token = _token()
+    create = client.post(
+        "/api/auth/desktop-handoff",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"state": "desktop-state-123456", "refresh_token": "refresh-token"},
+    )
+
+    assert create.status_code == 200
+    handoff_code = create.json()["handoff_code"]
+    assert handoff_code
+    assert token not in create.text
+    assert "refresh-token" not in create.text
+    assert handoff_code not in _desktop_handoffs
+
+    exchange = client.post(
+        "/api/auth/desktop-handoff/exchange",
+        json={"state": "desktop-state-123456", "handoff_code": handoff_code},
+    )
+
+    assert exchange.status_code == 200
+    assert exchange.json() == {
+        "access_token": token,
+        "refresh_token": "refresh-token",
+    }
+
+    replay = client.post(
+        "/api/auth/desktop-handoff/exchange",
+        json={"state": "desktop-state-123456", "handoff_code": handoff_code},
+    )
+    assert replay.status_code == 404
+    assert replay.json() == {"detail": "Invalid or expired desktop handoff."}
+    assert handoff_code not in replay.text
+    assert token not in replay.text
+    assert "refresh-token" not in replay.text
+
+
+def test_desktop_handoff_rejects_mismatched_and_expired_state(monkeypatch, client: TestClient):
+    now = 1000.0
+    monkeypatch.setattr("app.api.auth.time.time", lambda: now)
+    create = client.post(
+        "/api/auth/desktop-handoff",
+        headers={"Authorization": f"Bearer {_token()}"},
+        json={"state": "desktop-state-123456", "refresh_token": "refresh-token"},
+    )
+    handoff_code = create.json()["handoff_code"]
+
+    mismatch = client.post(
+        "/api/auth/desktop-handoff/exchange",
+        json={"state": "wrong-desktop-state", "handoff_code": handoff_code},
+    )
+    assert mismatch.status_code == 404
+    assert "refresh-token" not in mismatch.text
+
+    create = client.post(
+        "/api/auth/desktop-handoff",
+        headers={"Authorization": f"Bearer {_token()}"},
+        json={"state": "desktop-state-abcdef", "refresh_token": "refresh-token"},
+    )
+    handoff_code = create.json()["handoff_code"]
+    now += 301
+
+    expired = client.post(
+        "/api/auth/desktop-handoff/exchange",
+        json={"state": "desktop-state-abcdef", "handoff_code": handoff_code},
+    )
+    assert expired.status_code == 404
+    assert "refresh-token" not in expired.text

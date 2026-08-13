@@ -1,0 +1,684 @@
+/* Frame 169 */
+
+/* Auto layout */
+display: flex;
+flex-direction: column;
+align-items: center;
+padding: 0px;
+gap: 34px;
+
+width: 426px;
+height: 384px;
+
+
+/* Inside auto layout */
+flex: none;
+order: 0;
+align-self: stretch;
+flex-grow: 0;
+
+
+/* Frame 168 */
+
+/* Auto layout */
+display: flex;
+flex-direction: column;
+align-items: flex-start;
+padding: 0px;
+gap: 7px;
+
+width: 426px;
+height: 45px;
+
+
+/* Inside auto layout */
+flex: none;
+order: 0;
+align-self: stretch;
+flex-grow: 0;
+
+
+/* Frame 167 */
+
+/* Auto layout */
+display: flex;
+flex-direction: row;
+justify-content: space-between;
+align-items: center;
+padding: 0px;
+gap: 292px;
+
+width: 425px;
+height: 37px;
+
+
+/* Inside auto layout */
+flex: none;
+order: 0;
+flex-grow: 0;
+
+
+/* Frame 166 */
+
+/* Auto layout */
+display: flex;
+flex-direction: row;
+align-items: flex-end;
+padding: 0px;
+gap: 9px;
+
+width: 126px;
+height: 37px;
+
+
+/* Inside auto layout */
+flex: none;
+order: 0;
+flex-grow: 0;
+
+
+/* Gemini_Generated_Image_9g20h59g20h59g20 2 */
+
+width: 37px;
+height: 37px;
+
+background: url(Gemini_Generated_Image_9g20h59g20h59g20.png);
+
+/* Inside auto layout */
+flex: none;
+order: 0;
+flex-grow: 0;
+
+
+/* Intervu AI */
+
+width: 80px;
+height: 30px;
+
+font-family: 'Inter';
+font-style: normal;
+font-weight: 500;
+font-size: 18px;
+line-height: 30px;
+/* identical to box height, or 167% */
+letter-spacing: -0.02em;
+
+color: #000000;
+
+
+/* Inside auto layout */
+flex: none;
+order: 1;
+flex-grow: 0;
+
+
+/* charm--cross 1 */
+
+width: 16px;
+height: 16px;
+
+
+/* Inside auto layout */
+flex: none;
+order: 1;
+flex-grow: 0;
+
+
+/* Vector */
+
+position: absolute;
+left: 18.75%;
+right: 18.75%;
+top: 18.75%;
+bottom: 18.75%;
+
+/* Error */
+border: 1.5px solid #EF4444;
+
+
+/* Rectangle 109 */
+
+width: 422px;
+height: 1px;
+
+background: #D9D9D9;
+
+/* Inside auto layout */
+flex: none;
+order: 1;
+flex-grow: 0;
+
+
+/* Frame 164 */
+
+/* Auto layout */
+display: flex;
+flex-direction: column;
+align-items: flex-start;
+padding: 0px;
+gap: 15px;
+
+width: 301px;
+height: 305px;
+
+
+/* Inside auto layout */
+flex: none;
+order: 1;
+flex-grow: 0;
+
+
+/* Frame 163 */
+
+/* Auto layout */
+display: flex;
+flex-direction: column;
+align-items: flex-start;
+padding: 0px;
+gap: 15px;
+
+width: 301px;
+height: 207px;
+
+
+/* Inside auto layout */
+flex: none;
+order: 0;
+align-self: stretch;
+flex-grow: 0;
+
+
+/* Frame 162 */
+
+/* Auto layout */
+display: flex;
+flex-direction: column;
+align-items: center;
+padding: 0px;
+gap: 9px;
+
+width: 301px;
+height: 160px;
+
+
+/* Inside auto layout */
+flex: none;
+order: 0;
+align-self: stretch;
+flex-grow: 0;
+
+
+/* Frame 189 */
+
+/* Auto layout */
+display: flex;
+flex-direction: column;
+align-items: center;
+padding: 0px;
+gap: 6px;
+
+width: 96px;
+height: 105px;
+
+
+/* Inside auto layout */
+flex: none;
+order: 0;
+flex-grow: 0;
+
+
+/* Gemini_Generated_Image_9g20h59g20h59g20 3 */
+
+width: 96px;
+height: 96px;
+
+background: url(Gemini_Generated_Image_9g20h59g20h59g20.png);
+
+/* Inside auto layout */
+flex: none;
+order: 0;
+flex-grow: 0;
+
+
+/* Ellipse 37 */
+
+width: 52px;
+height: 3px;
+
+/* Primary brand color
+
+Primary brand color (buttons, links, active states)
+*/
+background: #6D5DE7;
+filter: blur(5px);
+
+/* Inside auto layout */
+flex: none;
+order: 1;
+flex-grow: 0;
+
+
+/* Frame 161 */
+
+/* Auto layout */
+display: flex;
+flex-direction: column;
+align-items: center;
+padding: 0px;
+
+width: 301px;
+height: 46px;
+
+
+/* Inside auto layout */
+flex: none;
+order: 1;
+align-self: stretch;
+flex-grow: 0;
+
+
+/* Intervu AI */
+
+width: 301px;
+height: 30px;
+
+font-family: 'Inter';
+font-style: normal;
+font-weight: 500;
+font-size: 18px;
+line-height: 30px;
+/* identical to box height, or 167% */
+text-align: center;
+letter-spacing: -0.02em;
+
+color: #000000;
+
+
+/* Inside auto layout */
+flex: none;
+order: 0;
+align-self: stretch;
+flex-grow: 0;
+margin: -14px 0px;
+
+
+/* Log in to Intervu AI and start your interview. */
+
+width: 301px;
+height: 30px;
+
+font-family: 'Inter';
+font-style: normal;
+font-weight: 400;
+font-size: 15px;
+line-height: 30px;
+/* identical to box height, or 200% */
+letter-spacing: -0.02em;
+
+/* Secondary Black */
+color: #3F3F46;
+
+
+/* Inside auto layout */
+flex: none;
+order: 1;
+align-self: stretch;
+flex-grow: 0;
+
+
+/* Primary Button */
+
+/* Auto layout */
+display: flex;
+flex-direction: row;
+justify-content: center;
+align-items: center;
+padding: 28px 32px;
+gap: 10px;
+
+width: 301px;
+height: 32px;
+
+background: linear-gradient(4.06deg, rgba(109, 93, 231, 0.4) 3.3%, rgba(109, 93, 231, 0.75) 47.01%, #6D5DE7 96.7%);
+box-shadow: 0px 4px 15px rgba(91, 77, 212, 0.25);
+border-radius: 18px;
+
+/* Inside auto layout */
+flex: none;
+order: 1;
+align-self: stretch;
+flex-grow: 0;
+
+
+/* Start Free Practice */
+
+width: 198px;
+height: 24px;
+
+font-family: 'Inter';
+font-style: normal;
+font-weight: 400;
+font-size: 20px;
+line-height: 24px;
+
+color: #FFFFFF;
+
+
+/* Inside auto layout */
+flex: none;
+order: 0;
+flex-grow: 0;
+
+
+/* Frame 165 */
+
+/* Auto layout */
+display: flex;
+flex-direction: column;
+align-items: flex-start;
+padding: 0px;
+gap: 7px;
+
+width: 210px;
+height: 83px;
+
+
+/* Inside auto layout */
+flex: none;
+order: 1;
+flex-grow: 0;
+
+
+/* Frame 158 */
+
+/* Auto layout */
+display: flex;
+flex-direction: row;
+align-items: flex-end;
+padding: 0px;
+gap: 3px;
+
+width: 173px;
+height: 25px;
+
+
+/* Inside auto layout */
+flex: none;
+order: 0;
+flex-grow: 0;
+
+
+/* arcticons--lock-screen-ios 1 */
+
+width: 25px;
+height: 25px;
+
+
+/* Inside auto layout */
+flex: none;
+order: 0;
+flex-grow: 0;
+
+
+/* Vector */
+
+position: absolute;
+left: 55.46%;
+right: 11.12%;
+top: 11.46%;
+bottom: 55.13%;
+
+/* Secondary text
+
+Secondary text
+*/
+border: 1px solid #6E6F6F;
+
+
+/* Vector */
+
+position: absolute;
+left: 11.12%;
+right: 24.83%;
+top: 24.49%;
+bottom: 11.46%;
+
+/* Secondary text
+
+Secondary text
+*/
+border: 1px solid #6E6F6F;
+
+
+/* Vector */
+
+position: absolute;
+left: 32.48%;
+right: 48.03%;
+top: 55.1%;
+bottom: 30.98%;
+
+/* Secondary text
+
+Secondary text
+*/
+border: 1px solid #6E6F6F;
+
+
+/* Vector */
+
+position: absolute;
+left: 35.23%;
+right: 50.38%;
+top: 43.03%;
+bottom: 38.75%;
+
+/* Secondary text
+
+Secondary text
+*/
+border: 1px solid #6E6F6F;
+
+
+/* Vector */
+
+position: absolute;
+left: 40.41%;
+right: 55.69%;
+top: 61.25%;
+bottom: 34.85%;
+
+/* Secondary text
+
+Secondary text
+*/
+border: 1px solid #6E6F6F;
+
+
+/* Secure Screen Sharing */
+
+width: 145px;
+height: 22px;
+
+/* Secondary text */
+font-family: 'Inter';
+font-style: normal;
+font-weight: 400;
+font-size: 14px;
+line-height: 22px;
+/* identical to box height, or 157% */
+letter-spacing: -0.02em;
+
+/* Secondary text */
+color: #6E6F6F;
+
+
+/* Inside auto layout */
+flex: none;
+order: 1;
+flex-grow: 0;
+
+
+/* Frame 159 */
+
+/* Auto layout */
+display: flex;
+flex-direction: row;
+align-items: flex-end;
+padding: 0px;
+gap: 7px;
+
+width: 199px;
+height: 22px;
+
+
+/* Inside auto layout */
+flex: none;
+order: 1;
+flex-grow: 0;
+
+
+/* glyphs--sliders 1 */
+
+width: 20px;
+height: 20px;
+
+
+/* Inside auto layout */
+flex: none;
+order: 0;
+flex-grow: 0;
+
+
+/* Vector */
+
+position: absolute;
+left: 15%;
+right: 15%;
+top: 18.75%;
+bottom: 18.75%;
+
+/* Secondary text
+
+Secondary text
+*/
+border: 1px solid #6E6F6F;
+
+
+/* Personalized AI Responses */
+
+width: 172px;
+height: 22px;
+
+/* Secondary text */
+font-family: 'Inter';
+font-style: normal;
+font-weight: 400;
+font-size: 14px;
+line-height: 22px;
+/* identical to box height, or 157% */
+letter-spacing: -0.02em;
+
+/* Secondary text */
+color: #6E6F6F;
+
+
+/* Inside auto layout */
+flex: none;
+order: 1;
+flex-grow: 0;
+
+
+/* Frame 160 */
+
+/* Auto layout */
+display: flex;
+flex-direction: row;
+align-items: center;
+padding: 0px;
+gap: 10px;
+
+width: 210px;
+height: 22px;
+
+
+/* Inside auto layout */
+flex: none;
+order: 2;
+flex-grow: 0;
+
+
+/* streamline--code-monitor-1 1 */
+
+width: 14px;
+height: 14px;
+
+
+/* Inside auto layout */
+flex: none;
+order: 0;
+flex-grow: 0;
+
+
+/* Group */
+
+position: absolute;
+left: 3.57%;
+right: 3.57%;
+top: 14.29%;
+bottom: 3.57%;
+
+
+
+/* Vector */
+
+position: absolute;
+left: 3.57%;
+right: 3.57%;
+top: 14.29%;
+bottom: 3.57%;
+
+/* Secondary text
+
+Secondary text
+*/
+border: 1px solid #6E6F6F;
+
+
+/* Vector */
+
+position: absolute;
+left: 19.64%;
+right: 19.64%;
+top: 30.36%;
+bottom: 37.5%;
+
+/* Secondary text
+
+Secondary text
+*/
+border: 1px solid #6E6F6F;
+
+
+/* Real-Time Coding Assistance */
+
+width: 186px;
+height: 22px;
+
+/* Secondary text */
+font-family: 'Inter';
+font-style: normal;
+font-weight: 400;
+font-size: 14px;
+line-height: 22px;
+/* identical to box height, or 157% */
+letter-spacing: -0.02em;
+
+/* Secondary text */
+color: #6E6F6F;
+
+
+/* Inside auto layout */
+flex: none;
+order: 1;
+flex-grow: 0;
