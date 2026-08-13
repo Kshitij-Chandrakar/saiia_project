@@ -216,9 +216,9 @@ function getAuthRedirectUrl(desktopState = '') {
 
 async function startGoogleLogin(desktopState = '') {
   if (!supabase) {
-    return
+    return { error: new Error('Supabase auth is not configured for this build.') }
   }
-  await supabase.auth.signInWithOAuth({
+  return supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
       redirectTo: getAuthRedirectUrl(desktopState),
@@ -409,6 +409,18 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
     form.setMessage('Check your email to verify your account.')
   }
 
+  async function handleGoogleLogin() {
+    form.setError('')
+    try {
+      const { error } = await startGoogleLogin(safeDesktopState)
+      if (error) {
+        form.setError(error.message || 'Google login could not be started.')
+      }
+    } catch {
+      form.setError('Google login could not be started.')
+    }
+  }
+
   if (checkingSession) {
     return (
       <AuthShell title="Create Account">
@@ -445,7 +457,7 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
           {form.loading ? 'Creating...' : 'Sign Up'}
         </button>
       </form>
-      <button className="auth-secondary-button" type="button" onClick={() => startGoogleLogin(safeDesktopState)} disabled={!supabase || form.loading}>
+      <button className="auth-secondary-button" type="button" onClick={handleGoogleLogin} disabled={!supabase || form.loading}>
         Continue with Google
       </button>
       <AuthMessage message={form.error} tone="error" />
@@ -503,6 +515,18 @@ export function AuthLoginPage({ backendUrl, desktopState = '', desktopError = ''
     }
   }
 
+  async function handleGoogleLogin() {
+    form.setError('')
+    try {
+      const { error } = await startGoogleLogin(safeDesktopState)
+      if (error) {
+        form.setError(error.message || 'Google login could not be started.')
+      }
+    } catch {
+      form.setError('Google login could not be started.')
+    }
+  }
+
   if (checkingSession) {
     return (
       <AuthShell title="Login">
@@ -538,7 +562,7 @@ export function AuthLoginPage({ backendUrl, desktopState = '', desktopError = ''
           {form.loading ? 'Checking...' : 'Login'}
         </button>
       </form>
-      <button className="auth-secondary-button" type="button" onClick={() => startGoogleLogin(safeDesktopState)} disabled={!supabase || form.loading}>
+      <button className="auth-secondary-button" type="button" onClick={handleGoogleLogin} disabled={!supabase || form.loading}>
         Continue with Google
       </button>
       <AuthMessage message={location.state?.authMessage || ''} tone="info" />

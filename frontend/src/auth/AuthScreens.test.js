@@ -14,6 +14,8 @@ const statusLogoutSource = statusPageSource.match(/async function handleLogout\(
 const dashboardLogoutSource = dashboardPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n  \}\n\n  return \(/)?.[0] || ''
 const resumeRefreshCatchSource = resumePageSource.match(/catch \(refreshError\) \{[\s\S]*?\}\s*catch \(confirmError\)/)?.[0] || ''
 const resumeDeleteSource = resumePageSource.match(/async function handleDeleteResume\(targetResumeArg = null\) \{[\s\S]*?\n  \}\n\n  async function handleRebuildIndex/)?.[0] || ''
+const openDesktopHandoffSource = source.match(/async function openDesktopHandoff[\s\S]*?\n\}/)?.[0] || ''
+const sourceWithoutDesktopHandoff = source.replace(openDesktopHandoffSource, '')
 
 assert.ok(signupPageSource, 'AuthSignupPage source slice should be found')
 assert.ok(loginPageSource, 'AuthLoginPage source slice should be found')
@@ -24,6 +26,7 @@ assert.ok(statusLogoutSource, 'AuthStatusPage handleLogout source slice should b
 assert.ok(dashboardLogoutSource, 'AuthDashboardPage handleLogout source slice should be found')
 assert.ok(resumeRefreshCatchSource, 'AuthResumePage refresh catch source slice should be found')
 assert.ok(resumeDeleteSource, 'AuthResumePage handleDeleteResume source slice should be found')
+assert.ok(openDesktopHandoffSource, 'openDesktopHandoff source slice should be found')
 
 
 test('profile bootstrap behavior is shared by status and dashboard pages', () => {
@@ -109,6 +112,10 @@ test('desktop mode preserves email password and Google auth without changing nor
   assert.match(loginPageSource, /if \(safeDesktopState\) \{[\s\S]*await openDesktopHandoff\(data\.session, safeDesktopState, backendUrl\)/)
   assert.match(loginPageSource, /fetchCurrentUser\(data\.session\.access_token, \{ backendUrl \}\)[\s\S]*navigate\(safeNextRoute, \{ replace: true \}\)/)
   assert.match(source, /async function startGoogleLogin\(desktopState = ''\) \{[\s\S]*provider: 'google'[\s\S]*redirectTo: getAuthRedirectUrl\(desktopState\)/)
+  assert.match(signupPageSource, /async function handleGoogleLogin\(\) {[\s\S]*const \{ error \} = await startGoogleLogin\(safeDesktopState\)[\s\S]*form\.setError\(error\.message \|\| 'Google login could not be started\.'\)/)
+  assert.match(loginPageSource, /async function handleGoogleLogin\(\) {[\s\S]*const \{ error \} = await startGoogleLogin\(safeDesktopState\)[\s\S]*form\.setError\(error\.message \|\| 'Google login could not be started\.'\)/)
+  assert.match(signupPageSource, /onClick=\{handleGoogleLogin\}/)
+  assert.match(loginPageSource, /onClick=\{handleGoogleLogin\}/)
 })
 
 
@@ -121,7 +128,8 @@ test('protected dashboard redirect returns to dashboard after login', () => {
 test('unsafe external auth next URLs are ignored by allowlist', () => {
   assert.match(source, /const SAFE_AUTH_NEXT_ROUTES = new Set\(\['\/auth\/dashboard', '\/auth\/status'\]\)/)
   assert.match(source, /return SAFE_AUTH_NEXT_ROUTES\.has\(route\) \? route : fallback/)
-  assert.doesNotMatch(source, /new URL\(.*next/)
+  assert.match(openDesktopHandoffSource, /window\.location\.href = callbackUrl\.toString\(\)/)
+  assert.doesNotMatch(sourceWithoutDesktopHandoff, /window\.location\s*=|window\.location\.href\s*=|location\.href\s*=|new URL\(.*next/)
 })
 
 

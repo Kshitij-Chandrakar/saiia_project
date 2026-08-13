@@ -29,7 +29,7 @@ test('stop action is non-destructive and separate from end session', () => {
   const stopBranchIndex = source.indexOf("action === 'stop-active-operation'")
   const endBranchIndex = source.indexOf("action === 'end-session'")
   const stopFunctionStart = source.indexOf('const stopActiveOperation = () => {')
-  const stopFunctionEnd = source.indexOf('const applyRefinedAnswer = () => {')
+  const stopFunctionEnd = source.indexOf('const resetRuntimeForDesktopLogout = () => {')
   const stopFunction = source.slice(stopFunctionStart, stopFunctionEnd)
 
   assert.ok(stopBranchIndex > 0)

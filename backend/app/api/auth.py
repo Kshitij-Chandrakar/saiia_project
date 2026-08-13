@@ -23,6 +23,12 @@ DESKTOP_HANDOFF_ERROR = "Invalid or expired desktop handoff."
 _desktop_handoffs: dict[str, dict[str, object]] = {}
 
 
+# C6.2A dev handoff store: memory-only is acceptable for local Electron flows.
+# Production hardening should move these short-lived records to a shared TTL store.
+def _now() -> float:
+    return time.time()
+
+
 class CurrentUserResponse(BaseModel):
     user_id: str
     email: str | None = None
@@ -63,7 +69,7 @@ def _hash_handoff_code(code: str) -> str:
 
 
 def _prune_desktop_handoffs(now: float | None = None) -> None:
-    current_time = time.time() if now is None else now
+    current_time = _now() if now is None else now
     expired = [
         code_hash
         for code_hash, record in _desktop_handoffs.items()
@@ -135,7 +141,7 @@ def create_desktop_handoff(
         "state": payload.state,
         "access_token": _bearer_token_from_request(request),
         "refresh_token": payload.refresh_token,
-        "expires_at": time.time() + DESKTOP_HANDOFF_TTL_SECONDS,
+        "expires_at": _now() + DESKTOP_HANDOFF_TTL_SECONDS,
     }
     return DesktopHandoffCreateResponse(
         handoff_code=code,

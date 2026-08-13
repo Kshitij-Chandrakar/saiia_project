@@ -4455,6 +4455,18 @@ function MainWindow() {
     setStatus('Stopped.')
   }
 
+  const resetRuntimeForDesktopLogout = () => {
+    stopActiveOperation()
+    clearTranscriptState()
+    clearAnswerState()
+    setQuestionHistoryState(() => createQuestionHistoryState())
+    setQuestionHistoryNavigationCount(0)
+    setEventLog([])
+    profileCacheRef.current = null
+    profileFetchMsRef.current = null
+    setStatus('Signed out. Log in to start a new desktop session.')
+  }
+
   const applyRefinedAnswer = () => {
     if (refinementStatus !== 'completed' || !refinedAnswer) {
       return
@@ -5804,6 +5816,7 @@ function MainWindow() {
       eventLog={eventLog}
       refinedAnswer={refinedAnswer}
       applyRefinedAnswer={applyRefinedAnswer}
+      onDesktopSignedOut={resetRuntimeForDesktopLogout}
     />
   )
 }

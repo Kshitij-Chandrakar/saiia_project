@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.auth import _desktop_handoffs, router as auth_router
+from app.api.auth import _desktop_handoffs, _hash_handoff_code, router as auth_router
 from app.auth.supabase_auth import (
     AUTH_ERROR_DETAIL,
     get_auth_verification_config,
@@ -232,6 +232,8 @@ def test_desktop_handoff_exchange_works_once_and_excludes_tokens_from_create_res
     assert token not in create.text
     assert "refresh-token" not in create.text
     assert handoff_code not in _desktop_handoffs
+    handoff_hash = _hash_handoff_code(handoff_code)
+    assert handoff_hash in _desktop_handoffs
 
     exchange = client.post(
         "/api/auth/desktop-handoff/exchange",
@@ -243,6 +245,7 @@ def test_desktop_handoff_exchange_works_once_and_excludes_tokens_from_create_res
         "access_token": token,
         "refresh_token": "refresh-token",
     }
+    assert handoff_hash not in _desktop_handoffs
 
     replay = client.post(
         "/api/auth/desktop-handoff/exchange",
@@ -257,13 +260,15 @@ def test_desktop_handoff_exchange_works_once_and_excludes_tokens_from_create_res
 
 def test_desktop_handoff_rejects_mismatched_and_expired_state(monkeypatch, client: TestClient):
     now = 1000.0
-    monkeypatch.setattr("app.api.auth.time.time", lambda: now)
+    monkeypatch.setattr("app.api.auth._now", lambda: now)
     create = client.post(
         "/api/auth/desktop-handoff",
         headers={"Authorization": f"Bearer {_token()}"},
         json={"state": "desktop-state-123456", "refresh_token": "refresh-token"},
     )
     handoff_code = create.json()["handoff_code"]
+    handoff_hash = _hash_handoff_code(handoff_code)
+    assert handoff_hash in _desktop_handoffs
 
     mismatch = client.post(
         "/api/auth/desktop-handoff/exchange",
@@ -271,6 +276,7 @@ def test_desktop_handoff_rejects_mismatched_and_expired_state(monkeypatch, clien
     )
     assert mismatch.status_code == 404
     assert "refresh-token" not in mismatch.text
+    assert handoff_hash not in _desktop_handoffs
 
     create = client.post(
         "/api/auth/desktop-handoff",
@@ -278,6 +284,8 @@ def test_desktop_handoff_rejects_mismatched_and_expired_state(monkeypatch, clien
         json={"state": "desktop-state-abcdef", "refresh_token": "refresh-token"},
     )
     handoff_code = create.json()["handoff_code"]
+    handoff_hash = _hash_handoff_code(handoff_code)
+    assert handoff_hash in _desktop_handoffs
     now += 301
 
     expired = client.post(
@@ -286,3 +294,4 @@ def test_desktop_handoff_rejects_mismatched_and_expired_state(monkeypatch, clien
     )
     assert expired.status_code == 404
     assert "refresh-token" not in expired.text
+    assert handoff_hash not in _desktop_handoffs

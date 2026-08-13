@@ -529,6 +529,7 @@ export default function MainDiagnosticsWindow(props) {
     eventLog,
     refinedAnswer,
     applyRefinedAnswer,
+    onDesktopSignedOut,
   } = props
   const [startupAuthenticated, setStartupAuthenticated] = useState(false)
 
@@ -691,7 +692,10 @@ export default function MainDiagnosticsWindow(props) {
               display.
             </p>
 
-            <DesktopAuthStatus onSignedOut={() => setStartupAuthenticated(false)} />
+            <DesktopAuthStatus onSignedOut={() => {
+              onDesktopSignedOut?.()
+              setStartupAuthenticated(false)
+            }} />
 
             <div className={`glass-card runtime-guide runtime-guide--${runtimeGuidance.tone}`}>
               <div className="runtime-guide__header">

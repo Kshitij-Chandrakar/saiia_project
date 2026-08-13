@@ -86,7 +86,9 @@ test('desktop auth config requires Supabase URL, anon key, and website handoff U
   assert.match(mainSource, /process\.env\.SUPABASE_URL \|\| process\.env\.VITE_SUPABASE_URL/)
   assert.match(mainSource, /process\.env\.SUPABASE_ANON_KEY \|\| process\.env\.VITE_SUPABASE_ANON_KEY/)
   assert.match(mainSource, /process\.env\.SAIIA_WEB_AUTH_URL \|\| process\.env\.VITE_SAIIA_WEB_AUTH_URL/)
+  assert.doesNotMatch(mainSource, /SAIIA_DESKTOP_AUTH_PROVIDER|VITE_SUPABASE_DESKTOP_AUTH_PROVIDER/)
   assert.match(sessionSource, /!this\.supabaseUrl \|\| !this\.supabaseAnonKey \|\| !this\.webAuthUrl/)
+  assert.match(sessionSource, /\['http:', 'https:'\]\.includes\(authUrl\.protocol\)/)
   assert.match(sessionSource, /MISSING_DESKTOP_AUTH_CONFIG_MESSAGE/)
   assert.match(sessionSource, /environment that launches Electron/)
 })
@@ -105,7 +107,10 @@ test('startup login completion uses narrow Electron startup hook', () => {
   assert.match(preloadSource, /completeStartup: \(\) => ipcRenderer\.invoke\('startup:complete'\)/)
   assert.match(mainSource, /ipcMain\.handle\('startup:complete'/)
   assert.match(mainSource, /validateAuthIpc\(event\)/)
+  assert.match(mainSource, /desktopAuthSessionManager\.getSafeState\(\)\.status !== 'connected'/)
   assert.match(startupSource, /electronApi\?\.completeStartup\?\.\(\)/)
+  assert.match(startupSource, /const result = await electronApi\?\.completeStartup\?\.\(\)/)
+  assert.match(startupSource, /if \(result\?\.ok !== true\) {[\s\S]*?setAuthState/)
 })
 
 test('main process starts compact and keeps overlay hidden before startup completion', () => {
@@ -166,6 +171,7 @@ test('startup login CSS keeps Figma dimensions and visual values', () => {
   assert.match(cssSource, /#d9d9d9/i)
   assert.match(cssSource, /border-radius: 18px;/)
   assert.match(cssSource, /box-shadow: 0 4px 15px rgba\(91, 77, 212, 0\.25\);/)
+  assert.match(cssSource, /\.startup-login-close path\s*{[\s\S]*?stroke: currentcolor;/)
 })
 
 test('startup login keeps long configuration errors in a bounded message area', () => {

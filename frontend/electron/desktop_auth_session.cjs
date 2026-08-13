@@ -137,7 +137,6 @@ class DesktopAuthSessionManager {
     this.supabaseAnonKey = String(options.supabaseAnonKey ?? '')
     this.backendUrl = String(options.backendUrl ?? DEFAULT_BACKEND_URL).replace(/\/+$/, '')
     this.webAuthUrl = String(options.webAuthUrl ?? DEFAULT_WEB_AUTH_URL).trim()
-    this.desktopAuthProvider = String(options.desktopAuthProvider ?? '').trim()
     this.redirectUri = String(options.redirectUri || CALLBACK_URL)
     this.loginTtlMs = validPositiveNumber(options.loginTtlMs, DEFAULT_LOGIN_TTL_MS)
     this.requestTimeoutMs = validPositiveNumber(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS)
@@ -250,16 +249,6 @@ class DesktopAuthSessionManager {
     return authUrl.toString()
   }
 
-  _buildSupabaseOAuthUrl(record) {
-    const authUrl = new URL(`${this.supabaseUrl}/auth/v1/authorize`)
-    authUrl.searchParams.set('redirect_to', record.redirect_uri)
-    authUrl.searchParams.set('response_type', 'code')
-    authUrl.searchParams.set('code_challenge', record.code_challenge)
-    authUrl.searchParams.set('code_challenge_method', record.code_challenge_method)
-    authUrl.searchParams.set('provider', this.desktopAuthProvider)
-    return authUrl.toString()
-  }
-
   _logWebsiteHandoffUrlDebug(rawUrl, record = null) {
     if (!this.logger || typeof this.logger.debug !== 'function') {
       return
@@ -274,40 +263,6 @@ class DesktopAuthSessionManager {
         pendingAttemptId: record?.attempt_generation || null,
       })
     } catch {}
-  }
-
-  _logAuthUrlDebug(rawUrl, record = null) {
-    if (!this.logger || typeof this.logger.debug !== 'function') {
-      return
-    }
-    try {
-      const authUrl = new URL(rawUrl)
-      this.logger.debug('Desktop auth authorize URL prepared.', {
-        origin: authUrl.origin,
-        path: authUrl.pathname,
-        queryKeys: Array.from(new Set(authUrl.searchParams.keys())).sort(),
-        redirectToExists: authUrl.searchParams.has('redirect_to'),
-        redirectToCategory: this._redirectToCategory(authUrl.searchParams.get('redirect_to') || ''),
-        stateExists: authUrl.searchParams.has('state'),
-        pendingAttemptId: record?.attempt_generation || null,
-      })
-    } catch {}
-  }
-
-  _redirectToCategory(value) {
-    try {
-      const redirectTo = new URL(value)
-      if (redirectTo.protocol === 'saiia:') {
-        return 'custom-protocol'
-      }
-      if (redirectTo.hostname === 'localhost' || redirectTo.hostname === '127.0.0.1') {
-        return 'localhost'
-      }
-      if (redirectTo.protocol === 'https:') {
-        return 'https'
-      }
-    } catch {}
-    return value ? 'other' : 'missing'
   }
 
   async handleAuthCallback(rawUrl) {
@@ -389,10 +344,7 @@ class DesktopAuthSessionManager {
     if (!record || record.consumed || record.expires_at <= this.now()) {
       return null
     }
-    if (state && record.state !== state) {
-      return null
-    }
-    if (!state && !this._pendingLoginIsActive()) {
+    if (!state || record.state !== state) {
       return null
     }
     record.consumed = true
@@ -945,6 +897,15 @@ class DesktopAuthSessionManager {
 
   _requireAuthConfig() {
     if (!this.supabaseUrl || !this.supabaseAnonKey || !this.webAuthUrl) {
+      throw new Error(MISSING_DESKTOP_AUTH_CONFIG_MESSAGE)
+    }
+    let authUrl
+    try {
+      authUrl = new URL(this.webAuthUrl)
+    } catch {
+      throw new Error(MISSING_DESKTOP_AUTH_CONFIG_MESSAGE)
+    }
+    if (!['http:', 'https:'].includes(authUrl.protocol)) {
       throw new Error(MISSING_DESKTOP_AUTH_CONFIG_MESSAGE)
     }
   }

@@ -41,7 +41,6 @@ function createManager(options = {}) {
   const manager = new DesktopAuthSessionManager({
     supabaseUrl: 'https://project.supabase.co',
     supabaseAnonKey: 'anon-key',
-    desktopAuthProvider: 'google',
     webAuthUrl: 'http://localhost:5173/auth/desktop-login',
     backendUrl: 'http://localhost:8000',
     sessionPath: path.join(dir, 'session.bin'),
@@ -116,8 +115,16 @@ function abortError() {
   return error
 }
 
-function callbackUrlFor(_manager, params = {}) {
+function callbackUrlFor(manager, params = {}) {
   const url = new URL(CALLBACK_URL)
+  if (
+    manager?.pendingLogin?.state &&
+    (params.code || params.error) &&
+    !('state' in params) &&
+    !('desktop_state' in params)
+  ) {
+    url.searchParams.set('state', manager.pendingLogin.state)
+  }
   Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value))
   return url.toString()
 }
@@ -193,6 +200,17 @@ test('startLogin requires website handoff config and fails safely when browser l
     assert.equal(missingWebsiteUrl.manager.pendingLogin, null)
   } finally {
     missingWebsiteUrl.cleanup()
+  }
+
+  const unsafeWebsiteUrl = createManager({ webAuthUrl: 'saiia://auth/callback' })
+  try {
+    const state = await unsafeWebsiteUrl.manager.startLogin()
+    assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.match(state.error, /Desktop cloud auth is not configured\./)
+    assert.equal(unsafeWebsiteUrl.manager.pendingLogin, null)
+    assert.equal(unsafeWebsiteUrl.opened.length, 0)
+  } finally {
+    unsafeWebsiteUrl.cleanup()
   }
 
   const browserFailure = createManager({
@@ -411,6 +429,14 @@ test('callback rejects missing code, mismatched state, expired attempt, and reus
     result = await ctx.manager.handleAuthCallback(callbackUrlFor(ctx.manager))
     assert.equal(result.status, AUTH_STATUSES.SIGNED_OUT)
     assert.equal(result.error, 'Invalid authentication callback.')
+
+    await ctx.manager.startLogin()
+    const activePending = ctx.manager.pendingLogin
+    result = await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?code=auth-code`)
+    assert.equal(result.status, AUTH_STATUSES.SIGNING_IN)
+    assert.equal(result.error, 'Invalid or expired authentication attempt.')
+    assert.equal(ctx.manager.pendingLogin, activePending)
+    assert.equal(ctx.calls.some((call) => call.url.includes('grant_type=pkce')), false)
 
     await ctx.manager.startLogin()
     result = await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?code=auth-code&desktop_state=wrong`)

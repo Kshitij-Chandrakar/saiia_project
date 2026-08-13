@@ -5,6 +5,7 @@ import { createDesktopAuthRequestTracker, getDesktopAuthViewModel } from './desk
 
 const diagnosticsSource = readFileSync(new URL('./components/MainDiagnosticsWindow.jsx', import.meta.url), 'utf8')
 const preloadSource = readFileSync(new URL('../electron/preload.cjs', import.meta.url), 'utf8')
+const appSource = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
 const sensitivePattern = new RegExp([
   ['access', 'token'].join('_'),
   ['refresh', 'token'].join('_'),
@@ -251,12 +252,15 @@ test('runtime logout returns renderer to startup login gate without stale identi
 
   assert.match(source, /function DesktopAuthStatus\(\{ onSignedOut \}\)/)
   assert.match(source, /const nextState = getDesktopAuthViewModel\(payload\)[\s\S]*?setAuthState\(nextState\)[\s\S]*?if \(shouldShowStartupLogin\(nextState\)\) {[\s\S]*?onSignedOut\?\.\(nextState\)/)
-  assert.match(diagnosticsSource, /<DesktopAuthStatus onSignedOut=\{\(\) => setStartupAuthenticated\(false\)\} \/>/)
+  assert.match(diagnosticsSource, /onDesktopSignedOut,\s*\} = props/)
+  assert.match(diagnosticsSource, /<DesktopAuthStatus onSignedOut=\{\(\) => {[\s\S]*?onDesktopSignedOut\?\.\(\)[\s\S]*?setStartupAuthenticated\(false\)/)
   assert.match(diagnosticsSource, /if \(!startupAuthenticated && shouldShowStartupLogin\(\)\) {[\s\S]*?<StartupLoginScreen/)
+  assert.match(appSource, /const resetRuntimeForDesktopLogout = \(\) => {[\s\S]*?stopActiveOperation\(\)[\s\S]*?clearTranscriptState\(\)[\s\S]*?clearAnswerState\(\)[\s\S]*?setQuestionHistoryState\(\(\) => createQuestionHistoryState\(\)\)[\s\S]*?setEventLog\(\[\]\)/)
+  assert.match(appSource, /onDesktopSignedOut=\{resetRuntimeForDesktopLogout\}/)
 })
 
 test('desktop auth wiring leaves local no-auth controls available', () => {
-  assert.match(diagnosticsSource, /<DesktopAuthStatus onSignedOut=\{\(\) => setStartupAuthenticated\(false\)\} \/>/)
+  assert.match(diagnosticsSource, /<DesktopAuthStatus onSignedOut=\{\(\) => {[\s\S]*?setStartupAuthenticated\(false\)/)
   assert.match(diagnosticsSource, /Setup Profile/)
   assert.match(diagnosticsSource, /Start Recording \(Fallback\)/)
   assert.match(diagnosticsSource, /Analyze Active Window/)

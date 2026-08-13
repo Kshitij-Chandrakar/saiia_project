@@ -1494,7 +1494,7 @@ textarea::placeholder {
 
 .startup-login-close path {
   fill: none;
-  stroke: currentColor;
+  stroke: currentcolor;
   stroke-width: 1.5;
   stroke-linecap: round;
 }

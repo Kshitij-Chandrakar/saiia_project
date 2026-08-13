@@ -154,9 +154,6 @@ const DESKTOP_AUTH_ENV_KEYS = new Set([
   'VITE_SUPABASE_URL',
   'SUPABASE_ANON_KEY',
   'VITE_SUPABASE_ANON_KEY',
-  'SAIIA_DESKTOP_AUTH_PROVIDER',
-  'VITE_SAIIA_DESKTOP_AUTH_PROVIDER',
-  'VITE_SUPABASE_DESKTOP_AUTH_PROVIDER',
   'SAIIA_BACKEND_URL',
   'VITE_BACKEND_URL',
   'SAIIA_WEB_AUTH_URL',
@@ -222,11 +219,6 @@ function getDesktopAuthConfig() {
   return {
     supabaseUrl: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '',
-    desktopAuthProvider:
-      process.env.SAIIA_DESKTOP_AUTH_PROVIDER ||
-      process.env.VITE_SAIIA_DESKTOP_AUTH_PROVIDER ||
-      process.env.VITE_SUPABASE_DESKTOP_AUTH_PROVIDER ||
-      '',
     webAuthUrl: process.env.SAIIA_WEB_AUTH_URL || process.env.VITE_SAIIA_WEB_AUTH_URL || 'http://localhost:5173/auth/desktop-login',
     backendUrl: process.env.SAIIA_BACKEND_URL || process.env.VITE_BACKEND_URL || 'http://localhost:8000',
   }
@@ -1659,6 +1651,9 @@ ipcMain.handle('cloud:refresh-startup-context', async (event) => {
 
 ipcMain.handle('startup:complete', (event) => {
   validateAuthIpc(event)
+  if (desktopAuthSessionManager.getSafeState().status !== 'connected') {
+    return { ok: false, reason: 'auth-required' }
+  }
   return completeStartupFlow()
 })
 

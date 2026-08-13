@@ -19,9 +19,23 @@ export default function StartupLoginScreen({ onAuthenticated }) {
   const saiiaApi = typeof window !== 'undefined' ? window.saiia : null
   const electronApi = typeof window !== 'undefined' ? window.electronAPI : null
 
-  const completeStartup = (nextState) => {
-    electronApi?.completeStartup?.().catch?.(() => {})
-    onAuthenticated?.(nextState)
+  const completeStartup = async (nextState) => {
+    try {
+      const result = await electronApi?.completeStartup?.()
+      if (result?.ok !== true) {
+        setAuthState(getDesktopAuthViewModel({
+          status: DESKTOP_AUTH_STATUSES.SIGNED_OUT,
+          error: 'Login could not be opened. Try again.',
+        }))
+        return
+      }
+      onAuthenticated?.(nextState)
+    } catch {
+      setAuthState(getDesktopAuthViewModel({
+        status: DESKTOP_AUTH_STATUSES.SIGNED_OUT,
+        error: 'Login could not be opened. Try again.',
+      }))
+    }
   }
 
   const closeStartupWindow = () => {
@@ -36,7 +50,7 @@ export default function StartupLoginScreen({ onAuthenticated }) {
     const nextState = getDesktopAuthViewModel(payload)
     setAuthState(nextState)
     if (!shouldShowStartupLogin(nextState)) {
-      completeStartup(nextState)
+      void completeStartup(nextState)
     }
   }
 
