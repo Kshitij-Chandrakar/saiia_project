@@ -27,6 +27,7 @@ import {
   getTabForAnswerMode,
   snapshotOverlayState,
 } from '../overlay_mode_state'
+import { createOverlayAuthStateTracker } from '../overlay_auth_state_tracker'
 import { shouldStartInitialScreenAnalysis } from '../screen_mode_state'
 
 function formatElapsedTime(startedAt) {
@@ -119,6 +120,7 @@ export default function OverlayWindow({ overlayState }) {
   const analyzeMenuRef = useRef(null)
   const analyzeMenuItemRefs = useRef([])
   const lastAutoFocusAnswerKeyRef = useRef('')
+  const authStateTrackerRef = useRef(null)
   const [collapsed, setCollapsed] = useState(false)
   const [modeSnapshots, setModeSnapshots] = useState(() => ({
     answer: snapshotOverlayState({ ...overlayState, answer: '', transcript: '' }),
@@ -227,17 +229,16 @@ export default function OverlayWindow({ overlayState }) {
     })
   }, [closeAnalyzeMenu])
 
+  if (!authStateTrackerRef.current) {
+    authStateTrackerRef.current = createOverlayAuthStateTracker(setSafeAuthState)
+  }
+
   const refreshSafeAuthState = useCallback(async () => {
-    try {
-      const nextState = await window.saiia?.getAuthState?.()
-      const status = typeof nextState?.status === 'string' ? nextState.status : 'signed-out'
-      const email = typeof nextState?.email === 'string' && nextState.email.trim()
-        ? nextState.email.trim()
-        : null
-      setSafeAuthState({ status, email })
-    } catch {
-      setSafeAuthState({ status: 'signed-out', email: null })
-    }
+    await authStateTrackerRef.current.refresh(() => window.saiia?.getAuthState?.())
+  }, [])
+
+  const clearSafeAuthState = useCallback(() => {
+    authStateTrackerRef.current.clear()
   }, [])
 
   const handleOpenDashboard = useCallback(async () => {
@@ -259,6 +260,12 @@ export default function OverlayWindow({ overlayState }) {
   useEffect(() => {
     refreshSafeAuthState()
   }, [refreshSafeAuthState])
+
+  useEffect(() => {
+    if (overlayState.visible === false) {
+      clearSafeAuthState()
+    }
+  }, [overlayState.visible, clearSafeAuthState])
 
   useEffect(() => {
     if (!menuOpen) {
