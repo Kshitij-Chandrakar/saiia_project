@@ -54,6 +54,7 @@ let foregroundWindowPollTimer = null
 let foregroundWindowPollInFlight = null
 let desktopAuthSessionManager = null
 let validateMainWindowIpcSender = null
+let validateOverlayWindowIpcSender = null
 let bufferedDesktopAuthCallbacks = []
 
 const overlayState = {
@@ -158,6 +159,8 @@ const DESKTOP_AUTH_ENV_KEYS = new Set([
   'VITE_BACKEND_URL',
   'SAIIA_WEB_AUTH_URL',
   'VITE_SAIIA_WEB_AUTH_URL',
+  'SAIIA_WEB_DASHBOARD_URL',
+  'VITE_SAIIA_WEB_DASHBOARD_URL',
 ])
 
 loadDesktopEnvFiles()
@@ -219,9 +222,35 @@ function getDesktopAuthConfig() {
   return {
     supabaseUrl: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '',
-    webAuthUrl: process.env.SAIIA_WEB_AUTH_URL || process.env.VITE_SAIIA_WEB_AUTH_URL || 'http://localhost:5173/auth/desktop-login',
+    webAuthUrl: getConfiguredWebAuthUrl(),
     backendUrl: process.env.SAIIA_BACKEND_URL || process.env.VITE_BACKEND_URL || 'http://localhost:8000',
   }
+}
+
+function getConfiguredWebAuthUrl() {
+  return process.env.SAIIA_WEB_AUTH_URL || process.env.VITE_SAIIA_WEB_AUTH_URL || 'http://localhost:5173/auth/desktop-login'
+}
+
+function parseHttpUrl(rawUrl, label) {
+  let parsed
+  try {
+    parsed = new URL(String(rawUrl || '').trim())
+  } catch {
+    throw new Error(`${label} must be a valid URL.`)
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`${label} must use http or https.`)
+  }
+  return parsed
+}
+
+function getDesktopDashboardUrl() {
+  const configuredDashboardUrl = process.env.SAIIA_WEB_DASHBOARD_URL || process.env.VITE_SAIIA_WEB_DASHBOARD_URL || ''
+  if (configuredDashboardUrl.trim()) {
+    return parseHttpUrl(configuredDashboardUrl, 'Dashboard URL').toString()
+  }
+  const webAuthUrl = parseHttpUrl(getConfiguredWebAuthUrl(), 'Desktop web auth URL')
+  return new URL('/auth/dashboard', webAuthUrl.origin).toString()
 }
 
 function getPackagedIndexPath() {
@@ -1545,6 +1574,13 @@ app.on('ready', async () => {
     isPackaged: app.isPackaged,
     packagedIndexPath: getPackagedIndexPath(),
   })
+  validateOverlayWindowIpcSender = createIpcSenderValidator({
+    getExpectedWindow: () => overlayWindow,
+    BrowserWindow,
+    devOrigin: process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173',
+    isPackaged: app.isPackaged,
+    packagedIndexPath: getPackagedIndexPath(),
+  })
   await desktopAuthSessionManager.initialize().catch((error) => {
     console.error('Desktop auth session restore failed.', error?.message || 'Authentication restore failed.')
   })
@@ -1620,8 +1656,24 @@ function validateAuthIpc(event) {
   validateMainWindowIpcSender(event)
 }
 
+function validateTrustedRendererIpc(event) {
+  const errors = []
+  for (const validate of [validateMainWindowIpcSender, validateOverlayWindowIpcSender]) {
+    if (!validate) {
+      continue
+    }
+    try {
+      validate(event)
+      return true
+    } catch (error) {
+      errors.push(error)
+    }
+  }
+  throw errors[0] || new Error('Desktop IPC is not ready.')
+}
+
 ipcMain.handle('auth:get-state', (event) => {
-  validateAuthIpc(event)
+  validateTrustedRendererIpc(event)
   return desktopAuthSessionManager.getSafeState()
 })
 
@@ -1660,6 +1712,13 @@ ipcMain.handle('startup:complete', (event) => {
 ipcMain.handle('startup:close', (event) => {
   validateAuthIpc(event)
   return closeStartupWindow()
+})
+
+ipcMain.handle('dashboard:open', async (event) => {
+  validateTrustedRendererIpc(event)
+  const dashboardUrl = getDesktopDashboardUrl()
+  await shell.openExternal(dashboardUrl)
+  return { ok: true }
 })
 
 ipcMain.on('overlay:update-state', (_event, nextState) => {

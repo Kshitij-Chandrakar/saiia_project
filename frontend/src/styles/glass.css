@@ -2656,6 +2656,23 @@ textarea::placeholder {
   font-size: 13px;
 }
 
+.topbar-menu__header-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.topbar-menu__account {
+  overflow: hidden;
+  max-width: 248px;
+  color: rgba(235, 241, 247, 0.58);
+  font-size: 12px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .topbar-menu__info,
 .topbar-menu__chevron {
   color: rgba(235, 241, 247, 0.45);

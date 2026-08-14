@@ -222,7 +222,7 @@ test('Answer and Chat toolbar buttons explicitly own their panels', () => {
   const chatHandler = sourceBetween(
     overlaySource,
     'const handleChat = () => {',
-    "const menuHeaderText = overlayState.provider"
+    'const accountLabel = safeAuthState.status'
   )
   const focusEffect = sourceBetween(
     overlaySource,

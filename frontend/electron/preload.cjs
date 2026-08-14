@@ -19,6 +19,7 @@ const electronAPI = {
   captureActiveWindowSequence: () => ipcRenderer.invoke('screen:capture-active-window-sequence'),
   completeStartup: () => ipcRenderer.invoke('startup:complete'),
   closeStartupWindow: () => ipcRenderer.invoke('startup:close'),
+  openDashboard: () => ipcRenderer.invoke('dashboard:open'),
   getAuthState: () => ipcRenderer.invoke('auth:get-state'),
   startAuthLogin: () => ipcRenderer.invoke('auth:start-login'),
   logoutAuth: () => ipcRenderer.invoke('auth:logout'),
@@ -46,6 +47,7 @@ contextBridge.exposeInMainWorld('saiia', {
   getCloudStartupContext: electronAPI.getCloudStartupContext,
   listScreenSources: electronAPI.listScreenSources,
   logoutAuth: electronAPI.logoutAuth,
+  openDashboard: electronAPI.openDashboard,
   refreshCloudStartupContext: electronAPI.refreshCloudStartupContext,
   startAuthLogin: electronAPI.startAuthLogin,
 })

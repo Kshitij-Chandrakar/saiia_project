@@ -38,3 +38,17 @@ test('stop action is non-destructive and separate from end session', () => {
   assert.doesNotMatch(stopFunction, /clearAnswerState\(\)/)
   assert.doesNotMatch(stopFunction, /clearTranscriptState\(\)/)
 })
+
+test('runtime dropdown dashboard uses safe desktop opener and shows safe account email', () => {
+  const source = readFileSync(new URL('./components/OverlayWindow.jsx', import.meta.url), 'utf8')
+  const styles = readFileSync(new URL('./styles/glass.css', import.meta.url), 'utf8')
+
+  assert.match(source, /window\.saiia\?\.openDashboard\?\.\(\)/)
+  assert.match(source, /onClick=\{handleOpenDashboard\}/)
+  assert.doesNotMatch(source, /onClick=\{\(\) => window\.electronAPI\?\.openMainPanel/)
+  assert.match(source, /window\.saiia\?\.getAuthState\?\.\(\)/)
+  assert.match(source, /safeAuthState\.status === 'connected'/)
+  assert.match(source, /safeAuthState\.email \|\| 'Signed in'/)
+  assert.match(source, /topbar-menu__account/)
+  assert.match(styles, /\.topbar-menu__account\s*\{[\s\S]*text-overflow:\s*ellipsis/)
+})

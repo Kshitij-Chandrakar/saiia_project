@@ -1797,12 +1797,26 @@ test('preload exposes exact narrow auth methods without raw tokens or generic fe
     'getCloudStartupContext',
     'listScreenSources',
     'logoutAuth',
+    'openDashboard',
     'refreshCloudStartupContext',
     'startAuthLogin',
   ].sort())
   assert.equal('access_token' in exposed.saiia, false)
   assert.equal('refresh_token' in exposed.saiia, false)
   assert.equal('fetch' in exposed.saiia, false)
+})
+
+test('main process opens dashboard externally through a validated http URL', () => {
+  const source = readFileSync(new URL('../electron/main.cjs', import.meta.url), 'utf8')
+
+  assert.match(source, /'SAIIA_WEB_DASHBOARD_URL'/)
+  assert.match(source, /'VITE_SAIIA_WEB_DASHBOARD_URL'/)
+  assert.match(source, /ipcMain\.handle\('dashboard:open', async \(event\) => \{/)
+  assert.match(source, /validateTrustedRendererIpc\(event\)/)
+  assert.match(source, /shell\.openExternal\(dashboardUrl\)/)
+  assert.match(source, /!\['http:', 'https:'\]\.includes\(parsed\.protocol\)/)
+  assert.match(source, /new URL\('\/auth\/dashboard', webAuthUrl\.origin\)\.toString\(\)/)
+  assert.doesNotMatch(source, /ipcMain\.handle\('dashboard:open'[\s\S]{0,160}rendererUrl/)
 })
 
 test('main process exits second instances before protocol registration and buffers early callbacks', () => {
