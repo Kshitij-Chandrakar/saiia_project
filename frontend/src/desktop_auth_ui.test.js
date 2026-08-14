@@ -256,7 +256,17 @@ test('runtime logout returns renderer to startup login gate without stale identi
   assert.match(diagnosticsSource, /<DesktopAuthStatus onSignedOut=\{\(\) => {[\s\S]*?onDesktopSignedOut\?\.\(\)[\s\S]*?setStartupAuthenticated\(false\)/)
   assert.match(diagnosticsSource, /if \(!startupAuthenticated && shouldShowStartupLogin\(\)\) {[\s\S]*?<StartupLoginScreen/)
   assert.match(appSource, /const resetRuntimeForDesktopLogout = \(\) => {[\s\S]*?stopActiveOperation\(\)[\s\S]*?clearTranscriptState\(\)[\s\S]*?clearAnswerState\(\)[\s\S]*?setQuestionHistoryState\(\(\) => createQuestionHistoryState\(\)\)[\s\S]*?setEventLog\(\[\]\)/)
+  assert.match(appSource, /const resetRuntimeForDesktopLogout = \(\) => {[\s\S]*?resetAutoInterviewState\(\)[\s\S]*?resetScreenOcrState\(\)/)
   assert.match(appSource, /onDesktopSignedOut=\{resetRuntimeForDesktopLogout\}/)
+})
+
+test('desktop logout clears auto-mode interview residue before next login', () => {
+  assert.match(appSource, /const resetAutoInterviewState = \(\) => {[\s\S]*?setLastAutoTranscript\(''\)[\s\S]*?setLastDetectedQuestion\(''\)[\s\S]*?setAcceptedAutoQuestion\(''\)/)
+  assert.match(appSource, /const resetAutoInterviewState = \(\) => {[\s\S]*?setExtractedQuestionCandidate\(''\)[\s\S]*?setPolishedQuestionCandidate\(''\)[\s\S]*?setCorrectedQuestionCandidate\(''\)/)
+  assert.match(appSource, /const resetAutoInterviewState = \(\) => {[\s\S]*?recentAutoTranscriptBufferRef\.current = \[\]/)
+  assert.match(appSource, /const resetAutoInterviewState = \(\) => {[\s\S]*?setRecentTranscriptBuffer\(''\)/)
+  assert.match(appSource, /const resetAutoInterviewState = \(\) => {[\s\S]*?setAutoMode\(false\)[\s\S]*?setAutoModeStatus\('off'\)[\s\S]*?setAutoStreamingConnected\(false\)/)
+  assert.match(appSource, /const resetRuntimeForDesktopLogout = \(\) => {[\s\S]*?resetAutoInterviewState\(\)[\s\S]*?setStatus\('Signed out\. Log in to start a new desktop session\.'\)/)
 })
 
 test('desktop auth wiring leaves local no-auth controls available', () => {

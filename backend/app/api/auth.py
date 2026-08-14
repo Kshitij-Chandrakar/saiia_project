@@ -19,8 +19,12 @@ router = APIRouter()
 
 DESKTOP_HANDOFF_TTL_SECONDS = 5 * 60
 DESKTOP_HANDOFF_CODE_BYTES = 32
+DESKTOP_HANDOFF_MAX_ACTIVE_PER_USER = 3
+DESKTOP_HANDOFF_CREATE_MIN_INTERVAL_SECONDS = 5
 DESKTOP_HANDOFF_ERROR = "Invalid or expired desktop handoff."
+DESKTOP_HANDOFF_RATE_LIMIT_ERROR = "Too many desktop handoff requests."
 _desktop_handoffs: dict[str, dict[str, object]] = {}
+_desktop_handoff_create_timestamps: dict[str, float] = {}
 
 
 # C6.2A dev handoff store: memory-only is acceptable for local Electron flows.
@@ -77,6 +81,36 @@ def _prune_desktop_handoffs(now: float | None = None) -> None:
     ]
     for code_hash in expired:
         _desktop_handoffs.pop(code_hash, None)
+    active_user_ids = {str(record.get("user_id") or "") for record in _desktop_handoffs.values()}
+    stale_users = [
+        user_id
+        for user_id, created_at in _desktop_handoff_create_timestamps.items()
+        if user_id not in active_user_ids
+        and current_time - float(created_at) >= DESKTOP_HANDOFF_CREATE_MIN_INTERVAL_SECONDS
+    ]
+    for user_id in stale_users:
+        _desktop_handoff_create_timestamps.pop(user_id, None)
+
+
+def _active_desktop_handoff_count_for_user(user_id: str) -> int:
+    return sum(1 for record in _desktop_handoffs.values() if record.get("user_id") == user_id)
+
+
+def _enforce_desktop_handoff_creation_limits(user_id: str, now: float) -> None:
+    if _active_desktop_handoff_count_for_user(user_id) >= DESKTOP_HANDOFF_MAX_ACTIVE_PER_USER:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=DESKTOP_HANDOFF_RATE_LIMIT_ERROR,
+        )
+    last_created_at = _desktop_handoff_create_timestamps.get(user_id)
+    if (
+        last_created_at is not None
+        and now - float(last_created_at) < DESKTOP_HANDOFF_CREATE_MIN_INTERVAL_SECONDS
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=DESKTOP_HANDOFF_RATE_LIMIT_ERROR,
+        )
 
 
 def _bearer_token_from_request(request: Request) -> str:
@@ -134,15 +168,20 @@ def create_desktop_handoff(
     request: Request,
     current_user: CurrentUserDep,
 ) -> DesktopHandoffCreateResponse:
-    _prune_desktop_handoffs()
+    now = _now()
+    user_id = current_user.user_id
+    _prune_desktop_handoffs(now)
+    _enforce_desktop_handoff_creation_limits(user_id, now)
     code = secrets.token_urlsafe(DESKTOP_HANDOFF_CODE_BYTES)
     _desktop_handoffs[_hash_handoff_code(code)] = {
-        "user_id": current_user.user_id,
+        "user_id": user_id,
         "state": payload.state,
         "access_token": _bearer_token_from_request(request),
         "refresh_token": payload.refresh_token,
-        "expires_at": _now() + DESKTOP_HANDOFF_TTL_SECONDS,
+        "expires_at": now + DESKTOP_HANDOFF_TTL_SECONDS,
+        "created_at": now,
     }
+    _desktop_handoff_create_timestamps[user_id] = now
     return DesktopHandoffCreateResponse(
         handoff_code=code,
         expires_in=DESKTOP_HANDOFF_TTL_SECONDS,

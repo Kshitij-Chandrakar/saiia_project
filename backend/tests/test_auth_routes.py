@@ -6,7 +6,14 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.auth import _desktop_handoffs, _hash_handoff_code, router as auth_router
+from app.api.auth import (
+    DESKTOP_HANDOFF_CREATE_MIN_INTERVAL_SECONDS,
+    DESKTOP_HANDOFF_MAX_ACTIVE_PER_USER,
+    _desktop_handoff_create_timestamps,
+    _desktop_handoffs,
+    _hash_handoff_code,
+    router as auth_router,
+)
 from app.auth.supabase_auth import (
     AUTH_ERROR_DETAIL,
     get_auth_verification_config,
@@ -29,6 +36,7 @@ TEST_AUDIENCE = "authenticated"
 @pytest.fixture(autouse=True)
 def clear_supabase_auth_env(monkeypatch):
     _desktop_handoffs.clear()
+    _desktop_handoff_create_timestamps.clear()
     monkeypatch.delenv(CLOUD_MODE_ENV, raising=False)
     for name in SUPABASE_REQUIRED_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
@@ -36,6 +44,7 @@ def clear_supabase_auth_env(monkeypatch):
     get_auth_verification_config.cache_clear()
     yield
     _desktop_handoffs.clear()
+    _desktop_handoff_create_timestamps.clear()
     get_supabase_settings.cache_clear()
     get_auth_verification_config.cache_clear()
 
@@ -75,6 +84,14 @@ def _token(
     if extra_claims:
         payload.update(extra_claims)
     return jwt.encode(payload, secret, algorithm="HS256")
+
+
+def _create_handoff(client: TestClient, *, token: str | None = None, state: str = "desktop-state-123456"):
+    return client.post(
+        "/api/auth/desktop-handoff",
+        headers={"Authorization": f"Bearer {token or _token()}"},
+        json={"state": state, "refresh_token": "refresh-token"},
+    )
 
 
 def test_auth_me_rejects_missing_token(client: TestClient):
@@ -278,6 +295,7 @@ def test_desktop_handoff_rejects_mismatched_and_expired_state(monkeypatch, clien
     assert "refresh-token" not in mismatch.text
     assert handoff_hash not in _desktop_handoffs
 
+    now += DESKTOP_HANDOFF_CREATE_MIN_INTERVAL_SECONDS
     create = client.post(
         "/api/auth/desktop-handoff",
         headers={"Authorization": f"Bearer {_token()}"},
@@ -295,3 +313,77 @@ def test_desktop_handoff_rejects_mismatched_and_expired_state(monkeypatch, clien
     assert expired.status_code == 404
     assert "refresh-token" not in expired.text
     assert handoff_hash not in _desktop_handoffs
+
+
+def test_desktop_handoff_limits_active_records_per_user(monkeypatch, client: TestClient):
+    now = 2000.0
+    monkeypatch.setattr("app.api.auth._now", lambda: now)
+
+    created_codes: list[str] = []
+    for index in range(DESKTOP_HANDOFF_MAX_ACTIVE_PER_USER):
+        response = _create_handoff(client, state=f"desktop-state-limit-{index:02d}")
+        assert response.status_code == 200
+        created_codes.append(response.json()["handoff_code"])
+        now += DESKTOP_HANDOFF_CREATE_MIN_INTERVAL_SECONDS
+
+    too_many = _create_handoff(client, state="desktop-state-limit-over")
+    assert too_many.status_code == 429
+    assert too_many.json() == {"detail": "Too many desktop handoff requests."}
+    assert all(code not in _desktop_handoffs for code in created_codes)
+    assert all(_hash_handoff_code(code) in _desktop_handoffs for code in created_codes)
+
+
+def test_desktop_handoff_expired_records_are_pruned_before_limit_check(monkeypatch, client: TestClient):
+    now = 3000.0
+    monkeypatch.setattr("app.api.auth._now", lambda: now)
+
+    for index in range(DESKTOP_HANDOFF_MAX_ACTIVE_PER_USER):
+        response = _create_handoff(client, state=f"desktop-state-expired-{index:02d}")
+        assert response.status_code == 200
+        now += DESKTOP_HANDOFF_CREATE_MIN_INTERVAL_SECONDS
+
+    now += 301
+    response = _create_handoff(client, state="desktop-state-after-expired")
+    assert response.status_code == 200
+    assert len(_desktop_handoffs) == 1
+    assert _hash_handoff_code(response.json()["handoff_code"]) in _desktop_handoffs
+
+
+def test_desktop_handoff_limits_are_per_user(monkeypatch, client: TestClient):
+    now = 4000.0
+    monkeypatch.setattr("app.api.auth._now", lambda: now)
+    first_user = _token()
+    second_user = _token(
+        extra_claims={
+            "sub": "00000000-0000-4000-8000-000000000002",
+            "email": "second@example.com",
+        }
+    )
+
+    for index in range(DESKTOP_HANDOFF_MAX_ACTIVE_PER_USER):
+        response = _create_handoff(client, token=first_user, state=f"desktop-state-user1-{index:02d}")
+        assert response.status_code == 200
+        now += DESKTOP_HANDOFF_CREATE_MIN_INTERVAL_SECONDS
+
+    first_blocked = _create_handoff(client, token=first_user, state="desktop-state-user1-over")
+    assert first_blocked.status_code == 429
+
+    second_allowed = _create_handoff(client, token=second_user, state="desktop-state-user2-00")
+    assert second_allowed.status_code == 200
+
+
+def test_desktop_handoff_creation_rate_limit_rejects_rapid_repeats(monkeypatch, client: TestClient):
+    now = 5000.0
+    monkeypatch.setattr("app.api.auth._now", lambda: now)
+
+    first = _create_handoff(client, state="desktop-state-rate-00")
+    assert first.status_code == 200
+
+    rapid = _create_handoff(client, state="desktop-state-rate-01")
+    assert rapid.status_code == 429
+    assert rapid.json() == {"detail": "Too many desktop handoff requests."}
+    assert "refresh-token" not in rapid.text
+
+    now += DESKTOP_HANDOFF_CREATE_MIN_INTERVAL_SECONDS
+    later = _create_handoff(client, state="desktop-state-rate-02")
+    assert later.status_code == 200

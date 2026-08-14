@@ -2221,6 +2221,71 @@ function MainWindow() {
     setStatus('Answers cleared.')
   }
 
+  const resetAutoInterviewState = () => {
+    clearAutoLoop()
+    clearPendingAutoQuestion()
+    clearPendingCooldownQuestion()
+    autoModeRef.current = false
+    autoModeRunIdRef.current = ''
+    currentAutoQuestionRunIdRef.current = ''
+    autoCooldownUntilRef.current = 0
+    recentProcessedTranscriptsRef.current = []
+    recentAutoTranscriptBufferRef.current = []
+    autoGenerationInFlightRef.current = false
+    assemblyAiFallbackWarningShownRef.current = false
+    lastCheckedAutoCandidateRef.current = ''
+    autoStreamingClosingRef.current = false
+    autoModeSourceRef.current = 'none'
+    audioSourcesRef.current = { system: false, microphone: false }
+    audioPipelineStatusRef.current = 'idle'
+    activeAudioSourceRef.current = 'none'
+    activeAudioPipelineRequestIdRef.current = ''
+    chunksRef.current = []
+    manualRecordingCancelledRef.current = false
+    setAutoMode(false)
+    setAutoProcessing(false)
+    setAutoModeStatus('off')
+    setMicStreamingState('off')
+    setAnswerPipelineState('idle')
+    setMicStreamRestartCount(0)
+    setLastMicStreamRestartReason('')
+    setAutoModeSource('none')
+    setAutoStartClicked(false)
+    setLastAutoTranscript('')
+    setRawFinalTranscript('')
+    setLastDetectedQuestion('')
+    setAcceptedAutoQuestion('')
+    setDisplayedAutoQuestionRunId('')
+    setCurrentAutoQuestionRunId('')
+    setLastGeneratedAt(null)
+    setAutoRejectedReason('')
+    setExtractedQuestionCandidate('')
+    setPolishedQuestionCandidate('')
+    setCorrectedQuestionCandidate('')
+    setTechnicalCorrectionsSummary('')
+    setPossibleSttError(false)
+    setQuestionCandidateSource('')
+    setQuestionDetectionInput('')
+    setQuestionDetectReason('')
+    setIsQuestionDetected(false)
+    setCooldownRemainingMs(0)
+    setRecentTranscriptBuffer('')
+    setCooldownQueueReason('')
+    setQueuedQuestionProcessed(false)
+    setGenerationStarted(false)
+    setGenerationBlockedReason('')
+    setIsCooldownListening(false)
+    setSttProvider('')
+    setSttFallbackUsed(false)
+    setSttFallbackReason('')
+    setAutoStreamingConnected(false)
+    setPartialAutoTranscript('')
+    setStreamingError('')
+    setAudioSources({ system: false, microphone: false })
+    setAudioPipelineStatus('idle')
+    setActiveAudioSource('none')
+  }
+
   const loadProfileForLiveAnswer = async ({ force = false } = {}) => {
     if (!force && profileCacheRef.current) {
       return {
@@ -4459,6 +4524,8 @@ function MainWindow() {
     stopActiveOperation()
     clearTranscriptState()
     clearAnswerState()
+    resetAutoInterviewState()
+    resetScreenOcrState()
     setQuestionHistoryState(() => createQuestionHistoryState())
     setQuestionHistoryNavigationCount(0)
     setEventLog([])
