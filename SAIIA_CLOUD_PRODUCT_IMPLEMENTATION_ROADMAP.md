@@ -6,7 +6,7 @@
 **Version:** 1.1  
 **Last updated:** 2026-08-09
 **Created:** 2026-07-10  
-**Current active phase:** C6.2A - Startup Login Screen implemented locally; broader startup shell, resume/job-target selection UI, C4.4 generation integration, cloud sync engine, and local/cloud data migration are not started
+**Current active phase:** C6.2A - Startup Login Screen implemented locally with a dev/local memory-only desktop handoff store; production shared atomic TTL-backed handoff storage is deferred to C16.1 Production Auth Hardening; broader startup shell, resume/job-target selection UI, C4.4 generation integration, cloud sync engine, and local/cloud data migration are not started
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -1583,7 +1583,7 @@ Desktop may cache:
 ## Status
 
 ```text
-[~] In progress - C6.1 desktop startup/session setup UI audit and plan complete in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`; C6.2A Startup Login Screen implemented locally for signed-out/token-expired desktop startup using existing safe preload auth APIs; broader startup shell, resume/job-target selection UI, backend session routes, Supabase migrations, C4.4 generation integration, cloud sync engine, and local/cloud data migration are not implemented
+[~] In progress - C6.1 desktop startup/session setup UI audit and plan complete in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`; C6.2A Startup Login Screen implemented locally for signed-out/token-expired desktop startup using existing safe preload auth APIs; C6.2A uses a dev/local memory-only desktop handoff store, and production shared atomic TTL-backed handoff storage is deferred to C16.1 Production Auth Hardening; broader startup shell, resume/job-target selection UI, backend session routes, Supabase migrations, C4.4 generation integration, cloud sync engine, and local/cloud data migration are not implemented
 ```
 
 ## Goal
@@ -3944,6 +3944,50 @@ Requirements:
 - rate-limit review
 - logging review
 
+## C16.1 - Production Auth Hardening
+
+### Desktop Website-Login Handoff Production Hardening
+
+Goal: replace the C6.2A process-local desktop handoff memory store with a production-safe shared atomic TTL-backed store before any multi-worker, multi-instance, or public production deployment.
+
+Current C6.2A status:
+
+- Website login succeeds.
+- Backend creates a short-lived desktop handoff code.
+- Electron receives `saiia://auth/callback?handoff_code=...&state=...`.
+- Electron main process exchanges the handoff code.
+- Renderer never receives raw tokens.
+- Current handoff records are short-lived, one-time-use, bounded per user, and rate-limited.
+- Current handoff code dictionary keys are SHA-256 hashes, not raw handoff codes.
+- Current handoff storage is process-local memory and is dev/local only.
+
+Known limitation:
+
+- The memory store is lost on backend restart.
+- Multiple backend workers or instances cannot share handoff records.
+- Concurrent requests can bypass non-atomic check-then-insert limits.
+- Process-local limits and rate limits do not protect deployment-wide traffic.
+
+Production requirements:
+
+1. Use a shared store: Supabase/Postgres TTL-backed table plus atomic RPC/transaction, or Redis with atomic TTL operations.
+2. Preserve a short TTL: 2-5 minutes maximum handoff lifetime.
+3. Preserve one-time use: a handoff code can be exchanged only once.
+4. Store only safe identifiers: store SHA-256 hash of the handoff code and never store the raw handoff code as a lookup key.
+5. Maintain token safety: never place `access_token` or `refresh_token` in URLs, never expose raw session/tokens to Electron renderer/preload, and never log tokens, refresh tokens, raw handoff codes, or code hashes.
+6. Make creation atomic: prune expired records, check the per-user active handoff limit, check the per-user create rate limit, insert the new handoff, and update the creation timestamp in one shared-store transaction/operation.
+7. Make exchange atomic: validate code hash, validate state, validate expiry, mark consumed/delete the record, and return session data only to Electron main process atomically.
+8. Ensure deployment safety across backend restarts, multiple backend workers, and multiple backend instances.
+9. Ensure expired handoff records do not accumulate by TTL, scheduled cleanup, or expiry-filtered RPC/delete.
+10. Add tests for valid create/exchange, reused handoff rejection, expired handoff rejection, mismatched state rejection, raw handoff code not stored, active handoff limit, create rate limit, concurrent duplicate create requests not bypassing limits, concurrent duplicate exchange requests not both succeeding, and multi-worker/multi-instance behavior through integration tests or explicit deployment test documentation.
+
+Acceptance criteria:
+
+- C6.2A memory-only handoff store is clearly marked as dev/local only.
+- Production release checklist blocks release until shared atomic handoff store is implemented.
+- No production documentation claims the memory store is production-safe.
+- The roadmap/tracker shows this as a required production hardening item before public release.
+
 ## Documentation
 
 Required:
@@ -3964,6 +4008,7 @@ Required:
 
 ## C16 exit criteria
 
+- C16.1 Production Auth Hardening is complete, including shared atomic TTL-backed desktop website-login handoff storage.
 - staging end-to-end flow passes
 - production deployment passes smoke test
 - database/RLS tests pass
@@ -4382,7 +4427,7 @@ The C0â€“C16 track is complete when:
 ```text
 C0 remains complete. C0.9 is not fully complete: C0.9.6 has implementation present with Chrome/Edge real-page validation pending, and C0.9.7 through C0.9.13 are deferred by explicit product-priority decision.
 C1 Supabase Cloud Foundation is complete after C1.5 closure validation. C2 auth surface closure is complete through C2.5. C3.1 planning, C3.2 backend cloud resume API, C3.3 frontend authenticated upload/review UI, C3.4 cloud resume indexing/RAG activation, C3.4.5 GPT-based resume extraction provider, and C3.5 delete/rebuild/status closure are complete through implementation. C4 - Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing and live Supabase smoke validation passed on saiia-dev. C4.3 main website job-target UI is cancelled/re-scoped; job target selection moves to desktop startup/session setup after desktop authenticated cloud identity exists. No C4 generation integration, C5 desktop login/cloud sync, session history, billing, usage, email-provider integration, payment, admin console, or final website UI work has started.
-C5.1 desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`. C5.2 desktop authenticated cloud identity is implemented locally with Electron main-process auth/session handling and focused tests. C5.3 desktop auth status/login/logout UI wiring is implemented locally using existing safe preload APIs. C5.4 desktop cloud startup context plumbing is implemented locally using existing authenticated backend summary routes and safe preload APIs. C6.2A Startup Login Screen is implemented locally; broader desktop startup/session setup UI, cloud sync engine, local/cloud data migration, C4.4 generation integration, session history, billing, usage, email-provider integration, payment, admin console, and final website UI work have not started.
+C5.1 desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`. C5.2 desktop authenticated cloud identity is implemented locally with Electron main-process auth/session handling and focused tests. C5.3 desktop auth status/login/logout UI wiring is implemented locally using existing safe preload APIs. C5.4 desktop cloud startup context plumbing is implemented locally using existing authenticated backend summary routes and safe preload APIs. C6.2A Startup Login Screen is implemented locally with a dev/local memory-only desktop handoff store; production shared atomic TTL-backed handoff storage is deferred to C16.1 Production Auth Hardening and blocks public production release. Broader desktop startup/session setup UI, cloud sync engine, local/cloud data migration, C4.4 generation integration, session history, billing, usage, email-provider integration, payment, admin console, and final website UI work have not started.
 ```
 
 The completed C0.9.2 manual validation covered:

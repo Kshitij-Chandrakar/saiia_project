@@ -221,6 +221,7 @@ Avoid a large account dashboard, billing panel, session history view, or resume/
 
 ## Risks and Open Gaps
 
+- C6.2A website-login desktop handoff currently uses a dev/local process-memory store. Production shared atomic TTL-backed handoff storage is deferred to C16.1 Production Auth Hardening and must block public production release until implemented.
 - Current C5.4 context only exposes readiness booleans plus limited internal summaries; C6.3 may need a safe main-process adapter for selecting a specific resume/job target.
 - Existing backend job-context detail can return raw JD to an owner, but startup summary must not use that route unless an edit flow explicitly needs it.
 - Current roadmap C6 also covers durable interview session storage; startup UI should be the front door to that work, not a replacement for session persistence.
