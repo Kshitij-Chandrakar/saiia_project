@@ -2599,26 +2599,32 @@ function MainWindow() {
     return payload
   }
 
-  const stopSystemAudioRecording = async () => {
+  const stopSystemAudioRecording = async ({ recordingId = systemRecordingIdRef.current, applyResult = true } = {}) => {
     const response = await fetch(`${BACKEND_URL}/api/audio/system/stop`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ recording_id: systemRecordingIdRef.current || null }),
+      body: JSON.stringify({ recording_id: recordingId || null }),
     })
     const payload = await parseJsonResponse(
       response,
       'Could not stop system audio recording.'
     )
-    systemRecordingIdRef.current = ''
-    setSystemAudioSupported(true)
-    setSystemAudioDeviceName(String(payload.device_name || '').trim())
+    if (systemRecordingIdRef.current === recordingId) {
+      systemRecordingIdRef.current = ''
+    }
+    if (applyResult) {
+      setSystemAudioSupported(true)
+      setSystemAudioDeviceName(String(payload.device_name || '').trim())
+    }
     const text = String(payload.transcript || '').trim()
     const noSpeech = Boolean(payload.no_speech) || !text
 
     if (noSpeech) {
-      setAudioPipelineStatus('idle')
-      setTranscript('')
-      setStatus('No question detected.')
+      if (applyResult) {
+        setAudioPipelineStatus('idle')
+        setTranscript('')
+        setStatus('No question detected.')
+      }
       return {
         text: '',
         uploadMs: null,
@@ -2627,13 +2633,24 @@ function MainWindow() {
       }
     }
 
-    setTranscript(text)
+    if (applyResult) {
+      setTranscript(text)
+    }
     return {
       text,
       uploadMs: null,
       transcriptionMs: payload.transcription_ms ?? null,
       noSpeech: false,
     }
+  }
+
+  const stopSystemAudioRecordingForLogout = () => {
+    const recordingId = systemRecordingIdRef.current
+    if (!recordingId) {
+      return
+    }
+    systemRecordingIdRef.current = ''
+    stopSystemAudioRecording({ recordingId, applyResult: false }).catch(() => {})
   }
 
   const classifyAndGenerate = async ({
@@ -4521,6 +4538,7 @@ function MainWindow() {
   }
 
   const resetRuntimeForDesktopLogout = () => {
+    stopSystemAudioRecordingForLogout()
     stopActiveOperation()
     clearTranscriptState()
     clearAnswerState()

@@ -23,12 +23,14 @@ DESKTOP_HANDOFF_MAX_ACTIVE_PER_USER = 3
 DESKTOP_HANDOFF_CREATE_MIN_INTERVAL_SECONDS = 5
 DESKTOP_HANDOFF_ERROR = "Invalid or expired desktop handoff."
 DESKTOP_HANDOFF_RATE_LIMIT_ERROR = "Too many desktop handoff requests."
+# C6.2A dev/local handoff store. It is short-lived, per-user bounded, rate-limited,
+# one-time-use, and keyed by SHA-256 handoff-code hashes, but it is process memory
+# and is not safe for multi-worker/multi-instance production deployment. Production
+# hardening must replace it with a Redis/Supabase TTL-backed atomic shared store.
 _desktop_handoffs: dict[str, dict[str, object]] = {}
 _desktop_handoff_create_timestamps: dict[str, float] = {}
 
 
-# C6.2A dev handoff store: memory-only is acceptable for local Electron flows.
-# Production hardening should move these short-lived records to a shared TTL store.
 def _now() -> float:
     return time.time()
 
