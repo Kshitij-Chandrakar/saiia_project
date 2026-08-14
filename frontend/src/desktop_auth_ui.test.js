@@ -5,6 +5,7 @@ import { createDesktopAuthRequestTracker, getDesktopAuthViewModel } from './desk
 
 const diagnosticsSource = readFileSync(new URL('./components/MainDiagnosticsWindow.jsx', import.meta.url), 'utf8')
 const preloadSource = readFileSync(new URL('../electron/preload.cjs', import.meta.url), 'utf8')
+const appSource = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
 const sensitivePattern = new RegExp([
   ['access', 'token'].join('_'),
   ['refresh', 'token'].join('_'),
@@ -13,11 +14,34 @@ const sensitivePattern = new RegExp([
 ].join('|'))
 
 function desktopAuthStatusSource() {
-  const start = diagnosticsSource.indexOf('function DesktopAuthStatus()')
+  const start = diagnosticsSource.indexOf('function DesktopAuthStatus')
   const end = diagnosticsSource.indexOf('function getReadableErrorAction', start)
   assert.ok(start >= 0)
   assert.ok(end > start)
   return diagnosticsSource.slice(start, end)
+}
+
+function extractArrowFunctionBody(source, name) {
+  const marker = `const ${name} = `
+  const start = source.indexOf(marker)
+  assert.ok(start >= 0, `${name} source should be found`)
+  const arrow = source.indexOf('=>', start)
+  assert.ok(arrow > start, `${name} should be an arrow function`)
+  const openBrace = source.indexOf('{', arrow)
+  assert.ok(openBrace > start, `${name} body should start with a brace`)
+  let depth = 0
+  for (let index = openBrace; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === '{') {
+      depth += 1
+    } else if (char === '}') {
+      depth -= 1
+      if (depth === 0) {
+        return source.slice(openBrace + 1, index)
+      }
+    }
+  }
+  assert.fail(`${name} body should end with a matching brace`)
 }
 
 function deferred() {
@@ -246,8 +270,62 @@ test('desktop auth preload remains narrow and exposes no generic cloud fetch', (
   assert.doesNotMatch(preloadSource, /fetch:/)
 })
 
+test('runtime logout returns renderer to startup login gate without stale identity', () => {
+  const source = desktopAuthStatusSource()
+  const resetLogoutBody = extractArrowFunctionBody(appSource, 'resetRuntimeForDesktopLogout')
+
+  assert.match(source, /function DesktopAuthStatus\(\{ onSignedOut \}\)/)
+  assert.match(source, /const nextState = getDesktopAuthViewModel\(payload\)[\s\S]*?setAuthState\(nextState\)[\s\S]*?if \(shouldShowStartupLogin\(nextState\)\) {[\s\S]*?onSignedOut\?\.\(nextState\)/)
+  assert.match(diagnosticsSource, /onDesktopSignedOut,\s*\} = props/)
+  assert.match(diagnosticsSource, /<DesktopAuthStatus onSignedOut=\{\(\) => {[\s\S]*?onDesktopSignedOut\?\.\(\)[\s\S]*?setStartupAuthenticated\(false\)/)
+  assert.match(diagnosticsSource, /if \(!startupAuthenticated && shouldShowStartupLogin\(\)\) {[\s\S]*?<StartupLoginScreen/)
+  assert.match(resetLogoutBody, /stopSystemAudioRecordingForLogout\(\)/)
+  assert.match(resetLogoutBody, /stopActiveOperation\(\)/)
+  assert.match(resetLogoutBody, /clearTranscriptState\(\)/)
+  assert.match(resetLogoutBody, /clearAnswerState\(\)/)
+  assert.match(resetLogoutBody, /resetAutoInterviewState\(\)/)
+  assert.match(resetLogoutBody, /resetScreenOcrState\(\)/)
+  assert.match(resetLogoutBody, /setQuestionHistoryState\(\(\) => createQuestionHistoryState\(\)\)/)
+  assert.match(resetLogoutBody, /setEventLog\(\[\]\)/)
+  assert.match(appSource, /onDesktopSignedOut=\{resetRuntimeForDesktopLogout\}/)
+})
+
+test('desktop logout clears auto-mode interview residue before next login', () => {
+  const resetAutoBody = extractArrowFunctionBody(appSource, 'resetAutoInterviewState')
+  const resetLogoutBody = extractArrowFunctionBody(appSource, 'resetRuntimeForDesktopLogout')
+
+  assert.match(resetAutoBody, /setLastAutoTranscript\(''\)/)
+  assert.match(resetAutoBody, /setLastDetectedQuestion\(''\)/)
+  assert.match(resetAutoBody, /setAcceptedAutoQuestion\(''\)/)
+  assert.match(resetAutoBody, /setExtractedQuestionCandidate\(''\)/)
+  assert.match(resetAutoBody, /setPolishedQuestionCandidate\(''\)/)
+  assert.match(resetAutoBody, /setCorrectedQuestionCandidate\(''\)/)
+  assert.match(resetAutoBody, /recentAutoTranscriptBufferRef\.current = \[\]/)
+  assert.match(resetAutoBody, /setRecentTranscriptBuffer\(''\)/)
+  assert.match(resetAutoBody, /setAutoMode\(false\)/)
+  assert.match(resetAutoBody, /setAutoModeStatus\('off'\)/)
+  assert.match(resetAutoBody, /setAutoStreamingConnected\(false\)/)
+  assert.match(resetLogoutBody, /resetAutoInterviewState\(\)/)
+  assert.match(resetLogoutBody, /setStatus\('Signed out\. Log in to start a new desktop session\.'\)/)
+})
+
+test('desktop logout stops server-side system audio without applying late stop results', () => {
+  const stopForLogoutBody = extractArrowFunctionBody(appSource, 'stopSystemAudioRecordingForLogout')
+  const stopSystemBody = extractArrowFunctionBody(appSource, 'stopSystemAudioRecording')
+  const resetLogoutBody = extractArrowFunctionBody(appSource, 'resetRuntimeForDesktopLogout')
+
+  assert.match(resetLogoutBody, /stopSystemAudioRecordingForLogout\(\)/)
+  assert.match(stopForLogoutBody, /const recordingId = systemRecordingIdRef\.current/)
+  assert.match(stopForLogoutBody, /systemRecordingIdRef\.current = ''/)
+  assert.match(stopForLogoutBody, /stopSystemAudioRecording\(\{ recordingId, applyResult: false \}\)\.catch\(\(\) => \{\}\)/)
+  assert.match(stopSystemBody, /recording_id: recordingId \|\| null/)
+  assert.match(stopSystemBody, /if \(systemRecordingIdRef\.current === recordingId\) {[\s\S]*?systemRecordingIdRef\.current = ''/)
+  assert.match(stopSystemBody, /if \(applyResult\) {[\s\S]*?setTranscript\(text\)/)
+  assert.match(stopSystemBody, /if \(applyResult\) {[\s\S]*?setStatus\('No question detected\.'\)/)
+})
+
 test('desktop auth wiring leaves local no-auth controls available', () => {
-  assert.match(diagnosticsSource, /<DesktopAuthStatus \/>/)
+  assert.match(diagnosticsSource, /<DesktopAuthStatus onSignedOut=\{\(\) => {[\s\S]*?setStartupAuthenticated\(false\)/)
   assert.match(diagnosticsSource, /Setup Profile/)
   assert.match(diagnosticsSource, /Start Recording \(Fallback\)/)
   assert.match(diagnosticsSource, /Analyze Active Window/)

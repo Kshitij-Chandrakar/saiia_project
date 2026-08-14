@@ -15,9 +15,13 @@ const AUTH_STATUSES = Object.freeze({
 
 const CALLBACK_URL = 'saiia://auth/callback'
 const DEFAULT_BACKEND_URL = 'http://localhost:8000'
+const DEFAULT_WEB_AUTH_URL = 'http://localhost:5173/auth/desktop-login'
 const DEFAULT_LOGIN_TTL_MS = 10 * 60 * 1000
 const DEFAULT_REQUEST_TIMEOUT_MS = 15000
 const DEFAULT_VERIFICATION_FRESHNESS_MS = 30000
+const DESKTOP_STATE_PARAM = 'desktop_state'
+const MISSING_DESKTOP_AUTH_CONFIG_MESSAGE =
+  'Desktop cloud auth is not configured. Set SUPABASE_URL or VITE_SUPABASE_URL, SUPABASE_ANON_KEY or VITE_SUPABASE_ANON_KEY, and SAIIA_WEB_AUTH_URL or VITE_SAIIA_WEB_AUTH_URL in the environment that launches Electron.'
 
 function base64Url(buffer) {
   return Buffer.from(buffer)
@@ -129,10 +133,10 @@ function createIpcSenderValidator(options) {
 
 class DesktopAuthSessionManager {
   constructor(options = {}) {
-    this.supabaseUrl = String(options.supabaseUrl || '').replace(/\/+$/, '')
-    this.supabaseAnonKey = String(options.supabaseAnonKey || '')
-    this.backendUrl = String(options.backendUrl || DEFAULT_BACKEND_URL).replace(/\/+$/, '')
-    this.desktopAuthProvider = String(options.desktopAuthProvider || '').trim()
+    this.supabaseUrl = String(options.supabaseUrl ?? '').replace(/\/+$/, '')
+    this.supabaseAnonKey = String(options.supabaseAnonKey ?? '')
+    this.backendUrl = String(options.backendUrl ?? DEFAULT_BACKEND_URL).replace(/\/+$/, '')
+    this.webAuthUrl = String(options.webAuthUrl ?? DEFAULT_WEB_AUTH_URL).trim()
     this.redirectUri = String(options.redirectUri || CALLBACK_URL)
     this.loginTtlMs = validPositiveNumber(options.loginTtlMs, DEFAULT_LOGIN_TTL_MS)
     this.requestTimeoutMs = validPositiveNumber(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS)
@@ -140,6 +144,7 @@ class DesktopAuthSessionManager {
     this.requestSignalFactory = options.requestSignalFactory || null
     this.fetchImpl = options.fetchImpl || fetch
     this.openExternal = options.openExternal || (async () => {})
+    this.logger = options.logger || console
     this.safeStorage = options.safeStorage || null
     this.sessionPath = options.sessionPath || ''
     this.now = options.now || (() => Date.now())
@@ -201,6 +206,9 @@ class DesktopAuthSessionManager {
     } catch (error) {
       return this._restoreAfterLoginLaunchFailure(previous, error.message)
     }
+    if (this._pendingLoginIsActive()) {
+      return this.getSafeState()
+    }
     this.loginAttemptGeneration += 1
     const attemptGeneration = this.loginAttemptGeneration
     const codeVerifier = randomToken(48)
@@ -219,7 +227,9 @@ class DesktopAuthSessionManager {
     this.status = AUTH_STATUSES.SIGNING_IN
     this.error = ''
     try {
-      await this.openExternal(this._buildAuthUrl(this.pendingLogin))
+      const authUrl = this._buildAuthUrl(this.pendingLogin)
+      this._logWebsiteHandoffUrlDebug(authUrl, this.pendingLogin)
+      await this.openExternal(authUrl)
     } catch {
       if (
         this.loginAttemptGeneration !== attemptGeneration ||
@@ -234,14 +244,25 @@ class DesktopAuthSessionManager {
   }
 
   _buildAuthUrl(record) {
-    const authUrl = new URL(`${this.supabaseUrl}/auth/v1/authorize`)
-    authUrl.searchParams.set('redirect_uri', record.redirect_uri)
-    authUrl.searchParams.set('response_type', 'code')
-    authUrl.searchParams.set('code_challenge', record.code_challenge)
-    authUrl.searchParams.set('code_challenge_method', record.code_challenge_method)
+    const authUrl = new URL(this.webAuthUrl)
     authUrl.searchParams.set('state', record.state)
-    authUrl.searchParams.set('provider', this.desktopAuthProvider)
     return authUrl.toString()
+  }
+
+  _logWebsiteHandoffUrlDebug(rawUrl, record = null) {
+    if (!this.logger || typeof this.logger.debug !== 'function') {
+      return
+    }
+    try {
+      const authUrl = new URL(rawUrl)
+      this.logger.debug('Desktop auth website handoff URL prepared.', {
+        origin: authUrl.origin,
+        path: authUrl.pathname,
+        queryKeys: Array.from(new Set(authUrl.searchParams.keys())).sort(),
+        stateExists: authUrl.searchParams.has('state'),
+        pendingAttemptId: record?.attempt_generation || null,
+      })
+    } catch {}
   }
 
   async handleAuthCallback(rawUrl) {
@@ -252,22 +273,41 @@ class DesktopAuthSessionManager {
       return this._authFailure('Invalid authentication callback.')
     }
     if (`${parsed.protocol}//${parsed.host}${parsed.pathname}` !== this.redirectUri) {
+      if (
+        (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') &&
+        parsed.searchParams.has('code')
+      ) {
+        return this._failPendingAuth('Desktop auth returned to localhost. Add saiia://auth/callback to Supabase redirect URLs and start login again.')
+      }
       return this._authFailure('Invalid authentication callback.')
     }
 
-    const state = parsed.searchParams.get('state') || ''
+    const state = parsed.searchParams.get(DESKTOP_STATE_PARAM) || parsed.searchParams.get('state') || ''
+    const handoffCode = parsed.searchParams.get('handoff_code') || ''
     const code = parsed.searchParams.get('code') || ''
     const authError = parsed.searchParams.get('error') || ''
-    if (!state) {
+    const authErrorCode = parsed.searchParams.get('error_code') || ''
+    if (authErrorCode === 'bad_oauth_state') {
+      return this._failPendingAuth('Authentication state was rejected. Start login again.')
+    }
+    if (!state && !code && !handoffCode) {
+      return this._authFailure('Invalid authentication callback.')
+    }
+
+    if (handoffCode && !state) {
       return this._authFailure('Invalid authentication callback.')
     }
 
     const record = this._consumePendingLogin(state)
     if (!record) {
+      if (this._pendingLoginIsActive()) {
+        this.error = 'Invalid or expired authentication attempt.'
+        return this.getSafeState()
+      }
       return this._authFailure('Invalid or expired authentication attempt.')
     }
 
-    if (authError && !code) {
+    if (authError && !code && !handoffCode) {
       if (this.session && this.user) {
         this.status = AUTH_STATUSES.CONNECTED
         this.error = 'Authentication was cancelled.'
@@ -276,6 +316,16 @@ class DesktopAuthSessionManager {
       this._clearLocalSession(AUTH_STATUSES.SIGNED_OUT, 'Authentication was cancelled.')
       return this.getSafeState()
     }
+    if (handoffCode) {
+      let session
+      try {
+        session = await this._exchangeHandoffCode(handoffCode, record)
+      } catch {
+        return this._authFailure('Authentication exchange failed.')
+      }
+      return this._installExchangedSession(session, record)
+    }
+
     if (!code) {
       return this._authFailure('Invalid authentication callback.')
     }
@@ -286,25 +336,41 @@ class DesktopAuthSessionManager {
     } catch {
       return this._authFailure('Authentication exchange failed.')
     }
-    if (record.attempt_generation !== this.loginAttemptGeneration) {
-      return this.getSafeState()
-    }
-    this.session = session
-    this.sessionGeneration += 1
-    this.user = null
-    this._clearCloudCache()
-    this._writeStoredSession(session)
-    return this._verifyAndBootstrap(session)
+    return this._installExchangedSession(session, record)
   }
 
   _consumePendingLogin(state) {
     const record = this.pendingLogin
-    if (!record || record.consumed || record.state !== state || record.expires_at <= this.now()) {
+    if (!record || record.consumed || record.expires_at <= this.now()) {
+      return null
+    }
+    if (!state || record.state !== state) {
       return null
     }
     record.consumed = true
     this.pendingLogin = null
     return record
+  }
+
+  _pendingLoginIsActive() {
+    const record = this.pendingLogin
+    return Boolean(
+      record &&
+      !record.consumed &&
+      record.expires_at > this.now() &&
+      this.status === AUTH_STATUSES.SIGNING_IN
+    )
+  }
+
+  _failPendingAuth(message) {
+    this.pendingLogin = null
+    if (this.session && this.user) {
+      this.status = AUTH_STATUSES.CONNECTED
+      this.error = safeErrorMessage(message, 'Authentication failed.')
+      return this.getSafeState()
+    }
+    this._clearLocalSession(AUTH_STATUSES.SIGNED_OUT, message)
+    return this.getSafeState()
   }
 
   async _exchangeCode(code, record) {
@@ -330,6 +396,36 @@ class DesktopAuthSessionManager {
       throw new Error('Authentication exchange failed.')
     }
     return validateAuthSession(await response.json())
+  }
+
+  async _exchangeHandoffCode(handoffCode, record) {
+    const response = await this.fetchImpl(`${this.backendUrl}/api/auth/desktop-handoff/exchange`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        handoff_code: handoffCode,
+        state: record.state,
+      }),
+      signal: this._requestSignal(),
+    })
+    if (!response.ok) {
+      throw new Error('Authentication exchange failed.')
+    }
+    return validateAuthSession(await response.json())
+  }
+
+  _installExchangedSession(session, record) {
+    if (record.attempt_generation !== this.loginAttemptGeneration) {
+      return this.getSafeState()
+    }
+    this.session = session
+    this.sessionGeneration += 1
+    this.user = null
+    this._clearCloudCache()
+    this._writeStoredSession(session)
+    return this._verifyAndBootstrap(session)
   }
 
   async refreshSession() {
@@ -800,8 +896,17 @@ class DesktopAuthSessionManager {
   }
 
   _requireAuthConfig() {
-    if (!this.supabaseUrl || !this.supabaseAnonKey || !this.desktopAuthProvider) {
-      throw new Error('Desktop cloud auth is not configured.')
+    if (!this.supabaseUrl || !this.supabaseAnonKey || !this.webAuthUrl) {
+      throw new Error(MISSING_DESKTOP_AUTH_CONFIG_MESSAGE)
+    }
+    let authUrl
+    try {
+      authUrl = new URL(this.webAuthUrl)
+    } catch {
+      throw new Error(MISSING_DESKTOP_AUTH_CONFIG_MESSAGE)
+    }
+    if (!['http:', 'https:'].includes(authUrl.protocol)) {
+      throw new Error(MISSING_DESKTOP_AUTH_CONFIG_MESSAGE)
     }
   }
 

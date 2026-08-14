@@ -98,6 +98,34 @@ export async function bootstrapProfile(accessToken, options = {}) {
 }
 
 
+export async function createDesktopHandoff(accessToken, refreshToken, state, options = {}) {
+  const token = requireAccessToken(accessToken)
+  const {
+    backendUrl = DEFAULT_BACKEND_URL,
+    fetchImpl = fetch,
+  } = options
+
+  const payload = await parseJsonResponse(
+    await fetchImpl(`${backendUrl}/api/auth/desktop-handoff`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        state,
+        refresh_token: refreshToken,
+      }),
+    }),
+    'Unable to prepare desktop login.',
+  )
+  return {
+    handoff_code: payload.handoff_code,
+    expires_in: payload.expires_in,
+  }
+}
+
+
 export async function uploadCloudResume(accessToken, file, options = {}) {
   const token = requireAccessToken(accessToken)
   const {

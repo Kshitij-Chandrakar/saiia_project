@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { createDesktopAuthRequestTracker, getDesktopAuthViewModel } from '../desktop_auth_ui.js'
 import { extractCopyableCode } from '../screen_mode_state.js'
+import StartupLoginScreen, { shouldShowStartupLogin } from './StartupLoginScreen.jsx'
 
 function formatTimeLabel(value) {
   if (!value) {
@@ -23,7 +24,7 @@ function MetaRow({ label, value }) {
   )
 }
 
-function DesktopAuthStatus() {
+function DesktopAuthStatus({ onSignedOut }) {
   const [authState, setAuthState] = useState(() => getDesktopAuthViewModel())
   const [busyAction, setBusyAction] = useState('')
   const authRequestTrackerRef = useRef(createDesktopAuthRequestTracker())
@@ -33,7 +34,11 @@ function DesktopAuthStatus() {
     if (!authRequestTrackerRef.current.isCurrent(requestId)) {
       return
     }
-    setAuthState(getDesktopAuthViewModel(payload))
+    const nextState = getDesktopAuthViewModel(payload)
+    setAuthState(nextState)
+    if (shouldShowStartupLogin(nextState)) {
+      onSignedOut?.(nextState)
+    }
   }
 
   const runAuthAction = async (action, task) => {
@@ -524,7 +529,9 @@ export default function MainDiagnosticsWindow(props) {
     eventLog,
     refinedAnswer,
     applyRefinedAnswer,
+    onDesktopSignedOut,
   } = props
+  const [startupAuthenticated, setStartupAuthenticated] = useState(false)
 
   const fallbackScreenAnswerText =
     !screenAnswerText && screenAnswerGenerated ? String(answer || '').trim() : ''
@@ -570,6 +577,14 @@ export default function MainDiagnosticsWindow(props) {
   })
   const handleUseExtension = async () => {
     await window.electronAPI?.triggerToolbarAction?.('analyze-screen-extension')
+  }
+
+  if (!startupAuthenticated && shouldShowStartupLogin()) {
+    return (
+      <StartupLoginScreen
+        onAuthenticated={() => setStartupAuthenticated(true)}
+      />
+    )
   }
 
   if (isCollapsed) {
@@ -677,7 +692,10 @@ export default function MainDiagnosticsWindow(props) {
               display.
             </p>
 
-            <DesktopAuthStatus />
+            <DesktopAuthStatus onSignedOut={() => {
+              onDesktopSignedOut?.()
+              setStartupAuthenticated(false)
+            }} />
 
             <div className={`glass-card runtime-guide runtime-guide--${runtimeGuidance.tone}`}>
               <div className="runtime-guide__header">

@@ -41,10 +41,11 @@ function createManager(options = {}) {
   const manager = new DesktopAuthSessionManager({
     supabaseUrl: 'https://project.supabase.co',
     supabaseAnonKey: 'anon-key',
-    desktopAuthProvider: 'google',
+    webAuthUrl: 'http://localhost:5173/auth/desktop-login',
     backendUrl: 'http://localhost:8000',
     sessionPath: path.join(dir, 'session.bin'),
     safeStorage: createSafeStorage(true),
+    logger: { debug: () => {} },
     openExternal: async (url) => {
       opened.push(url)
     },
@@ -54,6 +55,12 @@ function createManager(options = {}) {
         return jsonResponse(200, {
           access_token: 'access-token',
           refresh_token: 'refresh-token',
+        })
+      }
+      if (url.endsWith('/api/auth/desktop-handoff/exchange')) {
+        return jsonResponse(200, {
+          access_token: 'handoff-access-token',
+          refresh_token: 'handoff-refresh-token',
         })
       }
       if (url.endsWith('/api/auth/me')) {
@@ -110,10 +117,15 @@ function abortError() {
 
 function callbackUrlFor(manager, params = {}) {
   const url = new URL(CALLBACK_URL)
-  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value))
-  if (!url.searchParams.has('state')) {
+  if (
+    manager?.pendingLogin?.state &&
+    (params.code || params.error) &&
+    !('state' in params) &&
+    !('desktop_state' in params)
+  ) {
     url.searchParams.set('state', manager.pendingLogin.state)
   }
+  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value))
   return url.toString()
 }
 
@@ -177,15 +189,28 @@ test('safeStorage unavailable keeps session-only login without plaintext persist
   }
 })
 
-test('startLogin includes configured provider and fails safely when provider or browser launch is unavailable', async () => {
-  const missingProvider = createManager({ desktopAuthProvider: '' })
+test('startLogin requires website handoff config and fails safely when browser launch is unavailable', async () => {
+  const missingWebsiteUrl = createManager({ webAuthUrl: '' })
   try {
-    const state = await missingProvider.manager.startLogin()
+    const state = await missingWebsiteUrl.manager.startLogin()
     assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
-    assert.equal(state.error, 'Desktop cloud auth is not configured.')
-    assert.equal(missingProvider.manager.pendingLogin, null)
+    assert.match(state.error, /Desktop cloud auth is not configured\./)
+    assert.match(state.error, /SAIIA_WEB_AUTH_URL/)
+    assert.doesNotMatch(state.error, /SAIIA_DESKTOP_AUTH_PROVIDER/)
+    assert.equal(missingWebsiteUrl.manager.pendingLogin, null)
   } finally {
-    missingProvider.cleanup()
+    missingWebsiteUrl.cleanup()
+  }
+
+  const unsafeWebsiteUrl = createManager({ webAuthUrl: 'saiia://auth/callback' })
+  try {
+    const state = await unsafeWebsiteUrl.manager.startLogin()
+    assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.match(state.error, /Desktop cloud auth is not configured\./)
+    assert.equal(unsafeWebsiteUrl.manager.pendingLogin, null)
+    assert.equal(unsafeWebsiteUrl.opened.length, 0)
+  } finally {
+    unsafeWebsiteUrl.cleanup()
   }
 
   const browserFailure = createManager({
@@ -203,17 +228,13 @@ test('startLogin includes configured provider and fails safely when provider or 
   }
 })
 
-test('stale openExternal failure from an old login does not erase a newer login', async () => {
+test('duplicate login while pending reuses one auth attempt without opening stale URLs', async () => {
   const firstOpen = deferred()
-  let openCount = 0
   let firstLogin = null
   const ctx = createManager({
     openExternal: async (url) => {
       ctx.opened.push(url)
-      openCount += 1
-      if (openCount === 1) {
-        await firstOpen.promise
-      }
+      await firstOpen.promise
     },
   })
   try {
@@ -223,12 +244,13 @@ test('stale openExternal failure from an old login does not erase a newer login'
     const secondAttempt = ctx.manager.pendingLogin.attempt_generation
 
     assert.equal(secondState.status, AUTH_STATUSES.SIGNING_IN)
-    assert.notEqual(firstAttempt, secondAttempt)
+    assert.equal(firstAttempt, secondAttempt)
+    assert.equal(ctx.opened.length, 1)
 
-    firstOpen.reject(new Error('old browser launch failed'))
+    firstOpen.resolve()
     const staleState = await firstLogin
     assert.equal(staleState.status, AUTH_STATUSES.SIGNING_IN)
-    assert.equal(ctx.manager.pendingLogin.attempt_generation, secondAttempt)
+    assert.equal(ctx.manager.pendingLogin.attempt_generation, firstAttempt)
   } finally {
     firstOpen.resolve()
     if (firstLogin) {
@@ -238,23 +260,96 @@ test('stale openExternal failure from an old login does not erase a newer login'
   }
 })
 
-test('PKCE request uses configured provider, S256, exact redirect_uri, and original code_verifier during exchange', async () => {
-  const ctx = createManager()
+test('startLogin opens website desktop-login handoff URL and redacts auth debug details', async () => {
+  const debugLogs = []
+  const ctx = createManager({
+    logger: {
+      debug: (message, payload) => debugLogs.push({ message, payload }),
+    },
+  })
   try {
     await ctx.manager.startLogin()
     const authUrl = new URL(ctx.opened[0])
-    const storedVerifier = ctx.manager.pendingLogin.code_verifier
+    const pendingState = ctx.manager.pendingLogin.state
 
     assert.equal(ctx.manager.getSafeState().status, AUTH_STATUSES.SIGNING_IN)
     assert.notEqual(ctx.manager.pendingLogin, null)
-    assert.equal(authUrl.searchParams.get('provider'), 'google')
-    assert.equal(authUrl.searchParams.get('code_challenge_method'), 'S256')
-    assert.equal(authUrl.searchParams.get('redirect_uri'), CALLBACK_URL)
+    assert.equal(authUrl.origin, 'http://localhost:5173')
+    assert.equal(authUrl.pathname, '/auth/desktop-login')
+    assert.notEqual(authUrl.origin, 'https://accounts.google.com')
+    assert.equal(authUrl.searchParams.get('state'), pendingState)
+    assert.equal(authUrl.searchParams.has('provider'), false)
+    assert.equal(authUrl.searchParams.has('code_challenge'), false)
+    assert.equal(authUrl.searchParams.has('code_challenge_method'), false)
+    assert.equal(authUrl.searchParams.has('redirect_to'), false)
+    assert.equal(authUrl.searchParams.has('redirect_uri'), false)
+    assert.equal(debugLogs.length, 1)
+    assert.equal(debugLogs[0].message, 'Desktop auth website handoff URL prepared.')
+    assert.deepEqual(debugLogs[0].payload, {
+      origin: 'http://localhost:5173',
+      path: '/auth/desktop-login',
+      queryKeys: ['state'],
+      stateExists: true,
+      pendingAttemptId: ctx.manager.pendingLogin.attempt_generation,
+    })
+    assert.equal('url' in debugLogs[0].payload, false)
+    assert.equal(JSON.stringify(debugLogs[0].payload).includes(CALLBACK_URL), false)
+    assert.equal(JSON.stringify(debugLogs[0].payload).includes(pendingState), false)
+    assert.equal(JSON.stringify(debugLogs[0].payload).includes(ctx.manager.pendingLogin.code_challenge), false)
+    assert.equal(ctx.calls.some((call) => call.url.includes('/auth/v1/authorize')), false)
+  } finally {
+    ctx.cleanup()
+  }
+})
 
-    await ctx.manager.handleAuthCallback(callbackUrlFor(ctx.manager, { code: 'auth-code' }))
-    const exchange = ctx.calls.find((call) => call.url.includes('grant_type=pkce'))
-    assert.equal(JSON.parse(exchange.init.body).code_verifier, storedVerifier)
+test('handoff callback exchanges one-time code through backend and verifies bootstrap', async () => {
+  const ctx = createManager()
+  try {
+    await ctx.manager.startLogin()
+    const pendingState = ctx.manager.pendingLogin.state
+    const result = await ctx.manager.handleAuthCallback(
+      callbackUrlFor(ctx.manager, { handoff_code: 'handoff-code-1234567890', state: pendingState }),
+    )
+
+    assert.equal(result.status, AUTH_STATUSES.CONNECTED)
+    assert.equal(ctx.manager.session.access_token, 'handoff-access-token')
+    assert.equal(ctx.manager.session.refresh_token, 'handoff-refresh-token')
+
+    const exchange = ctx.calls.find((call) => call.url.endsWith('/api/auth/desktop-handoff/exchange'))
+    assert.notEqual(exchange, undefined)
+    assert.deepEqual(JSON.parse(exchange.init.body), {
+      handoff_code: 'handoff-code-1234567890',
+      state: pendingState,
+    })
     assert.notEqual(exchange.init.signal, undefined)
+    assert.equal(ctx.calls.some((call) => call.url.includes('grant_type=pkce')), false)
+
+    const me = ctx.calls.find((call) => call.url.endsWith('/api/auth/me'))
+    const bootstrap = ctx.calls.find((call) => call.url.endsWith('/api/auth/profile/bootstrap'))
+    assert.equal(me.init.headers.Authorization, 'Bearer handoff-access-token')
+    assert.equal(bootstrap.init.headers.Authorization, 'Bearer handoff-access-token')
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('handoff callback requires matching desktop state before exchange', async () => {
+  const ctx = createManager()
+  try {
+    await ctx.manager.startLogin()
+
+    let result = await ctx.manager.handleAuthCallback(callbackUrlFor(ctx.manager, { handoff_code: 'handoff-code' }))
+    assert.equal(result.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(result.error, 'Invalid authentication callback.')
+    assert.equal(ctx.calls.some((call) => call.url.endsWith('/api/auth/desktop-handoff/exchange')), false)
+
+    await ctx.manager.startLogin()
+    result = await ctx.manager.handleAuthCallback(
+      callbackUrlFor(ctx.manager, { handoff_code: 'handoff-code', state: 'wrong-state' }),
+    )
+    assert.equal(result.status, AUTH_STATUSES.SIGNING_IN)
+    assert.equal(result.error, 'Invalid or expired authentication attempt.')
+    assert.equal(ctx.calls.some((call) => call.url.endsWith('/api/auth/desktop-handoff/exchange')), false)
   } finally {
     ctx.cleanup()
   }
@@ -322,13 +417,13 @@ test('request exchange rejects code challenge method, redirect, and verifier mis
   }
 })
 
-test('callback rejects missing state, missing code without auth error, mismatched, expired, and reused state', async () => {
+test('callback rejects missing code, mismatched state, expired attempt, and reused callback', async () => {
   const ctx = createManager({ now: () => 1000, loginTtlMs: 100 })
   try {
-    await ctx.manager.startLogin()
-    let result = await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?code=auth-code`)
+    let result = await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?code=auth-code&desktop_state=orphaned`)
     assert.equal(result.status, AUTH_STATUSES.SIGNED_OUT)
-    assert.equal(result.error, 'Invalid authentication callback.')
+    assert.equal(result.error, 'Invalid or expired authentication attempt.')
+    assert.equal(ctx.calls.some((call) => call.url.includes('grant_type=pkce')), false)
 
     await ctx.manager.startLogin()
     result = await ctx.manager.handleAuthCallback(callbackUrlFor(ctx.manager))
@@ -336,8 +431,16 @@ test('callback rejects missing state, missing code without auth error, mismatche
     assert.equal(result.error, 'Invalid authentication callback.')
 
     await ctx.manager.startLogin()
-    result = await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?code=auth-code&state=wrong`)
-    assert.equal(result.status, AUTH_STATUSES.SIGNED_OUT)
+    const activePending = ctx.manager.pendingLogin
+    result = await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?code=auth-code`)
+    assert.equal(result.status, AUTH_STATUSES.SIGNING_IN)
+    assert.equal(result.error, 'Invalid or expired authentication attempt.')
+    assert.equal(ctx.manager.pendingLogin, activePending)
+    assert.equal(ctx.calls.some((call) => call.url.includes('grant_type=pkce')), false)
+
+    await ctx.manager.startLogin()
+    result = await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?code=auth-code&desktop_state=wrong`)
+    assert.equal(result.status, AUTH_STATUSES.SIGNING_IN)
     assert.equal(result.error, 'Invalid or expired authentication attempt.')
 
     ctx.manager.now = () => 2000
@@ -362,12 +465,52 @@ test('callback rejects missing state, missing code without auth error, mismatche
   }
 })
 
+test('bad_oauth_state callback clears pending login with a safe retry message', async () => {
+  const ctx = createManager()
+  try {
+    await ctx.manager.startLogin()
+    assert.notEqual(ctx.manager.pendingLogin, null)
+
+    const result = await ctx.manager.handleAuthCallback(
+      `${CALLBACK_URL}?error=invalid_request&error_code=bad_oauth_state&error_description=OAuth+state+parameter+is+invalid`,
+    )
+
+    assert.equal(result.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(result.user_id, null)
+    assert.equal(result.email, null)
+    assert.equal(result.error, 'Authentication state was rejected. Start login again.')
+    assert.equal(ctx.manager.pendingLogin, null)
+    assert.equal(ctx.calls.some((call) => call.url.includes('grant_type=pkce')), false)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('localhost code callback is rejected as wrong desktop callback and resets login', async () => {
+  const ctx = createManager()
+  try {
+    await ctx.manager.startLogin()
+    assert.notEqual(ctx.manager.pendingLogin, null)
+
+    const result = await ctx.manager.handleAuthCallback('http://localhost:5173/?code=auth-code')
+
+    assert.equal(result.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(result.user_id, null)
+    assert.equal(result.email, null)
+    assert.equal(result.error, 'Desktop auth returned to localhost. Add saiia://auth/callback to Supabase redirect URLs and start login again.')
+    assert.equal(ctx.manager.pendingLogin, null)
+    assert.equal(ctx.calls.some((call) => call.url.includes('grant_type=pkce')), false)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
 test('authorization denial consumes pending login and skips token exchange', async () => {
   const ctx = createManager()
   try {
     await ctx.manager.startLogin()
     const state = ctx.manager.pendingLogin.state
-    const result = await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?error=access_denied&state=${state}`)
+    const result = await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?error=access_denied&desktop_state=${state}`)
 
     assert.equal(result.status, AUTH_STATUSES.SIGNED_OUT)
     assert.equal(result.user_id, null)
@@ -387,7 +530,7 @@ test('authorization denial restores an existing connected session without token 
     ctx.manager.status = AUTH_STATUSES.CONNECTED
     await ctx.manager.startLogin()
     const state = ctx.manager.pendingLogin.state
-    const result = await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?error=access_denied&state=${state}`)
+    const result = await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?error=access_denied&desktop_state=${state}`)
 
     assert.equal(result.status, AUTH_STATUSES.CONNECTED)
     assert.equal(result.user_id, 'user-1')
@@ -397,10 +540,11 @@ test('authorization denial restores an existing connected session without token 
   }
 })
 
-test('overlapping login attempts reject old callbacks and discard old exchange commits', async () => {
+test('expired old login attempts are rejected before a fresh callback can commit', async () => {
   const exchange = deferred()
   let activePromise = null
   const ctx = createManager({
+    now: () => 1000,
     fetchImpl: async (url, init = {}) => {
       ctx.calls.push({ url, init })
       if (url.includes('grant_type=pkce')) {
@@ -415,16 +559,18 @@ test('overlapping login attempts reject old callbacks and discard old exchange c
   })
   try {
     await ctx.manager.startLogin()
-    const oldUrl = callbackUrlFor(ctx.manager, { code: 'old-code' })
+    const oldState = ctx.manager.pendingLogin.state
+    const oldUrl = callbackUrlFor(ctx.manager, { code: 'old-code', desktop_state: oldState })
+    ctx.manager.pendingLogin.expires_at = 900
     await ctx.manager.startLogin()
-    assert.equal((await ctx.manager.handleAuthCallback(oldUrl)).status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal((await ctx.manager.handleAuthCallback(oldUrl)).status, AUTH_STATUSES.SIGNING_IN)
 
     const activeUrl = callbackUrlFor(ctx.manager, { code: 'active-code' })
     activePromise = ctx.manager.handleAuthCallback(activeUrl)
-    await ctx.manager.startLogin()
     exchange.resolve()
-    await activePromise
-    assert.equal(ctx.manager.session, null)
+    const activeState = await activePromise
+    assert.equal(activeState.status, AUTH_STATUSES.CONNECTED)
+    assert.notEqual(ctx.manager.session, null)
   } finally {
     exchange.resolve()
     if (activePromise) {
@@ -1646,6 +1792,7 @@ test('preload exposes exact narrow auth methods without raw tokens or generic fe
     'captureActiveWindow',
     'captureActiveWindowSequence',
     'captureScreen',
+    'closeStartupWindow',
     'getAuthState',
     'getCloudStartupContext',
     'listScreenSources',

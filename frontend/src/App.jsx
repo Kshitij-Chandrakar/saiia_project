@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router-dom'
 import {
   AuthCallbackPage,
   AuthDashboardPage,
+  AuthDesktopLoginPage,
   AuthForgotPasswordPage,
   AuthLoginPage,
   AuthLogoutPage,
@@ -2220,6 +2221,71 @@ function MainWindow() {
     setStatus('Answers cleared.')
   }
 
+  const resetAutoInterviewState = () => {
+    clearAutoLoop()
+    clearPendingAutoQuestion()
+    clearPendingCooldownQuestion()
+    autoModeRef.current = false
+    autoModeRunIdRef.current = ''
+    currentAutoQuestionRunIdRef.current = ''
+    autoCooldownUntilRef.current = 0
+    recentProcessedTranscriptsRef.current = []
+    recentAutoTranscriptBufferRef.current = []
+    autoGenerationInFlightRef.current = false
+    assemblyAiFallbackWarningShownRef.current = false
+    lastCheckedAutoCandidateRef.current = ''
+    autoStreamingClosingRef.current = false
+    autoModeSourceRef.current = 'none'
+    audioSourcesRef.current = { system: false, microphone: false }
+    audioPipelineStatusRef.current = 'idle'
+    activeAudioSourceRef.current = 'none'
+    activeAudioPipelineRequestIdRef.current = ''
+    chunksRef.current = []
+    manualRecordingCancelledRef.current = false
+    setAutoMode(false)
+    setAutoProcessing(false)
+    setAutoModeStatus('off')
+    setMicStreamingState('off')
+    setAnswerPipelineState('idle')
+    setMicStreamRestartCount(0)
+    setLastMicStreamRestartReason('')
+    setAutoModeSource('none')
+    setAutoStartClicked(false)
+    setLastAutoTranscript('')
+    setRawFinalTranscript('')
+    setLastDetectedQuestion('')
+    setAcceptedAutoQuestion('')
+    setDisplayedAutoQuestionRunId('')
+    setCurrentAutoQuestionRunId('')
+    setLastGeneratedAt(null)
+    setAutoRejectedReason('')
+    setExtractedQuestionCandidate('')
+    setPolishedQuestionCandidate('')
+    setCorrectedQuestionCandidate('')
+    setTechnicalCorrectionsSummary('')
+    setPossibleSttError(false)
+    setQuestionCandidateSource('')
+    setQuestionDetectionInput('')
+    setQuestionDetectReason('')
+    setIsQuestionDetected(false)
+    setCooldownRemainingMs(0)
+    setRecentTranscriptBuffer('')
+    setCooldownQueueReason('')
+    setQueuedQuestionProcessed(false)
+    setGenerationStarted(false)
+    setGenerationBlockedReason('')
+    setIsCooldownListening(false)
+    setSttProvider('')
+    setSttFallbackUsed(false)
+    setSttFallbackReason('')
+    setAutoStreamingConnected(false)
+    setPartialAutoTranscript('')
+    setStreamingError('')
+    setAudioSources({ system: false, microphone: false })
+    setAudioPipelineStatus('idle')
+    setActiveAudioSource('none')
+  }
+
   const loadProfileForLiveAnswer = async ({ force = false } = {}) => {
     if (!force && profileCacheRef.current) {
       return {
@@ -2533,26 +2599,32 @@ function MainWindow() {
     return payload
   }
 
-  const stopSystemAudioRecording = async () => {
+  const stopSystemAudioRecording = async ({ recordingId = systemRecordingIdRef.current, applyResult = true } = {}) => {
     const response = await fetch(`${BACKEND_URL}/api/audio/system/stop`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ recording_id: systemRecordingIdRef.current || null }),
+      body: JSON.stringify({ recording_id: recordingId || null }),
     })
     const payload = await parseJsonResponse(
       response,
       'Could not stop system audio recording.'
     )
-    systemRecordingIdRef.current = ''
-    setSystemAudioSupported(true)
-    setSystemAudioDeviceName(String(payload.device_name || '').trim())
+    if (systemRecordingIdRef.current === recordingId) {
+      systemRecordingIdRef.current = ''
+    }
+    if (applyResult) {
+      setSystemAudioSupported(true)
+      setSystemAudioDeviceName(String(payload.device_name || '').trim())
+    }
     const text = String(payload.transcript || '').trim()
     const noSpeech = Boolean(payload.no_speech) || !text
 
     if (noSpeech) {
-      setAudioPipelineStatus('idle')
-      setTranscript('')
-      setStatus('No question detected.')
+      if (applyResult) {
+        setAudioPipelineStatus('idle')
+        setTranscript('')
+        setStatus('No question detected.')
+      }
       return {
         text: '',
         uploadMs: null,
@@ -2561,13 +2633,24 @@ function MainWindow() {
       }
     }
 
-    setTranscript(text)
+    if (applyResult) {
+      setTranscript(text)
+    }
     return {
       text,
       uploadMs: null,
       transcriptionMs: payload.transcription_ms ?? null,
       noSpeech: false,
     }
+  }
+
+  const stopSystemAudioRecordingForLogout = () => {
+    const recordingId = systemRecordingIdRef.current
+    if (!recordingId) {
+      return
+    }
+    systemRecordingIdRef.current = ''
+    stopSystemAudioRecording({ recordingId, applyResult: false }).catch(() => {})
   }
 
   const classifyAndGenerate = async ({
@@ -4454,6 +4537,21 @@ function MainWindow() {
     setStatus('Stopped.')
   }
 
+  const resetRuntimeForDesktopLogout = () => {
+    stopSystemAudioRecordingForLogout()
+    stopActiveOperation()
+    clearTranscriptState()
+    clearAnswerState()
+    resetAutoInterviewState()
+    resetScreenOcrState()
+    setQuestionHistoryState(() => createQuestionHistoryState())
+    setQuestionHistoryNavigationCount(0)
+    setEventLog([])
+    profileCacheRef.current = null
+    profileFetchMsRef.current = null
+    setStatus('Signed out. Log in to start a new desktop session.')
+  }
+
   const applyRefinedAnswer = () => {
     if (refinementStatus !== 'completed' || !refinedAnswer) {
       return
@@ -5803,6 +5901,7 @@ function MainWindow() {
       eventLog={eventLog}
       refinedAnswer={refinedAnswer}
       applyRefinedAnswer={applyRefinedAnswer}
+      onDesktopSignedOut={resetRuntimeForDesktopLogout}
     />
   )
 }
@@ -5912,8 +6011,9 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/auth/signup" element={<AuthSignupPage />} />
+      <Route path="/auth/signup" element={<AuthSignupPage backendUrl={BACKEND_URL} />} />
       <Route path="/auth/login" element={<AuthLoginPage backendUrl={BACKEND_URL} />} />
+      <Route path="/auth/desktop-login" element={<AuthDesktopLoginPage backendUrl={BACKEND_URL} />} />
       <Route path="/auth/forgot-password" element={<AuthForgotPasswordPage />} />
       <Route path="/auth/reset-password" element={<AuthResetPasswordPage />} />
       <Route path="/auth/callback" element={<AuthCallbackPage backendUrl={BACKEND_URL} />} />

@@ -14,6 +14,8 @@ const statusLogoutSource = statusPageSource.match(/async function handleLogout\(
 const dashboardLogoutSource = dashboardPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n  \}\n\n  return \(/)?.[0] || ''
 const resumeRefreshCatchSource = resumePageSource.match(/catch \(refreshError\) \{[\s\S]*?\}\s*catch \(confirmError\)/)?.[0] || ''
 const resumeDeleteSource = resumePageSource.match(/async function handleDeleteResume\(targetResumeArg = null\) \{[\s\S]*?\n  \}\n\n  async function handleRebuildIndex/)?.[0] || ''
+const openDesktopHandoffSource = source.match(/async function openDesktopHandoff[\s\S]*?\n\}/)?.[0] || ''
+const sourceWithoutDesktopHandoff = source.replace(openDesktopHandoffSource, '')
 
 assert.ok(signupPageSource, 'AuthSignupPage source slice should be found')
 assert.ok(loginPageSource, 'AuthLoginPage source slice should be found')
@@ -24,6 +26,7 @@ assert.ok(statusLogoutSource, 'AuthStatusPage handleLogout source slice should b
 assert.ok(dashboardLogoutSource, 'AuthDashboardPage handleLogout source slice should be found')
 assert.ok(resumeRefreshCatchSource, 'AuthResumePage refresh catch source slice should be found')
 assert.ok(resumeDeleteSource, 'AuthResumePage handleDeleteResume source slice should be found')
+assert.ok(openDesktopHandoffSource, 'openDesktopHandoff source slice should be found')
 
 
 test('profile bootstrap behavior is shared by status and dashboard pages', () => {
@@ -68,11 +71,51 @@ test('login redirects to dashboard by default after verification', () => {
 test('signed-in users visiting login or signup redirect to dashboard', () => {
   assert.match(source, /function useRedirectAuthenticatedUser\(targetRoute = DEFAULT_LOGIN_NEXT_ROUTE\)/)
   assert.match(source, /const \{ data \} = await supabase\.auth\.getSession\(\)/)
-  assert.match(source, /if \(data\.session\?\.access_token\) \{\s+navigate\(targetRoute, \{ replace: true \}\)/)
-  assert.match(signupPageSource, /const safeNextRoute = getSafeAuthNextRoute\(searchParams\.get\('next'\) \|\| location\.state\?\.next\)[\s\S]*const checkingSession = useRedirectAuthenticatedUser\(safeNextRoute\)/)
-  assert.match(loginPageSource, /const safeNextRoute = getSafeAuthNextRoute\(searchParams\.get\('next'\) \|\| location\.state\?\.next\)[\s\S]*const checkingSession = useRedirectAuthenticatedUser\(safeNextRoute\)/)
+  assert.match(source, /if \(data\.session\?\.access_token\) \{[\s\S]*if \(targetRoute\) \{[\s\S]*navigate\(targetRoute, \{ replace: true \}\)/)
+  assert.match(signupPageSource, /const safeNextRoute = safeDesktopState[\s\S]*\? desktopLoginRoute\(safeDesktopState\)[\s\S]*: getSafeAuthNextRoute\(searchParams\.get\('next'\) \|\| location\.state\?\.next\)[\s\S]*const checkingSession = useRedirectAuthenticatedUser\(safeNextRoute\)/)
+  assert.match(loginPageSource, /const safeNextRoute = getSafeAuthNextRoute\(searchParams\.get\('next'\) \|\| location\.state\?\.next\)[\s\S]*const checkingSession = useRedirectAuthenticatedUser\(safeDesktopState \? '' : safeNextRoute\)/)
   assert.match(signupPageSource, /if \(checkingSession\) \{[\s\S]*<p className="auth-message info">Checking session\.\.\.<\/p>/)
   assert.match(loginPageSource, /if \(checkingSession\) \{[\s\S]*<p className="auth-message info">Checking session\.\.\.<\/p>/)
+})
+
+
+test('desktop login handoff is isolated to the /auth/desktop-login entry path', () => {
+  assert.match(appSource, /<Route path="\/auth\/desktop-login" element=\{<AuthDesktopLoginPage backendUrl=\{BACKEND_URL\} \/>\} \/>/)
+  assert.match(appSource, /<Route path="\/auth\/login" element=\{<AuthLoginPage backendUrl=\{BACKEND_URL\} \/>\} \/>/)
+  assert.match(appSource, /<Route path="\/auth\/signup" element=\{<AuthSignupPage backendUrl=\{BACKEND_URL\} \/>\} \/>/)
+  assert.match(source, /const DESKTOP_CALLBACK_URL = 'saiia:\/\/auth\/callback'/)
+  assert.equal(source.includes('const DESKTOP_STATE_PATTERN = /^[A-Za-z0-9._~-]{16,256}$/'), true)
+  assert.match(source, /function desktopLoginRoute\(state\) \{[\s\S]*return `\/auth\/desktop-login\?state=\$\{encodeURIComponent\(state\)\}`/)
+  assert.match(source, /function desktopSignupRoute\(state\) \{[\s\S]*return `\/auth\/signup\?desktop_state=\$\{encodeURIComponent\(state\)\}`/)
+  assert.match(source, /export function AuthDesktopLoginPage\(\{ backendUrl \}\)/)
+  assert.match(source, /const state = getSafeDesktopState\(searchParams\.get\('state'\)\)/)
+  assert.match(source, /<AuthLoginPage backendUrl=\{backendUrl\} desktopState=\{state\} desktopError=\{error\} \/>/)
+})
+
+
+test('desktop handoff passes only handoff code and state to Electron callback URL', () => {
+  assert.match(source, /async function openDesktopHandoff\(session, state, backendUrl\)/)
+  assert.match(source, /createDesktopHandoff\(session\.access_token, session\.refresh_token, state, \{ backendUrl \}\)/)
+  assert.match(source, /const callbackUrl = new URL\(DESKTOP_CALLBACK_URL\)/)
+  assert.match(source, /callbackUrl\.searchParams\.set\('handoff_code', handoffCode\)/)
+  assert.match(source, /callbackUrl\.searchParams\.set\('state', state\)/)
+  assert.match(source, /window\.location\.href = callbackUrl\.toString\(\)/)
+  assert.doesNotMatch(source.match(/async function openDesktopHandoff[\s\S]*?\n\}/)?.[0] || '', /access_token.*searchParams|refresh_token.*searchParams|session\.access_token.*searchParams|session\.refresh_token.*searchParams/)
+})
+
+
+test('desktop mode preserves email password and Google auth without changing normal website redirects', () => {
+  assert.match(signupPageSource, /const safeDesktopState = getSafeDesktopState\(desktopState \|\| searchParams\.get\('desktop_state'\)\)/)
+  assert.match(signupPageSource, /const safeNextRoute = safeDesktopState[\s\S]*\? desktopLoginRoute\(safeDesktopState\)[\s\S]*: getSafeAuthNextRoute/)
+  assert.match(signupPageSource, /emailRedirectTo: getAuthRedirectUrl\(safeDesktopState\)/)
+  assert.match(signupPageSource, /if \(safeDesktopState && data\.session\) \{[\s\S]*await openDesktopHandoff\(data\.session, safeDesktopState, backendUrl\)/)
+  assert.match(loginPageSource, /if \(safeDesktopState\) \{[\s\S]*await openDesktopHandoff\(data\.session, safeDesktopState, backendUrl\)/)
+  assert.match(loginPageSource, /fetchCurrentUser\(data\.session\.access_token, \{ backendUrl \}\)[\s\S]*navigate\(safeNextRoute, \{ replace: true \}\)/)
+  assert.match(source, /async function startGoogleLogin\(desktopState = ''\) \{[\s\S]*provider: 'google'[\s\S]*redirectTo: getAuthRedirectUrl\(desktopState\)/)
+  assert.match(signupPageSource, /async function handleGoogleLogin\(\) {[\s\S]*const \{ error \} = await startGoogleLogin\(safeDesktopState\)[\s\S]*form\.setError\(error\.message \|\| 'Google login could not be started\.'\)/)
+  assert.match(loginPageSource, /async function handleGoogleLogin\(\) {[\s\S]*const \{ error \} = await startGoogleLogin\(safeDesktopState\)[\s\S]*form\.setError\(error\.message \|\| 'Google login could not be started\.'\)/)
+  assert.match(signupPageSource, /onClick=\{handleGoogleLogin\}/)
+  assert.match(loginPageSource, /onClick=\{handleGoogleLogin\}/)
 })
 
 
@@ -85,7 +128,8 @@ test('protected dashboard redirect returns to dashboard after login', () => {
 test('unsafe external auth next URLs are ignored by allowlist', () => {
   assert.match(source, /const SAFE_AUTH_NEXT_ROUTES = new Set\(\['\/auth\/dashboard', '\/auth\/status'\]\)/)
   assert.match(source, /return SAFE_AUTH_NEXT_ROUTES\.has\(route\) \? route : fallback/)
-  assert.doesNotMatch(source, /window\.location\s*=|location\.href\s*=|new URL\(.*next/)
+  assert.match(openDesktopHandoffSource, /window\.location\.href = callbackUrl\.toString\(\)/)
+  assert.doesNotMatch(sourceWithoutDesktopHandoff, /window\.location\s*=|window\.location\.href\s*=|location\.href\s*=|new URL\(.*next/)
 })
 
 
