@@ -1050,7 +1050,7 @@ function resetStartupFlow() {
   syncOverlayVisibility(false)
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.setMinimumSize(426, 384)
-    mainWindow.setSize(426, 384)
+    mainWindow.setSize(504, 462)
     mainWindow.center()
     mainWindow.show()
     mainWindow.focus()
@@ -1452,8 +1452,8 @@ async function captureActiveWindowSequence() {
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
-    width: 426,
-    height: 384,
+    width: 504,
+    height: 462,
     minWidth: 426,
     minHeight: 384,
     autoHideMenuBar: true,
@@ -1699,6 +1699,16 @@ ipcMain.handle('cloud:get-startup-context', (event) => {
 ipcMain.handle('cloud:refresh-startup-context', async (event) => {
   validateAuthIpc(event)
   return desktopAuthSessionManager.refreshStartupContext()
+})
+
+ipcMain.handle('cloud:list-resumes', async (event) => {
+  validateAuthIpc(event)
+  return desktopAuthSessionManager.listCloudResumes()
+})
+
+ipcMain.handle('generate:answer', async (event, body) => {
+  validateAuthIpc(event)
+  return desktopAuthSessionManager.generateAnswer(body)
 })
 
 ipcMain.handle('startup:complete', (event) => {

@@ -407,6 +407,16 @@ class SupabaseCloudResumeClient:
         )
         return rows[0] if rows else None
 
+    def list_resumes(self, user_id: str) -> list[CloudResumeRecord]:
+        return self._select_resumes(
+            {
+                "user_id": f"eq.{user_id}",
+                "status": "neq.deleted",
+                "order": "updated_at.desc.nullslast,created_at.desc.nullslast",
+                "limit": "50",
+            }
+        )
+
     def get_review_candidate(self, user_id: str) -> CloudResumeRecord | None:
         rows = self._select_resumes(
             {
@@ -710,6 +720,9 @@ class CloudResumeService:
     def get_current_resume(self, user_id: str) -> CloudResumeRecord | None:
         return self._client.get_current_resume(user_id)
 
+    def list_resumes(self, user_id: str) -> list[CloudResumeRecord]:
+        return self._client.list_resumes(user_id)
+
     def get_review_candidate(self, user_id: str) -> CloudResumeRecord | None:
         return self._client.get_review_candidate(user_id)
 
@@ -1000,8 +1013,99 @@ class CloudResumeService:
                     "preview": str(metadata.get("preview") or text[:120]),
                     "tokens": list(metadata.get("tokens") or []),
                 }
-            )
+        )
         return self._indexer.retrieve_from_chunks(chunks, question=question, category=category, limit=limit)
+
+    def retrieve_resume_chunks(
+        self,
+        *,
+        user_id: str,
+        resume_id: str,
+        question: str,
+        category: str,
+        limit: int = 3,
+    ) -> dict[str, Any]:
+        selected = self._client.get_resume(resume_id, user_id)
+        if selected.status != "ready" or not selected.active_chunk_generation:
+            raise CloudResumeValidationError("Selected resume is not ready for generation.")
+        rows = self._client.get_active_resume_chunks(
+            user_id=user_id,
+            resume_id=selected.id,
+            generation_id=selected.active_chunk_generation,
+        )
+        chunks = []
+        for row in rows:
+            metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            text = str(row.get("chunk_text") or "")
+            chunks.append(
+                {
+                    "chunk_id": str(metadata.get("chunk_id") or row.get("id") or ""),
+                    "source": str(metadata.get("source") or "cloud_resume"),
+                    "section": str(row.get("section") or metadata.get("section") or ""),
+                    "text": text,
+                    "preview": str(metadata.get("preview") or text[:120]),
+                    "tokens": list(metadata.get("tokens") or []),
+                }
+            )
+        if not chunks:
+            raise CloudResumeValidationError("Selected resume has no indexed chunks.")
+        candidate_name, candidate_name_source = self._selected_resume_candidate_name(selected, chunks)
+        retrieval = self._indexer.retrieve_from_chunks(chunks, question=question, category=category, limit=limit)
+        if retrieval.get("retrieved_chunks"):
+            retrieval["selected_resume_candidate_name"] = candidate_name
+            retrieval["selected_resume_candidate_name_source"] = candidate_name_source
+            return retrieval
+        fallback_chunks = chunks[: max(1, int(limit or 1))]
+        return {
+            "retrieval_used": True,
+            "retrieved_chunk_count": len(fallback_chunks),
+            "retrieved_chunks": [
+                {
+                    "chunk_id": chunk["chunk_id"],
+                    "source": chunk["source"],
+                    "section": chunk["section"],
+                    "text": chunk["text"],
+                    "preview": chunk["preview"],
+                }
+                for chunk in fallback_chunks
+            ],
+            "retrieval_ms": retrieval.get("retrieval_ms", 0.0),
+            "selected_resume_candidate_name": candidate_name,
+            "selected_resume_candidate_name_source": candidate_name_source,
+        }
+
+    def _selected_resume_candidate_name(
+        self,
+        selected: CloudResumeRecord,
+        chunks: list[dict[str, Any]],
+    ) -> tuple[str, str]:
+        metadata_name = str((selected.confirmed_profile or {}).get("full_name") or "").strip()
+        if self._looks_like_candidate_name(metadata_name):
+            return metadata_name, "metadata"
+        for chunk in chunks:
+            if str(chunk.get("section") or "").strip().lower() == "full_name":
+                chunk_name = str(chunk.get("text") or "").strip()
+                if self._looks_like_candidate_name(chunk_name):
+                    return chunk_name, "metadata"
+        for chunk in chunks[:2]:
+            for line in str(chunk.get("text") or "").splitlines()[:2]:
+                header_name = line.strip(" \t:-|,")
+                if self._looks_like_candidate_name(header_name):
+                    return header_name, "header"
+        return "", "none"
+
+    @staticmethod
+    def _looks_like_candidate_name(value: str) -> bool:
+        candidate = re.sub(r"\s+", " ", str(value or "").strip())
+        if not 3 <= len(candidate) <= 80 or any(char.isdigit() for char in candidate):
+            return False
+        lowered = candidate.lower()
+        if any(word in lowered for word in ("resume", "curriculum", "developer", "engineer", "student", "skills")):
+            return False
+        words = candidate.split()
+        if not 2 <= len(words) <= 5:
+            return False
+        return all(re.fullmatch(r"[A-Za-z][A-Za-z'.-]*", word) for word in words)
 
     def _discard_generation(self, *, user_id: str, resume_id: str, generation_id: str) -> None:
         try:

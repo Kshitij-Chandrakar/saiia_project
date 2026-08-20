@@ -109,6 +109,20 @@ class FakeRouteService:
         self.user_ids.append(user_id)
         return _record(user_id=user_id, status="ready", is_active=True)
 
+    def list_resumes(self, user_id: str):
+        self.user_ids.append(user_id)
+        return [
+            _record(
+                user_id=user_id,
+                original_filename="active-resume.pdf",
+                status="ready",
+                index_status="indexed",
+                is_active=True,
+                created_at="2026-08-01T00:00:00Z",
+                updated_at="2026-08-02T00:00:00Z",
+            )
+        ]
+
     def get_review_candidate(self, user_id: str):
         self.user_ids.append(user_id)
         return _record(user_id=user_id, status="needs_review")
@@ -214,6 +228,30 @@ def test_current_route_returns_safe_ready_state(client: TestClient, fake_service
     assert response.status_code == 200
     assert response.json()["ready"] is True
     assert response.json()["resume"]["status"] == "ready"
+
+
+def test_list_route_returns_safe_metadata_for_verified_user(client: TestClient, fake_service: FakeRouteService) -> None:
+    response = client.get("/api/resumes", headers={"Authorization": f"Bearer {_token()}"})
+
+    assert response.status_code == 200
+    assert fake_service.user_ids == [TEST_USER_ID]
+    payload = response.json()
+    assert payload["items"] == [
+        {
+            "id": RESUME_ID,
+            "display_name": "active-resume.pdf",
+            "original_filename": "active-resume.pdf",
+            "status": "ready",
+            "index_status": "indexed",
+            "is_active": True,
+            "created_at": "2026-08-01T00:00:00Z",
+            "updated_at": "2026-08-02T00:00:00Z",
+            "chunk_count": None,
+        }
+    ]
+    assert "storage_path" not in response.text
+    assert "raw_resume_text" not in response.text
+    assert "service-role-unit-test-value" not in response.text
 
 
 def test_current_route_returns_ready_false_before_activation(client: TestClient) -> None:

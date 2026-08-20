@@ -3029,6 +3029,7 @@ class AnswerGenerator:
         personal_question = self._is_personal_question(question)
         general_technical_question = qt == "technical" and not personal_question
         conceptual_answer = qt in {"technical", "general"} and not personal_question
+        selected_resume_authoritative = bool((profile or {}).get("selected_resume_authoritative"))
         if qt == "personal" and not coding_mode:
             personal_subtype = classify_personal_subtype(question) or "personality_self_awareness"
             personal_parts, _metadata = self._build_personal_prompt(
@@ -3038,6 +3039,13 @@ class AnswerGenerator:
             )
             personal_parts.insert(0, "Supplied interview category (guidance only): " + supplied_qt.upper())
             personal_parts.insert(1, "Preliminary rule category (the model may correct it): PERSONAL")
+            if selected_resume_authoritative:
+                personal_parts.insert(
+                    2,
+                    "The selected uploaded resume is the authoritative candidate context for this session. Use it over profile/default context. Do not invent or reuse older profile facts that are not supported by the selected resume.",
+                )
+                if self._is_introduction_question(question) and str((profile or {}).get("full_name") or "").strip():
+                    personal_parts.insert(3, "Use the candidate name from the selected resume naturally in this self-introduction. Do not use an older profile name if it conflicts with selected resume context.")
             personal_parts.append("")
             personal_parts.append("Final rule: output only the answer that should appear in the overlay.")
             return "\n".join(personal_parts)
@@ -3061,6 +3069,12 @@ class AnswerGenerator:
             f"Answer type: {plan.answer_type}. Profile context policy: {plan.profile_context_policy}. Job context policy: {plan.job_context_policy}.",
             "If a context policy is FORBIDDEN, do not use that context or imply it influenced the answer.",
         ]
+        if selected_resume_authoritative:
+            parts.append(
+                "The selected uploaded resume is the authoritative candidate context for this session. Use it over profile/default context. Do not invent or reuse older profile facts that are not supported by the selected resume."
+            )
+            if is_intro and str((profile or {}).get("full_name") or "").strip():
+                parts.append("Use the candidate name from the selected resume naturally in this self-introduction. Do not use an older profile name if it conflicts with selected resume context.")
 
         if not coding_mode:
             parts.extend(

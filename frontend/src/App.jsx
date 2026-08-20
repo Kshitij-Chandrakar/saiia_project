@@ -1000,6 +1000,8 @@ function OverlayWindow() {
     screenShareProtectionEnabled: true,
     overlayOpacity: 1,
     sessionStartedAt: Date.now(),
+    selectedResumeIdExists: false,
+    selectedResumeName: '',
     privacyMessage: OVERLAY_PRIVACY_MESSAGE,
   })
 
@@ -1204,6 +1206,7 @@ function MainWindow() {
   const [lastError, setLastError] = useState('')
   const [isDiagnosticsCollapsed, setIsDiagnosticsCollapsed] = useState(false)
   const [sessionStartedAt] = useState(() => Date.now())
+  const [startupSessionConfig, setStartupSessionConfig] = useState(null)
   const [recordingStartedAt, setRecordingStartedAt] = useState(null)
 
   const mediaRecorderRef = useRef(null)
@@ -1236,6 +1239,7 @@ function MainWindow() {
   const lastLoggedErrorRef = useRef('')
   const profileCacheRef = useRef(null)
   const profileFetchMsRef = useRef(null)
+  const startupSessionConfigRef = useRef(null)
   const answerRef = useRef('')
   const fullAnswerRef = useRef('')
   const questionHistoryRef = useRef(questionHistory)
@@ -1252,6 +1256,11 @@ function MainWindow() {
   const generatingWatchdogTimeoutRef = useRef(null)
   const systemRecordingIdRef = useRef('')
   const manualRecordingCancelledRef = useRef(false)
+
+  const applyStartupSessionConfig = (nextConfig) => {
+    startupSessionConfigRef.current = nextConfig
+    setStartupSessionConfig(nextConfig)
+  }
 
   const beginScreenOperation = (sourceType) => {
     const nextOperation = createScreenOperation({ sourceType })
@@ -1430,10 +1439,45 @@ function MainWindow() {
     }
 
     try {
+      const activeStartupSessionConfig = startupSessionConfigRef.current
+      const selectedResumeId = String(activeStartupSessionConfig?.selectedResumeId || '').trim()
+      const requestBody = selectedResumeId ? { ...body, selected_resume_id: selectedResumeId } : body
+      const desktopGenerateAnswer = window.saiia?.generateAnswer
+      if (selectedResumeId && typeof desktopGenerateAnswer === 'function') {
+        const result = await desktopGenerateAnswer(requestBody)
+        if (!result?.ok) {
+          throw new Error(result?.payload?.detail || 'Could not generate an answer right now.')
+        }
+        finalPayload = result.payload || {}
+        const finalAnswer = stripInternalControlMarkers(finalPayload.answer || '')
+        if (finalAnswer) {
+          accumulatedAnswer = finalAnswer
+          fullAnswerRef.current = finalAnswer
+          setFullAnswer(finalAnswer)
+          setAnswer(finalAnswer)
+        }
+        if (historyMode && historyEntryId) {
+          setQuestionHistoryState((current) =>
+            updateQuestionHistoryEntry(
+              current,
+              historyMode,
+              historyEntryId,
+              {
+                displayedAnswer: finalAnswer,
+                fullAnswer: finalAnswer,
+                status: 'complete',
+              },
+              { requestId }
+            )
+          )
+        }
+        return finalPayload
+      }
+
       const response = await fetch(`${BACKEND_URL}/generate/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(requestBody),
         signal: controller.signal,
       })
 
@@ -1441,7 +1485,7 @@ function MainWindow() {
         const fallbackResponse = await fetch(`${BACKEND_URL}/generate/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+          body: JSON.stringify(requestBody),
         })
         return parseJsonResponse(fallbackResponse, 'Could not generate an answer right now.')
       }
@@ -1796,6 +1840,8 @@ function MainWindow() {
     screenShareProtectionEnabled,
     overlayOpacity,
     sessionStartedAt,
+    selectedResumeIdExists: Boolean(String(startupSessionConfig?.selectedResumeId || '').trim()),
+    selectedResumeName: String(startupSessionConfig?.selectedResumeName || '').trim(),
   })
 
   const clearAutoLoop = () => {
@@ -2812,6 +2858,9 @@ function MainWindow() {
     const followupContext = historyMode
       ? buildFollowupContextEntries(questionHistoryRef.current, historyMode)
       : []
+    const activeStartupSessionConfig = startupSessionConfigRef.current
+    const selectedResumeId = String(activeStartupSessionConfig?.selectedResumeId || '').trim()
+    const selectedResumeName = String(activeStartupSessionConfig?.selectedResumeName || '').trim()
     const generateRequestBody = {
       question: text,
       original_question: committedQuestionBeforeStream || text,
@@ -2826,7 +2875,7 @@ function MainWindow() {
       problem_title: problemTitle || '',
       screen_platform_detected: screenPlatformDetected || '',
       category: nextCategory,
-      profile: liveProfile,
+      profile: selectedResumeId ? {} : liveProfile,
       source,
       screen_question_type: effectiveScreenQuestionType,
       force_technical: forceTechnical,
@@ -2836,7 +2885,14 @@ function MainWindow() {
       transcription_ms: transcriptionMs,
       classification_ms: classificationMs,
       profile_fetch_ms: profileFetchMs,
+      selected_resume_id: selectedResumeId || undefined,
     }
+    const selectedResumeDiagnostics = {
+      selectedResumeIdExists: Boolean(selectedResumeId),
+      selectedResumeName,
+      generationRequestIncludesSelectedResumeId: Boolean(generateRequestBody.selected_resume_id),
+    }
+    console.info('Intervu AI selected resume generation diagnostics', selectedResumeDiagnostics)
     if (committedQuestionBeforeStream) {
       setTranscript(committedQuestionBeforeStream)
     }
@@ -2944,6 +3000,19 @@ function MainWindow() {
       profile_context_used: generatePayload.profile_context_used ?? !suppressProfileContext,
       profile_context_policy: generatePayload.profile_context_policy || '',
       retrieved_chunk_count: generatePayload.retrieved_chunk_count ?? null,
+      resume_context_source: generatePayload.resume_context_source || 'none',
+      selected_resume_id_used: generatePayload.selected_resume_id_used ?? false,
+      selected_resume_chunk_count: generatePayload.selected_resume_chunk_count ?? 0,
+      selected_resume_candidate_name_available:
+        generatePayload.selected_resume_candidate_name_available ?? false,
+      selected_resume_candidate_name_source: generatePayload.selected_resume_candidate_name_source || 'none',
+      profile_context_suppressed_by_selected_resume:
+        generatePayload.profile_context_suppressed_by_selected_resume ?? false,
+      final_context_priority: generatePayload.final_context_priority || 'none',
+      selected_resume_id_exists: selectedResumeDiagnostics.selectedResumeIdExists,
+      selected_resume_name: selectedResumeDiagnostics.selectedResumeName,
+      generation_request_includes_selected_resume_id:
+        selectedResumeDiagnostics.generationRequestIncludesSelectedResumeId,
     }
     const visibleHistoryEntry = !historyMode || isSelectedHistoryEntry(historyMode, historyEntryId)
 
@@ -2980,6 +3049,8 @@ function MainWindow() {
               fullProblemText,
               editorText,
               pipelineTimings: nextPipelineTimings,
+              selectedResumeName,
+              selectedResumeIdExists: Boolean(selectedResumeId),
               answerType: generatePayload.answer_type || '',
               codingAnswer: generatePayload.coding_answer || null,
               programmingLanguage: generatePayload.resolved_language || generatePayload.coding_answer?.language || '',
@@ -3094,6 +3165,19 @@ function MainWindow() {
       fallback_used: generatePayload.fallback_used,
       retrieval_used: generatePayload.retrieval_used,
       retrieved_chunk_count: generatePayload.retrieved_chunk_count,
+      resume_context_source: generatePayload.resume_context_source,
+      selected_resume_id_used: generatePayload.selected_resume_id_used,
+      selected_resume_chunk_count: generatePayload.selected_resume_chunk_count,
+      selected_resume_candidate_name_available:
+        generatePayload.selected_resume_candidate_name_available,
+      selected_resume_candidate_name_source: generatePayload.selected_resume_candidate_name_source,
+      profile_context_suppressed_by_selected_resume:
+        generatePayload.profile_context_suppressed_by_selected_resume,
+      final_context_priority: generatePayload.final_context_priority,
+      selected_resume_id_exists: selectedResumeDiagnostics.selectedResumeIdExists,
+      selected_resume_name: selectedResumeDiagnostics.selectedResumeName,
+      generation_request_includes_selected_resume_id:
+        selectedResumeDiagnostics.generationRequestIncludesSelectedResumeId,
       coding_runtime_audit: generatePayload.coding_runtime_audit,
     })
     return {
@@ -3104,6 +3188,9 @@ function MainWindow() {
       primaryModel: generatePayload.primary_model || '',
       refinementStatus: generatePayload.refinement_status || '',
       profileContextUsed: generatePayload.profile_context_used ?? !suppressProfileContext,
+      resumeContextSource: generatePayload.resume_context_source || 'none',
+      selectedResumeIdUsed: Boolean(generatePayload.selected_resume_id_used),
+      selectedResumeChunkCount: generatePayload.selected_resume_chunk_count ?? 0,
     }
     } catch (err) {
       setGenerationStarted(false)
@@ -4547,6 +4634,7 @@ function MainWindow() {
     setQuestionHistoryState(() => createQuestionHistoryState())
     setQuestionHistoryNavigationCount(0)
     setEventLog([])
+    applyStartupSessionConfig(null)
     profileCacheRef.current = null
     profileFetchMsRef.current = null
     setStatus('Signed out. Log in to start a new desktop session.')
@@ -5902,6 +5990,7 @@ function MainWindow() {
       refinedAnswer={refinedAnswer}
       applyRefinedAnswer={applyRefinedAnswer}
       onDesktopSignedOut={resetRuntimeForDesktopLogout}
+      onStartupSessionConfigChange={applyStartupSessionConfig}
     />
   )
 }
