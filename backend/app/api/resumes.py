@@ -51,6 +51,22 @@ class CurrentResumeResponse(BaseModel):
     resume: CloudResumeResponse | None = None
 
 
+class CloudResumeListItem(BaseModel):
+    id: str
+    display_name: str
+    original_filename: str
+    status: str
+    index_status: str
+    is_active: bool
+    created_at: str | None = None
+    updated_at: str | None = None
+    chunk_count: int | None = None
+
+
+class CloudResumeListResponse(BaseModel):
+    items: list[CloudResumeListItem]
+
+
 class ReviewCandidateResponse(BaseModel):
     has_candidate: bool
     resume: CloudResumeResponse | None = None
@@ -143,6 +159,21 @@ def _resume_response(record: CloudResumeRecord) -> CloudResumeResponse:
     )
 
 
+def _resume_list_item(record: CloudResumeRecord) -> CloudResumeListItem:
+    display_name = record.original_filename.strip() or "Uploaded resume"
+    return CloudResumeListItem(
+        id=record.id,
+        display_name=display_name,
+        original_filename=record.original_filename,
+        status=record.status,
+        index_status=record.index_status,
+        is_active=record.is_active,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+        chunk_count=None,
+    )
+
+
 def _handle_cloud_error(exc: Exception) -> HTTPException:
     if isinstance(exc, SupabaseConfigurationError):
         return HTTPException(
@@ -188,6 +219,15 @@ def upload_cloud_resume(
     except Exception as exc:
         raise _handle_cloud_error(exc) from exc
     return _resume_response(result.resume)
+
+
+@router.get("", response_model=CloudResumeListResponse)
+def list_cloud_resumes(current_user: CurrentUserDep, service: CloudResumeServiceDep) -> CloudResumeListResponse:
+    try:
+        records = service.list_resumes(current_user.user_id)
+    except Exception as exc:
+        raise _handle_cloud_error(exc) from exc
+    return CloudResumeListResponse(items=[_resume_list_item(record) for record in records])
 
 
 @router.get("/current", response_model=CurrentResumeResponse)

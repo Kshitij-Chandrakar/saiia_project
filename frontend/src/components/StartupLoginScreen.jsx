@@ -19,25 +19,6 @@ export default function StartupLoginScreen({ onAuthenticated }) {
   const saiiaApi = typeof window !== 'undefined' ? window.saiia : null
   const electronApi = typeof window !== 'undefined' ? window.electronAPI : null
 
-  const completeStartup = async (nextState) => {
-    try {
-      const result = await electronApi?.completeStartup?.()
-      if (result?.ok !== true) {
-        setAuthState(getDesktopAuthViewModel({
-          status: DESKTOP_AUTH_STATUSES.SIGNED_OUT,
-          error: 'Login could not be opened. Try again.',
-        }))
-        return
-      }
-      onAuthenticated?.(nextState)
-    } catch {
-      setAuthState(getDesktopAuthViewModel({
-        status: DESKTOP_AUTH_STATUSES.SIGNED_OUT,
-        error: 'Login could not be opened. Try again.',
-      }))
-    }
-  }
-
   const closeStartupWindow = () => {
     const closeWindow = saiiaApi?.closeStartupWindow || electronApi?.closeStartupWindow
     closeWindow?.().catch?.(() => {})
@@ -50,7 +31,7 @@ export default function StartupLoginScreen({ onAuthenticated }) {
     const nextState = getDesktopAuthViewModel(payload)
     setAuthState(nextState)
     if (!shouldShowStartupLogin(nextState)) {
-      void completeStartup(nextState)
+      onAuthenticated?.(nextState)
     }
   }
 
@@ -114,11 +95,11 @@ export default function StartupLoginScreen({ onAuthenticated }) {
 
   const buttonText = loginPending || authState.status === DESKTOP_AUTH_STATUSES.SIGNING_IN
     ? 'Opening login...'
-    : 'Log in to Intervu AI\u2192'
+    : 'Login with Intervu AI \u2192'
 
   const errorDetail = authState.error || ''
   const errorText = getStartupErrorMessage(errorDetail)
-  const subtitle = 'Log in to Intervu AI and start your interview.'
+  const subtitle = 'Sign in to continue to your Intervu AI workspace.'
 
   return (
     <div className="startup-login-window" aria-label="Intervu AI startup login">
@@ -171,20 +152,19 @@ export default function StartupLoginScreen({ onAuthenticated }) {
             {buttonText}
           </button>
 
-          <ul className="startup-login-features" aria-label="Intervu AI features">
-            <li>
+          <div className="startup-login-info" aria-label="Authentication information">
+            <span className="startup-login-info__icon" aria-hidden="true">
               <LockScreenIcon />
-              <span>Secure Screen Sharing</span>
-            </li>
-            <li>
-              <SlidersIcon />
-              <span>Personalized AI Responses</span>
-            </li>
-            <li>
-              <CodeMonitorIcon />
-              <span>Real-Time Coding Assistance</span>
-            </li>
-          </ul>
+            </span>
+            <p>
+              Authentication is securely completed in your browser. You'll return here automatically.
+            </p>
+          </div>
+
+          <p className="startup-login-help">
+            <span>Need Help?</span>
+            <a href="#" onClick={(event) => event.preventDefault()}>Contact Support</a>
+          </p>
         </main>
       </section>
     </div>
@@ -209,26 +189,6 @@ function LockScreenIcon() {
       <circle cx="12.5" cy="16" r="1" />
       <path d="M12.5 17v2" />
       <circle cx="19.2" cy="5.2" r="2.4" />
-    </svg>
-  )
-}
-
-function SlidersIcon() {
-  return (
-    <svg className="startup-login-feature-icon" viewBox="0 0 20 20" aria-hidden="true">
-      <path d="M2.5 5h15M2.5 10h15M2.5 15h15" />
-      <circle cx="7" cy="5" r="1.5" />
-      <circle cx="13" cy="10" r="1.5" />
-      <circle cx="9" cy="15" r="1.5" />
-    </svg>
-  )
-}
-
-function CodeMonitorIcon() {
-  return (
-    <svg className="startup-login-feature-icon startup-login-feature-icon--small" viewBox="0 0 14 14" aria-hidden="true">
-      <rect x="1" y="2" width="12" height="8" rx="1" />
-      <path d="M5.2 4.5L3.7 6l1.5 1.5M8.8 4.5L10.3 6 8.8 7.5M6.2 8l1.6-4M5 12h4M7 10v2" />
     </svg>
   )
 }

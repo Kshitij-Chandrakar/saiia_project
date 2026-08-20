@@ -1111,6 +1111,108 @@ test('refreshStartupContext skips redundant auth verification while cache is fre
   }
 })
 
+test('listCloudResumes returns safe metadata from authenticated backend route', async () => {
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.endsWith('/api/auth/me')) {
+        return jsonResponse(200, { user_id: 'user-1', email: 'user@example.com' })
+      }
+      if (url.endsWith('/api/auth/profile/bootstrap')) {
+        return jsonResponse(200, { ok: true })
+      }
+      if (url.endsWith('/api/resumes')) {
+        return jsonResponse(200, {
+          items: [
+            {
+              id: 'resume-1',
+              display_name: 'Product resume.pdf',
+              original_filename: 'Product resume.pdf',
+              status: 'ready',
+              index_status: 'indexed',
+              is_active: true,
+              updated_at: '2026-08-02T00:00:00Z',
+              storage_path: 'private/path',
+              raw_resume_text: 'private resume body',
+            },
+          ],
+        })
+      }
+      return jsonResponse(500, {})
+    },
+  })
+  try {
+    ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+
+    const result = await ctx.manager.listCloudResumes()
+
+    assert.equal(ctx.calls.some((call) => call.url.endsWith('/api/resumes')), true)
+    assert.deepEqual(result, {
+      items: [
+        {
+          id: 'resume-1',
+          display_name: 'Product resume.pdf',
+          original_filename: 'Product resume.pdf',
+          status: 'ready',
+          index_status: 'indexed',
+          is_active: true,
+          created_at: null,
+          updated_at: '2026-08-02T00:00:00Z',
+          chunk_count: null,
+        },
+      ],
+      error: '',
+    })
+    assert.equal(JSON.stringify(result).includes('private resume body'), false)
+    assert.equal(JSON.stringify(result).includes('private/path'), false)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('generateAnswer proxies selected resume requests with main-process bearer auth', async () => {
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.endsWith('/api/auth/me')) {
+        return jsonResponse(200, { user_id: 'user-1', email: 'user@example.com' })
+      }
+      if (url.endsWith('/api/auth/profile/bootstrap')) {
+        return jsonResponse(200, { ok: true })
+      }
+      if (url.endsWith('/generate/')) {
+        return jsonResponse(200, {
+          answer: 'Resume A answer',
+          resume_context_source: 'selected_resume',
+          selected_resume_id_used: true,
+          selected_resume_chunk_count: 2,
+        })
+      }
+      return jsonResponse(500, {})
+    },
+  })
+  try {
+    ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+
+    const result = await ctx.manager.generateAnswer({
+      question: 'Introduce yourself',
+      category: 'personal',
+      selected_resume_id: 'resume-1',
+    })
+
+    const generateCall = ctx.calls.find((call) => call.url.endsWith('/generate/'))
+    assert.equal(result.ok, true)
+    assert.equal(result.payload.answer, 'Resume A answer')
+    assert.equal(result.payload.resume_context_source, 'selected_resume')
+    assert.equal(result.payload.selected_resume_id_used, true)
+    assert.equal(result.payload.selected_resume_chunk_count, 2)
+    assert.equal(generateCall.init.headers.Authorization, 'Bearer access-token')
+    assert.equal(JSON.parse(generateCall.init.body).selected_resume_id, 'resume-1')
+  } finally {
+    ctx.cleanup()
+  }
+})
+
 test('refreshStartupContext verifies again when verification freshness expires', async () => {
   let now = 1000
   const ctx = createManager({
@@ -1793,16 +1895,32 @@ test('preload exposes exact narrow auth methods without raw tokens or generic fe
     'captureActiveWindowSequence',
     'captureScreen',
     'closeStartupWindow',
+    'generateAnswer',
     'getAuthState',
     'getCloudStartupContext',
+    'listCloudResumes',
     'listScreenSources',
     'logoutAuth',
+    'openDashboard',
     'refreshCloudStartupContext',
     'startAuthLogin',
   ].sort())
   assert.equal('access_token' in exposed.saiia, false)
   assert.equal('refresh_token' in exposed.saiia, false)
   assert.equal('fetch' in exposed.saiia, false)
+})
+
+test('main process opens dashboard externally through a validated http URL', () => {
+  const source = readFileSync(new URL('../electron/main.cjs', import.meta.url), 'utf8')
+
+  assert.match(source, /'SAIIA_WEB_DASHBOARD_URL'/)
+  assert.match(source, /'VITE_SAIIA_WEB_DASHBOARD_URL'/)
+  assert.match(source, /ipcMain\.handle\('dashboard:open', async \(event\) => \{/)
+  assert.match(source, /validateTrustedRendererIpc\(event\)/)
+  assert.match(source, /shell\.openExternal\(dashboardUrl\)/)
+  assert.match(source, /!\['http:', 'https:'\]\.includes\(parsed\.protocol\)/)
+  assert.match(source, /new URL\('\/auth\/dashboard', webAuthUrl\.origin\)\.toString\(\)/)
+  assert.doesNotMatch(source, /ipcMain\.handle\('dashboard:open'[\s\S]{0,160}rendererUrl/)
 })
 
 test('main process exits second instances before protocol registration and buffers early callbacks', () => {

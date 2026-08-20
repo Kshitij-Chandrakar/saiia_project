@@ -19,11 +19,14 @@ const electronAPI = {
   captureActiveWindowSequence: () => ipcRenderer.invoke('screen:capture-active-window-sequence'),
   completeStartup: () => ipcRenderer.invoke('startup:complete'),
   closeStartupWindow: () => ipcRenderer.invoke('startup:close'),
+  openDashboard: () => ipcRenderer.invoke('dashboard:open'),
   getAuthState: () => ipcRenderer.invoke('auth:get-state'),
   startAuthLogin: () => ipcRenderer.invoke('auth:start-login'),
   logoutAuth: () => ipcRenderer.invoke('auth:logout'),
   getCloudStartupContext: () => ipcRenderer.invoke('cloud:get-startup-context'),
   refreshCloudStartupContext: () => ipcRenderer.invoke('cloud:refresh-startup-context'),
+  listCloudResumes: () => ipcRenderer.invoke('cloud:list-resumes'),
+  generateAnswer: (body) => ipcRenderer.invoke('generate:answer', body),
   onOverlayState: (fn) => {
     const listener = (_event, payload) => fn(payload)
     ipcRenderer.on('overlay:state', listener)
@@ -44,8 +47,11 @@ contextBridge.exposeInMainWorld('saiia', {
   closeStartupWindow: electronAPI.closeStartupWindow,
   getAuthState: electronAPI.getAuthState,
   getCloudStartupContext: electronAPI.getCloudStartupContext,
+  generateAnswer: electronAPI.generateAnswer,
   listScreenSources: electronAPI.listScreenSources,
+  listCloudResumes: electronAPI.listCloudResumes,
   logoutAuth: electronAPI.logoutAuth,
+  openDashboard: electronAPI.openDashboard,
   refreshCloudStartupContext: electronAPI.refreshCloudStartupContext,
   startAuthLogin: electronAPI.startAuthLogin,
 })

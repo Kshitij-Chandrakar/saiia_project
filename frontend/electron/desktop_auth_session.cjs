@@ -73,6 +73,28 @@ function validateAuthSession(value) {
   return value
 }
 
+function safeCloudResumeItem(value = null) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+  const id = typeof value.id === 'string' ? value.id : ''
+  if (!id) {
+    return null
+  }
+  const displayName = String(value.display_name || value.original_filename || 'Uploaded resume').trim() || 'Uploaded resume'
+  return {
+    id,
+    display_name: displayName,
+    original_filename: typeof value.original_filename === 'string' ? value.original_filename : displayName,
+    status: typeof value.status === 'string' ? value.status : '',
+    index_status: typeof value.index_status === 'string' ? value.index_status : '',
+    is_active: Boolean(value.is_active),
+    created_at: typeof value.created_at === 'string' ? value.created_at : null,
+    updated_at: typeof value.updated_at === 'string' ? value.updated_at : null,
+    chunk_count: Number.isInteger(value.chunk_count) ? value.chunk_count : null,
+  }
+}
+
 function normalizeOrigin(url) {
   try {
     return new URL(String(url || '')).origin
@@ -567,14 +589,22 @@ class DesktopAuthSessionManager {
     return this.getSafeState()
   }
 
-  async _backendJson(route, method, accessToken) {
+  async _backendJson(route, method, accessToken, body = null) {
     try {
-      const response = await this.fetchImpl(`${this.backendUrl}${route}`, {
+      const headers = {
+        Authorization: `Bearer ${accessToken}`,
+      }
+      const options = {
         method,
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
+        headers,
         signal: this._requestSignal(),
+      }
+      if (body !== null) {
+        headers['Content-Type'] = 'application/json'
+        options.body = JSON.stringify(body)
+      }
+      const response = await this.fetchImpl(`${this.backendUrl}${route}`, {
+        ...options,
       })
       const payload = await response.json().catch(() => ({}))
       return { ok: response.ok, status: response.status, payload }
@@ -635,6 +665,60 @@ class DesktopAuthSessionManager {
       this.startupRefreshPromise = null
     })
     return this.startupRefreshPromise
+  }
+
+  async listCloudResumes() {
+    if (!this.session?.access_token) {
+      return { items: [], error: 'Log in to load resumes.' }
+    }
+    if (!this._hasFreshVerification(this.session)) {
+      await this._verifyAndBootstrap(this.session)
+    }
+    if (this.status !== AUTH_STATUSES.CONNECTED || !this.session?.access_token || !this.user?.user_id) {
+      return { items: [], error: safeErrorMessage(this.error) }
+    }
+
+    const captured = this.captureCloudRequestContext()
+    const response = await this._backendJson('/api/resumes', 'GET', this.session.access_token)
+    if (!this._cloudRequestStillCurrent(captured)) {
+      return { items: [], error: '' }
+    }
+    if (response.status === 401) {
+      this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
+      return { items: [], error: 'Session expired. Please log in again.' }
+    }
+    if (response.status === 0 || response.status === 503) {
+      return { items: [], error: 'Cloud temporarily unavailable.' }
+    }
+    if (!response.ok || !Array.isArray(response.payload?.items)) {
+      return { items: [], error: 'Unable to load resumes.' }
+    }
+    return {
+      items: response.payload.items.map(safeCloudResumeItem).filter(Boolean),
+      error: '',
+    }
+  }
+
+  async generateAnswer(body) {
+    if (!this.session?.access_token) {
+      return { ok: false, status: 401, payload: { detail: 'Log in to generate answers with a cloud resume.' } }
+    }
+    if (!this._hasFreshVerification(this.session)) {
+      await this._verifyAndBootstrap(this.session)
+    }
+    if (this.status !== AUTH_STATUSES.CONNECTED || !this.session?.access_token || !this.user?.user_id) {
+      return { ok: false, status: 401, payload: { detail: safeErrorMessage(this.error, 'Log in again and retry.') } }
+    }
+
+    const captured = this.captureCloudRequestContext()
+    const response = await this._backendJson('/generate/', 'POST', this.session.access_token, body || {})
+    if (!this._cloudRequestStillCurrent(captured)) {
+      return { ok: false, status: 409, payload: { detail: 'Session changed. Please retry.' } }
+    }
+    if (response.status === 401) {
+      this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
+    }
+    return response
   }
 
   async _refreshStartupContextOnce() {

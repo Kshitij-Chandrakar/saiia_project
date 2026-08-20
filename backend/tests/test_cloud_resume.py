@@ -1211,6 +1211,94 @@ def test_active_cloud_resume_retrieval_filters_active_generation() -> None:
     assert retrieval["retrieved_chunks"][0]["source"] == "cloud_resume"
 
 
+def test_selected_cloud_resume_retrieval_falls_back_to_indexed_selected_chunks() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(
+        status="ready",
+        is_active=False,
+        active_chunk_generation="active-generation",
+        confirmed_profile={"full_name": "Devanshu Chandrakar"},
+    )
+    client.chunks.append(
+        {
+            "user_id": USER_A,
+            "resume_id": RESUME_ID,
+            "generation_id": "active-generation",
+            "section": "projects",
+            "chunk_text": "Project: Low-resolution deepfake detection using TensorFlow and FastAPI.",
+            "metadata": {
+                "chunk_id": "selected-1",
+                "source": "cloud_resume",
+                "section": "projects",
+                "preview": "Project: Low-resolution deepfake detection",
+                "tokens": ["low", "resolution", "deepfake", "detection"],
+            },
+        }
+    )
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    retrieval = service.retrieve_resume_chunks(
+        user_id=USER_A,
+        resume_id=RESUME_ID,
+        question="Introduce yourself",
+        category="personal",
+    )
+
+    assert retrieval["retrieval_used"] is True
+    assert retrieval["retrieved_chunk_count"] == 1
+    assert retrieval["retrieved_chunks"][0]["text"].startswith("Project: Low-resolution deepfake detection")
+    assert retrieval["selected_resume_candidate_name"] == "Devanshu Chandrakar"
+    assert retrieval["selected_resume_candidate_name_source"] == "metadata"
+
+
+def test_selected_cloud_resume_retrieval_extracts_header_candidate_name_when_metadata_missing() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(
+        status="ready",
+        is_active=False,
+        active_chunk_generation="active-generation",
+    )
+    client.chunks.append(
+        {
+            "user_id": USER_A,
+            "resume_id": RESUME_ID,
+            "generation_id": "active-generation",
+            "section": "resume",
+            "chunk_text": "DEVANSHU CHANDRAKAR\nB.TECH - COMPUTER SCIENCE & ENGINEERING\nProject: Unique work",
+            "metadata": {"chunk_id": "header-1", "source": "cloud_resume", "section": "resume"},
+        }
+    )
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    retrieval = service.retrieve_resume_chunks(
+        user_id=USER_A,
+        resume_id=RESUME_ID,
+        question="Introduce yourself",
+        category="personal",
+    )
+
+    assert retrieval["selected_resume_candidate_name"] == "DEVANSHU CHANDRAKAR"
+    assert retrieval["selected_resume_candidate_name_source"] == "header"
+
+
+def test_selected_cloud_resume_retrieval_rejects_unindexed_selected_resume() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(
+        status="needs_review",
+        is_active=False,
+        active_chunk_generation=None,
+    )
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    with pytest.raises(CloudResumeValidationError):
+        service.retrieve_resume_chunks(
+            user_id=USER_A,
+            resume_id=RESUME_ID,
+            question="Introduce yourself",
+            category="personal",
+        )
+
+
 def test_delete_active_resume_marks_deleted_clears_chunks_and_current() -> None:
     client = FakeCloudResumeClient()
     client.records[(USER_A, RESUME_ID)] = _record(

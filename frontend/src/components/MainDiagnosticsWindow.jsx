@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react'
 import { createDesktopAuthRequestTracker, getDesktopAuthViewModel } from '../desktop_auth_ui.js'
 import { extractCopyableCode } from '../screen_mode_state.js'
 import StartupLoginScreen, { shouldShowStartupLogin } from './StartupLoginScreen.jsx'
+import StartupSessionChoiceScreen from './StartupSessionChoiceScreen.jsx'
+import StartupSessionSetupScreen from './StartupSessionSetupScreen.jsx'
 
 function formatTimeLabel(value) {
   if (!value) {
@@ -529,9 +531,12 @@ export default function MainDiagnosticsWindow(props) {
     eventLog,
     refinedAnswer,
     applyRefinedAnswer,
+    onStartupSessionConfigChange,
     onDesktopSignedOut,
   } = props
   const [startupAuthenticated, setStartupAuthenticated] = useState(false)
+  const [startupScreen, setStartupScreen] = useState('login')
+  const [startupSessionConfig, setStartupSessionConfig] = useState(null)
 
   const fallbackScreenAnswerText =
     !screenAnswerText && screenAnswerGenerated ? String(answer || '').trim() : ''
@@ -582,7 +587,36 @@ export default function MainDiagnosticsWindow(props) {
   if (!startupAuthenticated && shouldShowStartupLogin()) {
     return (
       <StartupLoginScreen
-        onAuthenticated={() => setStartupAuthenticated(true)}
+        onAuthenticated={() => {
+          setStartupAuthenticated(true)
+          setStartupScreen('session-choice')
+        }}
+      />
+    )
+  }
+
+  if (startupAuthenticated && startupScreen === 'session-choice') {
+    return (
+      <StartupSessionChoiceScreen
+        onCreateSession={() => {
+          setStartupSessionConfig(null)
+          onStartupSessionConfigChange?.(null)
+          setStartupScreen('session-setup')
+        }}
+      />
+    )
+  }
+
+  if (startupAuthenticated && startupScreen === 'session-setup') {
+    return (
+      <StartupSessionSetupScreen
+        initialConfig={startupSessionConfig}
+        onBack={() => setStartupScreen('session-choice')}
+        onStartSession={(nextConfig) => {
+          setStartupSessionConfig(nextConfig)
+          onStartupSessionConfigChange?.(nextConfig)
+          setStartupScreen('runtime')
+        }}
       />
     )
   }
@@ -695,6 +729,9 @@ export default function MainDiagnosticsWindow(props) {
             <DesktopAuthStatus onSignedOut={() => {
               onDesktopSignedOut?.()
               setStartupAuthenticated(false)
+              setStartupScreen('login')
+              setStartupSessionConfig(null)
+              onStartupSessionConfigChange?.(null)
             }} />
 
             <div className={`glass-card runtime-guide runtime-guide--${runtimeGuidance.tone}`}>
@@ -1373,6 +1410,50 @@ export default function MainDiagnosticsWindow(props) {
                   <MetaRow
                     label="Retrieved chunks"
                     value={pipelineTimings?.retrieved_chunk_count == null ? 'n/a' : String(pipelineTimings.retrieved_chunk_count)}
+                  />
+                  <MetaRow
+                    label="Resume context source"
+                    value={pipelineTimings?.resume_context_source || 'n/a'}
+                  />
+                  <MetaRow
+                    label="Selected resume"
+                    value={pipelineTimings?.selected_resume_name || 'n/a'}
+                  />
+                  <MetaRow
+                    label="Selected resume request"
+                    value={pipelineTimings?.generation_request_includes_selected_resume_id ? 'included' : 'not included'}
+                  />
+                  <MetaRow
+                    label="Selected resume chunks"
+                    value={pipelineTimings?.selected_resume_chunk_count == null ? 'n/a' : String(pipelineTimings.selected_resume_chunk_count)}
+                  />
+                  <MetaRow
+                    label="Selected resume name"
+                    value={
+                      pipelineTimings?.selected_resume_candidate_name_available == null
+                        ? 'n/a'
+                        : pipelineTimings.selected_resume_candidate_name_available
+                          ? 'available'
+                          : 'unavailable'
+                    }
+                  />
+                  <MetaRow
+                    label="Selected name source"
+                    value={pipelineTimings?.selected_resume_candidate_name_source || 'n/a'}
+                  />
+                  <MetaRow
+                    label="Context priority"
+                    value={pipelineTimings?.final_context_priority || 'n/a'}
+                  />
+                  <MetaRow
+                    label="Old profile suppressed"
+                    value={
+                      pipelineTimings?.profile_context_suppressed_by_selected_resume == null
+                        ? 'n/a'
+                        : pipelineTimings.profile_context_suppressed_by_selected_resume
+                          ? 'true'
+                          : 'false'
+                    }
                   />
                   <MetaRow
                     label="Prompt build"

@@ -27,6 +27,7 @@ import {
   getTabForAnswerMode,
   snapshotOverlayState,
 } from '../overlay_mode_state'
+import { createOverlayAuthStateTracker } from '../overlay_auth_state_tracker'
 import { shouldStartInitialScreenAnalysis } from '../screen_mode_state'
 
 function formatElapsedTime(startedAt) {
@@ -109,12 +110,17 @@ export default function OverlayWindow({ overlayState }) {
   )
   const [barsActive, setBarsActive] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [safeAuthState, setSafeAuthState] = useState(() => ({
+    status: 'signed-out',
+    email: null,
+  }))
   const [analyzeMenuOpen, setAnalyzeMenuOpen] = useState(false)
   const menuRef = useRef(null)
   const analyzeButtonRef = useRef(null)
   const analyzeMenuRef = useRef(null)
   const analyzeMenuItemRefs = useRef([])
   const lastAutoFocusAnswerKeyRef = useRef('')
+  const authStateTrackerRef = useRef(null)
   const [collapsed, setCollapsed] = useState(false)
   const [modeSnapshots, setModeSnapshots] = useState(() => ({
     answer: snapshotOverlayState({ ...overlayState, answer: '', transcript: '' }),
@@ -223,12 +229,52 @@ export default function OverlayWindow({ overlayState }) {
     })
   }, [closeAnalyzeMenu])
 
+  if (!authStateTrackerRef.current) {
+    authStateTrackerRef.current = createOverlayAuthStateTracker(setSafeAuthState)
+  }
+
+  const refreshSafeAuthState = useCallback(async () => {
+    await authStateTrackerRef.current.refresh(() => window.saiia?.getAuthState?.())
+  }, [])
+
+  const clearSafeAuthState = useCallback(() => {
+    authStateTrackerRef.current.clear()
+  }, [])
+
+  const handleOpenDashboard = useCallback(async () => {
+    setMenuOpen(false)
+    try {
+      await window.saiia?.openDashboard?.()
+    } catch {
+      // Dashboard opening is best-effort from the overlay menu.
+    }
+  }, [])
+
   useEffect(() => {
     const intervalId = window.setInterval(() => {
       setTime(formatElapsedTime(overlayState.sessionStartedAt || Date.now()))
     }, 1000)
     return () => window.clearInterval(intervalId)
   }, [overlayState.sessionStartedAt])
+
+  useEffect(() => {
+    refreshSafeAuthState()
+  }, [refreshSafeAuthState])
+
+  useEffect(() => {
+    if (overlayState.visible === false) {
+      clearSafeAuthState()
+    }
+  }, [overlayState.visible, clearSafeAuthState])
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return undefined
+    }
+    refreshSafeAuthState()
+    const intervalId = window.setInterval(refreshSafeAuthState, 1000)
+    return () => window.clearInterval(intervalId)
+  }, [menuOpen, refreshSafeAuthState])
 
   useEffect(() => {
     const owner = getPanelOwner(getTabForAnswerMode(overlayState.answerDisplayMode))
@@ -271,9 +317,9 @@ export default function OverlayWindow({ overlayState }) {
     setAnalyzeMenuOpen(false)
   }
 
-  const menuHeaderText = overlayState.provider
-    ? `Provider: ${overlayState.provider}`
-    : 'SAIIA Runtime'
+  const accountLabel = safeAuthState.status === 'connected'
+    ? safeAuthState.email || 'Signed in'
+    : ''
 
   const panelMode = useMemo(() => {
     if (activeTab === 'chat') {
@@ -635,13 +681,18 @@ export default function OverlayWindow({ overlayState }) {
                   <div className="topbar-menu no-drag">
                     <div className="topbar-menu__row topbar-menu__row--header">
                       <User size={16} className="topbar-menu__icon" />
-                      <span className="topbar-menu__text">{menuHeaderText}</span>
+                      <span className="topbar-menu__header-copy">
+                        <span className="topbar-menu__text">Intervu AI</span>
+                        {accountLabel ? (
+                          <span className="topbar-menu__account">{accountLabel}</span>
+                        ) : null}
+                      </span>
                     </div>
 
                     <button
                       type="button"
                       className="topbar-menu__row topbar-menu__row--button topbar-menu__row--bordered no-drag"
-                      onClick={() => window.electronAPI?.openMainPanel?.()}
+                      onClick={handleOpenDashboard}
                     >
                       <LayoutDashboard size={16} className="topbar-menu__icon" />
                       <span className="topbar-menu__text">Dashboard</span>

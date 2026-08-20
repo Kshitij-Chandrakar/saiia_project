@@ -5,10 +5,18 @@ import time
 import uuid
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from app.auth.supabase_auth import AUTH_ERROR_DETAIL, CurrentUser, get_current_user
+from app.cloud.cloud_resume import (
+    CloudResumeError,
+    CloudResumeNotFoundError,
+    CloudResumeService,
+    CloudResumeValidationError,
+)
+from app.cloud.supabase_config import SupabaseConfigurationError
 from app.config import settings
 from app.nlp.classifier import (
     classify_personal_subtype,
@@ -40,6 +48,10 @@ generator = AnswerGenerator(include_context=True)
 resume_index_service = ResumeIndexService()
 job_context_service = JobContextService()
 refinement_service = RefinementService()
+
+
+def _new_cloud_resume_service() -> CloudResumeService:
+    return CloudResumeService()
 
 
 def _infer_screen_problem_type(question: str, requested_type: str) -> str:
@@ -177,6 +189,179 @@ def _compose_problem_text_from_request(req: "GenerateRequest") -> str:
     return "\n\n".join(parts).strip()
 
 
+def _normalize_selected_resume_id(value: str | None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        return str(uuid.UUID(raw))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected resume id is invalid.") from exc
+
+
+def _current_user_for_selected_resume(req: "GenerateRequest", request: Request | None) -> CurrentUser | None:
+    if not _normalize_selected_resume_id(req.selected_resume_id):
+        return None
+    if request is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=AUTH_ERROR_DETAIL,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return get_current_user(request)
+
+
+def _retrieve_resume_context(
+    *,
+    req: "GenerateRequest",
+    request: Request | None,
+    use_profile_context: bool,
+    question: str,
+    category: str,
+) -> dict[str, Any]:
+    selected_resume_id = _normalize_selected_resume_id(req.selected_resume_id)
+    empty_source = "profile_fallback" if use_profile_context else "none"
+    empty = {
+        "retrieval_used": False,
+        "retrieved_chunks": [],
+        "retrieval_ms": 0.0,
+        "resume_context_source": empty_source,
+        "selected_resume_id_used": False,
+        "selected_resume_chunk_count": 0,
+        "selected_resume_candidate_name_available": False,
+        "selected_resume_candidate_name_source": "none",
+    }
+    if not selected_resume_id:
+        if not use_profile_context:
+            return empty
+        retrieval = resume_index_service.retrieve(
+            question=question,
+            category=category,
+            limit=settings.RAG_RETRIEVAL_LIMIT,
+        )
+        retrieval["resume_context_source"] = "local_resume" if retrieval.get("retrieved_chunks") else "profile_fallback"
+        retrieval["selected_resume_id_used"] = False
+        retrieval["selected_resume_chunk_count"] = 0
+        retrieval["selected_resume_candidate_name_available"] = False
+        retrieval["selected_resume_candidate_name_source"] = "none"
+        return retrieval
+
+    current_user = _current_user_for_selected_resume(req, request)
+    if current_user is None:
+        return empty
+    try:
+        retrieval = _new_cloud_resume_service().retrieve_resume_chunks(
+            user_id=current_user.user_id,
+            resume_id=selected_resume_id,
+            question=question,
+            category=category,
+            limit=settings.RAG_RETRIEVAL_LIMIT,
+        )
+        retrieval["resume_context_source"] = "selected_resume"
+        retrieval["selected_resume_id_used"] = True
+        retrieval["selected_resume_chunk_count"] = len(retrieval.get("retrieved_chunks") or [])
+        retrieval["selected_resume_candidate_name_available"] = bool(
+            _looks_like_candidate_name(str(retrieval.get("selected_resume_candidate_name") or ""))
+        )
+        retrieval["selected_resume_candidate_name_source"] = (
+            str(retrieval.get("selected_resume_candidate_name_source") or "none").strip().lower() or "none"
+        )
+        return retrieval
+    except CloudResumeNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Selected resume was not found.") from exc
+    except CloudResumeValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Selected resume is not ready for generation.") from exc
+    except SupabaseConfigurationError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Cloud resume context is unavailable.") from exc
+    except CloudResumeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Cloud resume context could not be loaded.") from exc
+
+
+def _selected_resume_context_active(retrieval: dict[str, Any]) -> bool:
+    return bool(retrieval.get("selected_resume_id_used") and retrieval.get("retrieved_chunks"))
+
+
+def _selected_resume_candidate_name(retrieved_chunks: list[dict[str, Any]]) -> str:
+    for chunk in retrieved_chunks:
+        if str(chunk.get("section") or "").strip().lower() != "full_name":
+            continue
+        candidate = str(chunk.get("text") or "").strip()
+        if _looks_like_candidate_name(candidate):
+            return candidate
+
+    for chunk in retrieved_chunks[:2]:
+        for line in str(chunk.get("text") or "").splitlines()[:2]:
+            candidate = line.strip(" \t:-|,")
+            if _looks_like_candidate_name(candidate):
+                return candidate
+    return ""
+
+
+def _looks_like_candidate_name(value: str) -> bool:
+    candidate = re.sub(r"\s+", " ", str(value or "").strip())
+    if not 3 <= len(candidate) <= 80 or any(char.isdigit() for char in candidate):
+        return False
+    lowered = candidate.lower()
+    if any(word in lowered for word in ("resume", "curriculum", "developer", "engineer", "student", "skills")):
+        return False
+    words = candidate.split()
+    if not 2 <= len(words) <= 5:
+        return False
+    return all(re.fullmatch(r"[A-Za-z][A-Za-z'.-]*", word) for word in words)
+
+
+def _selected_resume_profile(retrieved_chunks: list[dict[str, Any]], *, candidate_name: str = "") -> dict[str, Any]:
+    selected_texts = [
+        str(chunk.get("text") or "").strip()
+        for chunk in retrieved_chunks
+        if str(chunk.get("text") or "").strip()
+    ]
+    if not selected_texts:
+        return {}
+    combined = "\n".join(selected_texts)[:2400]
+    project_text = "\n".join(
+        str(chunk.get("text") or "").strip()
+        for chunk in retrieved_chunks
+        if str(chunk.get("section") or "").strip().lower() in {"projects", "project", "experience", "work_experience"}
+        and str(chunk.get("text") or "").strip()
+    )[:1200]
+    profile = {
+        "selected_resume_authoritative": True,
+        "resume": combined,
+        "professional_summary": combined,
+        "projects": project_text or combined,
+    }
+    candidate_name = candidate_name if _looks_like_candidate_name(candidate_name) else _selected_resume_candidate_name(retrieved_chunks)
+    if candidate_name:
+        profile["full_name"] = candidate_name
+    return profile
+
+
+def _generation_profile(req: "GenerateRequest", *, use_profile_context: bool, retrieval: dict[str, Any]) -> dict[str, Any]:
+    if _selected_resume_context_active(retrieval):
+        return _selected_resume_profile(
+            list(retrieval.get("retrieved_chunks") or []),
+            candidate_name=str(retrieval.get("selected_resume_candidate_name") or ""),
+        )
+    return (req.profile or {}) if use_profile_context else {}
+
+
+def _profile_suppressed_by_selected_resume(*, use_profile_context: bool, retrieval: dict[str, Any]) -> bool:
+    return bool(use_profile_context and _selected_resume_context_active(retrieval))
+
+
+def _generation_profile_context_enabled(*, use_profile_context: bool, retrieval: dict[str, Any]) -> bool:
+    return bool(use_profile_context or _selected_resume_context_active(retrieval))
+
+
+def _final_context_priority(*, use_profile_context: bool, retrieval: dict[str, Any]) -> str:
+    if _selected_resume_context_active(retrieval):
+        return "selected_resume_first"
+    if retrieval.get("resume_context_source") == "local_resume":
+        return "active_resume_first"
+    return "profile_fallback" if use_profile_context else "none"
+
+
 def _evaluate_hackerrank_context_readiness(
     *,
     platform: str,
@@ -229,6 +414,7 @@ class GenerateRequest(BaseModel):
     force_technical: Optional[bool] = False
     coding_answer_mode: Optional[bool] = False
     profile_context_used: Optional[bool] = True
+    selected_resume_id: Optional[str] = None
     recording_ms: Optional[float] = None
     upload_ms: Optional[float] = None
     transcription_ms: Optional[float] = None
@@ -266,6 +452,13 @@ class GenerateResponse(BaseModel):
     total_pipeline_ms: Optional[float] = None
     retrieval_used: Optional[bool] = None
     retrieved_chunk_count: Optional[int] = None
+    resume_context_source: Optional[str] = None
+    selected_resume_id_used: Optional[bool] = None
+    selected_resume_chunk_count: Optional[int] = None
+    selected_resume_candidate_name_available: Optional[bool] = None
+    selected_resume_candidate_name_source: Optional[str] = None
+    profile_context_suppressed_by_selected_resume: Optional[bool] = None
+    final_context_priority: Optional[str] = None
     profile_context_used: Optional[bool] = None
     generate_source: Optional[str] = None
     generate_question_type: Optional[str] = None
@@ -503,6 +696,19 @@ def _stream_safe_metadata(
         "total_pipeline_ms": total_pipeline_ms,
         "retrieval_used": bool(retrieval.get("retrieval_used")),
         "retrieved_chunk_count": len(retrieved_chunks),
+        "resume_context_source": retrieval.get("resume_context_source") or "none",
+        "selected_resume_id_used": bool(retrieval.get("selected_resume_id_used")),
+        "selected_resume_chunk_count": int(retrieval.get("selected_resume_chunk_count") or 0),
+        "selected_resume_candidate_name_available": bool(retrieval.get("selected_resume_candidate_name_available")),
+        "selected_resume_candidate_name_source": retrieval.get("selected_resume_candidate_name_source") or "none",
+        "profile_context_suppressed_by_selected_resume": _profile_suppressed_by_selected_resume(
+            use_profile_context=use_profile_context,
+            retrieval=retrieval,
+        ),
+        "final_context_priority": _final_context_priority(
+            use_profile_context=use_profile_context,
+            retrieval=retrieval,
+        ),
         "profile_context_used": use_profile_context,
         "job_context_used": bool(use_job_context and saved_job_context.get("saved")),
         "answer_type": result.get("answer_type"),
@@ -613,7 +819,7 @@ def _followup_intent_metadata(plan: Optional[FollowUpIntentPlan], context_entrie
 
 
 @router.post("/stream")
-async def generate_answer_stream(req: GenerateRequest):
+async def generate_answer_stream(req: GenerateRequest, request: Request = None):
     if not settings.ENABLE_TRUE_ANSWER_STREAMING:
         raise HTTPException(status_code=404, detail="True answer streaming is disabled.")
     if not req.question or not req.question.strip():
@@ -743,34 +949,38 @@ async def generate_answer_stream(req: GenerateRequest):
         )
         try:
             saved_job_context = job_context_service.get_context() if use_job_context else {"saved": False}
-            retrieval = (
-                resume_index_service.retrieve(
-                    question=generation_question,
-                    category=effective_category,
-                    limit=settings.RAG_RETRIEVAL_LIMIT,
-                )
-                if use_profile_context
-                else {"retrieval_used": False, "retrieved_chunks": [], "retrieval_ms": 0.0}
+            retrieval = _retrieve_resume_context(
+                req=req,
+                request=request,
+                use_profile_context=use_profile_context,
+                question=generation_question,
+                category=effective_category,
             )
             retrieval_used = retrieval["retrieval_used"]
             retrieved_chunks = retrieval["retrieved_chunks"]
             if retrieval["retrieval_ms"] > settings.RAG_TIMEOUT_MS:
-                retrieval_used = False
-                retrieved_chunks = []
+                if not retrieval.get("selected_resume_id_used"):
+                    retrieval_used = False
+                    retrieved_chunks = []
             retrieval["retrieval_used"] = retrieval_used
             retrieval["retrieved_chunks"] = retrieved_chunks
+            generation_profile = _generation_profile(req, use_profile_context=use_profile_context, retrieval=retrieval)
+            generation_profile_context_enabled = _generation_profile_context_enabled(
+                use_profile_context=use_profile_context,
+                retrieval=retrieval,
+            )
 
             for stream_item in generator.stream_openai_primary_answer(
                 question=generation_question,
                 question_type=effective_category,
-                profile=(req.profile or {}) if use_profile_context else {},
+                profile=generation_profile,
                 retrieved_snippets=retrieved_chunks,
                 job_context=saved_job_context if use_profile_context and saved_job_context.get("saved") else None,
                 source=source,
                 question_context_type=screen_question_type,
                 screen_question_type=screen_question_type,
                 coding_answer_mode=coding_answer_mode,
-                profile_context_enabled=use_profile_context,
+                profile_context_enabled=generation_profile_context_enabled,
                 editor_text=generation_editor_text,
                 answer_plan=answer_plan,
             ):
@@ -817,14 +1027,14 @@ async def generate_answer_stream(req: GenerateRequest):
             result = generator.generate_answer(
                 question=generation_question,
                 question_type=effective_category,
-                profile=(req.profile or {}) if use_profile_context else {},
+                profile=generation_profile,
                 retrieved_snippets=retrieved_chunks,
                 job_context=saved_job_context if use_profile_context and saved_job_context.get("saved") else None,
                 source=source,
                 question_context_type=screen_question_type,
                 screen_question_type=screen_question_type,
                 coding_answer_mode=coding_answer_mode,
-                profile_context_enabled=use_profile_context,
+                profile_context_enabled=generation_profile_context_enabled,
                 editor_text=generation_editor_text,
                 answer_plan=answer_plan,
                 primary_result_override=primary_result,
@@ -912,14 +1122,14 @@ async def generate_answer_stream(req: GenerateRequest):
                     fallback = generator.generate_answer(
                         question=generation_question,
                         question_type=effective_category,
-                        profile=(req.profile or {}) if use_profile_context else {},
-                        retrieved_snippets=[],
+                        profile=generation_profile,
+                        retrieved_snippets=retrieved_chunks if _selected_resume_context_active(retrieval) else [],
                         job_context=None,
                         source=source,
                         question_context_type=screen_question_type,
                         screen_question_type=screen_question_type,
                         coding_answer_mode=coding_answer_mode,
-                        profile_context_enabled=use_profile_context,
+                        profile_context_enabled=generation_profile_context_enabled,
                         editor_text=generation_editor_text,
                         answer_plan=answer_plan,
                     )
@@ -979,7 +1189,7 @@ async def generate_answer_stream(req: GenerateRequest):
 
 
 @router.post("/", response_model=GenerateResponse)
-async def generate_answer(req: GenerateRequest):
+async def generate_answer(req: GenerateRequest, request: Request = None):
     if not req.question or not req.question.strip():
         raise HTTPException(status_code=400, detail="`question` field cannot be empty.")
     if not req.category or not req.category.strip():
@@ -1024,6 +1234,13 @@ async def generate_answer(req: GenerateRequest):
             total_pipeline_ms=round((time.perf_counter() - started) * 1000, 2),
             retrieval_used=False,
             retrieved_chunk_count=0,
+            resume_context_source="none",
+            selected_resume_id_used=False,
+            selected_resume_chunk_count=0,
+            selected_resume_candidate_name_available=False,
+            selected_resume_candidate_name_source="none",
+            profile_context_suppressed_by_selected_resume=False,
+            final_context_priority="none",
             profile_context_used=False,
             job_context_used=False,
             generate_source=source or None,
@@ -1147,14 +1364,12 @@ async def generate_answer(req: GenerateRequest):
 
     try:
         saved_job_context = job_context_service.get_context() if use_job_context else {"saved": False}
-        retrieval = (
-            resume_index_service.retrieve(
-                question=generation_question,
-                category=effective_category,
-                limit=settings.RAG_RETRIEVAL_LIMIT,
-            )
-            if use_profile_context
-            else {"retrieval_used": False, "retrieved_chunks": [], "retrieval_ms": 0.0}
+        retrieval = _retrieve_resume_context(
+            req=req,
+            request=request,
+            use_profile_context=use_profile_context,
+            question=generation_question,
+            category=effective_category,
         )
         retrieval_used = retrieval["retrieval_used"]
         retrieved_chunks = retrieval["retrieved_chunks"]
@@ -1165,19 +1380,27 @@ async def generate_answer(req: GenerateRequest):
                 settings.RAG_TIMEOUT_MS,
                 len(req.question.strip()),
             )
-            retrieval_used = False
-            retrieved_chunks = []
+            if not retrieval.get("selected_resume_id_used"):
+                retrieval_used = False
+                retrieved_chunks = []
+        retrieval["retrieval_used"] = retrieval_used
+        retrieval["retrieved_chunks"] = retrieved_chunks
+        generation_profile = _generation_profile(req, use_profile_context=use_profile_context, retrieval=retrieval)
+        generation_profile_context_enabled = _generation_profile_context_enabled(
+            use_profile_context=use_profile_context,
+            retrieval=retrieval,
+        )
         result = generator.generate_answer(
             question=generation_question,
             question_type=effective_category,
-            profile=(req.profile or {}) if use_profile_context else {},
+            profile=generation_profile,
             retrieved_snippets=retrieved_chunks,
             job_context=saved_job_context if use_profile_context and saved_job_context.get("saved") else None,
             source=source,
             question_context_type=screen_question_type,
             screen_question_type=screen_question_type,
             coding_answer_mode=coding_answer_mode,
-            profile_context_enabled=use_profile_context,
+            profile_context_enabled=generation_profile_context_enabled,
             editor_text=generation_editor_text,
             answer_plan=answer_plan,
         )
@@ -1316,6 +1539,19 @@ async def generate_answer(req: GenerateRequest):
             total_pipeline_ms=total_pipeline_ms,
             retrieval_used=retrieval_used,
             retrieved_chunk_count=len(retrieved_chunks),
+            resume_context_source=retrieval.get("resume_context_source") or "none",
+            selected_resume_id_used=bool(retrieval.get("selected_resume_id_used")),
+            selected_resume_chunk_count=int(retrieval.get("selected_resume_chunk_count") or 0),
+            selected_resume_candidate_name_available=bool(retrieval.get("selected_resume_candidate_name_available")),
+            selected_resume_candidate_name_source=retrieval.get("selected_resume_candidate_name_source") or "none",
+            profile_context_suppressed_by_selected_resume=_profile_suppressed_by_selected_resume(
+                use_profile_context=use_profile_context,
+                retrieval=retrieval,
+            ),
+            final_context_priority=_final_context_priority(
+                use_profile_context=use_profile_context,
+                retrieval=retrieval,
+            ),
             profile_context_used=use_profile_context,
             answer_type=result.get("answer_type"),
             plan_confidence=result.get("plan_confidence"),
@@ -1564,6 +1800,13 @@ async def generate_answer(req: GenerateRequest):
             total_pipeline_ms=total_pipeline_ms,
             retrieval_used=False,
             retrieved_chunk_count=0,
+            resume_context_source="none",
+            selected_resume_id_used=False,
+            selected_resume_chunk_count=0,
+            selected_resume_candidate_name_available=False,
+            selected_resume_candidate_name_source="none",
+            profile_context_suppressed_by_selected_resume=False,
+            final_context_priority="none",
             profile_context_used=use_profile_context,
             answer_type=result.get("answer_type"),
             plan_confidence=result.get("plan_confidence"),
@@ -1711,31 +1954,37 @@ async def generate_answer(req: GenerateRequest):
         )
     except JobContextError as exc:
         logger.warning("Job context load failed for question_len=%s error=%s", len(req.question.strip()), exc)
-        retrieval = (
-            resume_index_service.retrieve(
-                question=generation_question,
-                category=effective_category,
-                limit=settings.RAG_RETRIEVAL_LIMIT,
-            )
-            if use_profile_context
-            else {"retrieval_used": False, "retrieved_chunks": [], "retrieval_ms": 0.0}
+        retrieval = _retrieve_resume_context(
+            req=req,
+            request=request,
+            use_profile_context=use_profile_context,
+            question=generation_question,
+            category=effective_category,
         )
         retrieval_used = retrieval["retrieval_used"]
         retrieved_chunks = retrieval["retrieved_chunks"]
         if retrieval["retrieval_ms"] > settings.RAG_TIMEOUT_MS:
-            retrieval_used = False
-            retrieved_chunks = []
+            if not retrieval.get("selected_resume_id_used"):
+                retrieval_used = False
+                retrieved_chunks = []
+        retrieval["retrieval_used"] = retrieval_used
+        retrieval["retrieved_chunks"] = retrieved_chunks
+        generation_profile = _generation_profile(req, use_profile_context=use_profile_context, retrieval=retrieval)
+        generation_profile_context_enabled = _generation_profile_context_enabled(
+            use_profile_context=use_profile_context,
+            retrieval=retrieval,
+        )
         result = generator.generate_answer(
             question=generation_question,
             question_type=effective_category,
-            profile=(req.profile or {}) if use_profile_context else {},
+            profile=generation_profile,
             retrieved_snippets=retrieved_chunks,
             job_context=None,
             source=source,
             question_context_type=screen_question_type,
             screen_question_type=screen_question_type,
             coding_answer_mode=coding_answer_mode,
-            profile_context_enabled=use_profile_context,
+            profile_context_enabled=generation_profile_context_enabled,
             editor_text=generation_editor_text,
             answer_plan=answer_plan,
         )
@@ -1826,6 +2075,19 @@ async def generate_answer(req: GenerateRequest):
             total_pipeline_ms=total_pipeline_ms,
             retrieval_used=retrieval_used,
             retrieved_chunk_count=len(retrieved_chunks),
+            resume_context_source=retrieval.get("resume_context_source") or "none",
+            selected_resume_id_used=bool(retrieval.get("selected_resume_id_used")),
+            selected_resume_chunk_count=int(retrieval.get("selected_resume_chunk_count") or 0),
+            selected_resume_candidate_name_available=bool(retrieval.get("selected_resume_candidate_name_available")),
+            selected_resume_candidate_name_source=retrieval.get("selected_resume_candidate_name_source") or "none",
+            profile_context_suppressed_by_selected_resume=_profile_suppressed_by_selected_resume(
+                use_profile_context=use_profile_context,
+                retrieval=retrieval,
+            ),
+            final_context_priority=_final_context_priority(
+                use_profile_context=use_profile_context,
+                retrieval=retrieval,
+            ),
             profile_context_used=use_profile_context,
             answer_type=result.get("answer_type"),
             plan_confidence=result.get("plan_confidence"),
@@ -2008,6 +2270,8 @@ async def generate_answer(req: GenerateRequest):
             status_code=500,
             detail=str(exc),
         ) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Error generating answer: %s", exc)
         raise HTTPException(

@@ -1,6 +1,17 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { createOverlayAuthStateTracker } from './overlay_auth_state_tracker.js'
+
+function deferred() {
+  let resolve
+  let reject
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
 
 test('floating toolbar places Stop between Chat and timer', () => {
   const source = readFileSync(new URL('./components/OverlayWindow.jsx', import.meta.url), 'utf8')
@@ -37,4 +48,47 @@ test('stop action is non-destructive and separate from end session', () => {
   assert.match(stopFunction, /activeGenerateAbortControllerRef\.current\?\.abort\(\)/)
   assert.doesNotMatch(stopFunction, /clearAnswerState\(\)/)
   assert.doesNotMatch(stopFunction, /clearTranscriptState\(\)/)
+})
+
+test('runtime dropdown dashboard uses safe desktop opener and shows safe account email', () => {
+  const source = readFileSync(new URL('./components/OverlayWindow.jsx', import.meta.url), 'utf8')
+  const styles = readFileSync(new URL('./styles/glass.css', import.meta.url), 'utf8')
+
+  assert.match(source, /window\.saiia\?\.openDashboard\?\.\(\)/)
+  assert.match(source, /onClick=\{handleOpenDashboard\}/)
+  assert.doesNotMatch(source, /onClick=\{\(\) => window\.electronAPI\?\.openMainPanel/)
+  assert.match(source, /window\.saiia\?\.getAuthState\?\.\(\)/)
+  assert.match(source, /safeAuthState\.status === 'connected'/)
+  assert.match(source, /safeAuthState\.email \|\| 'Signed in'/)
+  assert.match(source, /topbar-menu__account/)
+  assert.match(styles, /\.topbar-menu__account\s*\{[\s\S]*text-overflow:\s*ellipsis/)
+})
+
+test('runtime dropdown auth state ignores stale responses after logout', async () => {
+  const appliedStates = []
+  const tracker = createOverlayAuthStateTracker((state) => {
+    appliedStates.push(state)
+  })
+  const signedInRequest = deferred()
+  const signedOutRequest = deferred()
+
+  const signedInRefresh = tracker.refresh(() => signedInRequest.promise)
+  const signedOutRefresh = tracker.refresh(() => signedOutRequest.promise)
+
+  signedOutRequest.resolve({ status: 'signed-out', email: null })
+  assert.equal(await signedOutRefresh, true)
+  assert.deepEqual(appliedStates.at(-1), { status: 'signed-out', email: null })
+
+  signedInRequest.resolve({ status: 'connected', email: 'old-user@example.com' })
+  assert.equal(await signedInRefresh, false)
+  assert.deepEqual(appliedStates.at(-1), { status: 'signed-out', email: null })
+
+  const pendingBeforeLogout = deferred()
+  const pendingRefresh = tracker.refresh(() => pendingBeforeLogout.promise)
+  tracker.clear()
+  assert.deepEqual(appliedStates.at(-1), { status: 'signed-out', email: null })
+
+  pendingBeforeLogout.resolve({ status: 'connected', email: 'late-user@example.com' })
+  assert.equal(await pendingRefresh, false)
+  assert.deepEqual(appliedStates.at(-1), { status: 'signed-out', email: null })
 })
