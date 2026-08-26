@@ -90,8 +90,11 @@ function safeCloudResumeItem(value = null) {
     index_status: typeof value.index_status === 'string' ? value.index_status : '',
     is_active: Boolean(value.is_active),
     created_at: typeof value.created_at === 'string' ? value.created_at : null,
+    uploaded_at: typeof value.uploaded_at === 'string' ? value.uploaded_at : null,
     updated_at: typeof value.updated_at === 'string' ? value.updated_at : null,
     chunk_count: Number.isInteger(value.chunk_count) ? value.chunk_count : null,
+    can_generate: value.can_generate === true,
+    readiness_reason: typeof value.readiness_reason === 'string' ? value.readiness_reason : 'unknown',
   }
 }
 

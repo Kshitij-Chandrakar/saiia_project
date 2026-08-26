@@ -1509,6 +1509,7 @@ function createOverlayWindow() {
 
   overlayWindow.setAlwaysOnTop(true, 'screen-saver')
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+
   overlayWindow.setOpacity(overlayOpacity)
   queueOverlayBoundsSave(initialBounds)
   loadWindow(overlayWindow, 'overlay')

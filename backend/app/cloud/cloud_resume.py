@@ -54,6 +54,60 @@ SUPABASE_HTTP_POOL_SIZE = 20
 SUPABASE_SELECT_ATTEMPT_TIMEOUT = 5
 SUPABASE_ACTIVE_CHUNK_PAGE_SIZE = 100
 SUPABASE_ACTIVE_CHUNK_HARD_LIMIT = 500
+PROJECT_CONTEXT_LIMIT_FLOOR = 4
+SPECIFIC_PROJECT_CONTEXT_LIMIT = 6
+PROJECT_SECTION_NAMES = {"projects", "project", "experience", "work_experience", "internship"}
+PROJECT_INDEX_FIELDS = ("projects", "experience", "work_experience")
+PROJECT_KEYWORDS = {
+    "project",
+    "projects",
+    "experience",
+    "internship",
+    "work",
+    "built",
+    "build",
+    "developed",
+    "implemented",
+    "created",
+    "designed",
+    "rag",
+    "langchain",
+    "fastapi",
+    "api",
+    "apis",
+    "chroma",
+    "vector",
+    "embedding",
+    "embeddings",
+    "semantic",
+    "search",
+    "tensorflow",
+    "deployed",
+}
+PROJECT_INTENT_RE = re.compile(
+    r"\b(project|projects|portfolio|built|created|developed|implemented|work experience|experience|internship|resume project)\b",
+    re.IGNORECASE,
+)
+PROJECT_SPECIFIC_LEAD_RE = re.compile(
+    r"^(?:explain|tell me about|describe|walk me through|how did you build|what was your role in|why did you use)\s+",
+    re.IGNORECASE,
+)
+PROJECT_TRAILING_FILLER_RE = re.compile(
+    r"\b(from my selected resume|from the selected resume|from your resume|in your resume|project|projects)\b",
+    re.IGNORECASE,
+)
+PROJECT_TECH_TERM_RE = re.compile(
+    r"\b(faiss|minilm|streamlit|fastapi|langchain|chroma|gemini api|tensorflow|vector retrieval|semantic search|rag)\b",
+    re.IGNORECASE,
+)
+PROJECT_HEADING_PATTERNS = (
+    ("projects", re.compile(r"^(projects?|academic projects?|personal projects?)\s*:?\s*$", re.IGNORECASE)),
+    ("work_experience", re.compile(r"^(work experience|professional experience|experience|internships?)\s*:?\s*$", re.IGNORECASE)),
+)
+RESUME_SECTION_STOP_RE = re.compile(
+    r"^(skills?|technical skills?|tools|frameworks|education|certifications?|achievements?|summary|professional summary|profile|contact|languages?)\s*:?\s*$",
+    re.IGNORECASE,
+)
 
 
 class CloudResumeError(RuntimeError):
@@ -147,6 +201,13 @@ class RebuildResult:
     active_chunk_generation: str
     chunk_count: int
     message: str
+
+
+@dataclass(frozen=True)
+class ResumeReadiness:
+    chunk_count: int | None
+    can_generate: bool
+    readiness_reason: str
 
 
 def _record_from_payload(payload: dict[str, Any]) -> CloudResumeRecord:
@@ -723,6 +784,50 @@ class CloudResumeService:
     def list_resumes(self, user_id: str) -> list[CloudResumeRecord]:
         return self._client.list_resumes(user_id)
 
+    def get_resume_readiness(self, *, user_id: str, record: CloudResumeRecord) -> ResumeReadiness:
+        reason = self._readiness_reason(record, chunk_count=None)
+        if reason != "unknown":
+            return ResumeReadiness(chunk_count=None, can_generate=False, readiness_reason=reason)
+
+        rows = self._client.get_active_resume_chunks(
+            user_id=user_id,
+            resume_id=record.id,
+            generation_id=record.active_chunk_generation or "",
+        )
+        chunk_count = len(rows)
+        reason = self._readiness_reason(record, chunk_count=chunk_count)
+        return ResumeReadiness(
+            chunk_count=chunk_count,
+            can_generate=reason == "ready",
+            readiness_reason=reason,
+        )
+
+    @staticmethod
+    def _readiness_reason(record: CloudResumeRecord, *, chunk_count: int | None) -> str:
+        status_value = str(record.status or "").strip().lower()
+        parser_status = str(record.parser_status or "").strip().lower()
+        extraction_status = str(record.extraction_status or "").strip().lower()
+        index_status = str(record.index_status or "").strip().lower()
+        if (
+            status_value == "failed"
+            or parser_status == "failed"
+            or extraction_status == "failed"
+            or index_status == "failed"
+            or record.failure_code
+        ):
+            return "failed"
+        if status_value in {"extracting", "indexing"} or "processing" in {parser_status, extraction_status, index_status}:
+            return "processing"
+        if status_value == "needs_review" or record.review_required:
+            return "needs_confirmation"
+        if status_value != "ready" or index_status != "indexed" or not record.active_chunk_generation:
+            return "not_indexed"
+        if chunk_count is None:
+            return "unknown"
+        if chunk_count <= 0:
+            return "no_chunks"
+        return "ready"
+
     def get_review_candidate(self, user_id: str) -> CloudResumeRecord | None:
         return self._client.get_review_candidate(user_id)
 
@@ -779,6 +884,10 @@ class CloudResumeService:
                 resume_id=resume_id,
                 generation_id=generation_id,
                 confirmed_profile=current.confirmed_profile,
+                extra_documents=self._supplemental_project_documents(
+                    record=current,
+                    confirmed_profile=current.confirmed_profile,
+                ),
             )
             self._client.insert_resume_chunks(chunks)
             inserted_generation = True
@@ -910,6 +1019,7 @@ class CloudResumeService:
         extraction_attempt: int,
         confirmed_profile: dict[str, Any],
     ) -> ConfirmResult:
+        current = self._client.get_resume(resume_id, user_id)
         normalized_profile = validate_confirmed_profile(confirmed_profile)
         self._client.compare_and_set_resume(
             resume_id,
@@ -937,6 +1047,10 @@ class CloudResumeService:
                 resume_id=resume_id,
                 generation_id=generation_id,
                 confirmed_profile=normalized_profile,
+                extra_documents=self._supplemental_project_documents(
+                    record=current,
+                    confirmed_profile=normalized_profile,
+                ),
             )
             stage = "insert_chunks"
             self._client.insert_resume_chunks(chunks)
@@ -1050,10 +1164,58 @@ class CloudResumeService:
         if not chunks:
             raise CloudResumeValidationError("Selected resume has no indexed chunks.")
         candidate_name, candidate_name_source = self._selected_resume_candidate_name(selected, chunks)
+        specific_project_name = self._specific_project_name_from_question(question)
+        project_intent = self._project_intent_detected(question) or bool(specific_project_name)
+        if project_intent:
+            project_focus = self._project_focus_chunks(
+                chunks,
+                question=question,
+                limit=max(
+                    int(limit or 1),
+                    SPECIFIC_PROJECT_CONTEXT_LIMIT if specific_project_name else PROJECT_CONTEXT_LIMIT_FLOOR,
+                ),
+                specific_project_name=specific_project_name,
+            )
+            project_chunks = project_focus["chunks"]
+            if not project_chunks:
+                if specific_project_name:
+                    raise CloudResumeValidationError("That specific project was not found in the selected resume.")
+                raise CloudResumeValidationError(
+                    "The selected resume is ready, but it does not contain enough project details to answer this accurately."
+                )
+            return {
+                "retrieval_used": True,
+                "retrieved_chunk_count": len(project_chunks),
+                "retrieved_chunks": [
+                    {
+                        "chunk_id": chunk["chunk_id"],
+                        "source": chunk["source"],
+                        "section": chunk["section"],
+                        "text": chunk["text"],
+                        "preview": chunk["preview"],
+                    }
+                    for chunk in project_chunks
+                ],
+                "retrieval_ms": 0.0,
+                "selected_resume_candidate_name": candidate_name,
+                "selected_resume_candidate_name_source": candidate_name_source,
+                "project_context_chunks_found": len(project_chunks),
+                "project_context_source": str(project_focus.get("context_source") or "selected_resume_projects"),
+                "specific_project_intent_detected": bool(project_focus.get("specific_project_intent_detected")),
+                "matched_project_name": str(project_focus.get("matched_project_name") or ""),
+                "project_match_confidence": str(project_focus.get("project_match_confidence") or "general"),
+                "project_answer_mode": str(project_focus.get("project_answer_mode") or "general_projects"),
+            }
         retrieval = self._indexer.retrieve_from_chunks(chunks, question=question, category=category, limit=limit)
         if retrieval.get("retrieved_chunks"):
             retrieval["selected_resume_candidate_name"] = candidate_name
             retrieval["selected_resume_candidate_name_source"] = candidate_name_source
+            retrieval["project_context_chunks_found"] = 0
+            retrieval["project_context_source"] = "selected_resume_general"
+            retrieval["specific_project_intent_detected"] = False
+            retrieval["matched_project_name"] = ""
+            retrieval["project_match_confidence"] = "none"
+            retrieval["project_answer_mode"] = "none"
             return retrieval
         fallback_chunks = chunks[: max(1, int(limit or 1))]
         return {
@@ -1072,7 +1234,154 @@ class CloudResumeService:
             "retrieval_ms": retrieval.get("retrieval_ms", 0.0),
             "selected_resume_candidate_name": candidate_name,
             "selected_resume_candidate_name_source": candidate_name_source,
+            "project_context_chunks_found": 0,
+            "project_context_source": "selected_resume_general",
+            "specific_project_intent_detected": False,
+            "matched_project_name": "",
+            "project_match_confidence": "none",
+            "project_answer_mode": "none",
         }
+
+    @staticmethod
+    def _project_intent_detected(question: str) -> bool:
+        return bool(PROJECT_INTENT_RE.search(str(question or "")))
+
+    def _project_focus_chunks(
+        self,
+        chunks: list[dict[str, Any]],
+        *,
+        question: str,
+        limit: int,
+        specific_project_name: str = "",
+    ) -> dict[str, Any]:
+        query_tokens = set(re.findall(r"[a-z0-9]+", str(question or "").lower()))
+        specific_normalized = self._normalize_project_name(specific_project_name)
+        best_title = ""
+        best_confidence = "none"
+        scored: list[tuple[int, str, dict[str, Any]]] = []
+        for chunk in chunks:
+            section = str(chunk.get("section") or "").strip().lower()
+            text = str(chunk.get("text") or "")
+            text_tokens = set(re.findall(r"[a-z0-9]+", text.lower()))
+            all_tokens = text_tokens | {str(token).lower() for token in list(chunk.get("tokens") or [])}
+            section_match = section in PROJECT_SECTION_NAMES
+            keyword_hits = len(all_tokens & PROJECT_KEYWORDS)
+            query_hits = len(all_tokens & query_tokens)
+            if not section_match and keyword_hits <= 0:
+                continue
+            project_title = self._project_title_from_chunk(text)
+            project_title_normalized = self._normalize_project_name(project_title)
+            exact_match = bool(
+                specific_normalized
+                and project_title_normalized
+                and (
+                    project_title_normalized == specific_normalized
+                    or specific_normalized in project_title_normalized
+                    or project_title_normalized in specific_normalized
+                )
+            )
+            partial_match = bool(
+                specific_normalized
+                and not exact_match
+                and (
+                    self._project_term_overlap(project_title_normalized, specific_normalized) >= 2
+                    or self._project_term_overlap(self._normalize_project_name(text[:220]), specific_normalized) >= 2
+                )
+            )
+            tech_match = bool(
+                specific_normalized
+                and not exact_match
+                and not partial_match
+                and self._project_term_overlap(self._normalize_project_name(text), specific_normalized) >= 1
+            )
+            score = (100 if section_match else 0) + (keyword_hits * 5) + query_hits
+            if exact_match:
+                score += 500
+            elif partial_match:
+                score += 250
+            elif tech_match:
+                score += 120
+            confidence = "exact" if exact_match else "partial" if partial_match or tech_match else "general"
+            if confidence in {"exact", "partial"} and project_title:
+                if best_confidence not in {"exact", "partial"} or confidence == "exact":
+                    best_title = project_title
+                    best_confidence = confidence
+            scored.append((score, confidence, chunk))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        if specific_normalized:
+            matched_scored = [item for item in scored if item[1] in {"exact", "partial"}]
+            if not matched_scored:
+                return {
+                    "chunks": [],
+                    "specific_project_intent_detected": True,
+                    "matched_project_name": "",
+                    "project_match_confidence": "none",
+                    "project_answer_mode": "insufficient_context",
+                    "context_source": "insufficient",
+                }
+            selected_chunks = [chunk for _, _, chunk in matched_scored[: max(1, int(limit or 1))]]
+            return {
+                "chunks": selected_chunks,
+                "specific_project_intent_detected": True,
+                "matched_project_name": best_title or specific_project_name,
+                "project_match_confidence": best_confidence if best_confidence in {"exact", "partial"} else "partial",
+                "project_answer_mode": "detailed_specific_project",
+                "context_source": "selected_resume_projects",
+            }
+        selected_chunks = [chunk for _, _, chunk in scored[: max(1, int(limit or 1))]]
+        return {
+            "chunks": selected_chunks,
+            "specific_project_intent_detected": False,
+            "matched_project_name": "",
+            "project_match_confidence": "general" if selected_chunks else "none",
+            "project_answer_mode": "general_projects" if selected_chunks else "insufficient_context",
+            "context_source": "selected_resume_projects" if selected_chunks else "insufficient",
+        }
+
+    @staticmethod
+    def _normalize_project_name(value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+    @staticmethod
+    def _project_term_overlap(left: str, right: str) -> int:
+        if not left or not right:
+            return 0
+        left_terms = {term for term in left.split() if len(term) > 2}
+        right_terms = {term for term in right.split() if len(term) > 2}
+        return len(left_terms & right_terms)
+
+    @staticmethod
+    def _project_title_from_chunk(text: str) -> str:
+        first_line = str(text or "").splitlines()[0].strip(" \t:-|,")
+        if not first_line:
+            return ""
+        if " - " in first_line:
+            first_line = first_line.split(" - ", 1)[0].strip()
+        if ":" in first_line and len(first_line.split(":", 1)[0].split()) <= 6:
+            first_line = first_line.split(":", 1)[0].strip()
+        return first_line[:120]
+
+    def _specific_project_name_from_question(self, question: str) -> str:
+        raw = str(question or "").strip()
+        if not raw:
+            return ""
+        lead_match = PROJECT_SPECIFIC_LEAD_RE.match(raw)
+        quoted = re.search(r"[\"“”']([^\"“”']{4,120})[\"“”']", raw)
+        if quoted:
+            return quoted.group(1).strip()
+        if not lead_match:
+            return ""
+        trimmed = PROJECT_SPECIFIC_LEAD_RE.sub("", raw).strip(" ?!.,")
+        trimmed = PROJECT_TRAILING_FILLER_RE.sub("", trimmed).strip(" ?!.,")
+        if not trimmed:
+            return ""
+        if PROJECT_TECH_TERM_RE.search(trimmed) and len(trimmed.split()) <= 4:
+            return ""
+        if re.search(r"\b(it|this|that|them|those)\b", trimmed.lower()):
+            return ""
+        if len(trimmed.split()) >= 2 and re.search(r"[A-Z]", trimmed):
+            return trimmed[:120]
+        return ""
 
     def _selected_resume_candidate_name(
         self,
@@ -1140,12 +1449,18 @@ class CloudResumeService:
         resume_id: str,
         generation_id: str,
         confirmed_profile: dict[str, Any],
+        extra_documents: list[dict[str, str]] | None = None,
     ) -> list[dict[str, Any]]:
         documents = []
         for field in CLOUD_INDEX_PROFILE_FIELDS:
             value = str(confirmed_profile.get(field) or "").strip()
             if value:
                 documents.append({"section": field, "text": value})
+        for document in extra_documents or []:
+            section = str(document.get("section") or "").strip()
+            text = str(document.get("text") or "").strip()
+            if section and text:
+                documents.append({"section": section, "text": text})
         chunks = self._indexer.build_chunks_from_documents(documents)
         if not chunks:
             raise ResumeIndexError("Could not build cloud resume chunks from the confirmed profile.")
@@ -1169,6 +1484,98 @@ class CloudResumeService:
                 }
             )
         return rows
+
+    def _supplemental_project_documents(
+        self,
+        *,
+        record: CloudResumeRecord,
+        confirmed_profile: dict[str, Any],
+    ) -> list[dict[str, str]]:
+        raw_text = self._load_resume_text_for_index(record)
+        if not raw_text:
+            return []
+        existing_lines = {
+            re.sub(r"\s+", " ", line.strip().lower())
+            for field in PROJECT_INDEX_FIELDS
+            for line in str(confirmed_profile.get(field) or "").splitlines()
+            if line.strip()
+        }
+        documents: list[dict[str, str]] = []
+        for section, text in self._project_documents_from_resume_text(raw_text).items():
+            lines = []
+            for line in text.splitlines():
+                normalized = re.sub(r"\s+", " ", line.strip().lower())
+                if not normalized or normalized in existing_lines:
+                    continue
+                existing_lines.add(normalized)
+                lines.append(line.strip())
+            if lines:
+                documents.append({"section": section, "text": "\n".join(lines)})
+        return documents
+
+    def _load_resume_text_for_index(self, record: CloudResumeRecord) -> str:
+        try:
+            content = self._client.download_resume_object(record.storage_path)
+        except CloudResumeError as exc:
+            logger.warning(
+                "Could not load resume text for index enrichment resume_id=%s user_id=%s error_type=%s",
+                record.id,
+                record.user_id,
+                type(exc).__name__,
+            )
+            return ""
+        resume_service = getattr(self._parser, "resume_service", None)
+        if resume_service is not None and hasattr(resume_service, "extract_text"):
+            try:
+                return str(resume_service.extract_text(filename=record.original_filename, content=content) or "")
+            except Exception as exc:  # pragma: no cover - defensive fallback
+                logger.warning(
+                    "Could not extract resume text for index enrichment resume_id=%s user_id=%s error_type=%s",
+                    record.id,
+                    record.user_id,
+                    type(exc).__name__,
+                )
+                return ""
+        try:
+            parsed = self._parser.extract_profile(filename=record.original_filename, content=content)
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.warning(
+                "Could not parse resume for index enrichment resume_id=%s user_id=%s error_type=%s",
+                record.id,
+                record.user_id,
+                type(exc).__name__,
+            )
+            return ""
+        profile = parsed.get("profile") if isinstance(parsed, dict) else {}
+        return str((profile or {}).get("raw_resume_text") or "")
+
+    def _project_documents_from_resume_text(self, raw_text: str) -> dict[str, str]:
+        buffers: dict[str, list[str]] = {"projects": [], "work_experience": []}
+        current_section = ""
+        for raw_line in str(raw_text or "").splitlines():
+            line = re.sub(r"\s+", " ", raw_line.strip())
+            if not line:
+                continue
+            matched_section = next(
+                (section for section, pattern in PROJECT_HEADING_PATTERNS if pattern.fullmatch(line)),
+                "",
+            )
+            if matched_section:
+                current_section = matched_section
+                continue
+            if RESUME_SECTION_STOP_RE.fullmatch(line):
+                current_section = ""
+                continue
+            if current_section:
+                buffers[current_section].append(line)
+                continue
+            if re.search(r"\b(project|projects?)\b", line, re.IGNORECASE) and re.search(
+                r"\b(built|developed|implemented|created|designed|rag|langchain|fastapi|api|chroma|embedding|vector)\b",
+                line,
+                re.IGNORECASE,
+            ):
+                buffers["projects"].append(line)
+        return {section: "\n".join(lines[:8]) for section, lines in buffers.items() if lines}
 
     def _mark_failed(
         self,

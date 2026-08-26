@@ -1424,6 +1424,14 @@ export default function MainDiagnosticsWindow(props) {
                     value={pipelineTimings?.generation_request_includes_selected_resume_id ? 'included' : 'not included'}
                   />
                   <MetaRow
+                    label="Job context request"
+                    value={pipelineTimings?.generation_request_includes_job_context ? 'included' : 'not included'}
+                  />
+                  <MetaRow
+                    label="Target role request"
+                    value={pipelineTimings?.generation_request_includes_target_role ? 'included' : 'not included'}
+                  />
+                  <MetaRow
                     label="Selected resume chunks"
                     value={pipelineTimings?.selected_resume_chunk_count == null ? 'n/a' : String(pipelineTimings.selected_resume_chunk_count)}
                   />
@@ -1444,6 +1452,98 @@ export default function MainDiagnosticsWindow(props) {
                   <MetaRow
                     label="Context priority"
                     value={pipelineTimings?.final_context_priority || 'n/a'}
+                  />
+                  <MetaRow
+                    label="Job context in prompt"
+                    value={
+                      pipelineTimings?.job_context_included == null
+                        ? 'n/a'
+                        : pipelineTimings.job_context_included
+                          ? 'true'
+                          : 'false'
+                    }
+                  />
+                  <MetaRow
+                    label="Target role in prompt"
+                    value={
+                      pipelineTimings?.target_role_included == null
+                        ? 'n/a'
+                        : pipelineTimings.target_role_included
+                          ? 'true'
+                          : 'false'
+                    }
+                  />
+                  <MetaRow
+                    label="Project intent"
+                    value={
+                      pipelineTimings?.project_intent_detected == null
+                        ? 'n/a'
+                        : pipelineTimings.project_intent_detected
+                          ? 'true'
+                          : 'false'
+                    }
+                  />
+                  <MetaRow
+                    label="Project context source"
+                    value={pipelineTimings?.project_context_source || 'n/a'}
+                  />
+                  <MetaRow
+                    label="Project context chunks"
+                    value={
+                      pipelineTimings?.project_context_chunks_found == null
+                        ? 'n/a'
+                        : String(pipelineTimings.project_context_chunks_found)
+                    }
+                  />
+                  <MetaRow
+                    label="Selected resume strict"
+                    value={
+                      pipelineTimings?.selected_resume_strict_mode == null
+                        ? 'n/a'
+                        : pipelineTimings.selected_resume_strict_mode
+                          ? 'true'
+                          : 'false'
+                    }
+                  />
+                  <MetaRow
+                    label="Selected context in prompt"
+                    value={
+                      pipelineTimings?.selected_resume_context_used_in_prompt == null
+                        ? 'n/a'
+                        : pipelineTimings.selected_resume_context_used_in_prompt
+                          ? 'true'
+                          : 'false'
+                    }
+                  />
+                  <MetaRow
+                    label="Generic fallback blocked"
+                    value={
+                      pipelineTimings?.generic_fallback_blocked == null
+                        ? 'n/a'
+                        : pipelineTimings.generic_fallback_blocked
+                          ? 'true'
+                          : 'false'
+                    }
+                  />
+                  <MetaRow
+                    label="Generic project fallback blocked"
+                    value={
+                      pipelineTimings?.generic_project_fallback_blocked == null
+                        ? 'n/a'
+                        : pipelineTimings.generic_project_fallback_blocked
+                          ? 'true'
+                          : 'false'
+                    }
+                  />
+                  <MetaRow
+                    label="Profile fallback blocked"
+                    value={
+                      pipelineTimings?.profile_fallback_blocked == null
+                        ? 'n/a'
+                        : pipelineTimings.profile_fallback_blocked
+                          ? 'true'
+                          : 'false'
+                    }
                   />
                   <MetaRow
                     label="Old profile suppressed"

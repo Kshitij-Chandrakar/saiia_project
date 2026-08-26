@@ -13,6 +13,7 @@ from app.cloud.cloud_resume import (
     CloudResumeError,
     CloudResumeNotFoundError,
     CloudResumeRecord,
+    ResumeReadiness,
     CloudResumeValidationError,
 )
 from app.cloud.supabase_config import (
@@ -118,10 +119,15 @@ class FakeRouteService:
                 status="ready",
                 index_status="indexed",
                 is_active=True,
+                active_chunk_generation="active-generation",
                 created_at="2026-08-01T00:00:00Z",
                 updated_at="2026-08-02T00:00:00Z",
             )
         ]
+
+    def get_resume_readiness(self, *, user_id: str, record):
+        self.user_ids.append(user_id)
+        return ResumeReadiness(chunk_count=2, can_generate=True, readiness_reason="ready")
 
     def get_review_candidate(self, user_id: str):
         self.user_ids.append(user_id)
@@ -234,7 +240,6 @@ def test_list_route_returns_safe_metadata_for_verified_user(client: TestClient, 
     response = client.get("/api/resumes", headers={"Authorization": f"Bearer {_token()}"})
 
     assert response.status_code == 200
-    assert fake_service.user_ids == [TEST_USER_ID]
     payload = response.json()
     assert payload["items"] == [
         {
@@ -245,13 +250,51 @@ def test_list_route_returns_safe_metadata_for_verified_user(client: TestClient, 
             "index_status": "indexed",
             "is_active": True,
             "created_at": "2026-08-01T00:00:00Z",
+            "uploaded_at": "2026-08-01T00:00:00Z",
             "updated_at": "2026-08-02T00:00:00Z",
-            "chunk_count": None,
+            "chunk_count": 2,
+            "can_generate": True,
+            "readiness_reason": "ready",
         }
     ]
+    assert fake_service.user_ids == [TEST_USER_ID, TEST_USER_ID]
     assert "storage_path" not in response.text
     assert "raw_resume_text" not in response.text
+    assert "chunk_text" not in response.text
     assert "service-role-unit-test-value" not in response.text
+
+
+def test_list_route_marks_unready_resume_without_leaking_chunks(client: TestClient) -> None:
+    class UnreadyService(FakeRouteService):
+        def list_resumes(self, user_id: str):
+            self.user_ids.append(user_id)
+            return [
+                _record(
+                    user_id=user_id,
+                    original_filename="new-resume.pdf",
+                    status="ready",
+                    index_status="indexed",
+                    active_chunk_generation="active-generation",
+                )
+            ]
+
+        def get_resume_readiness(self, *, user_id: str, record):
+            self.user_ids.append(user_id)
+            return ResumeReadiness(chunk_count=0, can_generate=False, readiness_reason="no_chunks")
+
+    service = UnreadyService()
+    client.app.dependency_overrides[resumes_api.get_cloud_resume_service] = lambda: service
+
+    response = client.get("/api/resumes", headers={"Authorization": f"Bearer {_token()}"})
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["display_name"] == "new-resume.pdf"
+    assert item["chunk_count"] == 0
+    assert item["can_generate"] is False
+    assert item["readiness_reason"] == "no_chunks"
+    assert "chunk_text" not in response.text
+    assert "storage_path" not in response.text
 
 
 def test_current_route_returns_ready_false_before_activation(client: TestClient) -> None:

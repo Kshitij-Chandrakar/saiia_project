@@ -199,6 +199,10 @@ def _normalize_selected_resume_id(value: str | None) -> str:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected resume id is invalid.") from exc
 
 
+def _selected_resume_strict_mode(req: "GenerateRequest") -> bool:
+    return bool(_normalize_selected_resume_id(req.selected_resume_id))
+
+
 def _current_user_for_selected_resume(req: "GenerateRequest", request: Request | None) -> CurrentUser | None:
     if not _normalize_selected_resume_id(req.selected_resume_id):
         return None
@@ -226,10 +230,17 @@ def _retrieve_resume_context(
         "retrieved_chunks": [],
         "retrieval_ms": 0.0,
         "resume_context_source": empty_source,
+        "selected_resume_strict_mode": bool(selected_resume_id),
         "selected_resume_id_used": False,
         "selected_resume_chunk_count": 0,
         "selected_resume_candidate_name_available": False,
         "selected_resume_candidate_name_source": "none",
+        "project_context_chunks_found": 0,
+        "project_context_source": "none",
+        "specific_project_intent_detected": False,
+        "matched_project_name": "",
+        "project_match_confidence": "none",
+        "project_answer_mode": "none",
     }
     if not selected_resume_id:
         if not use_profile_context:
@@ -240,10 +251,17 @@ def _retrieve_resume_context(
             limit=settings.RAG_RETRIEVAL_LIMIT,
         )
         retrieval["resume_context_source"] = "local_resume" if retrieval.get("retrieved_chunks") else "profile_fallback"
+        retrieval["selected_resume_strict_mode"] = False
         retrieval["selected_resume_id_used"] = False
         retrieval["selected_resume_chunk_count"] = 0
         retrieval["selected_resume_candidate_name_available"] = False
         retrieval["selected_resume_candidate_name_source"] = "none"
+        retrieval["project_context_chunks_found"] = 0
+        retrieval["project_context_source"] = "none"
+        retrieval["specific_project_intent_detected"] = False
+        retrieval["matched_project_name"] = ""
+        retrieval["project_match_confidence"] = "none"
+        retrieval["project_answer_mode"] = "none"
         return retrieval
 
     current_user = _current_user_for_selected_resume(req, request)
@@ -258,6 +276,7 @@ def _retrieve_resume_context(
             limit=settings.RAG_RETRIEVAL_LIMIT,
         )
         retrieval["resume_context_source"] = "selected_resume"
+        retrieval["selected_resume_strict_mode"] = True
         retrieval["selected_resume_id_used"] = True
         retrieval["selected_resume_chunk_count"] = len(retrieval.get("retrieved_chunks") or [])
         retrieval["selected_resume_candidate_name_available"] = bool(
@@ -266,10 +285,19 @@ def _retrieve_resume_context(
         retrieval["selected_resume_candidate_name_source"] = (
             str(retrieval.get("selected_resume_candidate_name_source") or "none").strip().lower() or "none"
         )
+        retrieval["specific_project_intent_detected"] = bool(retrieval.get("specific_project_intent_detected"))
+        retrieval["matched_project_name"] = str(retrieval.get("matched_project_name") or "").strip()
+        retrieval["project_match_confidence"] = str(retrieval.get("project_match_confidence") or "none").strip() or "none"
+        retrieval["project_answer_mode"] = str(retrieval.get("project_answer_mode") or "none").strip() or "none"
         return retrieval
     except CloudResumeNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Selected resume was not found.") from exc
     except CloudResumeValidationError as exc:
+        detail = str(exc) or "Selected resume is not ready for generation."
+        if "not found in the selected resume" in detail.lower():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail) from exc
+        if "does not contain enough project details" in detail.lower():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail) from exc
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Selected resume is not ready for generation.") from exc
     except SupabaseConfigurationError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Cloud resume context is unavailable.") from exc
@@ -279,6 +307,14 @@ def _retrieve_resume_context(
 
 def _selected_resume_context_active(retrieval: dict[str, Any]) -> bool:
     return bool(retrieval.get("selected_resume_id_used") and retrieval.get("retrieved_chunks"))
+
+
+def _require_selected_resume_context(req: "GenerateRequest", retrieval: dict[str, Any]) -> None:
+    if _selected_resume_strict_mode(req) and not _selected_resume_context_active(retrieval):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Selected resume is not ready or does not contain enough context for this answer.",
+        )
 
 
 def _selected_resume_candidate_name(retrieved_chunks: list[dict[str, Any]]) -> str:
@@ -310,7 +346,15 @@ def _looks_like_candidate_name(value: str) -> bool:
     return all(re.fullmatch(r"[A-Za-z][A-Za-z'.-]*", word) for word in words)
 
 
-def _selected_resume_profile(retrieved_chunks: list[dict[str, Any]], *, candidate_name: str = "") -> dict[str, Any]:
+def _selected_resume_profile(
+    retrieved_chunks: list[dict[str, Any]],
+    *,
+    candidate_name: str = "",
+    matched_project_name: str = "",
+    project_match_confidence: str = "none",
+    project_answer_mode: str = "none",
+    specific_project_intent_detected: bool = False,
+) -> dict[str, Any]:
     selected_texts = [
         str(chunk.get("text") or "").strip()
         for chunk in retrieved_chunks
@@ -334,6 +378,11 @@ def _selected_resume_profile(retrieved_chunks: list[dict[str, Any]], *, candidat
     candidate_name = candidate_name if _looks_like_candidate_name(candidate_name) else _selected_resume_candidate_name(retrieved_chunks)
     if candidate_name:
         profile["full_name"] = candidate_name
+    if matched_project_name:
+        profile["matched_project_name"] = matched_project_name
+    profile["project_match_confidence"] = str(project_match_confidence or "none")
+    profile["project_answer_mode"] = str(project_answer_mode or "none")
+    profile["specific_project_intent_detected"] = bool(specific_project_intent_detected)
     return profile
 
 
@@ -342,6 +391,10 @@ def _generation_profile(req: "GenerateRequest", *, use_profile_context: bool, re
         return _selected_resume_profile(
             list(retrieval.get("retrieved_chunks") or []),
             candidate_name=str(retrieval.get("selected_resume_candidate_name") or ""),
+            matched_project_name=str(retrieval.get("matched_project_name") or ""),
+            project_match_confidence=str(retrieval.get("project_match_confidence") or "none"),
+            project_answer_mode=str(retrieval.get("project_answer_mode") or "none"),
+            specific_project_intent_detected=bool(retrieval.get("specific_project_intent_detected")),
         )
     return (req.profile or {}) if use_profile_context else {}
 
@@ -350,15 +403,84 @@ def _profile_suppressed_by_selected_resume(*, use_profile_context: bool, retriev
     return bool(use_profile_context and _selected_resume_context_active(retrieval))
 
 
+def _selected_resume_strict_metadata(req: "GenerateRequest", retrieval: dict[str, Any]) -> dict[str, bool]:
+    strict = _selected_resume_strict_mode(req)
+    context_active = _selected_resume_context_active(retrieval)
+    return {
+        "selected_resume_strict_mode": strict,
+        "selected_resume_context_used_in_prompt": bool(strict and context_active),
+        "generic_fallback_blocked": strict,
+        "profile_fallback_blocked": strict,
+    }
+
+
+def _session_job_context(req: "GenerateRequest") -> dict[str, Any]:
+    target_role = str(req.target_role or "").strip()
+    company_name = str(req.company_name or "").strip()
+    job_description = str(req.job_description or req.job_context or "").strip()
+    if not any((target_role, company_name, job_description)):
+        return {"saved": False}
+    return {
+        "saved": True,
+        "source": "desktop_session_setup",
+        "target_role": target_role,
+        "company_name": company_name,
+        "job_description": job_description,
+    }
+
+
+def _generation_job_context(req: "GenerateRequest", *, use_job_context: bool) -> dict[str, Any]:
+    session_context = _session_job_context(req)
+    if session_context.get("saved"):
+        return session_context
+    return job_context_service.get_context() if use_job_context else {"saved": False}
+
+
+def _project_intent_detected(question: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(project|projects|portfolio|built|created|developed|implemented|ai study assistant|resume project)\b",
+            str(question or "").lower(),
+        )
+    )
+
+
+def _session_context_metadata(
+    *,
+    req: "GenerateRequest",
+    saved_job_context: dict[str, Any],
+    project_intent_detected: bool,
+    retrieval: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "job_context_included": bool(saved_job_context.get("saved")),
+        "target_role_included": bool(str(saved_job_context.get("target_role") or req.target_role or "").strip()),
+        "project_intent_detected": bool(project_intent_detected),
+        "specific_project_intent_detected": bool((retrieval or {}).get("specific_project_intent_detected")),
+        "matched_project_name": str((retrieval or {}).get("matched_project_name") or ""),
+        "project_match_confidence": str((retrieval or {}).get("project_match_confidence") or "none"),
+        "project_answer_mode": str((retrieval or {}).get("project_answer_mode") or "none"),
+    }
+
+
 def _generation_profile_context_enabled(*, use_profile_context: bool, retrieval: dict[str, Any]) -> bool:
     return bool(use_profile_context or _selected_resume_context_active(retrieval))
 
 
-def _final_context_priority(*, use_profile_context: bool, retrieval: dict[str, Any]) -> str:
+def _final_context_priority(
+    *,
+    use_profile_context: bool,
+    retrieval: dict[str, Any],
+    job_context_included: bool = False,
+) -> str:
     if _selected_resume_context_active(retrieval):
-        return "selected_resume_first"
+        if retrieval.get("selected_resume_strict_mode") and job_context_included:
+            return "selected_resume_plus_job_context"
+        return "selected_resume_only" if retrieval.get("selected_resume_strict_mode") else "selected_resume_first"
     if retrieval.get("resume_context_source") == "local_resume":
         return "active_resume_first"
+    if job_context_included and use_profile_context:
+        return "job_context_plus_profile"
     return "profile_fallback" if use_profile_context else "none"
 
 
@@ -415,6 +537,10 @@ class GenerateRequest(BaseModel):
     coding_answer_mode: Optional[bool] = False
     profile_context_used: Optional[bool] = True
     selected_resume_id: Optional[str] = None
+    target_role: Optional[str] = None
+    company_name: Optional[str] = None
+    job_description: Optional[str] = None
+    job_context: Optional[str] = None
     recording_ms: Optional[float] = None
     upload_ms: Optional[float] = None
     transcription_ms: Optional[float] = None
@@ -457,8 +583,22 @@ class GenerateResponse(BaseModel):
     selected_resume_chunk_count: Optional[int] = None
     selected_resume_candidate_name_available: Optional[bool] = None
     selected_resume_candidate_name_source: Optional[str] = None
+    selected_resume_strict_mode: Optional[bool] = None
+    selected_resume_context_used_in_prompt: Optional[bool] = None
+    generic_fallback_blocked: Optional[bool] = None
+    profile_fallback_blocked: Optional[bool] = None
     profile_context_suppressed_by_selected_resume: Optional[bool] = None
     final_context_priority: Optional[str] = None
+    job_context_included: Optional[bool] = None
+    target_role_included: Optional[bool] = None
+    project_intent_detected: Optional[bool] = None
+    specific_project_intent_detected: Optional[bool] = None
+    matched_project_name: Optional[str] = None
+    project_match_confidence: Optional[str] = None
+    project_answer_mode: Optional[str] = None
+    project_context_chunks_found: Optional[int] = None
+    project_context_source: Optional[str] = None
+    generic_project_fallback_blocked: Optional[bool] = None
     profile_context_used: Optional[bool] = None
     generate_source: Optional[str] = None
     generate_question_type: Optional[str] = None
@@ -667,9 +807,11 @@ def _stream_safe_metadata(
     routed_category: str,
     coding_answer_mode: bool,
     total_pipeline_ms: Optional[float],
+    project_intent_detected: bool = False,
     followup_resolution: Optional[FollowUpResolution] = None,
     followup_intent: Optional[FollowUpIntentPlan] = None,
 ) -> Dict[str, Any]:
+    job_context_included = bool(saved_job_context.get("saved"))
     metadata = {
         "answer": result.get("answer") or "",
         "provider": result.get("provider") or "",
@@ -701,6 +843,13 @@ def _stream_safe_metadata(
         "selected_resume_chunk_count": int(retrieval.get("selected_resume_chunk_count") or 0),
         "selected_resume_candidate_name_available": bool(retrieval.get("selected_resume_candidate_name_available")),
         "selected_resume_candidate_name_source": retrieval.get("selected_resume_candidate_name_source") or "none",
+        "project_context_chunks_found": int(retrieval.get("project_context_chunks_found") or 0),
+        "project_context_source": retrieval.get("project_context_source") or "none",
+        "specific_project_intent_detected": bool(retrieval.get("specific_project_intent_detected")),
+        "matched_project_name": str(retrieval.get("matched_project_name") or ""),
+        "project_match_confidence": str(retrieval.get("project_match_confidence") or "none"),
+        "project_answer_mode": str(retrieval.get("project_answer_mode") or "none"),
+        **_selected_resume_strict_metadata(req, retrieval),
         "profile_context_suppressed_by_selected_resume": _profile_suppressed_by_selected_resume(
             use_profile_context=use_profile_context,
             retrieval=retrieval,
@@ -708,9 +857,17 @@ def _stream_safe_metadata(
         "final_context_priority": _final_context_priority(
             use_profile_context=use_profile_context,
             retrieval=retrieval,
+            job_context_included=job_context_included,
         ),
+        **_session_context_metadata(
+            req=req,
+            saved_job_context=saved_job_context,
+            project_intent_detected=project_intent_detected,
+            retrieval=retrieval,
+        ),
+        "generic_project_fallback_blocked": bool(_selected_resume_strict_mode(req) and project_intent_detected),
         "profile_context_used": use_profile_context,
-        "job_context_used": bool(use_job_context and saved_job_context.get("saved")),
+        "job_context_used": job_context_included,
         "answer_type": result.get("answer_type"),
         "plan_confidence": result.get("plan_confidence"),
         "profile_context_policy": result.get("profile_context_policy"),
@@ -925,12 +1082,15 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
         suppress_personal_context = suppress_personal_context or (
             routed_category == "personal" and not personal_professional_context_allowed
         )
+        selected_resume_strict_mode = _selected_resume_strict_mode(req)
+        project_intent = _project_intent_detected(generation_question)
         use_profile_context = (
             bool(req.profile_context_used)
             and not suppress_personal_context
             and answer_plan.profile_context_policy != "FORBIDDEN"
+            and not selected_resume_strict_mode
         )
-        use_job_context = answer_plan.job_context_policy != "FORBIDDEN"
+        use_job_context = answer_plan.job_context_policy != "FORBIDDEN" and not selected_resume_strict_mode
         accumulated_answer = ""
         first_delta_ms = None
         primary_result = None
@@ -948,7 +1108,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
             }
         )
         try:
-            saved_job_context = job_context_service.get_context() if use_job_context else {"saved": False}
+            saved_job_context = _generation_job_context(req, use_job_context=use_job_context)
             retrieval = _retrieve_resume_context(
                 req=req,
                 request=request,
@@ -956,6 +1116,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                 question=generation_question,
                 category=effective_category,
             )
+            _require_selected_resume_context(req, retrieval)
             retrieval_used = retrieval["retrieval_used"]
             retrieved_chunks = retrieval["retrieved_chunks"]
             if retrieval["retrieval_ms"] > settings.RAG_TIMEOUT_MS:
@@ -975,7 +1136,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                 question_type=effective_category,
                 profile=generation_profile,
                 retrieved_snippets=retrieved_chunks,
-                job_context=saved_job_context if use_profile_context and saved_job_context.get("saved") else None,
+                job_context=saved_job_context if saved_job_context.get("saved") else None,
                 source=source,
                 question_context_type=screen_question_type,
                 screen_question_type=screen_question_type,
@@ -1029,7 +1190,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                 question_type=effective_category,
                 profile=generation_profile,
                 retrieved_snippets=retrieved_chunks,
-                job_context=saved_job_context if use_profile_context and saved_job_context.get("saved") else None,
+                job_context=saved_job_context if saved_job_context.get("saved") else None,
                 source=source,
                 question_context_type=screen_question_type,
                 screen_question_type=screen_question_type,
@@ -1082,6 +1243,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                 routed_category=routed_category,
                 coding_answer_mode=coding_answer_mode,
                 total_pipeline_ms=total_pipeline_ms,
+                project_intent_detected=project_intent,
                 followup_resolution=followup_resolution,
                 followup_intent=followup_intent,
             )
@@ -1117,7 +1279,11 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                 exc.error_type,
                 bool(accumulated_answer.strip()),
             )
-            if not accumulated_answer.strip() and settings.ENABLE_ANSWER_PROVIDER_FALLBACK:
+            if (
+                not accumulated_answer.strip()
+                and settings.ENABLE_ANSWER_PROVIDER_FALLBACK
+                and not _selected_resume_strict_mode(req)
+            ):
                 try:
                     fallback = generator.generate_answer(
                         question=generation_question,
@@ -1239,8 +1405,22 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             selected_resume_chunk_count=0,
             selected_resume_candidate_name_available=False,
             selected_resume_candidate_name_source="none",
+            project_context_chunks_found=0,
+            project_context_source="none",
+            specific_project_intent_detected=False,
+            matched_project_name="",
+            project_match_confidence="none",
+            project_answer_mode="none",
+            selected_resume_strict_mode=False,
+            selected_resume_context_used_in_prompt=False,
+            generic_fallback_blocked=False,
+            generic_project_fallback_blocked=False,
+            profile_fallback_blocked=False,
             profile_context_suppressed_by_selected_resume=False,
             final_context_priority="none",
+            job_context_included=False,
+            target_role_included=False,
+            project_intent_detected=False,
             profile_context_used=False,
             job_context_used=False,
             generate_source=source or None,
@@ -1325,14 +1505,21 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
     suppress_personal_context = suppress_personal_context or (
         routed_category == "personal" and not personal_professional_context_allowed
     )
+    selected_resume_strict_mode = _selected_resume_strict_mode(req)
+    project_intent = _project_intent_detected(generation_question)
     use_profile_context = (
         bool(req.profile_context_used)
         and not suppress_personal_context
         and answer_plan.profile_context_policy != "FORBIDDEN"
+        and not selected_resume_strict_mode
     )
-    use_job_context = answer_plan.job_context_policy != "FORBIDDEN"
+    use_job_context = answer_plan.job_context_policy != "FORBIDDEN" and not selected_resume_strict_mode
 
     def _apply_personal_validation(result: Dict[str, Any]) -> None:
+        if selected_resume_strict_mode:
+            result["personal_validation_errors"] = []
+            result["personal_answer_repaired"] = False
+            return
         if (result.get("answer_category") or routed_category) != "personal" and not personal_subtype:
             return
         repaired, errors, repaired_used = generator.repair_personal_answer_if_needed(
@@ -1363,7 +1550,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
         return metadata
 
     try:
-        saved_job_context = job_context_service.get_context() if use_job_context else {"saved": False}
+        saved_job_context = _generation_job_context(req, use_job_context=use_job_context)
         retrieval = _retrieve_resume_context(
             req=req,
             request=request,
@@ -1371,6 +1558,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             question=generation_question,
             category=effective_category,
         )
+        _require_selected_resume_context(req, retrieval)
         retrieval_used = retrieval["retrieval_used"]
         retrieved_chunks = retrieval["retrieved_chunks"]
         if retrieval["retrieval_ms"] > settings.RAG_TIMEOUT_MS:
@@ -1395,7 +1583,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             question_type=effective_category,
             profile=generation_profile,
             retrieved_snippets=retrieved_chunks,
-            job_context=saved_job_context if use_profile_context and saved_job_context.get("saved") else None,
+            job_context=saved_job_context if saved_job_context.get("saved") else None,
             source=source,
             question_context_type=screen_question_type,
             screen_question_type=screen_question_type,
@@ -1486,7 +1674,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             result["generation_ms"],
             total_pipeline_ms,
             len(retrieved_chunks),
-            bool(use_profile_context and saved_job_context.get("saved")),
+            bool(saved_job_context.get("saved")),
             use_profile_context,
             len(req.question.strip()),
             sorted(((req.profile or {}) if use_profile_context else {}).keys()),
@@ -1544,12 +1732,23 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             selected_resume_chunk_count=int(retrieval.get("selected_resume_chunk_count") or 0),
             selected_resume_candidate_name_available=bool(retrieval.get("selected_resume_candidate_name_available")),
             selected_resume_candidate_name_source=retrieval.get("selected_resume_candidate_name_source") or "none",
+            project_context_chunks_found=int(retrieval.get("project_context_chunks_found") or 0),
+            project_context_source=retrieval.get("project_context_source") or "none",
+            **_selected_resume_strict_metadata(req, retrieval),
+            generic_project_fallback_blocked=bool(selected_resume_strict_mode and project_intent),
             profile_context_suppressed_by_selected_resume=_profile_suppressed_by_selected_resume(
                 use_profile_context=use_profile_context,
                 retrieval=retrieval,
             ),
             final_context_priority=_final_context_priority(
                 use_profile_context=use_profile_context,
+                retrieval=retrieval,
+                job_context_included=bool(saved_job_context.get("saved")),
+            ),
+            **_session_context_metadata(
+                req=req,
+                saved_job_context=saved_job_context,
+                project_intent_detected=project_intent,
                 retrieval=retrieval,
             ),
             profile_context_used=use_profile_context,
@@ -1558,7 +1757,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             profile_context_policy=result.get("profile_context_policy"),
             job_context_policy=result.get("job_context_policy"),
             general_knowledge_policy=result.get("general_knowledge_policy"),
-            job_context_used=bool(use_job_context and saved_job_context.get("saved")),
+            job_context_used=bool(saved_job_context.get("saved")),
             validation_status=result.get("validation_status"),
             validation_issues_count=result.get("validation_issues_count"),
             reasoning_effort=result.get("reasoning_effort"),
@@ -1699,13 +1898,13 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
         )
     except ResumeIndexError as exc:
         logger.warning("Resume retrieval failed for question_len=%s error=%s", len(req.question.strip()), exc)
-        saved_job_context = job_context_service.get_context()
+        saved_job_context = _generation_job_context(req, use_job_context=use_job_context)
         result = generator.generate_answer(
             question=generation_question,
             question_type=effective_category,
             profile=(req.profile or {}) if use_profile_context else {},
             retrieved_snippets=[],
-            job_context=saved_job_context if use_profile_context and saved_job_context.get("saved") else None,
+            job_context=saved_job_context if saved_job_context.get("saved") else None,
             source=source,
             question_context_type=screen_question_type,
             screen_question_type=screen_question_type,
@@ -1805,15 +2004,36 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             selected_resume_chunk_count=0,
             selected_resume_candidate_name_available=False,
             selected_resume_candidate_name_source="none",
+            project_context_chunks_found=0,
+            project_context_source="none",
+            specific_project_intent_detected=False,
+            matched_project_name="",
+            project_match_confidence="none",
+            project_answer_mode="none",
+            selected_resume_strict_mode=False,
+            selected_resume_context_used_in_prompt=False,
+            generic_fallback_blocked=False,
+            generic_project_fallback_blocked=bool(selected_resume_strict_mode and project_intent),
+            profile_fallback_blocked=False,
             profile_context_suppressed_by_selected_resume=False,
-            final_context_priority="none",
+            final_context_priority=_final_context_priority(
+                use_profile_context=use_profile_context,
+                retrieval={"retrieval_used": False, "retrieved_chunks": [], "retrieval_ms": 0.0},
+                job_context_included=bool(saved_job_context.get("saved")),
+            ),
+            **_session_context_metadata(
+                req=req,
+                saved_job_context=saved_job_context,
+                project_intent_detected=project_intent,
+                retrieval={"retrieval_used": False, "retrieved_chunks": [], "retrieval_ms": 0.0},
+            ),
             profile_context_used=use_profile_context,
             answer_type=result.get("answer_type"),
             plan_confidence=result.get("plan_confidence"),
             profile_context_policy=result.get("profile_context_policy"),
             job_context_policy=result.get("job_context_policy"),
             general_knowledge_policy=result.get("general_knowledge_policy"),
-            job_context_used=False,
+            job_context_used=bool(saved_job_context.get("saved")),
             validation_status=result.get("validation_status"),
             validation_issues_count=result.get("validation_issues_count"),
             reasoning_effort=result.get("reasoning_effort"),
@@ -1961,6 +2181,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             question=generation_question,
             category=effective_category,
         )
+        _require_selected_resume_context(req, retrieval)
         retrieval_used = retrieval["retrieval_used"]
         retrieved_chunks = retrieval["retrieved_chunks"]
         if retrieval["retrieval_ms"] > settings.RAG_TIMEOUT_MS:
@@ -2080,6 +2301,10 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             selected_resume_chunk_count=int(retrieval.get("selected_resume_chunk_count") or 0),
             selected_resume_candidate_name_available=bool(retrieval.get("selected_resume_candidate_name_available")),
             selected_resume_candidate_name_source=retrieval.get("selected_resume_candidate_name_source") or "none",
+            project_context_chunks_found=int(retrieval.get("project_context_chunks_found") or 0),
+            project_context_source=retrieval.get("project_context_source") or "none",
+            **_selected_resume_strict_metadata(req, retrieval),
+            generic_project_fallback_blocked=bool(selected_resume_strict_mode and project_intent),
             profile_context_suppressed_by_selected_resume=_profile_suppressed_by_selected_resume(
                 use_profile_context=use_profile_context,
                 retrieval=retrieval,
@@ -2087,7 +2312,11 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             final_context_priority=_final_context_priority(
                 use_profile_context=use_profile_context,
                 retrieval=retrieval,
+                job_context_included=False,
             ),
+            job_context_included=False,
+            target_role_included=False,
+            project_intent_detected=project_intent,
             profile_context_used=use_profile_context,
             answer_type=result.get("answer_type"),
             plan_confidence=result.get("plan_confidence"),
