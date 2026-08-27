@@ -144,7 +144,7 @@ def _has_clear_subject(question: str) -> bool:
     )
     if explicit_technical_subject:
         subject = str(explicit_technical_subject.group(1) or "").strip()
-        if subject and not FOLLOWUP_PRONOUN_RE.search(subject):
+        if subject and not FOLLOWUP_PRONOUN_RE.search(question):
             return True
     active_technical_subject = re.match(
         r"^\s*how\s+(?:do|did)\s+you\s+"
@@ -155,7 +155,7 @@ def _has_clear_subject(question: str) -> bool:
     )
     if active_technical_subject:
         subject = str(active_technical_subject.group(2) or "").strip()
-        if subject and not FOLLOWUP_PRONOUN_RE.search(subject):
+        if subject and not FOLLOWUP_PRONOUN_RE.search(question):
             return True
     if re.search(r"\b(what was|what is|what are|why did|how did)\b.{0,50}\b(in|for|to|while)\s+[A-Z]?[a-z0-9][\w-]+", question, re.I):
         return True
