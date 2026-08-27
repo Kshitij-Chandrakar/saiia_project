@@ -135,6 +135,15 @@ def infer_topic(entry: FollowUpContextEntry) -> str:
 def _has_clear_subject(question: str) -> bool:
     if STANDALONE_RE.search(question):
         return True
+    explicit_technical_subject = re.match(
+        r"^\s*how\s+(?:is|are|does|do)\s+(.{1,80}?)\s+(implemented|built|validated|designed|used|working|work)\s*\??\s*$",
+        question,
+        re.I,
+    )
+    if explicit_technical_subject:
+        subject = str(explicit_technical_subject.group(1) or "").strip()
+        if subject and not FOLLOWUP_PRONOUN_RE.search(subject):
+            return True
     if re.search(r"\b(what was|what is|what are|why did|how did)\b.{0,50}\b(in|for|to|while)\s+[A-Z]?[a-z0-9][\w-]+", question, re.I):
         return True
     if re.search(r"\b(authentication|authorization|python|java|caching|rag|rest|graphql|sql|nosql|supervised learning)\b", question, re.I):

@@ -31,6 +31,25 @@ def test_standalone_question_is_not_resolved() -> None:
     assert result.follow_up_detected is False
 
 
+def test_explicit_technical_implementation_question_is_standalone() -> None:
+    for question in (
+        "How is dependency injection implemented?",
+        "How is authentication implemented?",
+        "How is JWT validation implemented?",
+        "How is RAG built?",
+        "How is vector search implemented?",
+    ):
+        result = resolve_live_followup(
+            question=question,
+            mode="answer",
+            context_entries=[],
+        )
+
+        assert result.resolution_status == "standalone"
+        assert result.resolved_question == question
+        assert result.follow_up_detected is False
+
+
 def test_pronoun_followup_uses_same_mode_context() -> None:
     result = resolve_live_followup(
         question="What are its examples?",
@@ -127,6 +146,17 @@ def test_project_followup_resolves_to_project_context() -> None:
     assert result.resolution_status == "resolved"
     assert "saiia" in result.resolved_question.lower()
     assert "challenge" in result.resolved_question.lower()
+
+
+def test_project_build_followup_resolves_with_previous_project_context() -> None:
+    result = resolve_live_followup(
+        question="How did you build it?",
+        mode="answer",
+        context_entries=[_ctx("Explain your AI-Powered Medical Insights Platform.")],
+    )
+
+    assert result.resolution_status == "resolved"
+    assert "ai-powered medical insights platform" in result.resolved_question.lower()
 
 
 def test_coding_followup_preserves_previous_solution_topic() -> None:
