@@ -34,10 +34,14 @@ def test_standalone_question_is_not_resolved() -> None:
 def test_explicit_technical_implementation_question_is_standalone() -> None:
     for question in (
         "How is dependency injection implemented?",
+        "How is dependency injection implemented in the backend?",
         "How is authentication implemented?",
+        "How is authentication designed in the app?",
         "How is JWT validation implemented?",
+        "How is JWT validation implemented in FastAPI?",
         "How is RAG built?",
         "How is vector search implemented?",
+        "How does vector search work in your project?",
     ):
         result = resolve_live_followup(
             question=question,
@@ -159,6 +163,19 @@ def test_project_build_followup_resolves_with_previous_project_context() -> None
     assert "ai-powered medical insights platform" in result.resolved_question.lower()
 
 
+def test_explicit_technical_subject_does_not_reuse_stale_project_context() -> None:
+    question = "How does vector search work in your project?"
+    result = resolve_live_followup(
+        question=question,
+        mode="answer",
+        context_entries=[_ctx("Explain your AI-Powered Medical Insights Platform.")],
+    )
+
+    assert result.resolution_status == "standalone"
+    assert result.resolved_question == question
+    assert result.follow_up_detected is False
+
+
 def test_coding_followup_preserves_previous_solution_topic() -> None:
     result = resolve_live_followup(
         question="Can you optimize it?",
@@ -185,3 +202,18 @@ def test_ambiguous_reference_requests_clarification() -> None:
 
     assert result.resolution_status == "needs_clarification"
     assert result.ambiguity_reason == "multiple_possible_antecedents"
+
+
+def test_vague_pronoun_questions_remain_followups() -> None:
+    for question in (
+        "How does it work?",
+        "How did you build it?",
+        "Why is this used?",
+    ):
+        result = resolve_live_followup(
+            question=question,
+            mode="answer",
+            context_entries=[],
+        )
+
+        assert result.follow_up_detected is True

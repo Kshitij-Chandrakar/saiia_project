@@ -136,7 +136,9 @@ def _has_clear_subject(question: str) -> bool:
     if STANDALONE_RE.search(question):
         return True
     explicit_technical_subject = re.match(
-        r"^\s*how\s+(?:is|are|does|do)\s+(.{1,80}?)\s+(implemented|built|validated|designed|used|working|work)\s*\??\s*$",
+        r"^\s*how\s+(?:is|are|does|do)\s+(.{1,80}?)\s+"
+        r"(implemented|built|validated|designed|used|working|work)"
+        r"(?:\s+.{1,80}?)?\s*\??\s*$",
         question,
         re.I,
     )
