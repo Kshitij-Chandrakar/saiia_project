@@ -54,6 +54,24 @@ def test_explicit_technical_implementation_question_is_standalone() -> None:
         assert result.follow_up_detected is False
 
 
+def test_active_and_past_tense_technical_subject_questions_are_standalone() -> None:
+    for question in (
+        "How did you build vector search?",
+        "How do you implement dependency injection?",
+        "How did you design authentication?",
+        "How do you validate JWT?",
+        "How did you use FAISS?",
+    ):
+        result = resolve_live_followup(
+            question=question,
+            mode="answer",
+            context_entries=[],
+        )
+
+        assert result.resolution_status == "standalone"
+        assert result.follow_up_detected is False
+
+
 def test_pronoun_followup_uses_same_mode_context() -> None:
     result = resolve_live_followup(
         question="What are its examples?",
@@ -208,6 +226,7 @@ def test_vague_pronoun_questions_remain_followups() -> None:
     for question in (
         "How does it work?",
         "How did you build it?",
+        "How do you use this?",
         "Why is this used?",
     ):
         result = resolve_live_followup(
