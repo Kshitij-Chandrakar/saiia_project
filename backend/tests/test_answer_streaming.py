@@ -7,6 +7,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.api import generate as generate_api
+from fastapi import HTTPException
 
 
 async def _collect_stream_events(response) -> list[dict]:
@@ -274,3 +275,51 @@ async def test_generate_stream_clarifies_followup_without_context(monkeypatch: p
     assert "Which earlier topic" in text
     assert metadata["clarification_required"] is True
     assert metadata["follow_up_resolution_status"] == "needs_clarification"
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_preserves_selected_resume_http_conflict(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(generate_api, "get_current_user", lambda _request: type("CurrentUser", (), {"user_id": "user-a"})())
+    monkeypatch.setattr(
+        generate_api.job_context_service,
+        "get_context",
+        lambda: {"saved": False},
+    )
+    monkeypatch.setattr(
+        generate_api,
+        "_new_cloud_resume_service",
+        lambda: type(
+            "FakeCloudResumeService",
+            (),
+            {
+                "retrieve_resume_chunks": staticmethod(
+                    lambda **_kwargs: (_ for _ in ()).throw(
+                        generate_api.HTTPException(status_code=409, detail="Selected resume is not ready for generation.")
+                    )
+                )
+            },
+        )(),
+    )
+
+    response = await generate_api.generate_answer_stream(
+        generate_api.GenerateRequest(
+            question="Tell me about your projects",
+            category="hr",
+            profile_context_used=True,
+            selected_resume_id="10000000-0000-4000-8000-000000000001",
+        ),
+        request=object(),
+    )
+    events = await _collect_stream_events(response)
+
+    assert events[1] == {
+        "type": "error",
+        "request_id": events[0]["request_id"],
+        "error": "http_error",
+        "status_code": 409,
+        "detail": "Selected resume is not ready for generation.",
+        "partial": False,
+    }
+    assert events[-1]["type"] == "done"
+    assert events[-1]["incomplete"] is False

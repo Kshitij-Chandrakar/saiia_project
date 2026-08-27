@@ -4,7 +4,7 @@ import pytest
 
 from app.api import generate as generate_api
 from app.auth.supabase_auth import CurrentUser
-from app.cloud.cloud_resume import CloudResumeNotFoundError, CloudResumeValidationError
+from app.cloud.cloud_resume import CloudResumeNotFoundError, CloudResumeValidationError, question_has_project_intent
 from app.nlp.answer_generator import AnswerGenerator
 
 
@@ -161,6 +161,45 @@ async def test_generate_includes_screen_four_job_context_with_selected_resume(mo
     assert captured["job_context"]["company_name"] == "Test Company"
     assert "vector database" in captured["job_context"]["job_description"]
     assert captured["retrieved_snippets"][0]["section"] == "projects"
+
+
+@pytest.mark.anyio
+async def test_job_context_policy_forbidden_skips_session_job_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(generate_api, "get_current_user", lambda _request: CurrentUser(user_id="user-a"))
+    monkeypatch.setattr(
+        generate_api.job_context_service,
+        "get_context",
+        lambda: (_ for _ in ()).throw(AssertionError("saved job context should stay forbidden")),
+    )
+    monkeypatch.setattr(
+        generate_api.generator,
+        "generate_answer",
+        lambda **kwargs: _result(answer="Definition answer", job_context_policy="FORBIDDEN", answer_type="technical_concept"),
+    )
+
+    response = await generate_api.generate_answer(
+        generate_api.GenerateRequest(
+            question="What is dependency injection?",
+            category="technical",
+            profile_context_used=True,
+            target_role="Backend Developer",
+            company_name="Test Company",
+            job_description="Looking for dependency injection knowledge.",
+        ),
+        request=object(),
+    )
+
+    assert response.job_context_included is False
+
+
+def test_shared_project_intent_predicate_matches_generate_and_retrieval_terms() -> None:
+    positive = "What did you build in your project?"
+    negative = "How is dependency injection implemented?"
+
+    assert question_has_project_intent(positive) is True
+    assert generate_api.question_has_project_intent(positive) is True
+    assert question_has_project_intent(negative) is False
+    assert generate_api.question_has_project_intent(negative) is False
 
 
 @pytest.mark.anyio

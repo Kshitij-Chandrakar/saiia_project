@@ -85,7 +85,10 @@ PROJECT_KEYWORDS = {
     "deployed",
 }
 PROJECT_INTENT_RE = re.compile(
-    r"\b(project|projects|portfolio|built|created|developed|implemented|work experience|experience|internship|resume project)\b",
+    r"\b(project|projects|portfolio|resume project|work experience|internship)\b|"
+    r"\b(?:your|my)\s+(?:project|projects|portfolio|work experience|internship|experience)\b|"
+    r"\bwhat did you build\b|\bwhat have you built\b|\bwhat did you implement\b|\bwhat have you implemented\b|"
+    r"\bin (?:your|the) (?:project|projects|internship|work experience)\b",
     re.IGNORECASE,
 )
 PROJECT_SPECIFIC_LEAD_RE = re.compile(
@@ -240,6 +243,10 @@ def _record_from_payload(payload: dict[str, Any]) -> CloudResumeRecord:
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def question_has_project_intent(question: str) -> bool:
+    return bool(PROJECT_INTENT_RE.search(str(question or "")))
 
 
 def sanitize_resume_filename(filename: str) -> str:
@@ -677,6 +684,43 @@ class SupabaseCloudResumeClient:
         )
         return rows
 
+    def get_active_resume_chunk_counts(
+        self,
+        *,
+        user_id: str,
+        records: list["CloudResumeRecord"],
+    ) -> dict[tuple[str, str], int]:
+        active_pairs = [
+            (record.id, str(record.active_chunk_generation or ""))
+            for record in records
+            if record.active_chunk_generation
+        ]
+        if not active_pairs:
+            return {}
+        resume_ids = sorted({resume_id for resume_id, _ in active_pairs})
+        generation_ids = sorted({generation_id for _, generation_id in active_pairs if generation_id})
+        rows: list[dict[str, Any]] = []
+        offset = 0
+        while offset < SUPABASE_ACTIVE_CHUNK_HARD_LIMIT:
+            page = self._select_resume_chunk_count_page(
+                user_id=user_id,
+                resume_ids=resume_ids,
+                generation_ids=generation_ids,
+                offset=offset,
+            )
+            rows.extend(page)
+            if len(page) < SUPABASE_ACTIVE_CHUNK_PAGE_SIZE:
+                break
+            offset += SUPABASE_ACTIVE_CHUNK_PAGE_SIZE
+        counts: dict[tuple[str, str], int] = {}
+        allowed_pairs = set(active_pairs)
+        for row in rows:
+            key = (str(row.get("resume_id") or ""), str(row.get("generation_id") or ""))
+            if key not in allowed_pairs:
+                continue
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
     def _select_resume_chunk_page(
         self,
         *,
@@ -715,6 +759,48 @@ class SupabaseCloudResumeClient:
             raise CloudResumeError("Supabase cloud resume operation failed.")
         if response.status_code != 200:
             self._raise_response("resume_chunks", "select", response)
+        data = response.json()
+        if not isinstance(data, list):
+            raise CloudResumeError("Supabase cloud resume operation failed.")
+        return [item for item in data if isinstance(item, dict)]
+
+    def _select_resume_chunk_count_page(
+        self,
+        *,
+        user_id: str,
+        resume_ids: list[str],
+        generation_ids: list[str],
+        offset: int,
+    ) -> list[dict[str, Any]]:
+        query = {
+            "select": "resume_id,generation_id",
+            "user_id": f"eq.{user_id}",
+            "resume_id": f"in.({','.join(resume_ids)})",
+            "generation_id": f"in.({','.join(generation_ids)})",
+            "limit": str(SUPABASE_ACTIVE_CHUNK_PAGE_SIZE),
+            "offset": str(offset),
+        }
+        for attempt in (1, 2):
+            try:
+                response = self._session.get(
+                    f"{self._rest_url}/resume_chunks",
+                    headers=self._headers,
+                    params=query,
+                    timeout=SUPABASE_SELECT_ATTEMPT_TIMEOUT,
+                )
+                break
+            except requests.RequestException as exc:
+                if attempt == 1:
+                    logger.warning(
+                        "Supabase cloud resume chunk count select retry: target=resume_chunks operation=count_select stage=request_retry error_type=%s",
+                        type(exc).__name__,
+                    )
+                    continue
+                self._raise_request("resume_chunks", "count_select", exc)
+        else:
+            raise CloudResumeError("Supabase cloud resume operation failed.")
+        if response.status_code != 200:
+            self._raise_response("resume_chunks", "count_select", response)
         data = response.json()
         if not isinstance(data, list):
             raise CloudResumeError("Supabase cloud resume operation failed.")
@@ -784,23 +870,30 @@ class CloudResumeService:
     def list_resumes(self, user_id: str) -> list[CloudResumeRecord]:
         return self._client.list_resumes(user_id)
 
-    def get_resume_readiness(self, *, user_id: str, record: CloudResumeRecord) -> ResumeReadiness:
-        reason = self._readiness_reason(record, chunk_count=None)
-        if reason != "unknown":
-            return ResumeReadiness(chunk_count=None, can_generate=False, readiness_reason=reason)
+    def list_resume_readiness(self, *, user_id: str, records: list[CloudResumeRecord]) -> dict[str, ResumeReadiness]:
+        readiness: dict[str, ResumeReadiness] = {}
+        unknown_records: list[CloudResumeRecord] = []
+        for record in records:
+            reason = self._readiness_reason(record, chunk_count=None)
+            if reason != "unknown":
+                readiness[record.id] = ResumeReadiness(chunk_count=None, can_generate=False, readiness_reason=reason)
+                continue
+            unknown_records.append(record)
+        if not unknown_records:
+            return readiness
+        chunk_counts = self._client.get_active_resume_chunk_counts(user_id=user_id, records=unknown_records)
+        for record in unknown_records:
+            chunk_count = chunk_counts.get((record.id, str(record.active_chunk_generation or "")), 0)
+            reason = self._readiness_reason(record, chunk_count=chunk_count)
+            readiness[record.id] = ResumeReadiness(
+                chunk_count=chunk_count,
+                can_generate=reason == "ready",
+                readiness_reason=reason,
+            )
+        return readiness
 
-        rows = self._client.get_active_resume_chunks(
-            user_id=user_id,
-            resume_id=record.id,
-            generation_id=record.active_chunk_generation or "",
-        )
-        chunk_count = len(rows)
-        reason = self._readiness_reason(record, chunk_count=chunk_count)
-        return ResumeReadiness(
-            chunk_count=chunk_count,
-            can_generate=reason == "ready",
-            readiness_reason=reason,
-        )
+    def get_resume_readiness(self, *, user_id: str, record: CloudResumeRecord) -> ResumeReadiness:
+        return self.list_resume_readiness(user_id=user_id, records=[record])[record.id]
 
     @staticmethod
     def _readiness_reason(record: CloudResumeRecord, *, chunk_count: int | None) -> str:
@@ -1244,7 +1337,7 @@ class CloudResumeService:
 
     @staticmethod
     def _project_intent_detected(question: str) -> bool:
-        return bool(PROJECT_INTENT_RE.search(str(question or "")))
+        return question_has_project_intent(question)
 
     def _project_focus_chunks(
         self,
@@ -1366,11 +1459,11 @@ class CloudResumeService:
         if not raw:
             return ""
         lead_match = PROJECT_SPECIFIC_LEAD_RE.match(raw)
-        quoted = re.search(r"[\"“”']([^\"“”']{4,120})[\"“”']", raw)
-        if quoted:
-            return quoted.group(1).strip()
         if not lead_match:
             return ""
+        quoted = re.search(r'"([^"\r\n]{4,120})"|[\u201C]([^\u201D\r\n]{4,120})[\u201D]', raw)
+        if quoted:
+            return str(quoted.group(1) or quoted.group(2) or "").strip()
         trimmed = PROJECT_SPECIFIC_LEAD_RE.sub("", raw).strip(" ?!.,")
         trimmed = PROJECT_TRAILING_FILLER_RE.sub("", trimmed).strip(" ?!.,")
         if not trimmed:
@@ -1382,7 +1475,6 @@ class CloudResumeService:
         if len(trimmed.split()) >= 2 and re.search(r"[A-Z]", trimmed):
             return trimmed[:120]
         return ""
-
     def _selected_resume_candidate_name(
         self,
         selected: CloudResumeRecord,

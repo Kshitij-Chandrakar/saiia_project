@@ -129,6 +129,13 @@ class FakeRouteService:
         self.user_ids.append(user_id)
         return ResumeReadiness(chunk_count=2, can_generate=True, readiness_reason="ready")
 
+    def list_resume_readiness(self, *, user_id: str, records):
+        self.user_ids.append(user_id)
+        return {
+            record.id: ResumeReadiness(chunk_count=2, can_generate=True, readiness_reason="ready")
+            for record in records
+        }
+
     def get_review_candidate(self, user_id: str):
         self.user_ids.append(user_id)
         return _record(user_id=user_id, status="needs_review")
@@ -282,6 +289,13 @@ def test_list_route_marks_unready_resume_without_leaking_chunks(client: TestClie
             self.user_ids.append(user_id)
             return ResumeReadiness(chunk_count=0, can_generate=False, readiness_reason="no_chunks")
 
+        def list_resume_readiness(self, *, user_id: str, records):
+            self.user_ids.append(user_id)
+            return {
+                record.id: ResumeReadiness(chunk_count=0, can_generate=False, readiness_reason="no_chunks")
+                for record in records
+            }
+
     service = UnreadyService()
     client.app.dependency_overrides[resumes_api.get_cloud_resume_service] = lambda: service
 
@@ -295,6 +309,35 @@ def test_list_route_marks_unready_resume_without_leaking_chunks(client: TestClie
     assert item["readiness_reason"] == "no_chunks"
     assert "chunk_text" not in response.text
     assert "storage_path" not in response.text
+
+
+def test_list_route_uses_aggregated_readiness_path(client: TestClient) -> None:
+    class AggregatedService(FakeRouteService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.list_readiness_calls = 0
+            self.single_readiness_calls = 0
+
+        def list_resume_readiness(self, *, user_id: str, records):
+            self.user_ids.append(user_id)
+            self.list_readiness_calls += 1
+            return {
+                record.id: ResumeReadiness(chunk_count=2, can_generate=True, readiness_reason="ready")
+                for record in records
+            }
+
+        def get_resume_readiness(self, *, user_id: str, record):
+            self.single_readiness_calls += 1
+            raise AssertionError("route should use aggregated readiness")
+
+    service = AggregatedService()
+    client.app.dependency_overrides[resumes_api.get_cloud_resume_service] = lambda: service
+
+    response = client.get("/api/resumes", headers={"Authorization": f"Bearer {_token()}"})
+
+    assert response.status_code == 200
+    assert service.list_readiness_calls == 1
+    assert service.single_readiness_calls == 0
 
 
 def test_current_route_returns_ready_false_before_activation(client: TestClient) -> None:

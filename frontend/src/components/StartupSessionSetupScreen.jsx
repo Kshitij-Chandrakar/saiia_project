@@ -60,12 +60,6 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
       }
       const items = Array.isArray(result?.items) ? result.items : []
       setResumes(items)
-      setDraft((current) => {
-        if (!current.selectedResumeId || items.some((item) => item.id === current.selectedResumeId)) {
-          return current
-        }
-        return { ...current, selectedResumeId: '', selectedResumeName: '' }
-      })
       if (result?.error) {
         setResumeMessage(result.error)
       }
@@ -109,7 +103,9 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
   const selectedResume = draft.selectedResumeId
     ? resumes.find((resume) => resume.id === draft.selectedResumeId)
     : null
-  const selectedResumeBlocked = Boolean(selectedResume && selectedResume.can_generate !== true)
+  const selectedResumeBlocked = Boolean(
+    draft.selectedResumeId && (resumesLoading || !selectedResume || selectedResume.can_generate !== true)
+  )
 
   const handleStartSession = async () => {
     if (starting) {
@@ -229,7 +225,11 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
             )}
             {selectedResumeBlocked ? (
               <div className="startup-setup-resume__message" aria-live="polite">
-                <p>This resume is uploaded but not ready for generation yet. Finish extraction/indexing from the dashboard, then refresh.</p>
+                <p>
+                  {resumesLoading
+                    ? 'Loading the latest resume readiness before starting your session.'
+                    : 'This resume is uploaded but not ready for generation yet. Finish extraction/indexing from the dashboard, then refresh.'}
+                </p>
                 <button type="button" onClick={openDashboard}>
                   Open dashboard to finish resume setup
                 </button>

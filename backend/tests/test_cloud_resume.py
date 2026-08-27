@@ -18,6 +18,7 @@ from app.cloud.cloud_resume import (
     SupabaseCloudResumeClient,
     CloudResumeValidationError,
     sanitize_resume_filename,
+    question_has_project_intent,
     validate_confirmed_profile,
     validate_resume_upload,
 )
@@ -252,6 +253,25 @@ class FakeCloudResumeClient:
             and chunk["resume_id"] == resume_id
             and chunk["generation_id"] == generation_id
         ]
+
+    def get_active_resume_chunk_counts(
+        self,
+        *,
+        user_id: str,
+        records: list[CloudResumeRecord],
+    ) -> dict[tuple[str, str], int]:
+        counts: dict[tuple[str, str], int] = {}
+        allowed = {
+            (record.id, str(record.active_chunk_generation or ""))
+            for record in records
+            if record.active_chunk_generation
+        }
+        for chunk in self.chunks:
+            key = (str(chunk["resume_id"]), str(chunk["generation_id"]))
+            if str(chunk["user_id"]) != user_id or key not in allowed:
+                continue
+            counts[key] = counts.get(key, 0) + 1
+        return counts
 
     def compare_and_set_resume(
         self,
@@ -1510,6 +1530,13 @@ def test_selected_cloud_resume_specific_project_question_rejects_missing_project
             question="Explain your Smart Product Scanning System",
             category="hr",
         )
+
+
+def test_project_intent_shared_predicate_stays_false_for_apostrophe_questions() -> None:
+    service = CloudResumeService(client=FakeCloudResumeClient(), parser=FakeParser())  # type: ignore[arg-type]
+
+    assert question_has_project_intent("What's the candidate's main strength?") is False
+    assert service._specific_project_name_from_question("What's the candidate's main strength?") == ""
 
 
 def test_selected_cloud_resume_project_question_requires_project_details() -> None:

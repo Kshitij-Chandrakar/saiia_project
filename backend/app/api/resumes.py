@@ -232,10 +232,11 @@ def upload_cloud_resume(
 def list_cloud_resumes(current_user: CurrentUserDep, service: CloudResumeServiceDep) -> CloudResumeListResponse:
     try:
         records = service.list_resumes(current_user.user_id)
+        readiness_by_id = service.list_resume_readiness(user_id=current_user.user_id, records=records)
         items = [
             _resume_list_item(
                 record,
-                service.get_resume_readiness(user_id=current_user.user_id, record=record),
+                readiness_by_id.get(record.id),
             )
             for record in records
         ]

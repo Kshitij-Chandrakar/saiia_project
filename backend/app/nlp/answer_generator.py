@@ -3959,11 +3959,12 @@ class AnswerGenerator:
             "general_projects",
         }:
             return True
+        normalized = question.lower()
         return bool(
-            re.search(
-                r"\b(project|projects|portfolio|resume project|work experience|experience|internship|built|created|developed|implemented|ai study assistant)\b",
-                question.lower(),
-            )
+            re.search(r"\b(project|projects|portfolio|resume project|ai study assistant)\b", normalized)
+            or re.search(r"\b(?:your|my)\s+(?:project|projects|portfolio|work experience|internship|experience)\b", normalized)
+            or re.search(r"\bwhat did you (?:build|implement)\b|\bwhat have you (?:built|implemented)\b", normalized)
+            or re.search(r"\bin (?:your|the) (?:project|projects|internship|work experience)\b", normalized)
         )
 
     def _is_comparison_question(self, question: str) -> bool:

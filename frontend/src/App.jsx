@@ -2911,9 +2911,8 @@ function MainWindow() {
     }
     const selectedResumeDiagnostics = {
       selectedResumeIdExists: Boolean(selectedResumeId),
-      selectedResumeName,
       generationRequestIncludesSelectedResumeId: Boolean(generateRequestBody.selected_resume_id),
-      jobContextIncluded: Boolean(jobDescription),
+      jobContextIncluded: Boolean(companyName || jobDescription),
       targetRoleIncluded: Boolean(targetRole),
     }
     console.info('Intervu AI selected resume generation diagnostics', selectedResumeDiagnostics)
@@ -3040,11 +3039,11 @@ function MainWindow() {
       profile_context_suppressed_by_selected_resume:
         generatePayload.profile_context_suppressed_by_selected_resume ?? false,
       final_context_priority: generatePayload.final_context_priority || 'none',
-      job_context_included: generatePayload.job_context_included ?? Boolean(jobDescription),
+      job_context_included: generatePayload.job_context_included ?? Boolean(companyName || jobDescription),
       target_role_included: generatePayload.target_role_included ?? Boolean(targetRole),
       project_intent_detected: generatePayload.project_intent_detected ?? false,
       selected_resume_id_exists: selectedResumeDiagnostics.selectedResumeIdExists,
-      selected_resume_name: selectedResumeDiagnostics.selectedResumeName,
+      selected_resume_name: selectedResumeName,
       generation_request_includes_selected_resume_id:
         selectedResumeDiagnostics.generationRequestIncludesSelectedResumeId,
       generation_request_includes_job_context: selectedResumeDiagnostics.jobContextIncluded,
@@ -3215,7 +3214,6 @@ function MainWindow() {
         generatePayload.profile_context_suppressed_by_selected_resume,
       final_context_priority: generatePayload.final_context_priority,
       selected_resume_id_exists: selectedResumeDiagnostics.selectedResumeIdExists,
-      selected_resume_name: selectedResumeDiagnostics.selectedResumeName,
       generation_request_includes_selected_resume_id:
         selectedResumeDiagnostics.generationRequestIncludesSelectedResumeId,
       coding_runtime_audit: generatePayload.coding_runtime_audit,

@@ -15,6 +15,7 @@ from app.cloud.cloud_resume import (
     CloudResumeNotFoundError,
     CloudResumeService,
     CloudResumeValidationError,
+    question_has_project_intent,
 )
 from app.cloud.supabase_config import SupabaseConfigurationError
 from app.config import settings
@@ -430,19 +431,12 @@ def _session_job_context(req: "GenerateRequest") -> dict[str, Any]:
 
 
 def _generation_job_context(req: "GenerateRequest", *, use_job_context: bool) -> dict[str, Any]:
+    if not use_job_context:
+        return {"saved": False}
     session_context = _session_job_context(req)
     if session_context.get("saved"):
         return session_context
-    return job_context_service.get_context() if use_job_context else {"saved": False}
-
-
-def _project_intent_detected(question: str) -> bool:
-    return bool(
-        re.search(
-            r"\b(project|projects|portfolio|built|created|developed|implemented|ai study assistant|resume project)\b",
-            str(question or "").lower(),
-        )
-    )
+    return job_context_service.get_context()
 
 
 def _session_context_metadata(
@@ -1083,14 +1077,14 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
             routed_category == "personal" and not personal_professional_context_allowed
         )
         selected_resume_strict_mode = _selected_resume_strict_mode(req)
-        project_intent = _project_intent_detected(generation_question)
+        project_intent = question_has_project_intent(generation_question)
         use_profile_context = (
             bool(req.profile_context_used)
             and not suppress_personal_context
             and answer_plan.profile_context_policy != "FORBIDDEN"
             and not selected_resume_strict_mode
         )
-        use_job_context = answer_plan.job_context_policy != "FORBIDDEN" and not selected_resume_strict_mode
+        use_job_context = answer_plan.job_context_policy != "FORBIDDEN"
         accumulated_answer = ""
         first_delta_ms = None
         primary_result = None
@@ -1335,6 +1329,18 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                 }
             )
             yield _stream_event({"type": "done", "request_id": request_id, "incomplete": bool(accumulated_answer.strip())})
+        except HTTPException as exc:
+            yield _stream_event(
+                {
+                    "type": "error",
+                    "request_id": request_id,
+                    "error": "http_error",
+                    "status_code": exc.status_code,
+                    "detail": exc.detail,
+                    "partial": bool(accumulated_answer.strip()),
+                }
+            )
+            yield _stream_event({"type": "done", "request_id": request_id, "incomplete": bool(accumulated_answer.strip())})
         except Exception as exc:
             logger.exception("stream_generation_failed request_id=%s error_type=%s", request_id, exc.__class__.__name__)
             yield _stream_event(
@@ -1506,14 +1512,14 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
         routed_category == "personal" and not personal_professional_context_allowed
     )
     selected_resume_strict_mode = _selected_resume_strict_mode(req)
-    project_intent = _project_intent_detected(generation_question)
+    project_intent = question_has_project_intent(generation_question)
     use_profile_context = (
         bool(req.profile_context_used)
         and not suppress_personal_context
         and answer_plan.profile_context_policy != "FORBIDDEN"
         and not selected_resume_strict_mode
     )
-    use_job_context = answer_plan.job_context_policy != "FORBIDDEN" and not selected_resume_strict_mode
+    use_job_context = answer_plan.job_context_policy != "FORBIDDEN"
 
     def _apply_personal_validation(result: Dict[str, Any]) -> None:
         if selected_resume_strict_mode:
