@@ -26,6 +26,9 @@ const electronAPI = {
   getCloudStartupContext: () => ipcRenderer.invoke('cloud:get-startup-context'),
   refreshCloudStartupContext: () => ipcRenderer.invoke('cloud:refresh-startup-context'),
   listCloudResumes: () => ipcRenderer.invoke('cloud:list-resumes'),
+  createInterviewSession: (payload, options) => ipcRenderer.invoke('cloud:create-interview-session', payload, options),
+  listInterviewSessions: (options) => ipcRenderer.invoke('cloud:list-interview-sessions', options),
+  endInterviewSession: (sessionId) => ipcRenderer.invoke('cloud:end-interview-session', sessionId),
   generateAnswer: (body) => ipcRenderer.invoke('generate:answer', body),
   onOverlayState: (fn) => {
     const listener = (_event, payload) => fn(payload)
@@ -48,6 +51,9 @@ contextBridge.exposeInMainWorld('saiia', {
   getAuthState: electronAPI.getAuthState,
   getCloudStartupContext: electronAPI.getCloudStartupContext,
   generateAnswer: electronAPI.generateAnswer,
+  createInterviewSession: electronAPI.createInterviewSession,
+  endInterviewSession: electronAPI.endInterviewSession,
+  listInterviewSessions: electronAPI.listInterviewSessions,
   listScreenSources: electronAPI.listScreenSources,
   listCloudResumes: electronAPI.listCloudResumes,
   logoutAuth: electronAPI.logoutAuth,

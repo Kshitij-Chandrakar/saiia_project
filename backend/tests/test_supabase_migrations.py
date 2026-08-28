@@ -8,6 +8,8 @@ C3_4_MIGRATION = MIGRATIONS_DIR / "20260804134140_add_cloud_resume_chunk_activat
 C3_4_PARSING_FIX_MIGRATION = MIGRATIONS_DIR / "20260804151715_fix_cloud_resume_activation_profile_parsing.sql"
 C3_4_PROFILE_PRESERVE_MIGRATION = MIGRATIONS_DIR / "20260804162315_preserve_profile_fields_on_cloud_resume_activation.sql"
 C4_2_MIGRATION = MIGRATIONS_DIR / "20260809120000_add_cloud_job_context_lifecycle.sql"
+C6_3_MIGRATION = MIGRATIONS_DIR / "20260828120000_add_interview_session_lifecycle.sql"
+C6_3_RPC_FIX_MIGRATION = MIGRATIONS_DIR / "20260828153000_fix_interview_session_idempotency_rpc.sql"
 
 
 def _normalized_sql() -> str:
@@ -249,4 +251,62 @@ def test_c4_2_idempotent_create_rpc_is_atomic_and_safe() -> None:
     assert f"revoke all on function {signature} from public" in sql
     assert f"revoke all on function {signature} from anon" in sql
     assert f"revoke all on function {signature} from authenticated" in sql
+    assert f"grant execute on function {signature} to service_role" in sql
+
+
+def test_c6_3_interview_session_migration_adds_table_rls_and_active_uniqueness() -> None:
+    sql = " ".join(C6_3_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "create table if not exists public.interview_sessions" in sql
+    assert "selected_resume_id uuid null references public.resumes(id) on delete set null" in sql
+    assert "job_context_id uuid null references public.job_contexts(id) on delete set null" in sql
+    assert "job_description_preview text null" in sql
+    assert "constraint interview_sessions_status_check check (status in ('active', 'ended', 'abandoned'))" in sql
+    assert "constraint interview_sessions_active_end_check check" in sql
+    assert "create unique index if not exists interview_sessions_one_active_per_user_idx" in sql
+    assert "where status = 'active' and ended_at is null" in sql
+    assert "alter table public.interview_sessions enable row level security" in sql
+    assert "create policy interview_sessions_select_own" in sql
+    assert "create policy interview_sessions_insert_own" in sql
+    assert "create policy interview_sessions_update_own" in sql
+    assert "auth.uid() = user_id" in sql
+
+
+def test_c6_3_interview_session_migration_keeps_idempotency_backend_only_and_preview_only() -> None:
+    sql = " ".join(C6_3_MIGRATION.read_text(encoding="utf-8").lower().split())
+    table_sql = sql.split("); create unique index if not exists interview_session_idempotency_user_key_idx", 1)[0]
+    signature = "public.create_interview_session_with_idempotency( uuid, text, text, uuid, uuid, text, text, text, text )"
+
+    assert "create table if not exists public.interview_session_idempotency_keys" in sql
+    assert "interview_session_idempotency_user_key_idx" in sql
+    assert "interview_session_idempotency_expires_at_idx" in sql
+    assert "alter table public.interview_session_idempotency_keys enable row level security" in sql
+    assert "create or replace function public.create_interview_session_with_idempotency" in sql
+    assert "pg_advisory_xact_lock(lock_key)" in sql
+    assert "selected resume was not found" in sql
+    assert "job context was not found" in sql
+    assert "set status = 'abandoned'" in sql
+    assert "interval '2 minutes'" in sql
+    assert "job_description_preview" in sql
+    assert "job_description text" not in table_sql
+    assert f"revoke all on function {signature} from public" in sql
+    assert f"revoke all on function {signature} from anon" in sql
+    assert f"revoke all on function {signature} from authenticated" in sql
+    assert f"grant execute on function {signature} to service_role" in sql
+
+
+def test_c6_3_followup_migration_fixes_ambiguous_status_reference_with_aliases() -> None:
+    sql = " ".join(C6_3_RPC_FIX_MIGRATION.read_text(encoding="utf-8").lower().split())
+    signature = "public.create_interview_session_with_idempotency( uuid, text, text, uuid, uuid, text, text, text, text )"
+
+    assert "create or replace function public.create_interview_session_with_idempotency" in sql
+    assert "from public.interview_session_idempotency_keys as k" in sql
+    assert "where k.user_id = p_user_id and k.idempotency_key = p_idempotency_key" in sql
+    assert "from public.interview_sessions as s where s.user_id = p_user_id and s.status = 'active' and s.ended_at is null" in sql
+    assert "update public.interview_sessions as s set status = 'abandoned'" in sql
+    assert "return query select reservation.interview_session_id, true, 'completed'::text" in sql
+    assert "return query select existing_session.id, true, 'completed'::text" in sql
+    assert "return query select created_session.id, false, 'completed'::text" in sql
+    assert "raise exception 'interview session idempotency key conflict'" in sql
+    assert "status := 'completed'" not in sql
     assert f"grant execute on function {signature} to service_role" in sql

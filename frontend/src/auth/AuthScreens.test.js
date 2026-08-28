@@ -136,9 +136,37 @@ test('unsafe external auth next URLs are ignored by allowlist', () => {
 test('protected dashboard shows safe user identity and avoids token state', () => {
   assert.match(source, /export function AuthDashboardPage\(\{ backendUrl \}\)/)
   assert.match(source, /fetchCurrentUser\(data\.session\.access_token, \{ backendUrl \}\)/)
+  assert.match(source, /fetchInterviewSessions,/)
   assert.match(source, /\{user\.email \|\| user\.user_id\}/)
   assert.match(source, /\{user\.role && <span>\{user\.role\}<\/span>\}/)
   assert.doesNotMatch(source, /setSessionToken|useState\(['"]unit-test-access-token|accessToken, setAccessToken/)
+})
+
+
+test('dashboard loads and renders basic interview session history without transcript details', () => {
+  assert.match(dashboardPageSource, /const \[sessionHistory, setSessionHistory\] = useState\(\[\]\)/)
+  assert.match(dashboardPageSource, /const \[sessionHistoryLoading, setSessionHistoryLoading\] = useState\(true\)/)
+  assert.match(source, /function formatSessionTime\(value\)/)
+  assert.match(source, /function formatSessionContextLine\(session\)/)
+  assert.match(dashboardPageSource, /const controller = new AbortController\(\)/)
+  assert.match(dashboardPageSource, /const \{ data, error: sessionError \} = await supabase\.auth\.getSession\(\)/)
+  assert.match(dashboardPageSource, /fetchInterviewSessions\(data\.session\.access_token, \{/)
+  assert.match(dashboardPageSource, /limit: 20,[\s\S]*page: 1,[\s\S]*signal: controller\.signal/)
+  assert.match(dashboardPageSource, /Loading interview sessions\.\.\./)
+  assert.match(dashboardPageSource, /No interview sessions yet\./)
+  assert.match(dashboardPageSource, /aria-label="Interview session history"/)
+  assert.match(dashboardPageSource, /session\.title \|\| session\.target_role \|\| session\.company_name \|\| 'Untitled session'/)
+  assert.match(dashboardPageSource, /className="auth-session-history__title"/)
+  assert.match(dashboardPageSource, /className="auth-session-history__meta">\{formatSessionContextLine\(session\)\}/)
+  assert.match(dashboardPageSource, /className="auth-session-history__line">Status: \{session\.status \|\| 'unknown'\}/)
+  assert.match(dashboardPageSource, /className="auth-session-history__line">Started: \{formatSessionTime\(session\.started_at\)\}/)
+  assert.match(dashboardPageSource, /Ended: \{session\.ended_at \? formatSessionTime\(session\.ended_at\) : 'Not ended yet'\}/)
+  assert.match(dashboardPageSource, /session\.job_description_preview \? \(/)
+  assert.match(dashboardPageSource, /Context: \{session\.job_description_preview\}/)
+  assert.match(dashboardPageSource, /Status: \{session\.status \|\| 'unknown'\}/)
+  assert.match(dashboardPageSource, /Started: \{formatSessionTime\(session\.started_at\)\}/)
+  assert.doesNotMatch(dashboardPageSource, /No target role'} - \{session\.company_name \|\| 'No company'/)
+  assert.doesNotMatch(dashboardPageSource, /transcript/i)
 })
 
 

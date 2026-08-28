@@ -35,6 +35,23 @@ function projectCloudResume(record) {
   }
 }
 
+function projectInterviewSession(record) {
+  if (!record || typeof record !== 'object') {
+    return null
+  }
+  return {
+    id: record.id,
+    status: record.status || '',
+    started_at: record.started_at || null,
+    ended_at: record.ended_at || null,
+    selected_resume_id: record.selected_resume_id || null,
+    job_context_id: record.job_context_id || null,
+    title: record.title || null,
+    target_role: record.target_role || null,
+    company_name: record.company_name || null,
+  }
+}
+
 
 function requireAccessToken(accessToken) {
   const token = String(accessToken || '').trim()
@@ -307,4 +324,36 @@ export async function rebuildCloudResumeIndex(accessToken, resumeId, options = {
     }),
     'Unable to rebuild the resume index.',
   )
+}
+
+
+export async function fetchInterviewSessions(accessToken, options = {}) {
+  const token = requireAccessToken(accessToken)
+  const {
+    backendUrl = DEFAULT_BACKEND_URL,
+    fetchImpl = fetch,
+    signal,
+    limit = 20,
+    page = 1,
+  } = options
+
+  const payload = await parseJsonResponse(
+    await fetchImpl(
+      `${backendUrl}/api/interview-sessions?limit=${encodeURIComponent(String(limit))}&page=${encodeURIComponent(String(page))}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        signal,
+      },
+    ),
+    'Unable to load interview sessions.',
+  )
+
+  return {
+    items: Array.isArray(payload.items) ? payload.items.map(projectInterviewSession).filter(Boolean) : [],
+    limit: Number.isInteger(payload.limit) ? payload.limit : Number(limit) || 20,
+    page: Number.isInteger(payload.page) ? payload.page : Number(page) || 1,
+  }
 }

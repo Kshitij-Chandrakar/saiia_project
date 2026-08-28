@@ -531,6 +531,7 @@ class GenerateRequest(BaseModel):
     coding_answer_mode: Optional[bool] = False
     profile_context_used: Optional[bool] = True
     selected_resume_id: Optional[str] = None
+    session_id: Optional[str] = None
     target_role: Optional[str] = None
     company_name: Optional[str] = None
     job_description: Optional[str] = None

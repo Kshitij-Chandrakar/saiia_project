@@ -193,6 +193,43 @@
   font-size: 13px;
 }
 
+.auth-session-history {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.auth-session-history__item {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid #d8dee8;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.auth-session-history__title,
+.auth-session-history__meta,
+.auth-session-history__line {
+  margin: 0;
+}
+
+.auth-session-history__title {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.auth-session-history__meta {
+  color: #475569;
+  font-size: 13px;
+}
+
+.auth-session-history__line {
+  color: #1f2937;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .auth-review-form {
   margin-top: 18px;
 }

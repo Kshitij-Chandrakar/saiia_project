@@ -8,6 +8,7 @@ import {
   createDesktopHandoff,
   deleteCloudResume,
   extractCloudResume,
+  fetchInterviewSessions,
   fetchCloudResumeStatus,
   fetchCurrentCloudResume,
   fetchCurrentUser,
@@ -313,6 +314,23 @@ function normalizeCloudProfile(profile = {}) {
   return Object.fromEntries(
     CLOUD_PROFILE_FIELDS.map(([field]) => [field, String(profile[field] || '')]),
   )
+}
+
+
+function formatSessionTime(value) {
+  const text = String(value || '').trim()
+  if (!text) {
+    return 'In progress'
+  }
+  const parsed = new Date(text)
+  return Number.isNaN(parsed.getTime()) ? text : parsed.toLocaleString()
+}
+
+
+function formatSessionContextLine(session) {
+  const role = session?.target_role || 'No target role'
+  const company = session?.company_name || 'No company'
+  return `${role} · ${company}`
 }
 
 
@@ -1020,6 +1038,8 @@ function RequireAuth({ backendUrl, children }) {
 export function AuthDashboardPage({ backendUrl }) {
   const [logoutPending, setLogoutPending] = useState(false)
   const [logoutError, setLogoutError] = useState('')
+  const [sessionHistory, setSessionHistory] = useState([])
+  const [sessionHistoryLoading, setSessionHistoryLoading] = useState(true)
   const navigate = useNavigate()
   const {
     bootstrapResult,
@@ -1033,6 +1053,53 @@ export function AuthDashboardPage({ backendUrl }) {
     disabled: logoutPending,
   })
   const profileBootstrapDisabled = bootstrapLoading || logoutPending
+
+  useEffect(() => {
+    let ignore = false
+    const controller = new AbortController()
+
+    async function loadSessionHistory() {
+      setSessionHistoryLoading(true)
+      try {
+        if (!supabase) {
+          if (!ignore) {
+            setSessionHistory([])
+          }
+          return
+        }
+        const { data, error: sessionError } = await supabase.auth.getSession()
+        if (ignore || sessionError || !data.session?.access_token) {
+          if (!ignore) {
+            setSessionHistory([])
+          }
+          return
+        }
+        const result = await fetchInterviewSessions(data.session.access_token, {
+          backendUrl,
+          limit: 20,
+          page: 1,
+          signal: controller.signal,
+        })
+        if (!ignore) {
+          setSessionHistory(result.items)
+        }
+      } catch {
+        if (!ignore) {
+          setSessionHistory([])
+        }
+      } finally {
+        if (!ignore) {
+          setSessionHistoryLoading(false)
+        }
+      }
+    }
+
+    loadSessionHistory()
+    return () => {
+      ignore = true
+      controller.abort()
+    }
+  }, [backendUrl])
 
   async function handleLogout() {
     if (!supabase || logoutPending) {
@@ -1075,6 +1142,34 @@ export function AuthDashboardPage({ backendUrl }) {
                 profile {bootstrapResult.profile_created ? 'created' : 'found'} - settings {bootstrapResult.settings_created ? 'created' : 'found'}
               </span>
             </div>
+          )}
+          <div className="auth-user-summary">
+            <p>Interview sessions</p>
+            <span>Basic cloud session history from C6.3.</span>
+          </div>
+          {sessionHistoryLoading ? (
+            <p className="auth-message info">Loading interview sessions...</p>
+          ) : sessionHistory.length ? (
+            <div className="auth-session-history" aria-label="Interview session history">
+              {sessionHistory.map((session) => (
+                <article key={session.id} className="auth-session-history__item">
+                  <strong className="auth-session-history__title">
+                    {session.title || session.target_role || session.company_name || 'Untitled session'}
+                  </strong>
+                  <p className="auth-session-history__meta">{formatSessionContextLine(session)}</p>
+                  {session.job_description_preview ? (
+                    <p className="auth-session-history__line">Context: {session.job_description_preview}</p>
+                  ) : null}
+                  <p className="auth-session-history__line">Status: {session.status || 'unknown'}</p>
+                  <p className="auth-session-history__line">Started: {formatSessionTime(session.started_at)}</p>
+                  <p className="auth-session-history__line">
+                    Ended: {session.ended_at ? formatSessionTime(session.ended_at) : 'Not ended yet'}
+                  </p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="auth-message info">No interview sessions yet.</p>
           )}
           <button
             className="auth-secondary-button"

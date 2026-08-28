@@ -4,9 +4,9 @@
 **Document type:** Detailed implementation roadmap and execution source of truth  
 **Track:** Desktop stabilization â†’ Cloud account system â†’ Website integration â†’ Session intelligence â†’ Subscription and release  
 **Version:** 1.1  
-**Last updated:** 2026-08-09
+**Last updated:** 2026-08-28
 **Created:** 2026-07-10  
-**Current active phase:** C6.2A - Startup Login Screen implemented locally with a dev/local memory-only desktop handoff store; production shared atomic TTL-backed handoff storage is deferred to C16.1 Production Auth Hardening; broader startup shell, resume/job-target selection UI, C4.4 generation integration, cloud sync engine, and local/cloud data migration are not started
+**Current active phase:** C6.3 - Durable interview session lifecycle and cloud session storage implemented locally; C7 transcript storage is not started, and broader startup-shell polish, C4.4 generation integration follow-up, cloud sync engine expansion, and local/cloud data migration remain not started
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -1583,7 +1583,7 @@ Desktop may cache:
 ## Status
 
 ```text
-[~] In progress - C6.1 desktop startup/session setup UI audit and plan complete in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`; C6.2A Startup Login Screen implemented locally for signed-out/token-expired desktop startup using existing safe preload auth APIs; C6.2A uses a dev/local memory-only desktop handoff store, and production shared atomic TTL-backed handoff storage is deferred to C16.1 Production Auth Hardening; broader startup shell, resume/job-target selection UI, backend session routes, Supabase migrations, C4.4 generation integration, cloud sync engine, and local/cloud data migration are not implemented
+[~] In progress - C6.1 desktop startup/session setup UI audit and plan complete in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`; C6.2A Startup Login Screen implemented locally for signed-out/token-expired desktop startup using existing safe preload auth APIs and a dev/local memory-only handoff store deferred to C16.1 for production hardening; C6.3 durable interview session lifecycle and cloud session storage are now implemented locally through authenticated backend routes, Supabase lifecycle storage, Electron main-process session IPC, desktop runtime `activeSessionId` state, and a basic website dashboard session history list; C7 transcript storage and later session-intelligence features are not started
 ```
 
 ## Goal
@@ -1604,7 +1604,7 @@ Before durable session storage is implemented, the desktop app needs a small sta
 
 - C6.2A: implement the first desktop startup login screen using the provided Figma reference and existing safe preload auth login API.
 - C6.2B: implement the broader basic desktop startup shell UI using existing C5.4 context.
-- C6.3: wire resume/job target selection or lightweight creation flow.
+- C6.3: wire resume/job target selection or lightweight creation flow, create authenticated cloud interview sessions, persist active session ownership in the desktop runtime, and expose a basic dashboard history list without transcript storage.
 - C6.4: validation, fallback behavior, stale-state tests, accessibility, and polish.
 
 ## Session lifecycle
@@ -1639,6 +1639,21 @@ Recommended fields:
 - `transcript_status`
 - `created_at`
 - `updated_at`
+
+## C6.3 implementation status
+
+As of 2026-08-28, C6.3 is implemented locally with the following scope:
+
+- desktop Start Session creates an authenticated cloud `interview_sessions` row before runtime transition
+- backend creation is idempotent through a service-role-only RPC plus client-provided idempotency key
+- desktop runtime keeps only safe `activeSessionId` state and does not expose auth tokens to the renderer
+- desktop end/logout attempts to finalize the active session and clears local runtime state safely
+- website dashboard shows a basic session history list with title, role, company, status, started time, and ended time
+
+Explicit non-scope for this implementation:
+
+- C7 transcript storage, transcript viewing, and transcript download are not started
+- no transcript message history, AI notes, Ask AI memory, payments, admin console, or final UI redesign
 
 ## Desktop behavior
 

@@ -56,6 +56,8 @@ let desktopAuthSessionManager = null
 let validateMainWindowIpcSender = null
 let validateOverlayWindowIpcSender = null
 let bufferedDesktopAuthCallbacks = []
+let quittingAfterSessionFinalize = false
+let finalizeInterviewSessionPromise = null
 
 const overlayState = {
   answer: '',
@@ -1058,6 +1060,23 @@ function resetStartupFlow() {
   return { ok: true }
 }
 
+async function finalizeActiveInterviewSession(reason = 'ended') {
+  if (!desktopAuthSessionManager?.hasActiveInterviewSession?.()) {
+    return { ok: true, skipped: true }
+  }
+  try {
+    const result = await desktopAuthSessionManager.endActiveInterviewSession()
+    if (result?.error) {
+      console.error('Interview session finalization failed.', result.error)
+      return { ok: false, error: result.error }
+    }
+    return { ok: true, session: result?.session || null }
+  } catch (error) {
+    console.error(`Interview session ${reason} finalization failed.`, error)
+    return { ok: false, error: error?.message || 'Interview session finalization failed.' }
+  }
+}
+
 function closeStartupWindow() {
   if (!startupFlowComplete) {
     globalShortcut.unregisterAll()
@@ -1707,6 +1726,21 @@ ipcMain.handle('cloud:list-resumes', async (event) => {
   return desktopAuthSessionManager.listCloudResumes()
 })
 
+ipcMain.handle('cloud:create-interview-session', async (event, payload, options) => {
+  validateAuthIpc(event)
+  return desktopAuthSessionManager.createInterviewSession(payload, options)
+})
+
+ipcMain.handle('cloud:list-interview-sessions', async (event, options) => {
+  validateAuthIpc(event)
+  return desktopAuthSessionManager.listInterviewSessions(options)
+})
+
+ipcMain.handle('cloud:end-interview-session', async (event, sessionId) => {
+  validateAuthIpc(event)
+  return desktopAuthSessionManager.endInterviewSession(sessionId)
+})
+
 ipcMain.handle('generate:answer', async (event, body) => {
   validateAuthIpc(event)
   return desktopAuthSessionManager.generateAnswer(body)
@@ -1780,13 +1814,14 @@ ipcMain.handle('overlay:set-opacity', (_event, nextOpacity) => {
   }
 })
 
-ipcMain.handle('toolbar:trigger', (_event, action, payload) => {
+ipcMain.handle('toolbar:trigger', async (_event, action, payload) => {
   if (!startupFlowComplete) {
     return { ok: false, reason: 'startup-incomplete' }
   }
 
   broadcastToolbarAction(action, payload)
   if (action === 'end-session') {
+    await finalizeActiveInterviewSession('ended')
     app.quit()
   }
   return { ok: true }
@@ -1828,6 +1863,22 @@ app.on('will-quit', () => {
     }
   }
   globalShortcut.unregisterAll()
+})
+
+app.on('before-quit', (event) => {
+  if (quittingAfterSessionFinalize || !desktopAuthSessionManager?.hasActiveInterviewSession?.()) {
+    return
+  }
+  event.preventDefault()
+  if (!finalizeInterviewSessionPromise) {
+    finalizeInterviewSessionPromise = finalizeActiveInterviewSession('ended')
+      .catch(() => ({ ok: false }))
+      .finally(() => {
+        finalizeInterviewSessionPromise = null
+        quittingAfterSessionFinalize = true
+        app.quit()
+      })
+  }
 })
 
 app.on('window-all-closed', () => {
