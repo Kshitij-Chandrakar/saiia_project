@@ -192,6 +192,19 @@ def test_previous_one_followup_does_not_misclassify_as_standalone() -> None:
     assert result.follow_up_detected is True
 
 
+def test_multiclause_authentication_question_stays_standalone() -> None:
+    question = "How is authentication implemented in FastAPI, and why is it secure?"
+    result = resolve_live_followup(
+        question=question,
+        mode="answer",
+        context_entries=[_ctx("Explain your AI-Powered Medical Insights Platform.")],
+    )
+
+    assert result.resolution_status == "standalone"
+    assert result.resolved_question == question
+    assert result.follow_up_detected is False
+
+
 def test_explicit_technical_subject_does_not_reuse_stale_project_context() -> None:
     question = "How does vector search work in your project?"
     result = resolve_live_followup(

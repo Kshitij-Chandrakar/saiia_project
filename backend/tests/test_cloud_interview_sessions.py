@@ -177,6 +177,7 @@ class FakeRestSession:
     def __init__(self) -> None:
         self.post_calls: list[dict[str, object]] = []
         self.get_calls: list[dict[str, object]] = []
+        self.patch_calls: list[dict[str, object]] = []
         self.post_response = FakeResponse(
             200,
             [{"interview_session_id": "30000000-0000-4000-8000-000000000001", "replayed": True, "status": "completed"}],
@@ -201,6 +202,7 @@ class FakeRestSession:
                 }
             ],
         )
+        self.patch_response = FakeResponse(200, [])
 
     def post(self, url: str, *, headers: dict[str, str], json: dict[str, object], timeout: int):
         self.post_calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
@@ -209,6 +211,10 @@ class FakeRestSession:
     def get(self, url: str, *, headers: dict[str, str], params: dict[str, str], timeout: int):
         self.get_calls.append({"url": url, "headers": headers, "params": params, "timeout": timeout})
         return self.get_response
+
+    def patch(self, url: str, *, headers: dict[str, str], params: dict[str, str], json: dict[str, object], timeout: int):
+        self.patch_calls.append({"url": url, "headers": headers, "params": params, "json": json, "timeout": timeout})
+        return self.patch_response
 
 
 def _supabase_client_with_session(session: FakeRestSession) -> SupabaseInterviewSessionClient:
@@ -287,8 +293,8 @@ def test_supabase_create_session_logs_safe_error_fields_for_ambiguous_sql(caplog
 
     assert "error_code=42702" in caplog.text
     assert 'message=column reference "status" is ambiguous' in caplog.text
-    assert "details=It could refer to either a PL/pgSQL variable or a table column." in caplog.text
-    assert "hint=Use a table alias." in caplog.text
+    assert "details=" not in caplog.text
+    assert "hint=" not in caplog.text
     assert "service-role-unit-test-value" not in caplog.text
 
 
@@ -314,3 +320,49 @@ def test_supabase_create_session_maps_p0001_to_conflict() -> None:
             idempotency_key="start:conflict",
             request_hash="different-hash",
         )
+
+
+def test_end_session_replays_empty_patch_with_followup_get_when_already_closed() -> None:
+    session = FakeRestSession()
+    session.get_response = FakeResponse(
+        200,
+        [
+            {
+                "id": "30000000-0000-4000-8000-000000000001",
+                "user_id": "user-1",
+                "selected_resume_id": None,
+                "job_context_id": None,
+                "title": "Design round",
+                "target_role": "Frontend Engineer",
+                "company_name": "Acme",
+                "job_description_preview": "Preview only",
+                "status": "ended",
+                "started_at": "2026-08-28T00:00:00Z",
+                "ended_at": "2026-08-28T00:05:00Z",
+                "created_at": "2026-08-28T00:00:00Z",
+                "updated_at": "2026-08-28T00:05:00Z",
+            }
+        ],
+    )
+    client = _supabase_client_with_session(session)
+
+    record = client.end_session(user_id="user-1", session_id="30000000-0000-4000-8000-000000000001")
+
+    assert record.status == "ended"
+    assert record.ended_at == "2026-08-28T00:05:00Z"
+    assert len(session.patch_calls) == 1
+    assert session.patch_calls[0]["params"]["status"] == "eq.active"
+    assert session.patch_calls[0]["json"]["status"] == "ended"
+    assert len(session.get_calls) == 1
+    assert session.get_calls[0]["params"]["id"] == "eq.30000000-0000-4000-8000-000000000001"
+
+
+def test_end_session_raises_conflict_when_empty_patch_recheck_is_still_active() -> None:
+    session = FakeRestSession()
+    client = _supabase_client_with_session(session)
+
+    with pytest.raises(CloudInterviewSessionConflictError):
+        client.end_session(user_id="user-1", session_id="30000000-0000-4000-8000-000000000001")
+
+    assert len(session.patch_calls) == 1
+    assert len(session.get_calls) == 1

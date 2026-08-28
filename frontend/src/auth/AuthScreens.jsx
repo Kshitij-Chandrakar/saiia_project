@@ -1040,6 +1040,7 @@ export function AuthDashboardPage({ backendUrl }) {
   const [logoutError, setLogoutError] = useState('')
   const [sessionHistory, setSessionHistory] = useState([])
   const [sessionHistoryLoading, setSessionHistoryLoading] = useState(true)
+  const [sessionHistoryError, setSessionHistoryError] = useState('')
   const navigate = useNavigate()
   const {
     bootstrapResult,
@@ -1058,12 +1059,14 @@ export function AuthDashboardPage({ backendUrl }) {
     let ignore = false
     const controller = new AbortController()
 
-    async function loadSessionHistory() {
+    async function loadSessionHistory(signal = controller.signal) {
       setSessionHistoryLoading(true)
+      setSessionHistoryError('')
       try {
         if (!supabase) {
           if (!ignore) {
             setSessionHistory([])
+            setSessionHistoryError('Cloud session history is unavailable until auth is ready.')
           }
           return
         }
@@ -1071,6 +1074,7 @@ export function AuthDashboardPage({ backendUrl }) {
         if (ignore || sessionError || !data.session?.access_token) {
           if (!ignore) {
             setSessionHistory([])
+            setSessionHistoryError('Could not verify your session history access. Please sign in again.')
           }
           return
         }
@@ -1078,7 +1082,7 @@ export function AuthDashboardPage({ backendUrl }) {
           backendUrl,
           limit: 20,
           page: 1,
-          signal: controller.signal,
+          signal,
         })
         if (!ignore) {
           setSessionHistory(result.items)
@@ -1086,6 +1090,7 @@ export function AuthDashboardPage({ backendUrl }) {
       } catch {
         if (!ignore) {
           setSessionHistory([])
+          setSessionHistoryError('Could not load interview sessions. Please try again.')
         }
       } finally {
         if (!ignore) {
@@ -1100,6 +1105,38 @@ export function AuthDashboardPage({ backendUrl }) {
       controller.abort()
     }
   }, [backendUrl])
+
+  async function handleSessionHistoryRetry() {
+    if (sessionHistoryLoading) {
+      return
+    }
+    setSessionHistoryLoading(true)
+    setSessionHistoryError('')
+    try {
+      if (!supabase) {
+        setSessionHistory([])
+        setSessionHistoryError('Cloud session history is unavailable until auth is ready.')
+        return
+      }
+      const { data, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError || !data.session?.access_token) {
+        setSessionHistory([])
+        setSessionHistoryError('Could not verify your session history access. Please sign in again.')
+        return
+      }
+      const result = await fetchInterviewSessions(data.session.access_token, {
+        backendUrl,
+        limit: 20,
+        page: 1,
+      })
+      setSessionHistory(result.items)
+    } catch {
+      setSessionHistory([])
+      setSessionHistoryError('Could not load interview sessions. Please try again.')
+    } finally {
+      setSessionHistoryLoading(false)
+    }
+  }
 
   async function handleLogout() {
     if (!supabase || logoutPending) {
@@ -1149,6 +1186,13 @@ export function AuthDashboardPage({ backendUrl }) {
           </div>
           {sessionHistoryLoading ? (
             <p className="auth-message info">Loading interview sessions...</p>
+          ) : sessionHistoryError ? (
+            <div>
+              <p className="auth-message error">{sessionHistoryError}</p>
+              <button className="auth-secondary-button" type="button" onClick={handleSessionHistoryRetry}>
+                Retry session history
+              </button>
+            </div>
           ) : sessionHistory.length ? (
             <div className="auth-session-history" aria-label="Interview session history">
               {sessionHistory.map((session) => (

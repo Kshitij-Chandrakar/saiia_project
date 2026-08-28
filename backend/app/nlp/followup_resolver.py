@@ -133,6 +133,7 @@ def infer_topic(entry: FollowUpContextEntry) -> str:
 
 
 def _has_clear_subject(question: str) -> bool:
+    first_clause = re.split(r"[,:;]|\band\b|\bbut\b", question, maxsplit=1, flags=re.I)[0]
     if STANDALONE_RE.search(question):
         return True
     explicit_technical_subject = re.match(
@@ -144,7 +145,7 @@ def _has_clear_subject(question: str) -> bool:
     )
     if explicit_technical_subject:
         subject = str(explicit_technical_subject.group(1) or "").strip()
-        if subject and not FOLLOWUP_PRONOUN_RE.search(question):
+        if subject and not FOLLOWUP_PRONOUN_RE.search(first_clause):
             return True
     active_technical_subject = re.match(
         r"^\s*how\s+(?:do|did)\s+you\s+"
@@ -155,12 +156,12 @@ def _has_clear_subject(question: str) -> bool:
     )
     if active_technical_subject:
         subject = str(active_technical_subject.group(2) or "").strip()
-        if subject and not FOLLOWUP_PRONOUN_RE.search(question):
+        if subject and not FOLLOWUP_PRONOUN_RE.search(first_clause):
             return True
     if re.search(r"\b(what was|what is|what are|why did|how did)\b.{0,50}\b(in|for|to|while)\s+[A-Z]?[a-z0-9][\w-]+", question, re.I):
         return True
     if re.search(r"\b(authentication|authorization|python|java|caching|rag|rest|graphql|sql|nosql|supervised learning)\b", question, re.I):
-        return not FOLLOWUP_PRONOUN_RE.search(question)
+        return not FOLLOWUP_PRONOUN_RE.search(first_clause)
     return False
 
 

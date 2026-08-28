@@ -204,14 +204,12 @@ class SupabaseInterviewSessionClient:
 
     def _log_failure(self, target: str, operation: str, response: requests.Response) -> None:
         logger.error(
-            "Supabase interview session failure: target=%s operation=%s status=%s error_code=%s message=%s details=%s hint=%s",
+            "Supabase interview session failure: target=%s operation=%s status=%s error_code=%s message=%s",
             target,
             operation,
             response.status_code,
             self._safe_error_code(response),
             self._safe_error_text(response, "message"),
-            self._safe_error_text(response, "details"),
-            self._safe_error_text(response, "hint"),
         )
 
     def _raise_response(self, target: str, operation: str, response: requests.Response) -> NoReturn:

@@ -44,6 +44,7 @@ class InterviewSessionResponse(BaseModel):
     title: str | None = None
     target_role: str | None = None
     company_name: str | None = None
+    job_description_preview: str | None = None
 
 
 class InterviewSessionListResponse(BaseModel):
@@ -83,6 +84,7 @@ def _session_response(record: CloudInterviewSessionRecord) -> InterviewSessionRe
         title=record.title,
         target_role=record.target_role,
         company_name=record.company_name,
+        job_description_preview=record.job_description_preview,
     )
 
 

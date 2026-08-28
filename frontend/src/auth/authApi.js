@@ -39,8 +39,12 @@ function projectInterviewSession(record) {
   if (!record || typeof record !== 'object') {
     return null
   }
+  const id = typeof record.id === 'string' ? record.id.trim() : ''
+  if (!id) {
+    return null
+  }
   return {
-    id: record.id,
+    id,
     status: record.status || '',
     started_at: record.started_at || null,
     ended_at: record.ended_at || null,
@@ -49,6 +53,7 @@ function projectInterviewSession(record) {
     title: record.title || null,
     target_role: record.target_role || null,
     company_name: record.company_name || null,
+    job_description_preview: record.job_description_preview || null,
   }
 }
 

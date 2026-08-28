@@ -172,12 +172,31 @@ def test_list_detail_and_end_are_user_owned(client: TestClient, fake_service: Fa
     assert listing.json()["limit"] == 10
     assert listing.json()["page"] == 2
     assert listing.json()["items"][0]["company_name"] == "Acme"
+    assert listing.json()["items"][0]["job_description_preview"] == "Safe preview only"
     assert detail.status_code == 200
     assert detail.json()["id"] == SESSION_ID
     assert ended.status_code == 200
     assert ended.json()["status"] == "ended"
     assert ended.json()["ended_at"] == "2026-08-28T00:15:00Z"
     assert fake_service.user_ids == [TEST_USER_ID, TEST_USER_ID, TEST_USER_ID]
+
+
+def test_list_returns_503_when_supabase_cloud_config_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(CLOUD_MODE_ENV, raising=False)
+    for name in SUPABASE_REQUIRED_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("SUPABASE_JWT_SECRET_OR_JWKS_CONFIG", TEST_SECRET)
+    get_supabase_settings.cache_clear()
+    get_auth_verification_config.cache_clear()
+    interview_sessions_api._cached_cloud_interview_session_service.cache_clear()
+
+    app = FastAPI()
+    app.include_router(interview_sessions_api.router, prefix="/api/interview-sessions")
+    with TestClient(app) as test_client:
+        response = test_client.get("/api/interview-sessions", headers={"Authorization": f"Bearer {_token()}"})
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Supabase cloud configuration is not ready."}
 
 
 @pytest.mark.parametrize(
