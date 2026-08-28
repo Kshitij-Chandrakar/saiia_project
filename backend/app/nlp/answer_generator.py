@@ -1273,6 +1273,7 @@ class AnswerGenerator:
                 or "hackerrank" in str((mode_detection or {}).get("platform") or "").lower()
             )
         )
+        selected_resume_authoritative = bool((profile or {}).get("selected_resume_authoritative"))
         regex_contract = (
             build_hackerrank_problem_contract(
                 problem_text=question,
@@ -1313,7 +1314,7 @@ class AnswerGenerator:
             job_context=job_context,
             profile_context_enabled=profile_context_enabled,
             history=self.variation_history,
-            enabled=settings.ENABLE_CONTROLLED_ANSWER_VARIATION,
+            enabled=settings.ENABLE_CONTROLLED_ANSWER_VARIATION and not selected_resume_authoritative,
             rewrite_enabled=settings.ENABLE_VARIATION_REWRITE,
             ttl_seconds=settings.VARIATION_CACHE_TTL_SECONDS,
             history_limit=settings.VARIATION_HISTORY_LIMIT,
@@ -1828,6 +1829,7 @@ class AnswerGenerator:
         result.update(validation_meta)
         if (
             result.get("provider") == "openai"
+            and not selected_resume_authoritative
             and self._should_run_semantic_validation(
                 plan=plan,
                 validation_meta=validation_meta,
@@ -2700,7 +2702,11 @@ class AnswerGenerator:
             profile_context_enabled=profile_context_enabled,
         )
         effective_qt = classify_question_by_rules(question) or question_type.lower().strip()
-        conceptual_answer = effective_qt in {"technical", "general"} and not self._is_personal_question(question)
+        conceptual_answer = (
+            effective_qt in {"technical", "general"}
+            and not self._is_personal_question(question)
+            and not self._is_project_question(question, profile=profile)
+        )
         refinement_word_limit = (
             max(settings.REFINEMENT_MAX_WORDS, 160)
             if conceptual_answer
@@ -3028,8 +3034,12 @@ class AnswerGenerator:
         is_intro = self._is_introduction_question(question)
         personal_question = self._is_personal_question(question)
         general_technical_question = qt == "technical" and not personal_question
-        conceptual_answer = qt in {"technical", "general"} and not personal_question
+        project_intent = self._is_project_question(question, profile=profile)
+        conceptual_answer = qt in {"technical", "general"} and not personal_question and not project_intent
         selected_resume_authoritative = bool((profile or {}).get("selected_resume_authoritative"))
+        specific_project_intent = bool((profile or {}).get("specific_project_intent_detected"))
+        matched_project_name = str((profile or {}).get("matched_project_name") or "").strip()
+        project_answer_mode = str((profile or {}).get("project_answer_mode") or "").strip().lower()
         if qt == "personal" and not coding_mode:
             personal_subtype = classify_personal_subtype(question) or "personality_self_awareness"
             personal_parts, _metadata = self._build_personal_prompt(
@@ -3042,10 +3052,31 @@ class AnswerGenerator:
             if selected_resume_authoritative:
                 personal_parts.insert(
                     2,
-                    "The selected uploaded resume is the authoritative candidate context for this session. Use it over profile/default context. Do not invent or reuse older profile facts that are not supported by the selected resume.",
+                    "STRICT SELECTED-RESUME MODE: The selected uploaded resume is the only authoritative candidate context for this session. Answer only from the selected resume context. Do not use profile/default/local fallback facts, older profile facts, generic personal examples, hobbies, lifestyle examples, or invented projects.",
                 )
+                if job_context:
+                    personal_parts.insert(3, "Use the target role, company, and job description only to tailor emphasis. Do not treat job-description text as candidate experience.")
                 if self._is_introduction_question(question) and str((profile or {}).get("full_name") or "").strip():
-                    personal_parts.insert(3, "Use the candidate name from the selected resume naturally in this self-introduction. Do not use an older profile name if it conflicts with selected resume context.")
+                    personal_parts.insert(4, "Use the candidate name from the selected resume naturally in this self-introduction. Do not use an older profile name if it conflicts with selected resume context.")
+                if project_intent:
+                    personal_parts.insert(5, "For project questions, answer only using the selected resume project context. Give a detailed interview-style answer covering the project name, problem, what it does, tech stack, your implementation, technical workflow, one supported challenge or learning, and a short closing. Use 2 to 4 short paragraphs or 6 to 8 bullets. Do not invent unrelated personal, lifestyle, hobby, organizing, recipe, or photo-album projects, fake users, metrics, deployment, or results.")
+                if specific_project_intent and matched_project_name and project_answer_mode == "detailed_specific_project":
+                    personal_parts.insert(6, f"Focus on the specific selected-resume project '{matched_project_name}'. Prefer that project's chunks over other projects. If the question asks how it was built, explain the implementation in order: input or data source, processing pipeline, model or retrieval layer, backend or API layer, frontend or UI layer if supported, output, and what you learned. If the question asks why a tool was used, explain that tool choice only from the supported project context.")
+            if job_context and profile_context_enabled:
+                context_lines = []
+                if job_context.get("target_role"):
+                    context_lines.append(f"Target role context: {job_context['target_role']}")
+                if job_context.get("company_name"):
+                    context_lines.append(f"Target company context: {job_context['company_name']}")
+                if job_context.get("job_description"):
+                    job_description = str(job_context["job_description"]).strip()
+                    context_lines.append(
+                        f"Job description summary: {job_description[:700]}{'...' if len(job_description) > 700 else ''}"
+                    )
+                if context_lines:
+                    personal_parts.append("")
+                    personal_parts.append("Job and company context:")
+                    personal_parts.extend(context_lines)
             personal_parts.append("")
             personal_parts.append("Final rule: output only the answer that should appear in the overlay.")
             return "\n".join(personal_parts)
@@ -3071,10 +3102,21 @@ class AnswerGenerator:
         ]
         if selected_resume_authoritative:
             parts.append(
-                "The selected uploaded resume is the authoritative candidate context for this session. Use it over profile/default context. Do not invent or reuse older profile facts that are not supported by the selected resume."
+                "STRICT SELECTED-RESUME MODE: The selected uploaded resume is the only authoritative candidate context for this session. Answer only from the selected resume context. Do not use profile/default/local fallback facts, older profile facts, generic personal examples, hobbies, lifestyle examples, or invented projects."
             )
+            if job_context:
+                parts.append("Use the target role, company, and job description only to tailor emphasis. Do not treat job-description text as candidate experience.")
             if is_intro and str((profile or {}).get("full_name") or "").strip():
                 parts.append("Use the candidate name from the selected resume naturally in this self-introduction. Do not use an older profile name if it conflicts with selected resume context.")
+            if project_intent:
+                parts.append("For project questions, answer only using the selected resume project context. Give a detailed interview-style answer covering the project name, problem, what it does, tech stack, your implementation, technical workflow, one supported challenge or learning, and a short closing. Use 2 to 4 short paragraphs or 6 to 8 bullets. Do not invent unrelated personal, lifestyle, hobby, organizing, recipe, or photo-album projects, fake users, metrics, deployment, or results.")
+            if specific_project_intent and matched_project_name and project_answer_mode == "detailed_specific_project":
+                parts.append(f"Focus on the specific selected-resume project '{matched_project_name}'. Prefer that project's chunks over other projects.")
+                parts.append("For a specific-project answer, cover in order: project purpose, tech stack, technical workflow, what you personally implemented or contributed, one supported challenge or learning, and a short closing that connects the project to the target role or job description when job context is available.")
+                parts.append("Use 3 to 5 short interview-style paragraphs. Make the workflow concrete and explain the implementation steps in plain language instead of summarizing them vaguely.")
+                parts.append("If the question asks how the project was built, explain the implementation in order: input or data source, processing pipeline, model or retrieval or search layer, backend or API layer, frontend or UI layer if supported, output or result, and what you learned.")
+                parts.append("When the selected resume supports it, explain the backend or API relevance of your work clearly instead of leaving the implementation ownership vague.")
+                parts.append("If the question asks why a tool such as FAISS, MiniLM, Streamlit, LangChain, Chroma, FastAPI, or Gemini API was used, explain that tool choice only from the supported selected-resume project context and do not overclaim.")
 
         if not coding_mode:
             parts.extend(
@@ -3442,7 +3484,11 @@ class AnswerGenerator:
                 "- Output only the final refined answer."
             )
         effective_qt = classify_question_by_rules(question) or question_type.lower().strip()
-        conceptual_answer = effective_qt in {"technical", "general"} and not self._is_personal_question(question)
+        conceptual_answer = (
+            effective_qt in {"technical", "general"}
+            and not self._is_personal_question(question)
+            and not self._is_project_question(question, profile=profile)
+        )
         if conceptual_answer:
             return (
                 "Rewrite this conceptual answer for the SAIIA overlay.\n\n"
@@ -3859,6 +3905,17 @@ class AnswerGenerator:
             filtered = [snippet for snippet in retrieved_snippets if snippet.get("section") in allowed_sections]
             return filtered[:2] if filtered else retrieved_snippets[:2]
 
+        if re.search(
+            r"\b(project|projects|portfolio|built|created|developed|implemented|work experience|experience|internship|why did you use|how did you build)\b",
+            question.lower(),
+        ):
+            preferred_sections = {"projects", "project", "technical_skills", "tools_frameworks", "experience", "work_experience", "internship"}
+            ordered = sorted(
+                retrieved_snippets,
+                key=lambda snippet: 0 if str(snippet.get("section") or "").strip().lower() in preferred_sections else 1,
+            )
+            return ordered[:4]
+
         if question_type == "technical":
             preferred_sections = {"projects", "technical_skills", "tools_frameworks", "experience", "work_experience"}
             ordered = sorted(
@@ -3894,6 +3951,22 @@ class AnswerGenerator:
             )
         )
 
+    def _is_project_question(self, question: str, profile: Optional[Dict[str, Any]] = None) -> bool:
+        if bool((profile or {}).get("specific_project_intent_detected")):
+            return True
+        if str((profile or {}).get("project_answer_mode") or "").strip().lower() in {
+            "detailed_specific_project",
+            "general_projects",
+        }:
+            return True
+        normalized = question.lower()
+        return bool(
+            re.search(r"\b(project|projects|portfolio|resume project|ai study assistant)\b", normalized)
+            or re.search(r"\b(?:your|my)\s+(?:project|projects|portfolio|work experience|internship|experience)\b", normalized)
+            or re.search(r"\bwhat did you (?:build|implement)\b|\bwhat have you (?:built|implemented)\b", normalized)
+            or re.search(r"\bin (?:your|the) (?:project|projects|internship|work experience)\b", normalized)
+        )
+
     def _is_comparison_question(self, question: str) -> bool:
         normalized = question.lower().strip()
         return any(phrase in normalized for phrase in ("difference between", "compare ", " versus ", " vs "))
@@ -3904,6 +3977,8 @@ class AnswerGenerator:
         if question_type in {"hr", "behavioral"}:
             return True
         if question_type == "technical":
+            return self._is_personal_question(question)
+        if question_type == "general":
             return self._is_personal_question(question)
         normalized = question.lower().strip()
         return any(

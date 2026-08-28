@@ -144,6 +144,16 @@ async function parseJsonResponse(response, fallbackMessage) {
 function normalizePipelineError(error, fallbackMessage) {
   const message = error?.message || fallbackMessage
 
+  if (/selected resume is not ready for generation/i.test(message)) {
+    return 'Selected resume is not ready for generation. Please finish resume setup or rebuild the index from the dashboard.'
+  }
+  if (/selected resume is not ready or does not contain enough context/i.test(message)) {
+    return 'Selected resume is not ready or does not contain enough project context for this answer.'
+  }
+  if (/does not contain enough project details/i.test(message)) {
+    return 'The selected resume is ready, but it does not contain enough project details to answer this accurately.'
+  }
+
   if (/failed to fetch|networkerror|load failed/i.test(message)) {
     return 'SAIIA could not reach the backend. Please make sure the backend is running and try again.'
   }
@@ -2861,6 +2871,15 @@ function MainWindow() {
     const activeStartupSessionConfig = startupSessionConfigRef.current
     const selectedResumeId = String(activeStartupSessionConfig?.selectedResumeId || '').trim()
     const selectedResumeName = String(activeStartupSessionConfig?.selectedResumeName || '').trim()
+    const targetRole = String(
+      activeStartupSessionConfig?.targetRole || activeStartupSessionConfig?.role || ''
+    ).trim()
+    const companyName = String(
+      activeStartupSessionConfig?.companyName || activeStartupSessionConfig?.company || ''
+    ).trim()
+    const jobDescription = String(
+      activeStartupSessionConfig?.jobDescription || activeStartupSessionConfig?.jobContext || ''
+    ).trim()
     const generateRequestBody = {
       question: text,
       original_question: committedQuestionBeforeStream || text,
@@ -2886,11 +2905,15 @@ function MainWindow() {
       classification_ms: classificationMs,
       profile_fetch_ms: profileFetchMs,
       selected_resume_id: selectedResumeId || undefined,
+      target_role: targetRole || undefined,
+      company_name: companyName || undefined,
+      job_description: jobDescription || undefined,
     }
     const selectedResumeDiagnostics = {
       selectedResumeIdExists: Boolean(selectedResumeId),
-      selectedResumeName,
       generationRequestIncludesSelectedResumeId: Boolean(generateRequestBody.selected_resume_id),
+      jobContextIncluded: Boolean(companyName || jobDescription),
+      targetRoleIncluded: Boolean(targetRole),
     }
     console.info('Intervu AI selected resume generation diagnostics', selectedResumeDiagnostics)
     if (committedQuestionBeforeStream) {
@@ -3006,13 +3029,25 @@ function MainWindow() {
       selected_resume_candidate_name_available:
         generatePayload.selected_resume_candidate_name_available ?? false,
       selected_resume_candidate_name_source: generatePayload.selected_resume_candidate_name_source || 'none',
+      project_context_chunks_found: generatePayload.project_context_chunks_found ?? 0,
+      project_context_source: generatePayload.project_context_source || 'none',
+      selected_resume_strict_mode: generatePayload.selected_resume_strict_mode ?? false,
+      selected_resume_context_used_in_prompt: generatePayload.selected_resume_context_used_in_prompt ?? false,
+      generic_fallback_blocked: generatePayload.generic_fallback_blocked ?? false,
+      generic_project_fallback_blocked: generatePayload.generic_project_fallback_blocked ?? false,
+      profile_fallback_blocked: generatePayload.profile_fallback_blocked ?? false,
       profile_context_suppressed_by_selected_resume:
         generatePayload.profile_context_suppressed_by_selected_resume ?? false,
       final_context_priority: generatePayload.final_context_priority || 'none',
+      job_context_included: generatePayload.job_context_included ?? Boolean(companyName || jobDescription),
+      target_role_included: generatePayload.target_role_included ?? Boolean(targetRole),
+      project_intent_detected: generatePayload.project_intent_detected ?? false,
       selected_resume_id_exists: selectedResumeDiagnostics.selectedResumeIdExists,
-      selected_resume_name: selectedResumeDiagnostics.selectedResumeName,
+      selected_resume_name: selectedResumeName,
       generation_request_includes_selected_resume_id:
         selectedResumeDiagnostics.generationRequestIncludesSelectedResumeId,
+      generation_request_includes_job_context: selectedResumeDiagnostics.jobContextIncluded,
+      generation_request_includes_target_role: selectedResumeDiagnostics.targetRoleIncluded,
     }
     const visibleHistoryEntry = !historyMode || isSelectedHistoryEntry(historyMode, historyEntryId)
 
@@ -3171,11 +3206,14 @@ function MainWindow() {
       selected_resume_candidate_name_available:
         generatePayload.selected_resume_candidate_name_available,
       selected_resume_candidate_name_source: generatePayload.selected_resume_candidate_name_source,
+      selected_resume_strict_mode: generatePayload.selected_resume_strict_mode,
+      selected_resume_context_used_in_prompt: generatePayload.selected_resume_context_used_in_prompt,
+      generic_fallback_blocked: generatePayload.generic_fallback_blocked,
+      profile_fallback_blocked: generatePayload.profile_fallback_blocked,
       profile_context_suppressed_by_selected_resume:
         generatePayload.profile_context_suppressed_by_selected_resume,
       final_context_priority: generatePayload.final_context_priority,
       selected_resume_id_exists: selectedResumeDiagnostics.selectedResumeIdExists,
-      selected_resume_name: selectedResumeDiagnostics.selectedResumeName,
       generation_request_includes_selected_resume_id:
         selectedResumeDiagnostics.generationRequestIncludesSelectedResumeId,
       coding_runtime_audit: generatePayload.coding_runtime_audit,

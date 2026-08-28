@@ -12,6 +12,7 @@ from app.cloud.cloud_resume import (
     CloudResumeError,
     CloudResumeNotFoundError,
     CloudResumeRecord,
+    ResumeReadiness,
     CloudResumeService,
     CloudResumeValidationError,
 )
@@ -59,8 +60,11 @@ class CloudResumeListItem(BaseModel):
     index_status: str
     is_active: bool
     created_at: str | None = None
+    uploaded_at: str | None = None
     updated_at: str | None = None
     chunk_count: int | None = None
+    can_generate: bool = False
+    readiness_reason: str = "unknown"
 
 
 class CloudResumeListResponse(BaseModel):
@@ -159,7 +163,7 @@ def _resume_response(record: CloudResumeRecord) -> CloudResumeResponse:
     )
 
 
-def _resume_list_item(record: CloudResumeRecord) -> CloudResumeListItem:
+def _resume_list_item(record: CloudResumeRecord, readiness: ResumeReadiness | None = None) -> CloudResumeListItem:
     display_name = record.original_filename.strip() or "Uploaded resume"
     return CloudResumeListItem(
         id=record.id,
@@ -169,8 +173,11 @@ def _resume_list_item(record: CloudResumeRecord) -> CloudResumeListItem:
         index_status=record.index_status,
         is_active=record.is_active,
         created_at=record.created_at,
+        uploaded_at=record.created_at,
         updated_at=record.updated_at,
-        chunk_count=None,
+        chunk_count=readiness.chunk_count if readiness else None,
+        can_generate=bool(readiness.can_generate) if readiness else False,
+        readiness_reason=readiness.readiness_reason if readiness else "unknown",
     )
 
 
@@ -225,9 +232,17 @@ def upload_cloud_resume(
 def list_cloud_resumes(current_user: CurrentUserDep, service: CloudResumeServiceDep) -> CloudResumeListResponse:
     try:
         records = service.list_resumes(current_user.user_id)
+        readiness_by_id = service.list_resume_readiness(user_id=current_user.user_id, records=records)
+        items = [
+            _resume_list_item(
+                record,
+                readiness_by_id.get(record.id),
+            )
+            for record in records
+        ]
     except Exception as exc:
         raise _handle_cloud_error(exc) from exc
-    return CloudResumeListResponse(items=[_resume_list_item(record) for record in records])
+    return CloudResumeListResponse(items=items)
 
 
 @router.get("/current", response_model=CurrentResumeResponse)

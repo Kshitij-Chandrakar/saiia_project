@@ -9,6 +9,26 @@ const EMPTY_SETUP = {
   selectedResumeName: '',
 }
 
+const READINESS_LABELS = {
+  ready: 'Ready',
+  processing: 'Processing',
+  not_indexed: 'Needs indexing',
+  no_chunks: 'Needs indexing',
+  needs_confirmation: 'Needs confirmation',
+  failed: 'Failed',
+  unknown: 'Not ready',
+}
+
+function getResumeReadinessLabel(resume) {
+  if (!resume) {
+    return ''
+  }
+  if (resume.can_generate === true) {
+    return READINESS_LABELS.ready
+  }
+  return READINESS_LABELS[resume.readiness_reason] || READINESS_LABELS.unknown
+}
+
 export default function StartupSessionSetupScreen({ initialConfig, onBack, onStartSession }) {
   const [draft, setDraft] = useState(() => ({ ...EMPTY_SETUP, ...(initialConfig || {}) }))
   const [resumes, setResumes] = useState([])
@@ -40,12 +60,6 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
       }
       const items = Array.isArray(result?.items) ? result.items : []
       setResumes(items)
-      setDraft((current) => {
-        if (!current.selectedResumeId || items.some((item) => item.id === current.selectedResumeId)) {
-          return current
-        }
-        return { ...current, selectedResumeId: '', selectedResumeName: '' }
-      })
       if (result?.error) {
         setResumeMessage(result.error)
       }
@@ -77,6 +91,7 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
       selectedResumeId,
       selectedResumeName: selected?.display_name || '',
     }))
+    setMessage('')
   }
 
   const openDashboard = () => {
@@ -85,8 +100,19 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
     })
   }
 
+  const selectedResume = draft.selectedResumeId
+    ? resumes.find((resume) => resume.id === draft.selectedResumeId)
+    : null
+  const selectedResumeBlocked = Boolean(
+    draft.selectedResumeId && (resumesLoading || !selectedResume || selectedResume.can_generate !== true)
+  )
+
   const handleStartSession = async () => {
     if (starting) {
+      return
+    }
+    if (selectedResumeBlocked) {
+      setMessage('This resume is uploaded but not ready for generation yet. Finish extraction/indexing from the dashboard, then refresh.')
       return
     }
     setStarting(true)
@@ -97,7 +123,13 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
         setMessage('Session could not be started. Log in again and retry.')
         return
       }
-      onStartSession?.(draft)
+      onStartSession?.({
+        ...draft,
+        sessionTitle: draft.title,
+        targetRole: draft.role,
+        companyName: draft.company,
+        jobDescription: draft.jobContext,
+      })
     } catch {
       setMessage('Session could not be started. Log in again and retry.')
     } finally {
@@ -178,7 +210,7 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
                   <option value="">Select a resume</option>
                   {resumes.map((resume) => (
                     <option key={resume.id} value={resume.id}>
-                      {resume.display_name || resume.original_filename || 'Uploaded resume'}
+                      {resume.display_name || resume.original_filename || 'Uploaded resume'} - {getResumeReadinessLabel(resume)}
                     </option>
                   ))}
                 </select>
@@ -191,6 +223,18 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
                 </button>
               </div>
             )}
+            {selectedResumeBlocked ? (
+              <div className="startup-setup-resume__message" aria-live="polite">
+                <p>
+                  {resumesLoading
+                    ? 'Loading the latest resume readiness before starting your session.'
+                    : 'This resume is uploaded but not ready for generation yet. Finish extraction/indexing from the dashboard, then refresh.'}
+                </p>
+                <button type="button" onClick={openDashboard}>
+                  Open dashboard to finish resume setup
+                </button>
+              </div>
+            ) : null}
             {resumeMessage ? <p className="startup-setup-resume__message" aria-live="polite">{resumeMessage}</p> : null}
           </section>
         </main>
@@ -199,7 +243,7 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
           <button type="button" className="startup-setup-back" onClick={onBack}>
             ← Back
           </button>
-          <button type="button" className="startup-setup-start" onClick={handleStartSession} disabled={starting}>
+          <button type="button" className="startup-setup-start" onClick={handleStartSession} disabled={starting || selectedResumeBlocked}>
             {starting ? 'Starting...' : 'Start Session →'}
           </button>
         </footer>

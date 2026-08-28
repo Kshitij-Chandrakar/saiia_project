@@ -46,6 +46,14 @@ def test_general_technical_definition_uses_general_knowledge_without_resume() ->
     assert "User profile:" not in prompt
 
 
+def test_dependency_injection_implemented_question_stays_conceptual() -> None:
+    prompt = _prompt("How is dependency injection implemented?", "technical")
+
+    assert "Real-life example:" in prompt
+    assert "Real-life example policy" in prompt
+    assert "For project questions, answer only using the selected resume project context." not in prompt
+
+
 def test_required_conceptual_questions_receive_complete_format_contract() -> None:
     questions = (
         "What is authentication?",

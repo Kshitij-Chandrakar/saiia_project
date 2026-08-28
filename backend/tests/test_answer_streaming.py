@@ -7,6 +7,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.api import generate as generate_api
+from fastapi import HTTPException
 
 
 async def _collect_stream_events(response) -> list[dict]:
@@ -274,3 +275,109 @@ async def test_generate_stream_clarifies_followup_without_context(monkeypatch: p
     assert "Which earlier topic" in text
     assert metadata["clarification_required"] is True
     assert metadata["follow_up_resolution_status"] == "needs_clarification"
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_answers_complete_technical_question_without_followup_clarification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(generate_api.resume_index_service, "retrieve", lambda **_kwargs: {"retrieval_used": False, "retrieved_chunks": [], "retrieval_ms": 0.0})
+    monkeypatch.setattr(generate_api.job_context_service, "get_context", lambda: {"saved": False})
+    captured = {}
+
+    def fake_stream_openai_primary_answer(**kwargs):
+        captured["stream_question"] = kwargs["question"]
+        yield {"type": "delta", "text": "Dependency injection means dependencies are passed in."}
+        yield {
+            "type": "primary_result",
+            "result": {
+                "answer": "Dependency injection means dependencies are passed in.",
+                "provider": "openai",
+                "model": "gpt-5.4-mini-2026-03-17",
+                "fallback_used": False,
+                "error": None,
+                "generation_ms": 5.0,
+            },
+        }
+
+    def fake_generate_answer(**kwargs):
+        captured["final_question"] = kwargs["question"]
+        return {
+            **dict(kwargs["primary_result_override"]),
+            "answer_type": "technical_concept",
+            "plan_confidence": 0.9,
+            "profile_context_policy": "FORBIDDEN",
+            "job_context_policy": "FORBIDDEN",
+            "general_knowledge_policy": "ALLOWED",
+        }
+
+    monkeypatch.setattr(generate_api.generator, "stream_openai_primary_answer", fake_stream_openai_primary_answer)
+    monkeypatch.setattr(generate_api.generator, "generate_answer", fake_generate_answer)
+
+    response = await generate_api.generate_answer_stream(
+        generate_api.GenerateRequest(
+            question="How is dependency injection implemented?",
+            original_question="How is dependency injection implemented?",
+            category="technical",
+            followup_mode="answer",
+            followup_context=[],
+        )
+    )
+    events = await _collect_stream_events(response)
+    text = "".join(event.get("text", "") for event in events if event["type"] == "delta")
+    metadata = next(event["metadata"] for event in events if event["type"] == "metadata")
+
+    assert captured["stream_question"] == "How is dependency injection implemented?"
+    assert captured["final_question"] == "How is dependency injection implemented?"
+    assert "Which earlier topic should I connect this follow-up to?" not in text
+    assert metadata["clarification_required"] is False
+    assert metadata["follow_up_detected"] is False
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_preserves_selected_resume_http_conflict(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(generate_api, "get_current_user", lambda _request: type("CurrentUser", (), {"user_id": "user-a"})())
+    monkeypatch.setattr(
+        generate_api.job_context_service,
+        "get_context",
+        lambda: {"saved": False},
+    )
+    monkeypatch.setattr(
+        generate_api,
+        "_new_cloud_resume_service",
+        lambda: type(
+            "FakeCloudResumeService",
+            (),
+            {
+                "retrieve_resume_chunks": staticmethod(
+                    lambda **_kwargs: (_ for _ in ()).throw(
+                        generate_api.HTTPException(status_code=409, detail="Selected resume is not ready for generation.")
+                    )
+                )
+            },
+        )(),
+    )
+
+    response = await generate_api.generate_answer_stream(
+        generate_api.GenerateRequest(
+            question="Tell me about your projects",
+            category="hr",
+            profile_context_used=True,
+            selected_resume_id="10000000-0000-4000-8000-000000000001",
+        ),
+        request=object(),
+    )
+    events = await _collect_stream_events(response)
+
+    assert events[1] == {
+        "type": "error",
+        "request_id": events[0]["request_id"],
+        "error": "http_error",
+        "status_code": 409,
+        "detail": "Selected resume is not ready for generation.",
+        "partial": False,
+    }
+    assert events[-1]["type"] == "done"
+    assert events[-1]["incomplete"] is False

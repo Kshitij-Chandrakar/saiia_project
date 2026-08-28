@@ -18,6 +18,7 @@ from app.cloud.cloud_resume import (
     SupabaseCloudResumeClient,
     CloudResumeValidationError,
     sanitize_resume_filename,
+    question_has_project_intent,
     validate_confirmed_profile,
     validate_resume_upload,
 )
@@ -253,6 +254,25 @@ class FakeCloudResumeClient:
             and chunk["generation_id"] == generation_id
         ]
 
+    def get_active_resume_chunk_counts(
+        self,
+        *,
+        user_id: str,
+        records: list[CloudResumeRecord],
+    ) -> dict[tuple[str, str], int]:
+        counts: dict[tuple[str, str], int] = {}
+        allowed = {
+            (record.id, str(record.active_chunk_generation or ""))
+            for record in records
+            if record.active_chunk_generation
+        }
+        for chunk in self.chunks:
+            key = (str(chunk["resume_id"]), str(chunk["generation_id"]))
+            if str(chunk["user_id"]) != user_id or key not in allowed:
+                continue
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
     def compare_and_set_resume(
         self,
         resume_id: str,
@@ -346,6 +366,46 @@ def test_fake_inactive_chunk_prune_removes_null_and_old_generations_for_same_res
     assert "other resume null chunk" in remaining_chunks
 
 
+def test_resume_readiness_requires_active_indexed_chunks() -> None:
+    client = FakeCloudResumeClient()
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+    ready_record = _record(status="ready", index_status="indexed", active_chunk_generation="active-generation")
+    client.records[(USER_A, RESUME_ID)] = ready_record
+
+    no_chunks = service.get_resume_readiness(user_id=USER_A, record=ready_record)
+
+    assert no_chunks.can_generate is False
+    assert no_chunks.chunk_count == 0
+    assert no_chunks.readiness_reason == "no_chunks"
+
+    client.chunks.append(
+        {
+            "user_id": USER_A,
+            "resume_id": RESUME_ID,
+            "generation_id": "active-generation",
+            "chunk_text": "safe indexed chunk",
+        }
+    )
+
+    with_chunks = service.get_resume_readiness(user_id=USER_A, record=ready_record)
+
+    assert with_chunks.can_generate is True
+    assert with_chunks.chunk_count == 1
+    assert with_chunks.readiness_reason == "ready"
+
+
+def test_resume_readiness_marks_needs_review_as_needs_confirmation() -> None:
+    client = FakeCloudResumeClient()
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+    record = _record(status="needs_review", index_status="not_indexed", review_required=True)
+
+    readiness = service.get_resume_readiness(user_id=USER_A, record=record)
+
+    assert readiness.can_generate is False
+    assert readiness.chunk_count is None
+    assert readiness.readiness_reason == "needs_confirmation"
+
+
 class FakeParser:
     def extract_profile(self, *, filename: str, content: bytes) -> dict[str, object]:
         assert filename == "resume.txt"
@@ -368,6 +428,20 @@ class FakeParser:
 class FailingParser:
     def extract_profile(self, *, filename: str, content: bytes) -> dict[str, object]:
         raise ProviderError("provider failed with raw text: SECRET RESUME BODY")
+
+
+class RawTextOnlyParser:
+    def extract_profile(self, *, filename: str, content: bytes) -> dict[str, object]:
+        return {
+            "parser_provider": "local",
+            "fallback_used": False,
+            "missing_fields": [],
+            "review_required": False,
+            "profile": {
+                "raw_resume_text": content.decode("utf-8"),
+            },
+            "extracted_text_length": len(content),
+        }
 
 
 def test_sanitize_resume_filename_rejects_path_traversal() -> None:
@@ -972,6 +1046,55 @@ def test_confirm_skips_empty_fields_and_does_not_store_raw_resume_text_in_chunks
     assert "raw_resume_text" not in str(chunks)
 
 
+def test_confirm_indexes_project_details_from_uploaded_resume_text_when_confirmed_profile_is_sparse() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(status="needs_review", extraction_attempt=1)
+    client.objects[f"{USER_A}/{RESUME_ID}/resume.txt"] = (
+        b"DEVANSHU CHANDRAKAR\n"
+        b"PROJECTS\n"
+        b"AI Study Assistant - Built document processing, chunking, embeddings, RAG, Chroma, LangChain, Gemini API, and FastAPI.\n"
+        b"EDUCATION\n"
+        b"B.TECH CSE\n"
+    )
+    service = CloudResumeService(client=client, parser=RawTextOnlyParser())  # type: ignore[arg-type]
+
+    service.confirm_resume(
+        user_id=USER_A,
+        resume_id=RESUME_ID,
+        extraction_attempt=1,
+        confirmed_profile={
+            "full_name": "Devanshu Chandrakar",
+            "professional_summary": "Computer Science undergraduate.",
+            "projects": "AI Study Assistant",
+        },
+    )
+
+    chunks = client.chunk_inserts[0]
+    assert any(chunk["section"] == "projects" for chunk in chunks)
+    assert any("chunking" in str(chunk["chunk_text"]).lower() for chunk in chunks if chunk["section"] == "projects")
+    assert "raw_resume_text" not in str(chunks)
+
+
+def test_confirmed_profile_projects_survive_storage_and_are_indexed() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(status="needs_review", extraction_attempt=1)
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    service.confirm_resume(
+        user_id=USER_A,
+        resume_id=RESUME_ID,
+        extraction_attempt=1,
+        confirmed_profile={
+            "full_name": "Test User",
+            "projects": "AI Study Assistant - FastAPI and LangChain",
+            "experience": "Backend Intern - built APIs",
+        },
+    )
+
+    assert client.profiles[USER_A]["projects"] == "AI Study Assistant - FastAPI and LangChain"
+    assert any(chunk["section"] == "projects" for chunk in client.chunk_inserts[0])
+
+
 def test_chunk_insert_failure_does_not_activate_resume_and_logs_no_raw_text(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -1279,6 +1402,169 @@ def test_selected_cloud_resume_retrieval_extracts_header_candidate_name_when_met
 
     assert retrieval["selected_resume_candidate_name"] == "DEVANSHU CHANDRAKAR"
     assert retrieval["selected_resume_candidate_name_source"] == "header"
+
+
+def test_selected_cloud_resume_project_question_prefers_project_sections() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(
+        status="ready",
+        is_active=False,
+        active_chunk_generation="active-generation",
+        confirmed_profile={"full_name": "Devanshu Chandrakar"},
+    )
+    client.chunks.extend(
+        [
+            {
+                "user_id": USER_A,
+                "resume_id": RESUME_ID,
+                "generation_id": "active-generation",
+                "section": "professional_summary",
+                "chunk_text": "Computer Science undergraduate focused on AI and backend engineering.",
+                "metadata": {"chunk_id": "summary-1", "source": "cloud_resume", "section": "professional_summary"},
+            },
+            {
+                "user_id": USER_A,
+                "resume_id": RESUME_ID,
+                "generation_id": "active-generation",
+                "section": "projects",
+                "chunk_text": "AI Study Assistant built with LangChain, Gemini API, RAG, Chroma, and FastAPI.",
+                "metadata": {"chunk_id": "project-1", "source": "cloud_resume", "section": "projects"},
+            },
+            {
+                "user_id": USER_A,
+                "resume_id": RESUME_ID,
+                "generation_id": "active-generation",
+                "section": "work_experience",
+                "chunk_text": "Developed backend APIs and document-processing workflows for resume-grounded answers.",
+                "metadata": {"chunk_id": "work-1", "source": "cloud_resume", "section": "work_experience"},
+            },
+        ]
+    )
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    retrieval = service.retrieve_resume_chunks(
+        user_id=USER_A,
+        resume_id=RESUME_ID,
+        question="can you explain your projects",
+        category="hr",
+        limit=2,
+    )
+
+    assert retrieval["project_context_source"] == "selected_resume_projects"
+    assert retrieval["project_context_chunks_found"] >= 1
+    assert all(
+        chunk["section"] in {"projects", "work_experience", "experience", "internship", "project"}
+        for chunk in retrieval["retrieved_chunks"]
+    )
+    assert any("AI Study Assistant" in chunk["text"] for chunk in retrieval["retrieved_chunks"])
+
+
+def test_selected_cloud_resume_specific_project_question_prefers_exact_project_match() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(
+        status="ready",
+        is_active=False,
+        active_chunk_generation="active-generation",
+        confirmed_profile={"full_name": "Devanshu Chandrakar"},
+    )
+    client.chunks.extend(
+        [
+            {
+                "user_id": USER_A,
+                "resume_id": RESUME_ID,
+                "generation_id": "active-generation",
+                "section": "projects",
+                "chunk_text": "LLM Coding Agent Assistant - Built a coding helper using FastAPI and prompt orchestration.",
+                "metadata": {"chunk_id": "project-1", "source": "cloud_resume", "section": "projects"},
+            },
+            {
+                "user_id": USER_A,
+                "resume_id": RESUME_ID,
+                "generation_id": "active-generation",
+                "section": "projects",
+                "chunk_text": "AI-Powered Medical Insights Platform - Built semantic search with Streamlit, FAISS, and MiniLM.",
+                "metadata": {"chunk_id": "project-2", "source": "cloud_resume", "section": "projects"},
+            },
+        ]
+    )
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    retrieval = service.retrieve_resume_chunks(
+        user_id=USER_A,
+        resume_id=RESUME_ID,
+        question="Explain your AI-Powered Medical Insights Platform",
+        category="hr",
+        limit=2,
+    )
+
+    assert retrieval["specific_project_intent_detected"] is True
+    assert retrieval["matched_project_name"] == "AI-Powered Medical Insights Platform"
+    assert retrieval["project_match_confidence"] == "exact"
+    assert retrieval["project_answer_mode"] == "detailed_specific_project"
+    assert "AI-Powered Medical Insights Platform" in retrieval["retrieved_chunks"][0]["text"]
+
+
+def test_selected_cloud_resume_specific_project_question_rejects_missing_project() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(
+        status="ready",
+        is_active=False,
+        active_chunk_generation="active-generation",
+    )
+    client.chunks.append(
+        {
+            "user_id": USER_A,
+            "resume_id": RESUME_ID,
+            "generation_id": "active-generation",
+            "section": "projects",
+            "chunk_text": "AI Study Assistant - Built document processing and RAG workflows.",
+            "metadata": {"chunk_id": "project-1", "source": "cloud_resume", "section": "projects"},
+        }
+    )
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    with pytest.raises(CloudResumeValidationError, match="specific project was not found"):
+        service.retrieve_resume_chunks(
+            user_id=USER_A,
+            resume_id=RESUME_ID,
+            question="Explain your Smart Product Scanning System",
+            category="hr",
+        )
+
+
+def test_project_intent_shared_predicate_stays_false_for_apostrophe_questions() -> None:
+    service = CloudResumeService(client=FakeCloudResumeClient(), parser=FakeParser())  # type: ignore[arg-type]
+
+    assert question_has_project_intent("What's the candidate's main strength?") is False
+    assert service._specific_project_name_from_question("What's the candidate's main strength?") == ""
+
+
+def test_selected_cloud_resume_project_question_requires_project_details() -> None:
+    client = FakeCloudResumeClient()
+    client.records[(USER_A, RESUME_ID)] = _record(
+        status="ready",
+        is_active=False,
+        active_chunk_generation="active-generation",
+    )
+    client.chunks.append(
+        {
+            "user_id": USER_A,
+            "resume_id": RESUME_ID,
+            "generation_id": "active-generation",
+            "section": "education",
+            "chunk_text": "B.TECH - COMPUTER SCIENCE & ENGINEERING",
+            "metadata": {"chunk_id": "education-1", "source": "cloud_resume", "section": "education"},
+        }
+    )
+    service = CloudResumeService(client=client, parser=FakeParser())  # type: ignore[arg-type]
+
+    with pytest.raises(CloudResumeValidationError, match="does not contain enough project details"):
+        service.retrieve_resume_chunks(
+            user_id=USER_A,
+            resume_id=RESUME_ID,
+            question="can you explain your projects",
+            category="hr",
+        )
 
 
 def test_selected_cloud_resume_retrieval_rejects_unindexed_selected_resume() -> None:
