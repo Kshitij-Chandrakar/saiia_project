@@ -1041,6 +1041,46 @@ def _store_transcript_for_response(
         return response
 
 
+def _store_transcript_for_stream_result(
+    *,
+    req: "GenerateRequest",
+    request: Request | None,
+    result: Dict[str, Any],
+    source: str,
+    screen_question_type: str | None,
+) -> Dict[str, Any]:
+    response = GenerateResponse(
+        answer=str(result.get("answer") or ""),
+        provider=str(result.get("provider") or "local"),
+        model=str(result.get("model") or "unknown"),
+        fallback_used=bool(result.get("fallback_used")),
+        primary_provider=result.get("primary_provider"),
+        primary_model=result.get("primary_model"),
+        error=result.get("error"),
+        generation_ms=float(result.get("generation_ms") or 0.0),
+        generation_time_ms=result.get("generation_time_ms"),
+        primary_generation_ms=result.get("primary_generation_ms"),
+        selected_resume_id_used=bool(result.get("selected_resume_id_used")),
+        generate_source=result.get("generate_source"),
+        generate_question_type=result.get("generate_question_type"),
+        generate_category=result.get("generate_category"),
+        answer_type=result.get("answer_type"),
+        job_context_used=bool(result.get("job_context_used")),
+        follow_up_detected=bool(result.get("follow_up_detected")),
+        follow_up_resolution_status=result.get("follow_up_resolution_status"),
+    )
+    stored_response = _store_transcript_for_response(
+        req=req,
+        request=request,
+        response=response,
+        source=source,
+        screen_question_type=screen_question_type,
+    )
+    result["transcript_entry_stored"] = stored_response.transcript_entry_stored
+    result["transcript_store_error"] = stored_response.transcript_store_error
+    return result
+
+
 def _resolve_request_followup(req: GenerateRequest, *, source: str) -> FollowUpResolution:
     screen_kind = str(req.question_type or req.screen_question_type or "").strip().lower()
     if source == "screen" and screen_kind in {"coding", "debugging", "output"}:
@@ -1165,6 +1205,13 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
             }
             metadata.update(followup_resolution.to_metadata())
             metadata.update(_followup_intent_metadata(followup_intent, req.followup_context))
+            metadata = _store_transcript_for_stream_result(
+                req=req,
+                request=request,
+                result=metadata,
+                source=source,
+                screen_question_type=None,
+            )
             yield _stream_event({"type": "metadata", "request_id": request_id, "metadata": metadata})
             yield _stream_event({"type": "done", "request_id": request_id})
             return
@@ -1396,6 +1443,13 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                     "classifier",
                     round(stream_sanitizer_ms, 4),
                 )
+            metadata = _store_transcript_for_stream_result(
+                req=req,
+                request=request,
+                result=metadata,
+                source=source,
+                screen_question_type=screen_question_type,
+            )
             yield _stream_event({"type": "metadata", "request_id": request_id, "metadata": metadata})
             yield _stream_event({"type": "done", "request_id": request_id})
         except ProviderError as exc:
@@ -1448,6 +1502,13 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                         total_pipeline_ms=round((time.perf_counter() - request_started) * 1000, 2),
                         followup_resolution=followup_resolution,
                         followup_intent=followup_intent,
+                    )
+                    metadata = _store_transcript_for_stream_result(
+                        req=req,
+                        request=request,
+                        result=metadata,
+                        source=source,
+                        screen_question_type=screen_question_type,
                     )
                     yield _stream_event({"type": "metadata", "request_id": request_id, "metadata": metadata})
                     yield _stream_event({"type": "done", "request_id": request_id})
