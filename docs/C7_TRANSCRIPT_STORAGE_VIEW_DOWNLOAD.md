@@ -2,7 +2,15 @@
 
 ## Status
 
-Implemented locally. Manual live verification is still pending.
+Implemented locally. Manual live verification completed on 2026-08-29.
+
+Verified on 2026-08-29:
+
+- session generation passed
+- transcript storage passed
+- dashboard transcript viewing passed
+- `.txt` transcript download passed
+- `.md` transcript download passed
 
 ## Scope Included
 

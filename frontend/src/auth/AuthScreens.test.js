@@ -4,6 +4,7 @@ import test from 'node:test'
 
 
 const source = readFileSync(new URL('./AuthScreens.jsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+const cssSource = readFileSync(new URL('./auth.css', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const appSource = readFileSync(new URL('../App.jsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const signupPageSource = source.match(/export function AuthSignupPage[\s\S]*?export function AuthLoginPage/)?.[0] || ''
 const loginPageSource = source.match(/export function AuthLoginPage[\s\S]*?export function AuthForgotPasswordPage/)?.[0] || ''
@@ -186,6 +187,7 @@ test('dashboard loads session history and transcript controls with separate load
   assert.match(dashboardPageSource, /Question:/)
   assert.match(dashboardPageSource, /Answer:/)
   assert.match(dashboardPageSource, /formatTranscriptDisplayMetaLine\(entry\)/)
+  assert.match(cssSource, /\.auth-session-history__transcript-entry \.auth-session-history__line \{\s+white-space: pre-wrap;/)
   assert.match(dashboardPageSource, /\) : sessionHistoryError \? \([\s\S]*Retry session history[\s\S]*\) : sessionHistory.length \? \([\s\S]*\) : \(/)
   assert.doesNotMatch(dashboardPageSource, /No target role'} - \{session\.company_name \|\| 'No company'/)
 })

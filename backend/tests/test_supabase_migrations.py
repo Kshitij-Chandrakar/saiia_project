@@ -11,6 +11,7 @@ C4_2_MIGRATION = MIGRATIONS_DIR / "20260809120000_add_cloud_job_context_lifecycl
 C6_3_MIGRATION = MIGRATIONS_DIR / "20260828120000_add_interview_session_lifecycle.sql"
 C6_3_RPC_FIX_MIGRATION = MIGRATIONS_DIR / "20260828153000_fix_interview_session_idempotency_rpc.sql"
 C7_MIGRATION = MIGRATIONS_DIR / "20260829103000_add_interview_session_transcript_storage.sql"
+C7_LOCKDOWN_MIGRATION = MIGRATIONS_DIR / "20260829170000_lock_down_transcript_entry_inserts.sql"
 
 
 def _normalized_sql() -> str:
@@ -352,3 +353,12 @@ def test_c7_transcript_migration_keeps_rpc_backend_only_and_user_scoped() -> Non
     assert f"revoke all on function {signature} from anon" in sql
     assert f"revoke all on function {signature} from authenticated" in sql
     assert f"grant execute on function {signature} to service_role" in sql
+
+
+def test_c7_transcript_lockdown_migration_removes_authenticated_direct_insert_path() -> None:
+    sql = " ".join(C7_LOCKDOWN_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "revoke insert on table public.interview_session_transcript_entries from authenticated" in sql
+    assert "drop policy if exists interview_session_transcript_insert_own on public.interview_session_transcript_entries" in sql
+    assert "grant insert on table public.interview_session_transcript_entries to authenticated" not in sql
+    assert "create policy interview_session_transcript_insert_own" not in sql

@@ -87,7 +87,7 @@ def _normalize_generation_ms(value: Any) -> int | None:
         return None
     try:
         numeric = int(round(float(value)))
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise CloudInterviewSessionValidationError("generation_ms is invalid.") from exc
     if numeric < 0 or numeric > 3_600_000:
         raise CloudInterviewSessionValidationError("generation_ms is invalid.")
@@ -126,7 +126,7 @@ def _normalize_metadata(value: Any) -> dict[str, Any]:
         raise CloudInterviewSessionValidationError("metadata must be an object.")
     if len(sanitized) > MAX_METADATA_KEYS:
         raise CloudInterviewSessionValidationError("metadata is too large.")
-    encoded = json.dumps(sanitized, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    encoded = json.dumps(sanitized, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if len(encoded) > MAX_METADATA_JSON_CHARS:
         raise CloudInterviewSessionValidationError("metadata is too large.")
     return sanitized

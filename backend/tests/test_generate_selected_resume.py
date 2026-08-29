@@ -49,6 +49,26 @@ def _transcript_entry(**overrides: Any) -> CloudInterviewTranscriptEntryRecord:
     return CloudInterviewTranscriptEntryRecord(**payload)
 
 
+def _session_record(**overrides: Any) -> Any:
+    payload = {
+        "id": SESSION_ID,
+        "user_id": "user-a",
+        "selected_resume_id": SELECTED_RESUME_ID,
+        "job_context_id": None,
+        "title": "Practice session",
+        "target_role": "Backend Engineer",
+        "company_name": "Acme",
+        "job_description_preview": "AI engineer",
+        "status": "active",
+        "started_at": "2026-08-29T10:00:00Z",
+        "ended_at": None,
+        "created_at": "2026-08-29T10:00:00Z",
+        "updated_at": "2026-08-29T10:00:00Z",
+    }
+    payload.update(overrides)
+    return payload
+
+
 @pytest.mark.anyio
 async def test_generate_uses_selected_cloud_resume_for_authenticated_user(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
@@ -140,11 +160,17 @@ async def test_generate_with_session_id_stores_transcript_entry(monkeypatch: pyt
             captured["transcript_kwargs"] = kwargs
             return CreateInterviewTranscriptEntryResult(record=_transcript_entry(), replayed=False)
 
+    class FakeInterviewSessionService:
+        def get_session(self, **kwargs: Any) -> Any:
+            captured["session_kwargs"] = kwargs
+            return _session_record()
+
     monkeypatch.setattr(generate_api, "get_current_user", lambda _request: CurrentUser(user_id="user-a"))
     monkeypatch.setattr(generate_api, "_new_cloud_resume_service", lambda: FakeCloudResumeService())
     monkeypatch.setattr(generate_api.job_context_service, "get_context", lambda: {"saved": False})
     monkeypatch.setattr(generate_api.generator, "generate_answer", lambda **_kwargs: _result())
     monkeypatch.setattr(generate_api, "_new_cloud_transcript_service", lambda: FakeTranscriptService())
+    monkeypatch.setattr(generate_api, "_new_cloud_interview_session_service", lambda: FakeInterviewSessionService())
 
     response = await generate_api.generate_answer(
         generate_api.GenerateRequest(
@@ -161,9 +187,11 @@ async def test_generate_with_session_id_stores_transcript_entry(monkeypatch: pyt
     assert response.answer == "Selected resume answer"
     assert response.transcript_entry_stored is True
     assert response.transcript_store_error is None
+    assert captured["session_kwargs"] == {"user_id": "user-a", "session_id": SESSION_ID}
     assert captured["transcript_kwargs"]["user_id"] == "user-a"
     assert captured["transcript_kwargs"]["session_id"] == SESSION_ID
     assert captured["transcript_kwargs"]["payload"]["request_id"] == "turn-1"
+    assert captured["transcript_kwargs"]["payload"]["source"] == "chat"
     assert captured["transcript_kwargs"]["payload"]["question_text"] == "Introduce yourself"
     assert captured["transcript_kwargs"]["payload"]["answer_text"] == "Selected resume answer"
     assert captured["transcript_kwargs"]["payload"]["provider"] == "openai"
@@ -196,6 +224,10 @@ async def test_generate_without_session_id_skips_transcript_storage(monkeypatch:
 
 @pytest.mark.anyio
 async def test_generate_with_cross_user_session_id_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeInterviewSessionService:
+        def get_session(self, **_kwargs: Any) -> Any:
+            raise CloudInterviewSessionNotFoundError("Interview session was not found.")
+
     class FakeTranscriptService:
         def create_transcript_entry(self, **_kwargs: Any) -> CreateInterviewTranscriptEntryResult:
             raise CloudInterviewSessionNotFoundError("Interview session was not found.")
@@ -204,6 +236,7 @@ async def test_generate_with_cross_user_session_id_is_rejected(monkeypatch: pyte
     monkeypatch.setattr(generate_api.job_context_service, "get_context", lambda: {"saved": False})
     monkeypatch.setattr(generate_api.generator, "generate_answer", lambda **_kwargs: _result())
     monkeypatch.setattr(generate_api, "_new_cloud_transcript_service", lambda: FakeTranscriptService())
+    monkeypatch.setattr(generate_api, "_new_cloud_interview_session_service", lambda: FakeInterviewSessionService())
 
     with pytest.raises(generate_api.HTTPException) as exc_info:
         await generate_api.generate_answer(
@@ -222,6 +255,10 @@ async def test_generate_with_cross_user_session_id_is_rejected(monkeypatch: pyte
 
 @pytest.mark.anyio
 async def test_generate_transcript_storage_failure_is_safe(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeInterviewSessionService:
+        def get_session(self, **_kwargs: Any) -> Any:
+            return _session_record()
+
     class FakeTranscriptService:
         def create_transcript_entry(self, **_kwargs: Any) -> CreateInterviewTranscriptEntryResult:
             raise CloudInterviewSessionError("temporary outage")
@@ -230,6 +267,7 @@ async def test_generate_transcript_storage_failure_is_safe(monkeypatch: pytest.M
     monkeypatch.setattr(generate_api.job_context_service, "get_context", lambda: {"saved": False})
     monkeypatch.setattr(generate_api.generator, "generate_answer", lambda **_kwargs: _result())
     monkeypatch.setattr(generate_api, "_new_cloud_transcript_service", lambda: FakeTranscriptService())
+    monkeypatch.setattr(generate_api, "_new_cloud_interview_session_service", lambda: FakeInterviewSessionService())
 
     response = await generate_api.generate_answer(
         generate_api.GenerateRequest(
@@ -244,6 +282,126 @@ async def test_generate_transcript_storage_failure_is_safe(monkeypatch: pytest.M
     assert response.answer == "Selected resume answer"
     assert response.transcript_entry_stored is False
     assert response.transcript_store_error == "temporarily_unavailable"
+
+
+@pytest.mark.anyio
+async def test_generate_rejects_malformed_session_id_before_calling_generator(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        generate_api.generator,
+        "generate_answer",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("generator should not run")),
+    )
+
+    with pytest.raises(generate_api.HTTPException) as exc_info:
+        await generate_api.generate_answer(
+            generate_api.GenerateRequest(
+                question="Introduce yourself",
+                category="personal",
+                source="chat",
+                session_id="not-a-uuid",
+            ),
+            request=object(),
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "Interview session id is invalid."
+
+
+@pytest.mark.anyio
+async def test_generate_rejects_unauthenticated_session_id_before_calling_generator(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        generate_api.generator,
+        "generate_answer",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("generator should not run")),
+    )
+
+    with pytest.raises(generate_api.HTTPException) as exc_info:
+        await generate_api.generate_answer(
+            generate_api.GenerateRequest(
+                question="Introduce yourself",
+                category="personal",
+                source="chat",
+                session_id=SESSION_ID,
+            ),
+            request=None,
+        )
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == generate_api.AUTH_ERROR_DETAIL
+
+
+@pytest.mark.anyio
+async def test_generate_rejects_cross_user_session_id_before_calling_generator(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeInterviewSessionService:
+        def get_session(self, **_kwargs: Any) -> Any:
+            raise CloudInterviewSessionNotFoundError("Interview session was not found.")
+
+    monkeypatch.setattr(generate_api, "get_current_user", lambda _request: CurrentUser(user_id="user-a"))
+    monkeypatch.setattr(generate_api, "_new_cloud_interview_session_service", lambda: FakeInterviewSessionService())
+    monkeypatch.setattr(
+        generate_api.generator,
+        "generate_answer",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("generator should not run")),
+    )
+
+    with pytest.raises(generate_api.HTTPException) as exc_info:
+        await generate_api.generate_answer(
+            generate_api.GenerateRequest(
+                question="Introduce yourself",
+                category="personal",
+                source="chat",
+                session_id=SESSION_ID,
+            ),
+            request=object(),
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Interview session was not found."
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("request_source", "expected_source"),
+    [
+        ("chat", "chat"),
+        ("answer", "answer"),
+        ("screen", "analyze_screen"),
+        ("", "unknown"),
+    ],
+)
+async def test_generate_transcript_source_uses_safe_mode_labels(
+    monkeypatch: pytest.MonkeyPatch,
+    request_source: str,
+    expected_source: str,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeInterviewSessionService:
+        def get_session(self, **_kwargs: Any) -> Any:
+            return _session_record()
+
+    class FakeTranscriptService:
+        def create_transcript_entry(self, **kwargs: Any) -> CreateInterviewTranscriptEntryResult:
+            captured["payload"] = kwargs["payload"]
+            return CreateInterviewTranscriptEntryResult(record=_transcript_entry(source=expected_source), replayed=False)
+
+    monkeypatch.setattr(generate_api, "get_current_user", lambda _request: CurrentUser(user_id="user-a"))
+    monkeypatch.setattr(generate_api, "_new_cloud_interview_session_service", lambda: FakeInterviewSessionService())
+    monkeypatch.setattr(generate_api.job_context_service, "get_context", lambda: {"saved": False})
+    monkeypatch.setattr(generate_api.generator, "generate_answer", lambda **_kwargs: _result())
+    monkeypatch.setattr(generate_api, "_new_cloud_transcript_service", lambda: FakeTranscriptService())
+
+    await generate_api.generate_answer(
+        generate_api.GenerateRequest(
+            question="Introduce yourself",
+            category="personal",
+            source=request_source,
+            session_id=SESSION_ID,
+        ),
+        request=object(),
+    )
+
+    assert captured["payload"]["source"] == expected_source
 
 
 @pytest.mark.anyio

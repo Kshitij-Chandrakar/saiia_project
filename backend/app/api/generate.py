@@ -21,6 +21,7 @@ from app.cloud.interview_sessions import (
     CloudInterviewSessionConflictError,
     CloudInterviewSessionError,
     CloudInterviewSessionNotFoundError,
+    CloudInterviewSessionService,
     CloudInterviewSessionValidationError,
 )
 from app.cloud.interview_transcripts import CloudInterviewTranscriptService
@@ -64,6 +65,10 @@ def _new_cloud_resume_service() -> CloudResumeService:
 
 def _new_cloud_transcript_service() -> CloudInterviewTranscriptService:
     return CloudInterviewTranscriptService()
+
+
+def _new_cloud_interview_session_service() -> CloudInterviewSessionService:
+    return CloudInterviewSessionService()
 
 
 def _infer_screen_problem_type(question: str, requested_type: str) -> str:
@@ -247,6 +252,31 @@ def _current_user_for_session_id(req: "GenerateRequest", request: Request | None
             headers={"WWW-Authenticate": "Bearer"},
         )
     return get_current_user(request)
+
+
+def _authorize_generation_session(req: "GenerateRequest", request: Request | None) -> CurrentUser | None:
+    session_id = _normalize_session_id(req.session_id)
+    if not session_id:
+        return None
+    current_user = _current_user_for_session_id(req, request)
+    if current_user is None:
+        return None
+    try:
+        _new_cloud_interview_session_service().get_session(
+            user_id=current_user.user_id,
+            session_id=session_id,
+        )
+    except CloudInterviewSessionValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except CloudInterviewSessionNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc) or "Interview session was not found.") from exc
+    except CloudInterviewSessionConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except SupabaseConfigurationError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Supabase cloud configuration is not ready.") from exc
+    except CloudInterviewSessionError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Supabase cloud interview session operation failed.") from exc
+    return current_user
 
 
 def _retrieve_resume_context(
@@ -1080,6 +1110,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
         raise HTTPException(status_code=400, detail="`question` field cannot be empty.")
     if not req.category or not req.category.strip():
         raise HTTPException(status_code=400, detail="`category` field cannot be empty.")
+    _authorize_generation_session(req, request)
 
     request_id = uuid.uuid4().hex
     request_started = time.perf_counter()
@@ -1469,6 +1500,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
         raise HTTPException(status_code=400, detail="`question` field cannot be empty.")
     if not req.category or not req.category.strip():
         raise HTTPException(status_code=400, detail="`category` field cannot be empty.")
+    _authorize_generation_session(req, request)
 
     started = time.perf_counter()
     source = str(req.source or "").strip().lower()

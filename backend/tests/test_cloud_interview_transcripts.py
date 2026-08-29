@@ -42,11 +42,15 @@ class FakeTranscriptClient:
             2: [],
         }
 
-    def create_transcript_entry(self, *, user_id: str, session_id: str, payload: dict[str, Any]) -> CreateInterviewTranscriptEntryResult:
+    def create_transcript_entry(
+        self, *, user_id: str, session_id: str, payload: dict[str, Any]
+    ) -> CreateInterviewTranscriptEntryResult:
         self.create_calls.append({"user_id": user_id, "session_id": session_id, "payload": payload})
         return CreateInterviewTranscriptEntryResult(record=_entry(), replayed=bool(payload.get("request_id")))
 
-    def list_transcript_entries(self, *, user_id: str, session_id: str, limit: int, page: int) -> list[CloudInterviewTranscriptEntryRecord]:
+    def list_transcript_entries(
+        self, *, user_id: str, session_id: str, limit: int, page: int
+    ) -> list[CloudInterviewTranscriptEntryRecord]:
         self.list_calls.append(
             {"user_id": user_id, "session_id": session_id, "limit": limit, "page": page}
         )
@@ -141,3 +145,43 @@ def test_export_transcript_rejects_invalid_format() -> None:
 
     with pytest.raises(CloudInterviewSessionValidationError, match="format must be txt or md"):
         service.export_transcript(user_id=USER_ID, session_id=SESSION_ID, format="pdf")
+
+
+def test_create_transcript_entry_rejects_generation_ms_overflow_before_rpc() -> None:
+    client = FakeTranscriptClient()
+    service = CloudInterviewTranscriptService(client=client)
+
+    with pytest.raises(CloudInterviewSessionValidationError, match="generation_ms is invalid"):
+        service.create_transcript_entry(
+            user_id=USER_ID,
+            session_id=SESSION_ID,
+            payload={
+                "question_text": "Question",
+                "answer_text": "Answer",
+                "generation_ms": "1e309",
+            },
+        )
+
+    assert client.create_calls == []
+
+
+def test_create_transcript_entry_rejects_oversized_multibyte_metadata_before_rpc() -> None:
+    client = FakeTranscriptClient()
+    service = CloudInterviewTranscriptService(client=client)
+    oversized_multibyte_metadata = {
+        f"emoji_{index}": "\U0001F600" * 240
+        for index in range(1, 6)
+    }
+
+    with pytest.raises(CloudInterviewSessionValidationError, match="metadata is too large"):
+        service.create_transcript_entry(
+            user_id=USER_ID,
+            session_id=SESSION_ID,
+            payload={
+                "question_text": "Question",
+                "answer_text": "Answer",
+                "metadata": oversized_multibyte_metadata,
+            },
+        )
+
+    assert client.create_calls == []
