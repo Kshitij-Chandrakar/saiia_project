@@ -20,6 +20,15 @@ async def _collect_stream_events(response) -> list[dict]:
     return [json.loads(line) for line in body.splitlines() if line.strip()]
 
 
+def _session_record() -> dict:
+    return {
+        "id": "30000000-0000-4000-8000-000000000001",
+        "user_id": "user-a",
+        "status": "active",
+        "started_at": "2026-08-29T10:30:00Z",
+    }
+
+
 @pytest.mark.asyncio
 async def test_generate_stream_forwards_deltas_before_done(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
@@ -381,3 +390,466 @@ async def test_generate_stream_preserves_selected_resume_http_conflict(monkeypat
     }
     assert events[-1]["type"] == "done"
     assert events[-1]["incomplete"] is False
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_primary_success_with_session_id_stores_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(generate_api.resume_index_service, "retrieve", lambda **_kwargs: {"retrieval_used": False, "retrieved_chunks": [], "retrieval_ms": 0.0})
+    monkeypatch.setattr(generate_api.job_context_service, "get_context", lambda: {"saved": False})
+    monkeypatch.setattr(generate_api, "get_current_user", lambda _request: type("CurrentUser", (), {"user_id": "user-a"})())
+    transcript_calls = []
+
+    monkeypatch.setattr(
+        generate_api,
+        "_new_cloud_interview_session_service",
+        lambda: type(
+            "FakeInterviewSessionService",
+            (),
+            {"get_session": staticmethod(lambda **_kwargs: _session_record())},
+        )(),
+    )
+    monkeypatch.setattr(
+        generate_api,
+        "_new_cloud_transcript_service",
+        lambda: type(
+            "FakeTranscriptService",
+            (),
+            {
+                "create_transcript_entry": staticmethod(
+                    lambda **kwargs: transcript_calls.append(kwargs)
+                )
+            },
+        )(),
+    )
+
+    def fake_stream_openai_primary_answer(**_kwargs):
+        yield {"type": "delta", "text": "Streaming "}
+        yield {"type": "delta", "text": "answer"}
+        yield {
+            "type": "primary_result",
+            "result": {
+                "answer": "Streaming answer",
+                "provider": "openai",
+                "model": "gpt-5.4-mini-2026-03-17",
+                "primary_provider": "openai",
+                "primary_model": "gpt-5.4-mini-2026-03-17",
+                "fallback_used": False,
+                "error": None,
+                "generation_ms": 10.0,
+                "primary_generation_ms": 10.0,
+            },
+        }
+
+    monkeypatch.setattr(generate_api.generator, "stream_openai_primary_answer", fake_stream_openai_primary_answer)
+    monkeypatch.setattr(
+        generate_api.generator,
+        "generate_answer",
+        lambda **kwargs: {
+            **dict(kwargs["primary_result_override"]),
+            "answer": "Streaming answer",
+            "answer_type": "technical_concept",
+            "generate_source": "chat",
+            "generate_category": "technical",
+            "follow_up_detected": False,
+            "follow_up_resolution_status": "standalone",
+        },
+    )
+
+    response = await generate_api.generate_answer_stream(
+        generate_api.GenerateRequest(
+            question="What is streaming?",
+            original_question="What is streaming?",
+            category="technical",
+            source="chat",
+            session_id=_session_record()["id"],
+            request_id="stream-1",
+        ),
+        request=object(),
+    )
+    events = await _collect_stream_events(response)
+    metadata = next(event["metadata"] for event in events if event["type"] == "metadata")
+
+    assert metadata["transcript_entry_stored"] is True
+    assert metadata["transcript_store_error"] is None
+    assert transcript_calls[0]["payload"]["source"] == "chat"
+    assert transcript_calls[0]["payload"]["question_text"] == "What is streaming?"
+    assert transcript_calls[0]["payload"]["answer_text"] == "Streaming answer"
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_primary_success_offloads_transcript_storage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(generate_api.resume_index_service, "retrieve", lambda **_kwargs: {"retrieval_used": False, "retrieved_chunks": [], "retrieval_ms": 0.0})
+    monkeypatch.setattr(generate_api.job_context_service, "get_context", lambda: {"saved": False})
+    monkeypatch.setattr(generate_api, "get_current_user", lambda _request: type("CurrentUser", (), {"user_id": "user-a"})())
+    offload_calls = []
+
+    monkeypatch.setattr(
+        generate_api,
+        "_new_cloud_interview_session_service",
+        lambda: type(
+            "FakeInterviewSessionService",
+            (),
+            {"get_session": staticmethod(lambda **_kwargs: _session_record())},
+        )(),
+    )
+
+    async def fake_run_in_threadpool(func, *args, **kwargs):
+        offload_calls.append({"func": func, "args": args, "kwargs": kwargs})
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(generate_api, "run_in_threadpool", fake_run_in_threadpool)
+    monkeypatch.setattr(
+        generate_api,
+        "_store_transcript_for_stream_result",
+        lambda **kwargs: {
+            **dict(kwargs["result"]),
+            "transcript_entry_stored": True,
+            "transcript_store_error": None,
+        },
+    )
+
+    def fake_stream_openai_primary_answer(**_kwargs):
+        yield {"type": "delta", "text": "Offloaded answer"}
+        yield {
+            "type": "primary_result",
+            "result": {
+                "answer": "Offloaded answer",
+                "provider": "openai",
+                "model": "gpt-5.4-mini-2026-03-17",
+                "fallback_used": False,
+                "error": None,
+                "generation_ms": 10.0,
+            },
+        }
+
+    monkeypatch.setattr(generate_api.generator, "stream_openai_primary_answer", fake_stream_openai_primary_answer)
+    monkeypatch.setattr(
+        generate_api.generator,
+        "generate_answer",
+        lambda **kwargs: {
+            **dict(kwargs["primary_result_override"]),
+            "answer": "Offloaded answer",
+            "generate_source": "chat",
+            "generate_category": "technical",
+        },
+    )
+
+    response = await generate_api.generate_answer_stream(
+        generate_api.GenerateRequest(
+            question="What is offload?",
+            category="technical",
+            source="chat",
+            session_id=_session_record()["id"],
+            request_id="stream-offload",
+        ),
+        request=object(),
+    )
+    events = await _collect_stream_events(response)
+    metadata = next(event["metadata"] for event in events if event["type"] == "metadata")
+
+    assert metadata["transcript_entry_stored"] is True
+    assert len(offload_calls) == 1
+    assert offload_calls[0]["func"] is generate_api._store_transcript_for_stream_result
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_fallback_success_with_session_id_stores_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(generate_api.settings, "ENABLE_ANSWER_PROVIDER_FALLBACK", True)
+    monkeypatch.setattr(generate_api.resume_index_service, "retrieve", lambda **_kwargs: {"retrieval_used": False, "retrieved_chunks": [], "retrieval_ms": 0.0})
+    monkeypatch.setattr(generate_api.job_context_service, "get_context", lambda: {"saved": False})
+    monkeypatch.setattr(generate_api, "get_current_user", lambda _request: type("CurrentUser", (), {"user_id": "user-a"})())
+    transcript_calls = []
+
+    monkeypatch.setattr(
+        generate_api,
+        "_new_cloud_interview_session_service",
+        lambda: type(
+            "FakeInterviewSessionService",
+            (),
+            {"get_session": staticmethod(lambda **_kwargs: _session_record())},
+        )(),
+    )
+    monkeypatch.setattr(
+        generate_api,
+        "_new_cloud_transcript_service",
+        lambda: type(
+            "FakeTranscriptService",
+            (),
+            {
+                "create_transcript_entry": staticmethod(
+                    lambda **kwargs: transcript_calls.append(kwargs)
+                )
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        generate_api.generator,
+        "stream_openai_primary_answer",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            generate_api.ProviderError(
+                "stream failed",
+                provider="openai",
+                model="gpt-5.4-mini-2026-03-17",
+                error_type="provider_error",
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        generate_api.generator,
+        "generate_answer",
+        lambda **_kwargs: {
+            "answer": "Fallback answer",
+            "provider": "groq",
+            "model": "llama-test",
+            "primary_provider": "openai",
+            "primary_model": "gpt-5.4-mini-2026-03-17",
+            "fallback_used": True,
+            "error": None,
+            "generation_ms": 12.0,
+            "generate_source": "answer",
+            "generate_category": "technical",
+        },
+    )
+
+    response = await generate_api.generate_answer_stream(
+        generate_api.GenerateRequest(
+            question="Fallback question?",
+            original_question="Fallback question?",
+            category="technical",
+            source="answer",
+            session_id=_session_record()["id"],
+            request_id="stream-2",
+        ),
+        request=object(),
+    )
+    events = await _collect_stream_events(response)
+    metadata = next(event["metadata"] for event in events if event["type"] == "metadata")
+
+    assert metadata["transcript_entry_stored"] is True
+    assert transcript_calls[0]["payload"]["source"] == "answer"
+    assert transcript_calls[0]["payload"]["answer_text"] == "Fallback answer"
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_clarification_with_session_id_stores_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(generate_api, "get_current_user", lambda _request: type("CurrentUser", (), {"user_id": "user-a"})())
+    transcript_calls = []
+
+    monkeypatch.setattr(
+        generate_api,
+        "_new_cloud_interview_session_service",
+        lambda: type(
+            "FakeInterviewSessionService",
+            (),
+            {"get_session": staticmethod(lambda **_kwargs: _session_record())},
+        )(),
+    )
+    monkeypatch.setattr(
+        generate_api,
+        "_new_cloud_transcript_service",
+        lambda: type(
+            "FakeTranscriptService",
+            (),
+            {
+                "create_transcript_entry": staticmethod(
+                    lambda **kwargs: transcript_calls.append(kwargs)
+                )
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        generate_api.generator,
+        "stream_openai_primary_answer",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("model should not be called")),
+    )
+
+    response = await generate_api.generate_answer_stream(
+        generate_api.GenerateRequest(
+            question="Can you give another example?",
+            original_question="Can you give another example?",
+            category="technical",
+            followup_mode="answer",
+            followup_context=[],
+            source="chat",
+            session_id=_session_record()["id"],
+            request_id="stream-3",
+        ),
+        request=object(),
+    )
+    events = await _collect_stream_events(response)
+    metadata = next(event["metadata"] for event in events if event["type"] == "metadata")
+
+    assert metadata["transcript_entry_stored"] is True
+    assert transcript_calls[0]["payload"]["source"] == "chat"
+    assert "Which earlier topic" in transcript_calls[0]["payload"]["answer_text"]
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_incomplete_failure_does_not_store_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(generate_api.settings, "ENABLE_ANSWER_PROVIDER_FALLBACK", False)
+    monkeypatch.setattr(generate_api.resume_index_service, "retrieve", lambda **_kwargs: {"retrieval_used": False, "retrieved_chunks": [], "retrieval_ms": 0.0})
+    monkeypatch.setattr(generate_api.job_context_service, "get_context", lambda: {"saved": False})
+    monkeypatch.setattr(generate_api, "get_current_user", lambda _request: type("CurrentUser", (), {"user_id": "user-a"})())
+    transcript_calls = []
+
+    monkeypatch.setattr(
+        generate_api,
+        "_new_cloud_interview_session_service",
+        lambda: type(
+            "FakeInterviewSessionService",
+            (),
+            {"get_session": staticmethod(lambda **_kwargs: _session_record())},
+        )(),
+    )
+    monkeypatch.setattr(
+        generate_api,
+        "_new_cloud_transcript_service",
+        lambda: type(
+            "FakeTranscriptService",
+            (),
+            {
+                "create_transcript_entry": staticmethod(
+                    lambda **kwargs: transcript_calls.append(kwargs)
+                )
+            },
+        )(),
+    )
+
+    def fake_stream_openai_primary_answer(**_kwargs):
+        yield {"type": "delta", "text": "partial"}
+        raise generate_api.ProviderError(
+            "stream failed",
+            provider="openai",
+            model="gpt-5.4-mini-2026-03-17",
+            error_type="provider_error",
+        )
+
+    monkeypatch.setattr(generate_api.generator, "stream_openai_primary_answer", fake_stream_openai_primary_answer)
+
+    response = await generate_api.generate_answer_stream(
+        generate_api.GenerateRequest(
+            question="Explain caching.",
+            category="technical",
+            source="chat",
+            session_id=_session_record()["id"],
+            request_id="stream-4",
+        ),
+        request=object(),
+    )
+    events = await _collect_stream_events(response)
+
+    assert events[-1]["type"] == "done"
+    assert events[-1]["incomplete"] is True
+    assert transcript_calls == []
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_rejects_malformed_session_id_before_generator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    transcript_calls = []
+    generator_called = {"value": False}
+
+    monkeypatch.setattr(
+        generate_api.generator,
+        "stream_openai_primary_answer",
+        lambda **_kwargs: generator_called.__setitem__("value", True),
+    )
+    monkeypatch.setattr(
+        generate_api,
+        "_new_cloud_transcript_service",
+        lambda: type(
+            "FakeTranscriptService",
+            (),
+            {
+                "create_transcript_entry": staticmethod(
+                    lambda **kwargs: transcript_calls.append(kwargs)
+                )
+            },
+        )(),
+    )
+
+    with pytest.raises(HTTPException, match="Interview session id is invalid."):
+        await generate_api.generate_answer_stream(
+            generate_api.GenerateRequest(
+                question="Bad session?",
+                category="technical",
+                session_id="not-a-uuid",
+            )
+        )
+
+    assert generator_called["value"] is False
+    assert transcript_calls == []
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_rejects_cross_user_session_id_before_generator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(generate_api, "get_current_user", lambda _request: type("CurrentUser", (), {"user_id": "user-a"})())
+    transcript_calls = []
+    generator_called = {"value": False}
+
+    monkeypatch.setattr(
+        generate_api,
+        "_new_cloud_interview_session_service",
+        lambda: type(
+            "FakeInterviewSessionService",
+            (),
+            {
+                "get_session": staticmethod(
+                    lambda **_kwargs: (_ for _ in ()).throw(
+                        generate_api.CloudInterviewSessionNotFoundError("Interview session was not found.")
+                    )
+                )
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        generate_api.generator,
+        "stream_openai_primary_answer",
+        lambda **_kwargs: generator_called.__setitem__("value", True),
+    )
+    monkeypatch.setattr(
+        generate_api,
+        "_new_cloud_transcript_service",
+        lambda: type(
+            "FakeTranscriptService",
+            (),
+            {
+                "create_transcript_entry": staticmethod(
+                    lambda **kwargs: transcript_calls.append(kwargs)
+                )
+            },
+        )(),
+    )
+
+    with pytest.raises(HTTPException, match="Interview session was not found."):
+        await generate_api.generate_answer_stream(
+            generate_api.GenerateRequest(
+                question="Cross-user?",
+                category="technical",
+                session_id=_session_record()["id"],
+            ),
+            request=object(),
+        )
+
+    assert generator_called["value"] is False
+    assert transcript_calls == []

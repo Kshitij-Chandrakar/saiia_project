@@ -6,7 +6,9 @@ import {
   confirmCloudResume,
   createDesktopHandoff,
   deleteCloudResume,
+  downloadInterviewTranscript,
   extractCloudResume,
+  fetchInterviewTranscriptEntries,
   fetchInterviewSessions,
   fetchCloudResumeStatus,
   fetchCurrentCloudResume,
@@ -337,6 +339,93 @@ test('fetchInterviewSessions drops records without a valid string id and keeps p
     ],
     limit: 20,
     page: 1,
+  })
+})
+
+
+test('fetchInterviewTranscriptEntries keeps only valid transcript records', async () => {
+  const result = await fetchInterviewTranscriptEntries('unit-test-access-token', 'session-1', {
+    backendUrl: 'http://localhost:8000',
+    fetchImpl: async (url, init) => {
+      assert.equal(url, 'http://localhost:8000/api/interview-sessions/session-1/transcript-entries?limit=100&page=1')
+      assert.equal(init.method, 'GET')
+      assert.equal(init.headers.Authorization, 'Bearer unit-test-access-token')
+      return {
+        ok: true,
+        json: async () => ({
+          items: [
+            null,
+            {},
+            { id: 'missing-session', turn_index: 1 },
+            { id: 'bad-turn', session_id: 'session-1', turn_index: 0 },
+            {
+              id: 'entry-1',
+              session_id: 'session-1',
+              turn_index: 1,
+              source: 'chat',
+              question_text: 'What is FastAPI authentication?',
+              answer_text: 'It uses dependency-based auth checks.',
+              category: 'technical',
+              provider: 'openai',
+              model: 'gpt-test',
+              generation_ms: 123,
+              created_at: '2026-08-29T10:30:00Z',
+            },
+          ],
+          limit: 100,
+          page: 1,
+        }),
+      }
+    },
+  })
+
+  assert.deepEqual(result, {
+    items: [
+      {
+        id: 'entry-1',
+        session_id: 'session-1',
+        turn_index: 1,
+        source: 'chat',
+        question_text: 'What is FastAPI authentication?',
+        answer_text: 'It uses dependency-based auth checks.',
+        category: 'technical',
+        provider: 'openai',
+        model: 'gpt-test',
+        generation_ms: 123,
+        created_at: '2026-08-29T10:30:00Z',
+      },
+    ],
+    limit: 100,
+    page: 1,
+  })
+})
+
+
+test('downloadInterviewTranscript uses authenticated download route and safe filename', async () => {
+  const result = await downloadInterviewTranscript('unit-test-access-token', 'session-1', 'md', {
+    backendUrl: 'http://localhost:8000',
+    fetchImpl: async (url, init) => {
+      assert.equal(url, 'http://localhost:8000/api/interview-sessions/session-1/transcript/download?format=md')
+      assert.equal(init.method, 'GET')
+      assert.equal(init.headers.Authorization, 'Bearer unit-test-access-token')
+      return {
+        ok: true,
+        headers: {
+          get(name) {
+            return name.toLowerCase() === 'content-disposition'
+              ? 'attachment; filename="interview-session-transcript.md"'
+              : null
+          },
+        },
+        text: async () => '# Interview Transcript\n',
+      }
+    },
+  })
+
+  assert.deepEqual(result, {
+    filename: 'interview-session-transcript.md',
+    content: '# Interview Transcript\n',
+    format: 'md',
   })
 })
 

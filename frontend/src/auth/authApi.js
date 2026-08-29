@@ -57,6 +57,45 @@ function projectInterviewSession(record) {
   }
 }
 
+function projectInterviewTranscriptEntry(record) {
+  if (!record || typeof record !== 'object') {
+    return null
+  }
+  const id = typeof record.id === 'string' ? record.id.trim() : ''
+  const sessionId = typeof record.session_id === 'string' ? record.session_id.trim() : ''
+  if (!id || !sessionId) {
+    return null
+  }
+  const turnIndex = Number(record.turn_index)
+  if (!Number.isInteger(turnIndex) || turnIndex < 1) {
+    return null
+  }
+  return {
+    id,
+    session_id: sessionId,
+    turn_index: turnIndex,
+    source: record.source || null,
+    question_text: record.question_text || '',
+    answer_text: record.answer_text || '',
+    category: record.category || null,
+    provider: record.provider || null,
+    model: record.model || null,
+    generation_ms: Number.isInteger(record.generation_ms) ? record.generation_ms : null,
+    created_at: record.created_at || null,
+  }
+}
+
+function getSafeDownloadFilename(response, fallback) {
+  const contentDisposition = String(
+    response?.headers?.get?.('content-disposition')
+    || response?.headers?.get?.('Content-Disposition')
+    || '',
+  ).trim()
+  const match = contentDisposition.match(/filename="([^"]+)"/i)
+  const filename = match?.[1] ? String(match[1]).trim() : ''
+  return filename || fallback
+}
+
 
 function requireAccessToken(accessToken) {
   const token = String(accessToken || '').trim()
@@ -360,5 +399,78 @@ export async function fetchInterviewSessions(accessToken, options = {}) {
     items: Array.isArray(payload.items) ? payload.items.map(projectInterviewSession).filter(Boolean) : [],
     limit: Number.isInteger(payload.limit) ? payload.limit : Number(limit) || 20,
     page: Number.isInteger(payload.page) ? payload.page : Number(page) || 1,
+  }
+}
+
+
+export async function fetchInterviewTranscriptEntries(accessToken, sessionId, options = {}) {
+  const token = requireAccessToken(accessToken)
+  const {
+    backendUrl = DEFAULT_BACKEND_URL,
+    fetchImpl = fetch,
+    signal,
+    limit = 100,
+    page = 1,
+  } = options
+
+  const payload = await parseJsonResponse(
+    await fetchImpl(
+      `${backendUrl}/api/interview-sessions/${encodeURIComponent(sessionId)}/transcript-entries?limit=${encodeURIComponent(String(limit))}&page=${encodeURIComponent(String(page))}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        signal,
+      },
+    ),
+    'Unable to load the interview transcript.',
+  )
+
+  return {
+    items: Array.isArray(payload.items) ? payload.items.map(projectInterviewTranscriptEntry).filter(Boolean) : [],
+    limit: Number.isInteger(payload.limit) ? payload.limit : Number(limit) || 100,
+    page: Number.isInteger(payload.page) ? payload.page : Number(page) || 1,
+  }
+}
+
+
+export async function downloadInterviewTranscript(accessToken, sessionId, format, options = {}) {
+  const token = requireAccessToken(accessToken)
+  const normalizedFormat = String(format || '').trim().toLowerCase()
+  if (!['txt', 'md'].includes(normalizedFormat)) {
+    throw new Error('Transcript download format must be txt or md.')
+  }
+  const {
+    backendUrl = DEFAULT_BACKEND_URL,
+    fetchImpl = fetch,
+    signal,
+  } = options
+
+  const response = await fetchImpl(
+    `${backendUrl}/api/interview-sessions/${encodeURIComponent(sessionId)}/transcript/download?format=${encodeURIComponent(normalizedFormat)}`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      signal,
+    },
+  )
+  if (!response.ok) {
+    let payload = {}
+    try {
+      payload = await response.json()
+    } catch {
+      payload = {}
+    }
+    const detail = typeof payload.detail === 'string' ? payload.detail.trim() : ''
+    throw new Error(detail || 'Unable to download the interview transcript.')
+  }
+
+  return {
+    filename: getSafeDownloadFilename(response, `interview-session-transcript.${normalizedFormat}`),
+    content: await response.text(),
+    format: normalizedFormat,
   }
 }

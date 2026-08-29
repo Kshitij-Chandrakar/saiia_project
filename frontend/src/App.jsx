@@ -920,6 +920,37 @@ function isSimilarTranscript(a, b) {
   return similarity >= 0.85
 }
 
+function getSafeGenerationSource(mode, source) {
+  const normalizedSource = String(source || '').trim().toLowerCase()
+  if (normalizedSource === 'chat') {
+    return 'chat'
+  }
+  if (normalizedSource === 'answer') {
+    return 'answer'
+  }
+  if (normalizedSource === 'analyze_screen' || normalizedSource === 'screen') {
+    return 'analyze_screen'
+  }
+  if (normalizedSource === 'auto') {
+    return 'auto'
+  }
+
+  const normalizedMode = String(mode || '').trim().toLowerCase()
+  if (normalizedMode === 'chat') {
+    return 'chat'
+  }
+  if (normalizedMode === 'screen') {
+    return 'analyze_screen'
+  }
+  if (normalizedMode === 'auto') {
+    return 'auto'
+  }
+  if (normalizedMode === 'manual') {
+    return 'answer'
+  }
+  return 'unknown'
+}
+
 function useElectronOverlaySync(state) {
   useEffect(() => {
     if (!window.electronAPI?.updateOverlayState) {
@@ -2743,6 +2774,7 @@ function MainWindow() {
     latestGenerationRequestIdRef.current = requestId
     const displayMode = mode === 'screen' ? 'screen' : mode === 'chat' ? 'chat' : 'answer'
     const historyMode = normalizeQuestionHistoryMode(displayMode)
+    const requestSource = getSafeGenerationSource(mode, source)
     const historyEntryId = historyMode
       ? `qh-${Date.now()}-${Math.random().toString(16).slice(2)}`
       : ''
@@ -2887,6 +2919,7 @@ function MainWindow() {
       activeStartupSessionConfig?.jobDescription || activeStartupSessionConfig?.jobContext || ''
     ).trim()
     const generateRequestBody = {
+      request_id: String(requestId),
       question: text,
       original_question: committedQuestionBeforeStream || text,
       followup_mode: historyMode,
@@ -2901,7 +2934,7 @@ function MainWindow() {
       screen_platform_detected: screenPlatformDetected || '',
       category: nextCategory,
       profile: selectedResumeId ? {} : liveProfile,
-      source,
+      source: requestSource,
       screen_question_type: effectiveScreenQuestionType,
       force_technical: forceTechnical,
       profile_context_used: !suppressProfileContext,
@@ -2944,6 +2977,7 @@ function MainWindow() {
             primaryProvider: 'openai',
             metadata: {
               source,
+              safeSource: requestSource,
               screenQuestionType: effectiveScreenQuestionType,
               fullProblemText,
               editorText,
