@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 const EMPTY_SETUP = {
   title: '',
@@ -33,9 +33,11 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
   const [draft, setDraft] = useState(() => ({ ...EMPTY_SETUP, ...(initialConfig || {}) }))
   const [resumes, setResumes] = useState([])
   const [resumesLoading, setResumesLoading] = useState(false)
+  const [resumeLoadError, setResumeLoadError] = useState('')
   const [resumeMessage, setResumeMessage] = useState('')
   const [message, setMessage] = useState('')
   const [starting, setStarting] = useState(false)
+  const startIdempotencyKeyRef = useRef('')
   const electronApi = typeof window !== 'undefined' ? window.electronAPI : null
   const saiiaApi = typeof window !== 'undefined' ? window.saiia : null
 
@@ -47,11 +49,13 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
     if (typeof saiiaApi?.listCloudResumes !== 'function') {
       if (isActive()) {
         setResumes([])
+        setResumeLoadError('Resume selection is unavailable in this desktop build.')
         setResumeMessage('Resume selection is unavailable in this desktop build.')
       }
       return
     }
     setResumesLoading(true)
+    setResumeLoadError('')
     setResumeMessage('')
     try {
       const result = await saiiaApi.listCloudResumes()
@@ -59,13 +63,14 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
         return
       }
       const items = Array.isArray(result?.items) ? result.items : []
+      const nextError = typeof result?.error === 'string' ? result.error.trim() : ''
       setResumes(items)
-      if (result?.error) {
-        setResumeMessage(result.error)
-      }
+      setResumeLoadError(nextError)
+      setResumeMessage(nextError)
     } catch {
       if (isActive()) {
         setResumes([])
+        setResumeLoadError('Unable to load resumes.')
         setResumeMessage('Unable to load resumes.')
       }
     } finally {
@@ -103,11 +108,38 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
   const selectedResume = draft.selectedResumeId
     ? resumes.find((resume) => resume.id === draft.selectedResumeId)
     : null
+  const cloudSessionStorageUnavailable = resumeLoadError === 'Cloud temporarily unavailable.'
+  const selectedResumeMissing = Boolean(draft.selectedResumeId && !selectedResume)
   const selectedResumeBlocked = Boolean(
-    draft.selectedResumeId && (resumesLoading || !selectedResume || selectedResume.can_generate !== true)
+    draft.selectedResumeId && (resumesLoading || selectedResumeMissing || selectedResume.can_generate !== true)
   )
+  const startBlockedByResumeLoad = resumesLoading || Boolean(resumeLoadError)
+  const startBlockedByUnavailableStorage = cloudSessionStorageUnavailable
+  const startDisabled = Boolean(
+    starting ||
+    startBlockedByResumeLoad ||
+    startBlockedByUnavailableStorage ||
+    selectedResumeBlocked
+  )
+  const startBlockedMessage = cloudSessionStorageUnavailable
+    ? 'Cloud session storage is temporarily unavailable. Please restart the backend and try again.'
+    : ''
 
   const handleStartSession = async () => {
+    if (startDisabled) {
+      if (cloudSessionStorageUnavailable) {
+        setMessage('Cloud session storage is temporarily unavailable. Please restart the backend and try again.')
+        return
+      }
+      if (resumesLoading) {
+        setMessage('Loading the latest resume readiness before starting your session.')
+        return
+      }
+      if (resumeLoadError) {
+        setMessage(resumeLoadError)
+        return
+      }
+    }
     if (starting) {
       return
     }
@@ -117,22 +149,55 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
     }
     setStarting(true)
     setMessage('')
+    const idempotencyKey =
+      startIdempotencyKeyRef.current ||
+      `desktop-session:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`
+    startIdempotencyKeyRef.current = idempotencyKey
     try {
+      if (typeof saiiaApi?.createInterviewSession !== 'function') {
+        setMessage('Cloud session creation is unavailable in this desktop build.')
+        return
+      }
+      const created = await saiiaApi.createInterviewSession(
+        {
+          title: draft.title,
+          selected_resume_id: draft.selectedResumeId || undefined,
+          target_role: draft.role,
+          company_name: draft.company,
+          job_description: draft.jobContext,
+        },
+        { idempotencyKey },
+      )
+      const session = created?.session
+      if (!session?.id) {
+        setMessage(created?.error || 'Session could not be created. Check your cloud connection and retry.')
+        return
+      }
+      console.info('Intervu AI active interview session', {
+        activeSessionIdExists: true,
+        activeSessionIdSuffix: String(session.id).slice(-6),
+        sessionStatus: session.status || 'unknown',
+      })
       const result = await electronApi?.completeStartup?.()
       if (result?.ok !== true) {
+        await saiiaApi.endInterviewSession?.(session.id).catch?.(() => {})
         setMessage('Session could not be started. Log in again and retry.')
         return
       }
       onStartSession?.({
         ...draft,
+        activeSessionId: session.id,
+        activeSessionStatus: session.status,
+        activeSessionStartedAt: session.started_at,
         sessionTitle: draft.title,
         targetRole: draft.role,
         companyName: draft.company,
         jobDescription: draft.jobContext,
       })
     } catch {
-      setMessage('Session could not be started. Log in again and retry.')
+      setMessage('Cloud session storage is temporarily unavailable. Please restart the backend and try again.')
     } finally {
+      startIdempotencyKeyRef.current = ''
       setStarting(false)
     }
   }
@@ -228,6 +293,8 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
                 <p>
                   {resumesLoading
                     ? 'Loading the latest resume readiness before starting your session.'
+                    : selectedResumeMissing
+                      ? 'The selected resume could not be found. Refresh your resume list and choose a ready resume again.'
                     : 'This resume is uploaded but not ready for generation yet. Finish extraction/indexing from the dashboard, then refresh.'}
                 </p>
                 <button type="button" onClick={openDashboard}>
@@ -243,11 +310,12 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
           <button type="button" className="startup-setup-back" onClick={onBack}>
             ← Back
           </button>
-          <button type="button" className="startup-setup-start" onClick={handleStartSession} disabled={starting || selectedResumeBlocked}>
+          <button type="button" className="startup-setup-start" onClick={handleStartSession} disabled={startDisabled}>
             {starting ? 'Starting...' : 'Start Session →'}
           </button>
         </footer>
 
+        {!message && startBlockedMessage ? <p className="startup-choice-message" aria-live="polite">{startBlockedMessage}</p> : null}
         {message ? <p className="startup-choice-message" aria-live="polite">{message}</p> : null}
       </section>
     </div>

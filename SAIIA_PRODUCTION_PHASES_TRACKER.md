@@ -3,7 +3,7 @@
 **Product:** SAIIA â€” Smart AI Interview Assistant  
 **Document Type:** Production phase checklist for developer + Codex  
 **Version:** 1.1  
-**Last updated:** 2026-08-09
+**Last updated:** 2026-08-28
 **Purpose:** Track SAIIA after MVP and guide development toward a polished production-ready application.
 
 ---
@@ -36,7 +36,7 @@ This tracker is the live execution log for the production build.
 Current active execution phase:
 
 ```text
-C6.2A - Startup Login Screen implemented locally; broader startup shell, resume/job-target selection UI, C4.4 generation integration, cloud sync engine, and local/cloud data migration are not started
+C6.3 - Durable interview session lifecycle and cloud session storage implemented locally; C7 transcript storage is not started, and broader startup-shell polish, C4.4 generation integration follow-up, cloud sync engine expansion, and local/cloud data migration remain not started
 ```
 
 Screen Intelligence documentation:
@@ -129,6 +129,12 @@ C6.2A current status:
 
 ```text
 [~] Implemented locally - Startup Login Screen is implemented for signed-out/token-expired desktop startup using the provided Figma reference, exact mascot asset, and existing safe preload auth login API; C6.2A uses a dev/local memory-only desktop handoff store, and production shared atomic TTL-backed handoff storage is deferred to C16.1 Production Auth Hardening; validation passed with frontend Node tests and Vite build; broader startup shell, resume/job-target selection UI, backend session routes, Supabase migrations, C4.4 generation integration, cloud sync engine, billing/admin features, and local/cloud data migration are not implemented
+```
+
+C6.3 current status:
+
+```text
+[~] Implemented locally - Durable interview session lifecycle and cloud session storage are implemented through a new Supabase `interview_sessions` lifecycle migration, authenticated FastAPI session routes, service-role-only idempotent create RPC, Electron main-process session IPC, desktop runtime `activeSessionId` handling, logout/end finalization, and a basic website dashboard session history list; C7 transcript storage, transcript details/download, AI notes, Ask AI memory, billing, payments, admin console, and final UI redesign are not started
 ```
 
 C16.1 future production auth hardening release blocker:
@@ -1602,7 +1608,7 @@ P17 Protected commercial edition
 # Current Immediate Next Phase
 
 ```text
-C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is merged and live smoke-tested. C3.3 frontend authenticated upload/review UI is implemented under `/auth/resume`. C3.4 cloud RAG/index activation is implemented through user-owned chunk generation, backend-only activation, and ready-current resume behavior. C3.4.5 GPT-based resume extraction provider is implemented. C3.5 delete/rebuild/status closure is implemented. C4 Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing and live Supabase smoke validation passed on saiia-dev. C4.3 main website job-target UI is cancelled/re-scoped; job target selection moves to desktop startup/session setup after desktop authenticated cloud identity exists. C5.1 desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`. C5.2 desktop authenticated cloud identity is implemented locally with Electron main-process auth/session handling and focused tests. C5.3 desktop auth status/login/logout UI wiring is implemented locally through existing safe preload APIs. C5.4 desktop cloud startup context plumbing is implemented locally through existing safe preload APIs and authenticated backend summary routes. C6.1 desktop startup/session setup UI audit and plan is documented in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`. C6.2A Startup Login Screen is implemented locally with a dev/local memory-only desktop handoff store; production shared atomic TTL-backed handoff storage is deferred to C16.1 Production Auth Hardening and blocks public production release. No C4 generation integration, broader desktop startup/session setup UI runtime, resume/job-target selection UI, cloud sync engine, local/cloud data migration, session history, transcript storage, AI notes, Ask AI, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI work has started.
+C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is merged and live smoke-tested. C3.3 frontend authenticated upload/review UI is implemented under `/auth/resume`. C3.4 cloud RAG/index activation is implemented through user-owned chunk generation, backend-only activation, and ready-current resume behavior. C3.4.5 GPT-based resume extraction provider is implemented. C3.5 delete/rebuild/status closure is implemented. C4 Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing and live Supabase smoke validation passed on saiia-dev. C4.3 main website job-target UI is cancelled/re-scoped; job target selection moves to desktop startup/session setup after desktop authenticated cloud identity exists. C5.1 desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`. C5.2 desktop authenticated cloud identity is implemented locally with Electron main-process auth/session handling and focused tests. C5.3 desktop auth status/login/logout UI wiring is implemented locally through existing safe preload APIs. C5.4 desktop cloud startup context plumbing is implemented locally through existing safe preload APIs and authenticated backend summary routes. C6.1 desktop startup/session setup UI audit and plan is documented in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`. C6.2A Startup Login Screen is implemented locally with a dev/local memory-only desktop handoff store; production shared atomic TTL-backed handoff storage is deferred to C16.1 Production Auth Hardening and blocks public production release. C6.3 durable interview session lifecycle and cloud session storage are implemented locally through authenticated backend routes, a Supabase lifecycle migration, Electron main-process session ownership, and a basic dashboard history list. C7 transcript storage is still not started. No AI notes, Ask AI memory, billing, usage, email-provider integration, payment, licensing, admin console, or final website UI redesign work has started.
 ```
 
 P6B/P8/P9 consolidation records are preserved as historical desktop validation notes, not as the current execution authority.

@@ -73,6 +73,50 @@ function createManager(options = {}) {
       if (url.endsWith('/api/auth/profile/bootstrap')) {
         return jsonResponse(options.bootstrapStatus || 200, { ok: true })
       }
+      if (url.includes('/api/interview-sessions?')) {
+        return jsonResponse(200, {
+          items: [
+            {
+              id: 'session-1',
+              status: 'ended',
+              started_at: '2026-08-28T00:00:00Z',
+              ended_at: '2026-08-28T00:10:00Z',
+              title: 'Design interview',
+              target_role: 'Frontend Engineer',
+              company_name: 'Acme',
+            },
+          ],
+          limit: 20,
+          page: 1,
+        })
+      }
+      if (url.endsWith('/api/interview-sessions')) {
+        return jsonResponse(201, {
+          session: {
+            id: 'session-1',
+            status: 'active',
+            started_at: '2026-08-28T00:00:00Z',
+            ended_at: null,
+            selected_resume_id: 'resume-1',
+            title: 'Design interview',
+            target_role: 'Frontend Engineer',
+            company_name: 'Acme',
+          },
+          replayed: false,
+        })
+      }
+      if (url.includes('/api/interview-sessions/') && url.endsWith('/end')) {
+        return jsonResponse(200, {
+          id: 'session-1',
+          status: 'ended',
+          started_at: '2026-08-28T00:00:00Z',
+          ended_at: '2026-08-28T00:10:00Z',
+          selected_resume_id: 'resume-1',
+          title: 'Design interview',
+          target_role: 'Frontend Engineer',
+          company_name: 'Acme',
+        })
+      }
       if (url.includes('/auth/v1/token?grant_type=refresh_token')) {
         return jsonResponse(options.refreshStatus || 200, {
           access_token: 'refreshed-access-token',
@@ -1720,6 +1764,67 @@ test('logout clears local credentials and cache even when remote sign-out fails'
   }
 })
 
+test('desktop auth manager creates lists and ends interview sessions without exposing tokens', async () => {
+  const ctx = createManager()
+  try {
+    ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+    ctx.manager.user = { user_id: 'user-1', email: 'user@example.com' }
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    ctx.manager.sessionGeneration = 1
+
+    const created = await ctx.manager.createInterviewSession(
+      {
+        title: 'Design interview',
+        selected_resume_id: 'resume-1',
+        target_role: 'Frontend Engineer',
+        company_name: 'Acme',
+        job_description: 'Long description',
+      },
+      { idempotencyKey: 'session:start-1' },
+    )
+    assert.equal(created.session.id, 'session-1')
+    assert.equal(created.session.status, 'active')
+    assert.equal(ctx.manager.getSafeState().activeInterviewSessionId, 'session-1')
+
+    const listed = await ctx.manager.listInterviewSessions()
+    assert.equal(listed.items[0].id, 'session-1')
+    assert.equal(listed.items[0].status, 'ended')
+
+    const ended = await ctx.manager.endInterviewSession('session-1')
+    assert.equal(ended.session.status, 'ended')
+    assert.equal(ctx.manager.activeInterviewSession, null)
+
+    const createCall = ctx.calls.find((call) => call.url.endsWith('/api/interview-sessions'))
+    assert.equal(createCall.init.headers.Authorization, 'Bearer access-token')
+    assert.equal(createCall.init.headers['Idempotency-Key'], 'session:start-1')
+    assert.equal(JSON.parse(createCall.init.body).job_description, 'Long description')
+    assert.equal(JSON.stringify(createCall.init.headers).includes('refresh-token'), false)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('logout attempts to finalize the active interview session before clearing local state', async () => {
+  const ctx = createManager()
+  try {
+    ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+    ctx.manager.user = { user_id: 'user-1', email: 'user@example.com' }
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    ctx.manager.sessionGeneration = 1
+    ctx.manager.activeInterviewSession = { id: 'session-1', status: 'active' }
+
+    const state = await ctx.manager.logout()
+    const endCall = ctx.calls.find((call) => call.url.includes('/api/interview-sessions/session-1/end'))
+    const logoutCall = ctx.calls.find((call) => call.url.includes('/auth/v1/logout'))
+
+    assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.notEqual(endCall, undefined)
+    assert.notEqual(logoutCall, undefined)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
 test('stale logout remote response cannot clear a newer session', async () => {
   const logoutStarted = deferred()
   const logoutGate = deferred()
@@ -1902,9 +2007,12 @@ test('preload exposes exact narrow auth methods without raw tokens or generic fe
     'captureActiveWindowSequence',
     'captureScreen',
     'closeStartupWindow',
+    'createInterviewSession',
+    'endInterviewSession',
     'generateAnswer',
     'getAuthState',
     'getCloudStartupContext',
+    'listInterviewSessions',
     'listCloudResumes',
     'listScreenSources',
     'logoutAuth',

@@ -1451,7 +1451,12 @@ function MainWindow() {
     try {
       const activeStartupSessionConfig = startupSessionConfigRef.current
       const selectedResumeId = String(activeStartupSessionConfig?.selectedResumeId || '').trim()
-      const requestBody = selectedResumeId ? { ...body, selected_resume_id: selectedResumeId } : body
+      const activeSessionId = String(activeStartupSessionConfig?.activeSessionId || '').trim()
+      const requestBody = {
+        ...body,
+        ...(selectedResumeId ? { selected_resume_id: selectedResumeId } : {}),
+        ...(activeSessionId ? { session_id: activeSessionId } : {}),
+      }
       const desktopGenerateAnswer = window.saiia?.generateAnswer
       if (selectedResumeId && typeof desktopGenerateAnswer === 'function') {
         const result = await desktopGenerateAnswer(requestBody)
@@ -2869,6 +2874,7 @@ function MainWindow() {
       ? buildFollowupContextEntries(questionHistoryRef.current, historyMode)
       : []
     const activeStartupSessionConfig = startupSessionConfigRef.current
+    const activeSessionId = String(activeStartupSessionConfig?.activeSessionId || '').trim()
     const selectedResumeId = String(activeStartupSessionConfig?.selectedResumeId || '').trim()
     const selectedResumeName = String(activeStartupSessionConfig?.selectedResumeName || '').trim()
     const targetRole = String(
@@ -2904,13 +2910,16 @@ function MainWindow() {
       transcription_ms: transcriptionMs,
       classification_ms: classificationMs,
       profile_fetch_ms: profileFetchMs,
+      session_id: activeSessionId || undefined,
       selected_resume_id: selectedResumeId || undefined,
       target_role: targetRole || undefined,
       company_name: companyName || undefined,
       job_description: jobDescription || undefined,
     }
     const selectedResumeDiagnostics = {
+      activeSessionIdExists: Boolean(activeSessionId),
       selectedResumeIdExists: Boolean(selectedResumeId),
+      generationRequestIncludesSessionId: Boolean(generateRequestBody.session_id),
       generationRequestIncludesSelectedResumeId: Boolean(generateRequestBody.selected_resume_id),
       jobContextIncluded: Boolean(companyName || jobDescription),
       targetRoleIncluded: Boolean(targetRole),
@@ -3044,6 +3053,9 @@ function MainWindow() {
       project_intent_detected: generatePayload.project_intent_detected ?? false,
       selected_resume_id_exists: selectedResumeDiagnostics.selectedResumeIdExists,
       selected_resume_name: selectedResumeName,
+      active_session_id_exists: selectedResumeDiagnostics.activeSessionIdExists,
+      generation_request_includes_session_id:
+        selectedResumeDiagnostics.generationRequestIncludesSessionId,
       generation_request_includes_selected_resume_id:
         selectedResumeDiagnostics.generationRequestIncludesSelectedResumeId,
       generation_request_includes_job_context: selectedResumeDiagnostics.jobContextIncluded,

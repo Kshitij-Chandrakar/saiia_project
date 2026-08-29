@@ -98,6 +98,39 @@ function safeCloudResumeItem(value = null) {
   }
 }
 
+function safeInterviewSessionItem(value = null) {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+  const id = typeof value.id === 'string' ? value.id : ''
+  if (!id) {
+    return null
+  }
+  return {
+    id,
+    status: typeof value.status === 'string' ? value.status : '',
+    started_at: typeof value.started_at === 'string' ? value.started_at : null,
+    ended_at: typeof value.ended_at === 'string' ? value.ended_at : null,
+    selected_resume_id: typeof value.selected_resume_id === 'string' ? value.selected_resume_id : null,
+    job_context_id: typeof value.job_context_id === 'string' ? value.job_context_id : null,
+    title: typeof value.title === 'string' ? value.title : null,
+    target_role: typeof value.target_role === 'string' ? value.target_role : null,
+    company_name: typeof value.company_name === 'string' ? value.company_name : null,
+  }
+}
+
+function safeInterviewSessionList(payload = {}) {
+  const items = Array.isArray(payload?.items)
+    ? payload.items.map(safeInterviewSessionItem).filter(Boolean)
+    : []
+  return {
+    items,
+    limit: Number.isInteger(payload?.limit) ? payload.limit : items.length,
+    page: Number.isInteger(payload?.page) ? payload.page : 1,
+    error: '',
+  }
+}
+
 function normalizeOrigin(url) {
   try {
     return new URL(String(url || '')).origin
@@ -186,6 +219,9 @@ class DesktopAuthSessionManager {
     this.startupRefreshPromise = null
     this.verificationCache = null
     this.cloudCache = this._emptyCloudCache()
+    this.activeInterviewSession = null
+    this.interviewSessionCreatePromise = null
+    this.interviewSessionCreateKey = ''
   }
 
   _emptyCloudCache() {
@@ -206,7 +242,16 @@ class DesktopAuthSessionManager {
       email: user.email,
       error: this.error,
       safeStorageAvailable: this._canPersist(),
+      activeInterviewSessionId: this.activeInterviewSession?.id || null,
     }
+  }
+
+  hasActiveInterviewSession() {
+    return Boolean(this.activeInterviewSession?.id)
+  }
+
+  getActiveInterviewSession() {
+    return this.activeInterviewSession ? { ...this.activeInterviewSession } : null
   }
 
   async initialize() {
@@ -592,10 +637,11 @@ class DesktopAuthSessionManager {
     return this.getSafeState()
   }
 
-  async _backendJson(route, method, accessToken, body = null) {
+  async _backendJson(route, method, accessToken, body = null, extraHeaders = null) {
     try {
       const headers = {
         Authorization: `Bearer ${accessToken}`,
+        ...(extraHeaders || {}),
       }
       const options = {
         method,
@@ -621,6 +667,9 @@ class DesktopAuthSessionManager {
     const logoutLoginGeneration = this.loginAttemptGeneration
     const logoutSessionGeneration = this.sessionGeneration
     try {
+      if (session?.access_token && this.activeInterviewSession?.id) {
+        await this.endActiveInterviewSession()
+      }
       if (session?.access_token) {
         await this.fetchImpl(`${this.supabaseUrl}/auth/v1/logout`, {
           method: 'POST',
@@ -700,6 +749,160 @@ class DesktopAuthSessionManager {
       items: response.payload.items.map(safeCloudResumeItem).filter(Boolean),
       error: '',
     }
+  }
+
+  async createInterviewSession(payload, options = {}) {
+    if (!this.session?.access_token) {
+      return { session: null, replayed: false, error: 'Log in to start a cloud interview session.' }
+    }
+    if (!this._hasFreshVerification(this.session)) {
+      await this._verifyAndBootstrap(this.session)
+    }
+    if (this.status !== AUTH_STATUSES.CONNECTED || !this.session?.access_token || !this.user?.user_id) {
+      return { session: null, replayed: false, error: safeErrorMessage(this.error, 'Log in again and retry.') }
+    }
+
+    const idempotencyKey = String(options?.idempotencyKey || '').trim()
+    if (!idempotencyKey) {
+      return { session: null, replayed: false, error: 'Session start is missing an idempotency key.' }
+    }
+    if (this.interviewSessionCreatePromise && this.interviewSessionCreateKey === idempotencyKey) {
+      return this.interviewSessionCreatePromise
+    }
+
+    const requestBody = {
+      title: typeof payload?.title === 'string' ? payload.title : '',
+      selected_resume_id: typeof payload?.selected_resume_id === 'string' ? payload.selected_resume_id : null,
+      job_context_id: typeof payload?.job_context_id === 'string' ? payload.job_context_id : null,
+      target_role: typeof payload?.target_role === 'string' ? payload.target_role : '',
+      company_name: typeof payload?.company_name === 'string' ? payload.company_name : '',
+      job_description: typeof payload?.job_description === 'string' ? payload.job_description : '',
+    }
+    const captured = this.captureCloudRequestContext()
+    const promise = this._backendJson(
+      '/api/interview-sessions',
+      'POST',
+      this.session.access_token,
+      requestBody,
+      { 'Idempotency-Key': idempotencyKey },
+    )
+      .then((response) => {
+        if (!this._cloudRequestStillCurrent(captured)) {
+          return { session: null, replayed: false, error: '' }
+        }
+        if (response.status === 401) {
+          this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
+          return { session: null, replayed: false, error: 'Session expired. Please log in again.' }
+        }
+        if (response.status === 0 || response.status === 503) {
+          return { session: null, replayed: false, error: 'Cloud session storage is temporarily unavailable.' }
+        }
+        if (!response.ok) {
+          return {
+            session: null,
+            replayed: false,
+            error: safeErrorMessage(response.payload?.detail, 'Unable to start the interview session.'),
+          }
+        }
+        const sessionRecord = safeInterviewSessionItem(response.payload?.session)
+        this.activeInterviewSession = sessionRecord
+        return {
+          session: sessionRecord,
+          replayed: Boolean(response.payload?.replayed),
+          error: '',
+        }
+      })
+      .finally(() => {
+        if (this.interviewSessionCreateKey === idempotencyKey) {
+          this.interviewSessionCreateKey = ''
+          this.interviewSessionCreatePromise = null
+        }
+      })
+
+    this.interviewSessionCreateKey = idempotencyKey
+    this.interviewSessionCreatePromise = promise
+    return promise
+  }
+
+  async listInterviewSessions(options = {}) {
+    if (!this.session?.access_token) {
+      return { items: [], limit: 20, page: 1, error: 'Log in to load interview sessions.' }
+    }
+    if (!this._hasFreshVerification(this.session)) {
+      await this._verifyAndBootstrap(this.session)
+    }
+    if (this.status !== AUTH_STATUSES.CONNECTED || !this.session?.access_token || !this.user?.user_id) {
+      return { items: [], limit: 20, page: 1, error: safeErrorMessage(this.error) }
+    }
+
+    const limit = Number.isFinite(Number(options?.limit)) ? Math.max(1, Math.min(50, Number(options.limit))) : 20
+    const page = Number.isFinite(Number(options?.page)) ? Math.max(1, Math.min(1000, Number(options.page))) : 1
+    const captured = this.captureCloudRequestContext()
+    const response = await this._backendJson(
+      `/api/interview-sessions?limit=${encodeURIComponent(String(limit))}&page=${encodeURIComponent(String(page))}`,
+      'GET',
+      this.session.access_token,
+    )
+    if (!this._cloudRequestStillCurrent(captured)) {
+      return { items: [], limit, page, error: '' }
+    }
+    if (response.status === 401) {
+      this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
+      return { items: [], limit, page, error: 'Session expired. Please log in again.' }
+    }
+    if (response.status === 0 || response.status === 503) {
+      return { items: [], limit, page, error: 'Cloud session storage is temporarily unavailable.' }
+    }
+    if (!response.ok) {
+      return { items: [], limit, page, error: 'Unable to load interview sessions.' }
+    }
+    return safeInterviewSessionList(response.payload)
+  }
+
+  async endInterviewSession(sessionId) {
+    const normalizedSessionId = String(sessionId || '').trim()
+    if (!normalizedSessionId) {
+      return { session: null, error: 'Interview session id is required.' }
+    }
+    if (!this.session?.access_token) {
+      this.activeInterviewSession = null
+      return { session: null, error: '' }
+    }
+    const captured = this.captureCloudRequestContext()
+    const response = await this._backendJson(
+      `/api/interview-sessions/${encodeURIComponent(normalizedSessionId)}/end`,
+      'POST',
+      this.session.access_token,
+      {},
+    )
+    if (!this._cloudRequestStillCurrent(captured)) {
+      return { session: null, error: '' }
+    }
+    if (response.status === 401) {
+      this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
+      return { session: null, error: 'Session expired. Please log in again.' }
+    }
+    if (response.status === 0 || response.status === 503) {
+      return { session: null, error: 'Cloud session storage is temporarily unavailable.' }
+    }
+    if (!response.ok) {
+      return {
+        session: null,
+        error: safeErrorMessage(response.payload?.detail, 'Unable to end the interview session.'),
+      }
+    }
+    const record = safeInterviewSessionItem(response.payload)
+    if (this.activeInterviewSession?.id === normalizedSessionId) {
+      this.activeInterviewSession = null
+    }
+    return { session: record, error: '' }
+  }
+
+  async endActiveInterviewSession() {
+    if (!this.activeInterviewSession?.id) {
+      return { session: null, error: '' }
+    }
+    return this.endInterviewSession(this.activeInterviewSession.id)
   }
 
   async generateAnswer(body) {
@@ -929,6 +1132,9 @@ class DesktopAuthSessionManager {
     this.error = safeErrorMessage(message)
     this._clearVerificationCache()
     this._clearCloudCache()
+    this.activeInterviewSession = null
+    this.interviewSessionCreatePromise = null
+    this.interviewSessionCreateKey = ''
     this._deleteStoredSession()
   }
 

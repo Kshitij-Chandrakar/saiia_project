@@ -7,6 +7,7 @@ import {
   createDesktopHandoff,
   deleteCloudResume,
   extractCloudResume,
+  fetchInterviewSessions,
   fetchCloudResumeStatus,
   fetchCurrentCloudResume,
   fetchCurrentUser,
@@ -288,6 +289,55 @@ test('cloud resume helpers call authenticated backend routes', async () => {
     updated_at: null,
   })
   assert.equal('storage_path' in uploaded, false)
+})
+
+
+test('fetchInterviewSessions drops records without a valid string id and keeps preview text', async () => {
+  const result = await fetchInterviewSessions('unit-test-access-token', {
+    backendUrl: 'http://localhost:8000',
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        items: [
+          null,
+          {},
+          { id: '' },
+          { id: 42 },
+          {
+            id: ' session-1 ',
+            status: 'ended',
+            started_at: '2026-08-28T00:00:00Z',
+            ended_at: '2026-08-28T00:05:00Z',
+            title: 'Design interview',
+            target_role: 'Frontend Engineer',
+            company_name: 'Acme',
+            job_description_preview: 'AI engineer',
+          },
+        ],
+        limit: 20,
+        page: 1,
+      }),
+    }),
+  })
+
+  assert.deepEqual(result, {
+    items: [
+      {
+        id: 'session-1',
+        status: 'ended',
+        started_at: '2026-08-28T00:00:00Z',
+        ended_at: '2026-08-28T00:05:00Z',
+        selected_resume_id: null,
+        job_context_id: null,
+        title: 'Design interview',
+        target_role: 'Frontend Engineer',
+        company_name: 'Acme',
+        job_description_preview: 'AI engineer',
+      },
+    ],
+    limit: 20,
+    page: 1,
+  })
 })
 
 
