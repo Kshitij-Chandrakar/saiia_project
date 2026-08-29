@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from app.auth.supabase_auth import AUTH_ERROR_DETAIL, CurrentUser, get_current_user
 from app.cloud.cloud_resume import (
@@ -1081,6 +1082,24 @@ def _store_transcript_for_stream_result(
     return result
 
 
+async def _store_transcript_for_stream_result_async(
+    *,
+    req: "GenerateRequest",
+    request: Request | None,
+    result: Dict[str, Any],
+    source: str,
+    screen_question_type: str | None,
+) -> Dict[str, Any]:
+    return await run_in_threadpool(
+        _store_transcript_for_stream_result,
+        req=req,
+        request=request,
+        result=result,
+        source=source,
+        screen_question_type=screen_question_type,
+    )
+
+
 def _resolve_request_followup(req: GenerateRequest, *, source: str) -> FollowUpResolution:
     screen_kind = str(req.question_type or req.screen_question_type or "").strip().lower()
     if source == "screen" and screen_kind in {"coding", "debugging", "output"}:
@@ -1205,7 +1224,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
             }
             metadata.update(followup_resolution.to_metadata())
             metadata.update(_followup_intent_metadata(followup_intent, req.followup_context))
-            metadata = _store_transcript_for_stream_result(
+            metadata = await _store_transcript_for_stream_result_async(
                 req=req,
                 request=request,
                 result=metadata,
@@ -1443,7 +1462,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                     "classifier",
                     round(stream_sanitizer_ms, 4),
                 )
-            metadata = _store_transcript_for_stream_result(
+            metadata = await _store_transcript_for_stream_result_async(
                 req=req,
                 request=request,
                 result=metadata,
@@ -1503,7 +1522,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                         followup_resolution=followup_resolution,
                         followup_intent=followup_intent,
                     )
-                    metadata = _store_transcript_for_stream_result(
+                    metadata = await _store_transcript_for_stream_result_async(
                         req=req,
                         request=request,
                         result=metadata,

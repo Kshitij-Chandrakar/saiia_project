@@ -480,6 +480,85 @@ async def test_generate_stream_primary_success_with_session_id_stores_transcript
 
 
 @pytest.mark.asyncio
+async def test_generate_stream_primary_success_offloads_transcript_storage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(generate_api.resume_index_service, "retrieve", lambda **_kwargs: {"retrieval_used": False, "retrieved_chunks": [], "retrieval_ms": 0.0})
+    monkeypatch.setattr(generate_api.job_context_service, "get_context", lambda: {"saved": False})
+    monkeypatch.setattr(generate_api, "get_current_user", lambda _request: type("CurrentUser", (), {"user_id": "user-a"})())
+    offload_calls = []
+
+    monkeypatch.setattr(
+        generate_api,
+        "_new_cloud_interview_session_service",
+        lambda: type(
+            "FakeInterviewSessionService",
+            (),
+            {"get_session": staticmethod(lambda **_kwargs: _session_record())},
+        )(),
+    )
+
+    async def fake_run_in_threadpool(func, *args, **kwargs):
+        offload_calls.append({"func": func, "args": args, "kwargs": kwargs})
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(generate_api, "run_in_threadpool", fake_run_in_threadpool)
+    monkeypatch.setattr(
+        generate_api,
+        "_store_transcript_for_stream_result",
+        lambda **kwargs: {
+            **dict(kwargs["result"]),
+            "transcript_entry_stored": True,
+            "transcript_store_error": None,
+        },
+    )
+
+    def fake_stream_openai_primary_answer(**_kwargs):
+        yield {"type": "delta", "text": "Offloaded answer"}
+        yield {
+            "type": "primary_result",
+            "result": {
+                "answer": "Offloaded answer",
+                "provider": "openai",
+                "model": "gpt-5.4-mini-2026-03-17",
+                "fallback_used": False,
+                "error": None,
+                "generation_ms": 10.0,
+            },
+        }
+
+    monkeypatch.setattr(generate_api.generator, "stream_openai_primary_answer", fake_stream_openai_primary_answer)
+    monkeypatch.setattr(
+        generate_api.generator,
+        "generate_answer",
+        lambda **kwargs: {
+            **dict(kwargs["primary_result_override"]),
+            "answer": "Offloaded answer",
+            "generate_source": "chat",
+            "generate_category": "technical",
+        },
+    )
+
+    response = await generate_api.generate_answer_stream(
+        generate_api.GenerateRequest(
+            question="What is offload?",
+            category="technical",
+            source="chat",
+            session_id=_session_record()["id"],
+            request_id="stream-offload",
+        ),
+        request=object(),
+    )
+    events = await _collect_stream_events(response)
+    metadata = next(event["metadata"] for event in events if event["type"] == "metadata")
+
+    assert metadata["transcript_entry_stored"] is True
+    assert len(offload_calls) == 1
+    assert offload_calls[0]["func"] is generate_api._store_transcript_for_stream_result
+
+
+@pytest.mark.asyncio
 async def test_generate_stream_fallback_success_with_session_id_stores_transcript(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
