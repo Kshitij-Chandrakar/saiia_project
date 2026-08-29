@@ -7,7 +7,9 @@ import {
   confirmCloudResume,
   createDesktopHandoff,
   deleteCloudResume,
+  downloadInterviewTranscript,
   extractCloudResume,
+  fetchInterviewTranscriptEntries,
   fetchInterviewSessions,
   fetchCloudResumeStatus,
   fetchCurrentCloudResume,
@@ -331,6 +333,54 @@ function formatSessionContextLine(session) {
   const role = session?.target_role || 'No target role'
   const company = session?.company_name || 'No company'
   return `${role} · ${company}`
+}
+
+
+function formatTranscriptMetaLine(entry) {
+  const parts = []
+  if (entry?.source) {
+    parts.push(`Source: ${entry.source}`)
+  }
+  if (entry?.category) {
+    parts.push(`Category: ${entry.category}`)
+  }
+  parts.push(`Created: ${formatSessionTime(entry?.created_at)}`)
+  return parts.join(' · ')
+}
+
+
+function triggerTextDownload(filename, content, format) {
+  const blob = new Blob([content], {
+    type: format === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8',
+  })
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
+
+function formatSessionDisplayContextLine(session) {
+  const role = session?.target_role || 'No target role'
+  const company = session?.company_name || 'No company'
+  return [role, company].join(' - ')
+}
+
+
+function formatTranscriptDisplayMetaLine(entry) {
+  const parts = []
+  if (entry?.source) {
+    parts.push(`Source: ${entry.source}`)
+  }
+  if (entry?.category) {
+    parts.push(`Category: ${entry.category}`)
+  }
+  parts.push(`Created: ${formatSessionTime(entry?.created_at)}`)
+  return parts.join(' - ')
 }
 
 
@@ -1041,6 +1091,11 @@ export function AuthDashboardPage({ backendUrl }) {
   const [sessionHistory, setSessionHistory] = useState([])
   const [sessionHistoryLoading, setSessionHistoryLoading] = useState(true)
   const [sessionHistoryError, setSessionHistoryError] = useState('')
+  const [openTranscriptSessionId, setOpenTranscriptSessionId] = useState('')
+  const [transcriptEntries, setTranscriptEntries] = useState([])
+  const [transcriptLoading, setTranscriptLoading] = useState(false)
+  const [transcriptError, setTranscriptError] = useState('')
+  const [transcriptDownloadKey, setTranscriptDownloadKey] = useState('')
   const navigate = useNavigate()
   const {
     bootstrapResult,
@@ -1086,11 +1141,17 @@ export function AuthDashboardPage({ backendUrl }) {
         })
         if (!ignore) {
           setSessionHistory(result.items)
+          setOpenTranscriptSessionId('')
+          setTranscriptEntries([])
+          setTranscriptError('')
         }
       } catch {
         if (!ignore) {
           setSessionHistory([])
           setSessionHistoryError('Could not load interview sessions. Please try again.')
+          setOpenTranscriptSessionId('')
+          setTranscriptEntries([])
+          setTranscriptError('')
         }
       } finally {
         if (!ignore) {
@@ -1130,11 +1191,89 @@ export function AuthDashboardPage({ backendUrl }) {
         page: 1,
       })
       setSessionHistory(result.items)
+      setOpenTranscriptSessionId('')
+      setTranscriptEntries([])
+      setTranscriptError('')
     } catch {
       setSessionHistory([])
       setSessionHistoryError('Could not load interview sessions. Please try again.')
+      setOpenTranscriptSessionId('')
+      setTranscriptEntries([])
+      setTranscriptError('')
     } finally {
       setSessionHistoryLoading(false)
+    }
+  }
+
+  async function handleTranscriptToggle(sessionId) {
+    const normalizedSessionId = String(sessionId || '').trim()
+    if (!normalizedSessionId || transcriptLoading) {
+      return
+    }
+    if (openTranscriptSessionId === normalizedSessionId) {
+      setOpenTranscriptSessionId('')
+      setTranscriptEntries([])
+      setTranscriptError('')
+      return
+    }
+    setTranscriptLoading(true)
+    setTranscriptError('')
+    try {
+      if (!supabase) {
+        setOpenTranscriptSessionId(normalizedSessionId)
+        setTranscriptEntries([])
+        setTranscriptError('Transcript access is unavailable until auth is ready.')
+        return
+      }
+      const { data, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError || !data.session?.access_token) {
+        setOpenTranscriptSessionId(normalizedSessionId)
+        setTranscriptEntries([])
+        setTranscriptError('Could not verify transcript access. Please sign in again.')
+        return
+      }
+      const result = await fetchInterviewTranscriptEntries(data.session.access_token, normalizedSessionId, {
+        backendUrl,
+        limit: 100,
+        page: 1,
+      })
+      setOpenTranscriptSessionId(normalizedSessionId)
+      setTranscriptEntries(result.items)
+    } catch {
+      setOpenTranscriptSessionId(normalizedSessionId)
+      setTranscriptEntries([])
+      setTranscriptError('Could not load transcript entries. Please try again.')
+    } finally {
+      setTranscriptLoading(false)
+    }
+  }
+
+  async function handleTranscriptDownload(sessionId, format) {
+    const normalizedSessionId = String(sessionId || '').trim()
+    const normalizedFormat = String(format || '').trim().toLowerCase()
+    if (!normalizedSessionId || !normalizedFormat || transcriptDownloadKey) {
+      return
+    }
+    setTranscriptDownloadKey(`${normalizedSessionId}:${normalizedFormat}`)
+    setTranscriptError('')
+    try {
+      if (!supabase) {
+        setTranscriptError('Transcript download is unavailable until auth is ready.')
+        return
+      }
+      const { data, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError || !data.session?.access_token) {
+        setTranscriptError('Could not verify transcript download access. Please sign in again.')
+        return
+      }
+      const download = await downloadInterviewTranscript(data.session.access_token, normalizedSessionId, normalizedFormat, {
+        backendUrl,
+      })
+      triggerTextDownload(download.filename, download.content, download.format)
+    } catch {
+      setTranscriptError('Could not download the transcript. Please try again.')
+    } finally {
+      setTranscriptDownloadKey('')
     }
   }
 
@@ -1200,7 +1339,7 @@ export function AuthDashboardPage({ backendUrl }) {
                   <strong className="auth-session-history__title">
                     {session.title || session.target_role || session.company_name || 'Untitled session'}
                   </strong>
-                  <p className="auth-session-history__meta">{formatSessionContextLine(session)}</p>
+                  <p className="auth-session-history__meta">{formatSessionDisplayContextLine(session)}</p>
                   {session.job_description_preview ? (
                     <p className="auth-session-history__line">Context: {session.job_description_preview}</p>
                   ) : null}
@@ -1209,6 +1348,51 @@ export function AuthDashboardPage({ backendUrl }) {
                   <p className="auth-session-history__line">
                     Ended: {session.ended_at ? formatSessionTime(session.ended_at) : 'Not ended yet'}
                   </p>
+                  <div className="auth-session-history__actions">
+                    <button
+                      className="auth-session-history__action"
+                      type="button"
+                      onClick={() => handleTranscriptToggle(session.id)}
+                      disabled={transcriptLoading && openTranscriptSessionId !== session.id}
+                    >
+                      {openTranscriptSessionId === session.id ? 'Hide transcript' : 'View transcript'}
+                    </button>
+                    <button
+                      className="auth-session-history__action"
+                      type="button"
+                      onClick={() => handleTranscriptDownload(session.id, 'txt')}
+                      disabled={Boolean(transcriptDownloadKey)}
+                    >
+                      Download .txt
+                    </button>
+                    <button
+                      className="auth-session-history__action"
+                      type="button"
+                      onClick={() => handleTranscriptDownload(session.id, 'md')}
+                      disabled={Boolean(transcriptDownloadKey)}
+                    >
+                      Download .md
+                    </button>
+                  </div>
+                  {openTranscriptSessionId === session.id ? (
+                    <div className="auth-session-history__transcript">
+                      {transcriptLoading ? (
+                        <p className="auth-session-history__line">Loading transcript...</p>
+                      ) : transcriptError ? (
+                        <p className="auth-message error">{transcriptError}</p>
+                      ) : transcriptEntries.length ? (
+                        transcriptEntries.map((entry) => (
+                          <section key={entry.id} className="auth-session-history__transcript-entry">
+                            <p className="auth-session-history__line"><strong>Question:</strong> {entry.question_text}</p>
+                            <p className="auth-session-history__line"><strong>Answer:</strong> {entry.answer_text}</p>
+                            <p className="auth-session-history__meta">{formatTranscriptDisplayMetaLine(entry)}</p>
+                          </section>
+                        ))
+                      ) : (
+                        <p className="auth-session-history__line">No transcript entries yet.</p>
+                      )}
+                    </div>
+                  ) : null}
                 </article>
               ))}
             </div>

@@ -17,6 +17,13 @@ from app.cloud.cloud_resume import (
     CloudResumeValidationError,
     question_has_project_intent,
 )
+from app.cloud.interview_sessions import (
+    CloudInterviewSessionConflictError,
+    CloudInterviewSessionError,
+    CloudInterviewSessionNotFoundError,
+    CloudInterviewSessionValidationError,
+)
+from app.cloud.interview_transcripts import CloudInterviewTranscriptService
 from app.cloud.supabase_config import SupabaseConfigurationError
 from app.config import settings
 from app.nlp.classifier import (
@@ -53,6 +60,10 @@ refinement_service = RefinementService()
 
 def _new_cloud_resume_service() -> CloudResumeService:
     return CloudResumeService()
+
+
+def _new_cloud_transcript_service() -> CloudInterviewTranscriptService:
+    return CloudInterviewTranscriptService()
 
 
 def _infer_screen_problem_type(question: str, requested_type: str) -> str:
@@ -200,12 +211,34 @@ def _normalize_selected_resume_id(value: str | None) -> str:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected resume id is invalid.") from exc
 
 
+def _normalize_session_id(value: str | None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        return str(uuid.UUID(raw))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Interview session id is invalid.") from exc
+
+
 def _selected_resume_strict_mode(req: "GenerateRequest") -> bool:
     return bool(_normalize_selected_resume_id(req.selected_resume_id))
 
 
 def _current_user_for_selected_resume(req: "GenerateRequest", request: Request | None) -> CurrentUser | None:
     if not _normalize_selected_resume_id(req.selected_resume_id):
+        return None
+    if request is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=AUTH_ERROR_DETAIL,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return get_current_user(request)
+
+
+def _current_user_for_session_id(req: "GenerateRequest", request: Request | None) -> CurrentUser | None:
+    if not _normalize_session_id(req.session_id):
         return None
     if request is None:
         raise HTTPException(
@@ -532,6 +565,7 @@ class GenerateRequest(BaseModel):
     profile_context_used: Optional[bool] = True
     selected_resume_id: Optional[str] = None
     session_id: Optional[str] = None
+    request_id: Optional[str] = None
     target_role: Optional[str] = None
     company_name: Optional[str] = None
     job_description: Optional[str] = None
@@ -738,6 +772,8 @@ class GenerateResponse(BaseModel):
     fallback_enabled: Optional[bool] = None
     fallback_reason: Optional[str] = None
     fallback_unavailable_reason: Optional[str] = None
+    transcript_entry_stored: Optional[bool] = None
+    transcript_store_error: Optional[str] = None
     coding_runtime_audit: Optional[Dict[str, Any]] = None
     original_question: Optional[str] = None
     resolved_question: Optional[str] = None
@@ -907,6 +943,72 @@ def _stream_safe_metadata(
         metadata.update(followup_resolution.to_metadata())
     metadata.update(_followup_intent_metadata(followup_intent, req.followup_context))
     return metadata
+
+
+def _store_transcript_for_response(
+    *,
+    req: "GenerateRequest",
+    request: Request | None,
+    response: GenerateResponse,
+    source: str,
+    screen_question_type: str | None,
+) -> GenerateResponse:
+    session_id = _normalize_session_id(req.session_id)
+    if not session_id:
+        response.transcript_entry_stored = False
+        response.transcript_store_error = None
+        return response
+    current_user = _current_user_for_session_id(req, request)
+    if current_user is None:
+        response.transcript_entry_stored = False
+        response.transcript_store_error = None
+        return response
+    try:
+        normalized_transcript_source = str(response.generate_source or source or "").strip().lower()
+        if normalized_transcript_source == "screen":
+            normalized_transcript_source = "analyze_screen"
+        elif normalized_transcript_source not in {"chat", "answer", "analyze_screen", "auto"}:
+            normalized_transcript_source = "unknown"
+        _new_cloud_transcript_service().create_transcript_entry(
+            user_id=current_user.user_id,
+            session_id=session_id,
+            payload={
+                "request_id": req.request_id,
+                "source": normalized_transcript_source,
+                "question_text": str(req.original_question or req.question or "").strip(),
+                "answer_text": str(response.answer or "").strip(),
+                "category": response.generate_category or req.category,
+                "provider": response.provider,
+                "model": response.model,
+                "generation_ms": response.generation_ms,
+                "metadata": {
+                    "follow_up_detected": bool(response.follow_up_detected),
+                    "follow_up_resolution_status": response.follow_up_resolution_status or "",
+                    "generate_question_type": response.generate_question_type or screen_question_type or "",
+                    "answer_type": response.answer_type or "",
+                    "selected_resume_id_used": bool(response.selected_resume_id_used),
+                    "job_context_used": bool(response.job_context_used),
+                },
+            },
+        )
+        response.transcript_entry_stored = True
+        response.transcript_store_error = None
+        return response
+    except CloudInterviewSessionValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except CloudInterviewSessionNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc) or "Interview session was not found.") from exc
+    except CloudInterviewSessionConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except (CloudInterviewSessionError, SupabaseConfigurationError) as exc:
+        logger.warning(
+            "Transcript storage skipped session_id_suffix=%s error_type=%s",
+            session_id[-6:],
+            exc.__class__.__name__,
+        )
+        response.transcript_entry_stored = False
+        response.transcript_store_error = "temporarily_unavailable"
+        return response
 
 
 def _resolve_request_followup(req: GenerateRequest, *, source: str) -> FollowUpResolution:
@@ -1385,7 +1487,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
         clarification = followup_resolution.clarification_question or "Which earlier topic should I connect this follow-up to?"
         metadata = followup_resolution.to_metadata()
         metadata.update(_followup_intent_metadata(followup_intent, req.followup_context))
-        return GenerateResponse(
+        response = GenerateResponse(
             answer=clarification,
             provider="local",
             model="deterministic_followup_resolver",
@@ -1453,6 +1555,13 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             compilation_method=metadata.get("compilation_method"),
             compilation_confidence=metadata.get("compilation_confidence"),
             task_compilation_ms=metadata.get("task_compilation_ms"),
+        )
+        return _store_transcript_for_response(
+            req=req,
+            request=request,
+            response=response,
+            source=source,
+            screen_question_type=None,
         )
     requested_question_type = str(req.question_type or req.screen_question_type or "").strip().lower()
     screen_question_type = (
@@ -1705,7 +1814,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
         if coding_answer_mode:
             logger.info("Coding runtime audit %s", coding_runtime_audit)
 
-        return GenerateResponse(
+        response = GenerateResponse(
             answer=result["answer"],
             provider=result["provider"],
             model=result["model"],
@@ -1903,6 +2012,13 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             **followup_resolution.to_metadata(),
             **_followup_intent_metadata(followup_intent, req.followup_context),
         )
+        return _store_transcript_for_response(
+            req=req,
+            request=request,
+            response=response,
+            source=source,
+            screen_question_type=screen_question_type,
+        )
     except ResumeIndexError as exc:
         logger.warning("Resume retrieval failed for question_len=%s error=%s", len(req.question.strip()), exc)
         saved_job_context = _generation_job_context(req, use_job_context=use_job_context)
@@ -1977,7 +2093,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
                 ),
                 2,
             )
-        return GenerateResponse(
+        response = GenerateResponse(
             answer=result["answer"],
             provider=result["provider"],
             model=result["model"],
@@ -2179,6 +2295,13 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             **followup_resolution.to_metadata(),
             **_followup_intent_metadata(followup_intent, req.followup_context),
         )
+        return _store_transcript_for_response(
+            req=req,
+            request=request,
+            response=response,
+            source=source,
+            screen_question_type=screen_question_type,
+        )
     except JobContextError as exc:
         logger.warning("Job context load failed for question_len=%s error=%s", len(req.question.strip()), exc)
         retrieval = _retrieve_resume_context(
@@ -2274,7 +2397,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
                 ),
                 2,
             )
-        return GenerateResponse(
+        response = GenerateResponse(
             answer=result["answer"],
             provider=result["provider"],
             model=result["model"],
@@ -2468,6 +2591,13 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             coding_answer=result.get("coding_answer"),
             **followup_resolution.to_metadata(),
             **_followup_intent_metadata(followup_intent, req.followup_context),
+        )
+        return _store_transcript_for_response(
+            req=req,
+            request=request,
+            response=response,
+            source=source,
+            screen_question_type=screen_question_type,
         )
     except ProviderError as exc:
         generation_ms = round((time.perf_counter() - started) * 1000, 2)

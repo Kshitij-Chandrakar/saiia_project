@@ -287,6 +287,8 @@ test('startup session setup screen collects local setup and routes back or into 
   assert.match(appSource, /onStartupSessionConfigChange={applyStartupSessionConfig}/)
   assert.match(appSource, /const activeStartupSessionConfig = startupSessionConfigRef\.current/)
   assert.match(appSource, /const activeSessionId = String\(activeStartupSessionConfig\?\.activeSessionId \|\| ''\)\.trim\(\)/)
+  assert.match(appSource, /const requestId = Date\.now\(\) \+ Math\.random\(\)/)
+  assert.match(appSource, /request_id: String\(requestId\)/)
   assert.match(appSource, /session_id: activeSessionId \|\| undefined/)
   assert.match(appSource, /const selectedResumeId = String\(activeStartupSessionConfig\?\.selectedResumeId \|\| ''\)\.trim\(\)/)
   assert.match(appSource, /const selectedResumeName = String\(activeStartupSessionConfig\?\.selectedResumeName \|\| ''\)\.trim\(\)/)

@@ -1246,8 +1246,10 @@ test('generateAnswer proxies selected resume requests with main-process bearer a
     ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
 
     const result = await ctx.manager.generateAnswer({
+      request_id: 'turn-1',
       question: 'Introduce yourself',
       category: 'personal',
+      session_id: 'session-1',
       selected_resume_id: 'resume-1',
     })
 
@@ -1258,6 +1260,8 @@ test('generateAnswer proxies selected resume requests with main-process bearer a
     assert.equal(result.payload.selected_resume_id_used, true)
     assert.equal(result.payload.selected_resume_chunk_count, 2)
     assert.equal(generateCall.init.headers.Authorization, 'Bearer access-token')
+    assert.equal(JSON.parse(generateCall.init.body).request_id, 'turn-1')
+    assert.equal(JSON.parse(generateCall.init.body).session_id, 'session-1')
     assert.equal(JSON.parse(generateCall.init.body).selected_resume_id, 'resume-1')
   } finally {
     ctx.cleanup()
