@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import json
 import logging
 import re
+import threading
 import time
 from typing import Any
 
@@ -47,11 +48,18 @@ MAX_LIST_ITEM_CHARS = 240
 MAX_TRANSCRIPT_ENTRIES = 30
 MAX_ENTRY_QUESTION_CHARS = 500
 MAX_ENTRY_ANSWER_CHARS = 1_500
+MAX_SESSION_CONTEXT_TOTAL_CHARS = 1_200
+MAX_SESSION_TITLE_CHARS = 200
+MAX_SESSION_ROLE_CHARS = 200
+MAX_SESSION_COMPANY_CHARS = 200
+MAX_SESSION_PREVIEW_CHARS = 480
 SUPABASE_HTTP_POOL_SIZE = 20
 SUPABASE_SELECT_TIMEOUT = 5
 SUPABASE_MUTATION_TIMEOUT = 8
 OPENAI_REASONING_EFFORT_FALLBACK = "low"
 OPENAI_SUPPORTED_REASONING_EFFORTS = {"none", "low", "medium", "high", "xhigh"}
+_NOTES_GENERATION_LOCKS: dict[str, threading.Lock] = {}
+_NOTES_GENERATION_LOCKS_GUARD = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -87,6 +95,30 @@ def _normalize_string_list(value: Any) -> list[str]:
         if len(cleaned) >= MAX_LIST_ITEMS:
             break
     return cleaned
+
+
+def _utc_now_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _truncate_text(value: Any, max_chars: int) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) <= max_chars:
+        return text
+    if max_chars <= 1:
+        return text[:max_chars]
+    return text[: max_chars - 1].rstrip() + "…"
+
+
+def _acquire_generation_lock(session_id: str) -> Any | None:
+    with _NOTES_GENERATION_LOCKS_GUARD:
+        lock = _NOTES_GENERATION_LOCKS.get(session_id)
+        if lock is None:
+            lock = threading.Lock()
+            _NOTES_GENERATION_LOCKS[session_id] = lock
+    if not lock.acquire(blocking=False):
+        return None
+    return lock
 
 
 def _record_from_payload(payload: dict[str, Any]) -> CloudInterviewNotesRecord:
@@ -391,15 +423,8 @@ class OpenAIInterviewNotesGenerator:
         session: CloudInterviewSessionRecord,
         transcript_entries: list[CloudInterviewTranscriptEntryRecord],
     ) -> str:
-        parts = [
-            "Session context:",
-            f"Title: {session.title or 'Untitled session'}",
-            f"Target role: {session.target_role or 'Unknown'}",
-            f"Company: {session.company_name or 'Unknown'}",
-            f"Job context preview: {session.job_description_preview or 'None'}",
-            "",
-            "Transcript entries:",
-        ]
+        parts = self._session_context_parts(session)
+        parts.extend(["", "Transcript entries:"])
         total_chars = sum(len(part) for part in parts)
         for entry in transcript_entries[:MAX_TRANSCRIPT_ENTRIES]:
             question = entry.question_text[:MAX_ENTRY_QUESTION_CHARS]
@@ -414,7 +439,36 @@ class OpenAIInterviewNotesGenerator:
                 break
             parts.extend(["", block])
             total_chars += len(block)
-        return "\n".join(parts).strip()
+        return "\n".join(parts).strip()[: settings.AI_NOTES_MAX_INPUT_CHARS]
+
+    def _session_context_parts(self, session: CloudInterviewSessionRecord) -> list[str]:
+        budget = min(
+            MAX_SESSION_CONTEXT_TOTAL_CHARS,
+            max(200, settings.AI_NOTES_MAX_INPUT_CHARS // 2),
+        )
+        parts = ["Session context:"]
+        remaining = max(0, budget - len(parts[0]))
+
+        def add_line(label: str, value: Any, fallback: str, max_chars: int) -> None:
+            nonlocal remaining
+            if remaining <= 0:
+                return
+            prefix = f"{label}: "
+            allowed = max(0, min(max_chars, remaining - len(prefix)))
+            text = fallback if allowed <= 0 else (_truncate_text(value, allowed) or fallback)
+            line = f"{prefix}{text}"
+            if len(line) > remaining:
+                trim_allowed = max(0, remaining - len(prefix))
+                text = fallback if trim_allowed <= 0 else (_truncate_text(text, trim_allowed) or fallback)
+                line = f"{prefix}{text}"
+            parts.append(line)
+            remaining -= len(line)
+
+        add_line("Title", session.title, "Untitled session", MAX_SESSION_TITLE_CHARS)
+        add_line("Target role", session.target_role, "Unknown", MAX_SESSION_ROLE_CHARS)
+        add_line("Company", session.company_name, "Unknown", MAX_SESSION_COMPANY_CHARS)
+        add_line("Job context preview", session.job_description_preview, "None", MAX_SESSION_PREVIEW_CHARS)
+        return parts
 
     def _json_schema_format(self) -> dict[str, Any]:
         return {
@@ -531,39 +585,46 @@ class CloudInterviewNotesService:
         normalized_session_id = _normalize_uuid(session_id, field="session_id")
         if normalized_session_id is None:
             raise CloudInterviewSessionValidationError("session_id is invalid.")
-        if not force_regenerate:
-            try:
-                return self.get_notes(user_id=user_id, session_id=normalized_session_id)
-            except CloudInterviewSessionNotFoundError:
-                pass
-        session = self._session_service.get_session(user_id=user_id, session_id=normalized_session_id)
-        transcript_page = self._transcript_service.list_transcript_entries(
-            user_id=user_id,
-            session_id=normalized_session_id,
-            limit=200,
-            page=1,
-        )
-        transcript_entries = transcript_page.items[:MAX_TRANSCRIPT_ENTRIES]
-        if not transcript_entries:
-            raise CloudInterviewSessionConflictError("This session does not have transcript entries yet.")
+        lock = _acquire_generation_lock(normalized_session_id)
+        if lock is None:
+            raise CloudInterviewSessionConflictError("AI notes generation is already in progress.")
         try:
-            generated = self._generator.generate(session=session, transcript_entries=transcript_entries)
-        except ProviderError as exc:
-            raise CloudInterviewSessionError(NOTES_GENERATION_FAILURE_MESSAGE) from exc
-        payload = {
-            "status": generated.get("status") or "ready",
-            "notes_markdown": str(generated.get("notes_markdown") or "").strip()[:MAX_NOTES_MARKDOWN_CHARS],
-            "summary": str(generated.get("summary") or "").strip()[:MAX_SUMMARY_CHARS] or None,
-            "strengths": _normalize_string_list(generated.get("strengths")),
-            "improvement_areas": _normalize_string_list(generated.get("improvement_areas")),
-            "technical_topics": _normalize_string_list(generated.get("technical_topics")),
-            "key_questions": _normalize_string_list(generated.get("key_questions")),
-            "suggested_followups": _normalize_string_list(generated.get("suggested_followups")),
-            "provider": str(generated.get("provider") or "").strip()[:80] or None,
-            "model": str(generated.get("model") or "").strip()[:120] or None,
-            "generation_ms": int(generated.get("generation_ms") or 0),
-            "transcript_entry_count": len(transcript_entries),
-        }
-        if not payload["notes_markdown"]:
-            raise CloudInterviewSessionValidationError("Generated notes were empty.")
-        return self._client.upsert_notes(user_id=user_id, session_id=session.id, payload=payload)
+            if not force_regenerate:
+                try:
+                    return self.get_notes(user_id=user_id, session_id=normalized_session_id)
+                except CloudInterviewSessionNotFoundError:
+                    pass
+            session = self._session_service.get_session(user_id=user_id, session_id=normalized_session_id)
+            transcript_page = self._transcript_service.list_transcript_entries(
+                user_id=user_id,
+                session_id=normalized_session_id,
+                limit=200,
+                page=1,
+            )
+            transcript_entries = transcript_page.items[:MAX_TRANSCRIPT_ENTRIES]
+            if not transcript_entries:
+                raise CloudInterviewSessionConflictError("This session does not have transcript entries yet.")
+            try:
+                generated = self._generator.generate(session=session, transcript_entries=transcript_entries)
+            except ProviderError as exc:
+                raise CloudInterviewSessionError(NOTES_GENERATION_FAILURE_MESSAGE) from exc
+            payload = {
+                "status": generated.get("status") or "ready",
+                "notes_markdown": str(generated.get("notes_markdown") or "").strip()[:MAX_NOTES_MARKDOWN_CHARS],
+                "summary": str(generated.get("summary") or "").strip()[:MAX_SUMMARY_CHARS] or None,
+                "strengths": _normalize_string_list(generated.get("strengths")),
+                "improvement_areas": _normalize_string_list(generated.get("improvement_areas")),
+                "technical_topics": _normalize_string_list(generated.get("technical_topics")),
+                "key_questions": _normalize_string_list(generated.get("key_questions")),
+                "suggested_followups": _normalize_string_list(generated.get("suggested_followups")),
+                "provider": str(generated.get("provider") or "").strip()[:80] or None,
+                "model": str(generated.get("model") or "").strip()[:120] or None,
+                "generation_ms": int(generated.get("generation_ms") or 0),
+                "transcript_entry_count": len(transcript_entries),
+                "generated_at": _utc_now_iso(),
+            }
+            if not payload["notes_markdown"]:
+                raise CloudInterviewSessionValidationError("Generated notes were empty.")
+            return self._client.upsert_notes(user_id=user_id, session_id=session.id, payload=payload)
+        finally:
+            lock.release()

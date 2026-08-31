@@ -1323,30 +1323,25 @@ export function AuthDashboardPage({ backendUrl }) {
       setNotesError('')
       return
     }
-    setNotesLoading(true)
+    setOpenNotesSessionId(normalizedSessionId)
+    setSessionNotes(null)
     setNotesError('')
+    setNotesLoading(true)
     try {
       if (!supabase) {
-        setOpenNotesSessionId(normalizedSessionId)
-        setSessionNotes(null)
         setNotesError('AI notes access is unavailable until auth is ready.')
         return
       }
       const { data, error: sessionError } = await supabase.auth.getSession()
       if (sessionError || !data.session?.access_token) {
-        setOpenNotesSessionId(normalizedSessionId)
-        setSessionNotes(null)
         setNotesError('Could not verify AI notes access. Please sign in again.')
         return
       }
       const result = await fetchInterviewSessionNotes(data.session.access_token, normalizedSessionId, {
         backendUrl,
       })
-      setOpenNotesSessionId(normalizedSessionId)
       setSessionNotes(result)
     } catch (loadError) {
-      setOpenNotesSessionId(normalizedSessionId)
-      setSessionNotes(null)
       if (String(loadError?.message || '').includes('were not found')) {
         setNotesError('No AI notes yet. Generate AI Notes to create them.')
       } else {
@@ -1363,18 +1358,17 @@ export function AuthDashboardPage({ backendUrl }) {
       return
     }
     setNotesGenerateKey(normalizedSessionId)
-    setNotesLoading(true)
     setOpenNotesSessionId(normalizedSessionId)
+    setSessionNotes(null)
     setNotesError('')
+    setNotesLoading(true)
     try {
       if (!supabase) {
-        setSessionNotes(null)
         setNotesError('AI notes generation is unavailable until auth is ready.')
         return
       }
       const { data, error: sessionError } = await supabase.auth.getSession()
       if (sessionError || !data.session?.access_token) {
-        setSessionNotes(null)
         setNotesError('Could not verify AI notes generation access. Please sign in again.')
         return
       }
@@ -1384,7 +1378,6 @@ export function AuthDashboardPage({ backendUrl }) {
       })
       setSessionNotes(result)
     } catch (generateError) {
-      setSessionNotes(null)
       setNotesError(String(generateError?.message || '').trim() || 'Could not generate AI notes. Please try again.')
     } finally {
       setNotesLoading(false)

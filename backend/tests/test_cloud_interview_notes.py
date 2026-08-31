@@ -1,4 +1,6 @@
 import logging
+import threading
+import time
 
 import httpx
 from openai import BadRequestError
@@ -112,6 +114,7 @@ class FakeNotesClient:
             model=payload["model"],
             generation_ms=payload["generation_ms"],
             transcript_entry_count=payload["transcript_entry_count"],
+            generated_at=payload["generated_at"],
         )
         return self.stored
 
@@ -208,6 +211,7 @@ def test_generate_notes_creates_and_stores_notes_for_owned_session() -> None:
     assert len(generator.calls[0]["transcript_entries"]) == 2
     assert client.upsert_calls[0]["user_id"] == USER_ID
     assert client.upsert_calls[0]["payload"]["transcript_entry_count"] == 2
+    assert client.upsert_calls[0]["payload"]["generated_at"].endswith("Z")
 
 
 def test_generate_notes_rejects_empty_transcript() -> None:
@@ -269,6 +273,25 @@ def test_generate_notes_force_regenerate_replaces_existing_notes() -> None:
 
     assert result.summary == "Updated summary"
     assert client.upsert_calls
+    assert result.generated_at != "2026-08-29T10:12:00Z"
+
+
+def test_generate_notes_without_force_keeps_existing_notes_without_regenerating() -> None:
+    client = FakeNotesClient()
+    client.stored = _notes(generated_at="2026-08-29T10:12:00Z")
+    generator = FakeGenerator()
+    service = CloudInterviewNotesService(
+        client=client,
+        session_service=FakeSessionService(),
+        transcript_service=FakeTranscriptService(),
+        generator=generator,
+    )
+
+    result = service.generate_notes(user_id=USER_ID, session_id=SESSION_ID, force_regenerate=False)
+
+    assert result.generated_at == "2026-08-29T10:12:00Z"
+    assert generator.calls == []
+    assert client.upsert_calls == []
 
 
 class FakeOpenAIResponsesClient:
@@ -300,6 +323,32 @@ def test_openai_notes_generator_uses_supported_reasoning_effort(monkeypatch: pyt
     assert client.calls[0]["reasoning"] == {"effort": "low"}
     assert client.calls[0]["input"]
     assert client.calls[0]["text"]["format"]["type"] == "json_schema"
+
+
+def test_openai_notes_generator_bounds_session_context_and_total_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.cloud.interview_notes.settings.OPENAI_API_KEY", "unit-test-key")
+    monkeypatch.setattr("app.cloud.interview_notes.settings.AI_NOTES_MODEL", "gpt-5.4-mini-2026-03-17")
+    monkeypatch.setattr("app.cloud.interview_notes.settings.AI_NOTES_MAX_INPUT_CHARS", 700)
+    client = FakeOpenAIResponsesClient(
+        response=type("Response", (), {"output_text": '{"summary":"ok","technical_topics":[],"key_questions":[],"strengths":[],"improvement_areas":[],"suggested_followups":[],"overall_feedback":"fine"}'})()
+    )
+    generator = OpenAIInterviewNotesGenerator(openai_client=client)
+
+    generator.generate(
+        session=_session(
+            title="T" * 5000,
+            target_role="R" * 5000,
+            company_name="C" * 5000,
+            job_description_preview="J" * 5000,
+        ),
+        transcript_entries=[_entry(1, question_text="Q" * 500, answer_text="A" * 2000)],
+    )
+
+    prompt = client.calls[0]["input"]
+    assert len(prompt) <= 700
+    assert "T" * 500 not in prompt
+    assert "J" * 1000 not in prompt
+    assert "Transcript entries:" in prompt
 
 
 def test_openai_bad_request_logs_safe_fields_without_prompt_leak(
@@ -337,3 +386,68 @@ def test_openai_bad_request_logs_safe_fields_without_prompt_leak(
     assert "secret question" not in caplog.text
     assert "secret answer" not in caplog.text
     assert "unit-test-key" not in caplog.text
+
+
+def test_same_session_concurrent_generate_returns_in_progress_conflict() -> None:
+    client = FakeNotesClient()
+    release = threading.Event()
+    started = threading.Event()
+
+    class BlockingGenerator(FakeGenerator):
+        def generate(self, *, session: CloudInterviewSessionRecord, transcript_entries: list[CloudInterviewTranscriptEntryRecord]) -> dict[str, object]:
+            started.set()
+            release.wait(timeout=5)
+            return super().generate(session=session, transcript_entries=transcript_entries)
+
+    service = CloudInterviewNotesService(
+        client=client,
+        session_service=FakeSessionService(),
+        transcript_service=FakeTranscriptService(),
+        generator=BlockingGenerator(),
+    )
+    results: list[tuple[str, object]] = []
+
+    def run_first() -> None:
+        try:
+            record = service.generate_notes(user_id=USER_ID, session_id=SESSION_ID, force_regenerate=True)
+            results.append(("ok", record))
+        except Exception as exc:  # pragma: no cover - defensive in thread
+            results.append(("error", exc))
+
+    thread = threading.Thread(target=run_first)
+    thread.start()
+    assert started.wait(timeout=5)
+
+    with pytest.raises(CloudInterviewSessionConflictError, match="already in progress"):
+        service.generate_notes(user_id=USER_ID, session_id=SESSION_ID, force_regenerate=True)
+
+    release.set()
+    thread.join(timeout=5)
+    assert len(client.upsert_calls) == 1
+
+
+def test_different_sessions_generate_independently() -> None:
+    client_one = FakeNotesClient()
+    client_two = FakeNotesClient()
+    generator_one = FakeGenerator()
+    generator_two = FakeGenerator()
+    service_one = CloudInterviewNotesService(
+        client=client_one,
+        session_service=FakeSessionService(),
+        transcript_service=FakeTranscriptService(items=[_entry(1, session_id="30000000-0000-4000-8000-000000000001")]),
+        generator=generator_one,
+    )
+    service_two = CloudInterviewNotesService(
+        client=client_two,
+        session_service=FakeSessionService(),
+        transcript_service=FakeTranscriptService(items=[_entry(1, session_id="30000000-0000-4000-8000-000000000002")]),
+        generator=generator_two,
+    )
+
+    first = service_one.generate_notes(user_id=USER_ID, session_id="30000000-0000-4000-8000-000000000001", force_regenerate=True)
+    second = service_two.generate_notes(user_id=USER_ID, session_id="30000000-0000-4000-8000-000000000002", force_regenerate=True)
+
+    assert first.session_id == "30000000-0000-4000-8000-000000000001"
+    assert second.session_id == "30000000-0000-4000-8000-000000000002"
+    assert len(generator_one.calls) == 1
+    assert len(generator_two.calls) == 1

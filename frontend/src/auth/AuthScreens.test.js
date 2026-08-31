@@ -185,6 +185,14 @@ test('dashboard loads session history and transcript controls with separate load
   assert.match(dashboardPageSource, /handleNotesToggle\(session\.id\)/)
   assert.match(dashboardPageSource, /handleTranscriptDownload\(session\.id, 'txt'\)/)
   assert.match(dashboardPageSource, /handleTranscriptDownload\(session\.id, 'md'\)/)
+  assert.match(
+    dashboardPageSource,
+    /async function handleNotesToggle\(sessionId\) \{[\s\S]*setOpenNotesSessionId\(normalizedSessionId\)\s+setSessionNotes\(null\)\s+setNotesError\(''\)\s+setNotesLoading\(true\)/,
+  )
+  assert.match(
+    dashboardPageSource,
+    /async function handleNotesGenerate\(sessionId, forceRegenerate = false\) \{[\s\S]*setNotesGenerateKey\(normalizedSessionId\)\s+setOpenNotesSessionId\(normalizedSessionId\)\s+setSessionNotes\(null\)\s+setNotesError\(''\)\s+setNotesLoading\(true\)/,
+  )
   assert.match(dashboardPageSource, /Generate AI Notes/)
   assert.match(dashboardPageSource, /View AI Notes/)
   assert.match(dashboardPageSource, /Loading AI notes\.\.\./)
