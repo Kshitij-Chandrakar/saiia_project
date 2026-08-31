@@ -6,7 +6,12 @@ import httpx
 from openai import BadRequestError
 import pytest
 
-from app.cloud.interview_notes import CloudInterviewNotesRecord, CloudInterviewNotesService, OpenAIInterviewNotesGenerator
+from app.cloud.interview_notes import (
+    _NOTES_GENERATION_LOCKS,
+    CloudInterviewNotesRecord,
+    CloudInterviewNotesService,
+    OpenAIInterviewNotesGenerator,
+)
 from app.cloud.interview_sessions import (
     CloudInterviewSessionConflictError,
     CloudInterviewSessionError,
@@ -122,9 +127,12 @@ class FakeNotesClient:
 class FakeSessionService:
     def __init__(self) -> None:
         self.calls: list[dict[str, str]] = []
+        self.error: Exception | None = None
 
     def get_session(self, *, user_id: str, session_id: str) -> CloudInterviewSessionRecord:
         self.calls.append({"user_id": user_id, "session_id": session_id})
+        if self.error is not None:
+            raise self.error
         return _session(user_id=user_id, id=session_id)
 
 
@@ -163,6 +171,13 @@ class FakeGenerator:
         return dict(self.result)
 
 
+@pytest.fixture(autouse=True)
+def clear_generation_locks() -> None:
+    _NOTES_GENERATION_LOCKS.clear()
+    yield
+    _NOTES_GENERATION_LOCKS.clear()
+
+
 def test_get_notes_requires_valid_session_id() -> None:
     service = CloudInterviewNotesService(
         client=FakeNotesClient(),
@@ -191,6 +206,7 @@ def test_generate_notes_returns_existing_notes_without_regenerating() -> None:
     assert result.id == client.stored.id
     assert generator.calls == []
     assert client.upsert_calls == []
+    assert _NOTES_GENERATION_LOCKS == {}
 
 
 def test_generate_notes_creates_and_stores_notes_for_owned_session() -> None:
@@ -212,6 +228,7 @@ def test_generate_notes_creates_and_stores_notes_for_owned_session() -> None:
     assert client.upsert_calls[0]["user_id"] == USER_ID
     assert client.upsert_calls[0]["payload"]["transcript_entry_count"] == 2
     assert client.upsert_calls[0]["payload"]["generated_at"].endswith("Z")
+    assert _NOTES_GENERATION_LOCKS == {}
 
 
 def test_generate_notes_rejects_empty_transcript() -> None:
@@ -224,6 +241,7 @@ def test_generate_notes_rejects_empty_transcript() -> None:
 
     with pytest.raises(CloudInterviewSessionConflictError, match="does not have transcript entries yet"):
         service.generate_notes(user_id=USER_ID, session_id=SESSION_ID, force_regenerate=True)
+    assert _NOTES_GENERATION_LOCKS == {}
 
 
 def test_generate_notes_maps_provider_failure_to_safe_error() -> None:
@@ -244,6 +262,7 @@ def test_generate_notes_maps_provider_failure_to_safe_error() -> None:
 
     with pytest.raises(CloudInterviewSessionError, match="AI notes generation is temporarily unavailable."):
         service.generate_notes(user_id=USER_ID, session_id=SESSION_ID, force_regenerate=True)
+    assert _NOTES_GENERATION_LOCKS == {}
 
 
 def test_generate_notes_force_regenerate_replaces_existing_notes() -> None:
@@ -274,6 +293,7 @@ def test_generate_notes_force_regenerate_replaces_existing_notes() -> None:
     assert result.summary == "Updated summary"
     assert client.upsert_calls
     assert result.generated_at != "2026-08-29T10:12:00Z"
+    assert _NOTES_GENERATION_LOCKS == {}
 
 
 def test_generate_notes_without_force_keeps_existing_notes_without_regenerating() -> None:
@@ -292,6 +312,37 @@ def test_generate_notes_without_force_keeps_existing_notes_without_regenerating(
     assert result.generated_at == "2026-08-29T10:12:00Z"
     assert generator.calls == []
     assert client.upsert_calls == []
+    assert _NOTES_GENERATION_LOCKS == {}
+
+
+def test_generate_notes_invalid_session_id_leaves_no_lock_entry() -> None:
+    service = CloudInterviewNotesService(
+        client=FakeNotesClient(),
+        session_service=FakeSessionService(),
+        transcript_service=FakeTranscriptService(),
+        generator=FakeGenerator(),
+    )
+
+    with pytest.raises(CloudInterviewSessionValidationError):
+        service.generate_notes(user_id=USER_ID, session_id="bad-id", force_regenerate=True)
+
+    assert _NOTES_GENERATION_LOCKS == {}
+
+
+def test_generate_notes_not_found_session_leaves_no_lock_entry() -> None:
+    session_service = FakeSessionService()
+    session_service.error = CloudInterviewSessionNotFoundError("Interview session was not found.")
+    service = CloudInterviewNotesService(
+        client=FakeNotesClient(),
+        session_service=session_service,
+        transcript_service=FakeTranscriptService(),
+        generator=FakeGenerator(),
+    )
+
+    with pytest.raises(CloudInterviewSessionNotFoundError):
+        service.generate_notes(user_id=USER_ID, session_id=SESSION_ID, force_regenerate=True)
+
+    assert _NOTES_GENERATION_LOCKS == {}
 
 
 class FakeOpenAIResponsesClient:
@@ -424,6 +475,7 @@ def test_same_session_concurrent_generate_returns_in_progress_conflict() -> None
     release.set()
     thread.join(timeout=5)
     assert len(client.upsert_calls) == 1
+    assert _NOTES_GENERATION_LOCKS == {}
 
 
 def test_different_sessions_generate_independently() -> None:
@@ -451,3 +503,4 @@ def test_different_sessions_generate_independently() -> None:
     assert second.session_id == "30000000-0000-4000-8000-000000000002"
     assert len(generator_one.calls) == 1
     assert len(generator_two.calls) == 1
+    assert _NOTES_GENERATION_LOCKS == {}

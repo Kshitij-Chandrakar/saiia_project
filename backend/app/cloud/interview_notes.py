@@ -121,6 +121,13 @@ def _acquire_generation_lock(session_id: str) -> Any | None:
     return lock
 
 
+def _release_generation_lock(session_id: str, lock: Any) -> None:
+    lock.release()
+    with _NOTES_GENERATION_LOCKS_GUARD:
+        if _NOTES_GENERATION_LOCKS.get(session_id) is lock:
+            _NOTES_GENERATION_LOCKS.pop(session_id, None)
+
+
 def _record_from_payload(payload: dict[str, Any]) -> CloudInterviewNotesRecord:
     return CloudInterviewNotesRecord(
         id=str(payload.get("id") or ""),
@@ -627,4 +634,4 @@ class CloudInterviewNotesService:
                 raise CloudInterviewSessionValidationError("Generated notes were empty.")
             return self._client.upsert_notes(user_id=user_id, session_id=session.id, payload=payload)
         finally:
-            lock.release()
+            _release_generation_lock(normalized_session_id, lock)
