@@ -263,6 +263,14 @@
   border-top: 1px solid #d8dee8;
 }
 
+.auth-session-history__notes {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid #d8dee8;
+}
+
 .auth-session-history__transcript-entry {
   display: grid;
   gap: 6px;
@@ -273,6 +281,21 @@
 
 .auth-session-history__transcript-entry .auth-session-history__line {
   white-space: pre-wrap;
+}
+
+.auth-session-history__notes-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.auth-session-history__notes-markdown {
+  margin: 0;
+  white-space: pre-wrap;
+  font: inherit;
+  color: #1f2937;
 }
 
 .auth-review-form {

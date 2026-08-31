@@ -3,7 +3,7 @@
 **Product:** SAIIA â€” Smart AI Interview Assistant  
 **Document Type:** Production phase checklist for developer + Codex  
 **Version:** 1.1  
-**Last updated:** 2026-08-28
+**Last updated:** 2026-08-29
 **Purpose:** Track SAIIA after MVP and guide development toward a polished production-ready application.
 
 ---
@@ -36,7 +36,7 @@ This tracker is the live execution log for the production build.
 Current active execution phase:
 
 ```text
-C7 - Transcript storage, viewing, and download implemented locally; C8 AI Notes and C9 Ask AI memory are not started, and broader startup-shell polish, C4.4 generation integration follow-up, cloud sync engine expansion, and local/cloud data migration remain not started
+C8 - AI Notes generation implemented locally with dashboard-triggered transcript-based notes generation and viewing; manual live verification is still pending, C9 Ask AI memory is not started, and broader startup-shell polish, C4.4 generation integration follow-up, cloud sync engine expansion, and local/cloud data migration remain not started
 ```
 
 Screen Intelligence documentation:
@@ -134,7 +134,7 @@ C6.2A current status:
 C6.3 current status:
 
 ```text
-[~] Implemented locally - Durable interview session lifecycle and cloud session storage are implemented through a new Supabase `interview_sessions` lifecycle migration, authenticated FastAPI session routes, service-role-only idempotent create RPC, Electron main-process session IPC, desktop runtime `activeSessionId` handling, logout/end finalization, and a basic website dashboard session history list. C7 transcript storage is now implemented locally through a new transcript-entry Supabase migration, authenticated transcript routes, generation-time transcript writes tied to `activeSessionId`, and dashboard transcript view/download controls. C8 AI Notes and C9 Ask AI memory are not started.
+[~] Implemented locally - Durable interview session lifecycle and cloud session storage are implemented through a new Supabase `interview_sessions` lifecycle migration, authenticated FastAPI session routes, service-role-only idempotent create RPC, Electron main-process session IPC, desktop runtime `activeSessionId` handling, logout/end finalization, and a basic website dashboard session history list. C7 transcript storage is now implemented locally through a new transcript-entry Supabase migration, authenticated transcript routes, generation-time transcript writes tied to `activeSessionId`, and dashboard transcript view/download controls. C8 AI Notes is now implemented locally through transcript-based notes generation/storage and dashboard notes view in `docs/C8_AI_NOTES_GENERATION.md`. C9 Ask AI memory is not started.
 ```
 
 C16.1 future production auth hardening release blocker:

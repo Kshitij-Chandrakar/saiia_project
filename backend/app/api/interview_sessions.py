@@ -18,6 +18,12 @@ from app.cloud.interview_sessions import (
     CreateInterviewSessionResult,
     InterviewSessionListPage,
 )
+from app.cloud.interview_notes import (
+    CloudInterviewNotesRecord,
+    CloudInterviewNotesService,
+    NOTES_GENERATION_FAILURE_MESSAGE,
+    SAFE_FAILURE_MESSAGE as NOTES_SAFE_FAILURE_MESSAGE,
+)
 from app.cloud.interview_transcripts import (
     CloudInterviewTranscriptEntryRecord,
     CloudInterviewTranscriptService,
@@ -99,6 +105,30 @@ class InterviewTranscriptEntryListResponse(BaseModel):
     page: int
 
 
+class InterviewSessionNotesGenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    force_regenerate: bool = False
+
+
+class InterviewSessionNotesResponse(BaseModel):
+    id: str
+    session_id: str
+    status: str
+    notes_markdown: str
+    summary: str | None = None
+    strengths: list[str]
+    improvement_areas: list[str]
+    technical_topics: list[str]
+    key_questions: list[str]
+    suggested_followups: list[str]
+    provider: str | None = None
+    model: str | None = None
+    generation_ms: int | None = None
+    transcript_entry_count: int
+    generated_at: str | None = None
+
+
 @lru_cache(maxsize=1)
 def _cached_cloud_interview_session_service() -> CloudInterviewSessionService:
     return CloudInterviewSessionService()
@@ -107,6 +137,11 @@ def _cached_cloud_interview_session_service() -> CloudInterviewSessionService:
 @lru_cache(maxsize=1)
 def _cached_cloud_interview_transcript_service() -> CloudInterviewTranscriptService:
     return CloudInterviewTranscriptService()
+
+
+@lru_cache(maxsize=1)
+def _cached_cloud_interview_notes_service() -> CloudInterviewNotesService:
+    return CloudInterviewNotesService()
 
 
 def get_cloud_interview_session_service() -> CloudInterviewSessionService:
@@ -123,8 +158,16 @@ def get_cloud_interview_transcript_service() -> CloudInterviewTranscriptService:
         raise _handle_cloud_error(exc) from exc
 
 
+def get_cloud_interview_notes_service() -> CloudInterviewNotesService:
+    try:
+        return _cached_cloud_interview_notes_service()
+    except SupabaseConfigurationError as exc:
+        raise _handle_cloud_error(exc) from exc
+
+
 CloudInterviewSessionServiceDep = Annotated[CloudInterviewSessionService, Depends(get_cloud_interview_session_service)]
 CloudInterviewTranscriptServiceDep = Annotated[CloudInterviewTranscriptService, Depends(get_cloud_interview_transcript_service)]
+CloudInterviewNotesServiceDep = Annotated[CloudInterviewNotesService, Depends(get_cloud_interview_notes_service)]
 
 
 def _session_response(record: CloudInterviewSessionRecord) -> InterviewSessionResponse:
@@ -158,11 +201,41 @@ def _transcript_entry_response(record: CloudInterviewTranscriptEntryRecord) -> I
     )
 
 
+def _notes_response(record: CloudInterviewNotesRecord) -> InterviewSessionNotesResponse:
+    return InterviewSessionNotesResponse(
+        id=record.id,
+        session_id=record.session_id,
+        status=record.status,
+        notes_markdown=record.notes_markdown,
+        summary=record.summary,
+        strengths=record.strengths,
+        improvement_areas=record.improvement_areas,
+        technical_topics=record.technical_topics,
+        key_questions=record.key_questions,
+        suggested_followups=record.suggested_followups,
+        provider=record.provider,
+        model=record.model,
+        generation_ms=record.generation_ms,
+        transcript_entry_count=record.transcript_entry_count,
+        generated_at=record.generated_at,
+    )
+
+
 def _transcript_filename(format: str) -> str:
     return f'interview-session-transcript.{format}'
 
 
 def _handle_cloud_error(exc: Exception) -> HTTPException:
+    if str(exc) == NOTES_GENERATION_FAILURE_MESSAGE:
+        return HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=NOTES_GENERATION_FAILURE_MESSAGE,
+        )
+    if str(exc) == NOTES_SAFE_FAILURE_MESSAGE:
+        return HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=NOTES_SAFE_FAILURE_MESSAGE,
+        )
     if isinstance(exc, SupabaseConfigurationError):
         return HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -313,3 +386,34 @@ def download_interview_transcript(
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{_transcript_filename(normalized_format)}"'},
     )
+
+
+@router.get("/{session_id}/notes", response_model=InterviewSessionNotesResponse)
+def get_interview_session_notes(
+    session_id: UUID,
+    current_user: CurrentUserDep,
+    service: CloudInterviewNotesServiceDep,
+) -> InterviewSessionNotesResponse:
+    try:
+        record = service.get_notes(user_id=current_user.user_id, session_id=str(session_id))
+    except Exception as exc:
+        raise _handle_cloud_error(exc) from exc
+    return _notes_response(record)
+
+
+@router.post("/{session_id}/notes/generate", response_model=InterviewSessionNotesResponse)
+def generate_interview_session_notes(
+    session_id: UUID,
+    payload: InterviewSessionNotesGenerateRequest,
+    current_user: CurrentUserDep,
+    service: CloudInterviewNotesServiceDep,
+) -> InterviewSessionNotesResponse:
+    try:
+        record = service.generate_notes(
+            user_id=current_user.user_id,
+            session_id=str(session_id),
+            force_regenerate=payload.force_regenerate,
+        )
+    except Exception as exc:
+        raise _handle_cloud_error(exc) from exc
+    return _notes_response(record)

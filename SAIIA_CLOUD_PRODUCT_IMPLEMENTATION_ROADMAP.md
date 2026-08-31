@@ -6,7 +6,7 @@
 **Version:** 1.1  
 **Last updated:** 2026-08-29
 **Created:** 2026-07-10  
-**Current active phase:** C7 - Transcript storage, viewing, and download implemented locally; C8 AI Notes and C9 Ask AI memory are not started, and broader startup-shell polish, C4.4 generation integration follow-up, cloud sync engine expansion, and local/cloud data migration remain not started
+**Current active phase:** C8 - AI Notes generation implemented locally with explicit dashboard generation from stored transcript entries; manual live verification is still pending, C9 Ask AI memory is not started, and broader startup-shell polish, C4.4 generation integration follow-up, cloud sync engine expansion, and local/cloud data migration remain not started
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -1583,7 +1583,7 @@ Desktop may cache:
 ## Status
 
 ```text
-[~] In progress - C6.1 desktop startup/session setup UI audit and plan complete in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`; C6.2A Startup Login Screen implemented locally for signed-out/token-expired desktop startup using existing safe preload auth APIs and a dev/local memory-only handoff store deferred to C16.1 for production hardening; C6.3 durable interview session lifecycle and cloud session storage are now implemented locally through authenticated backend routes, Supabase lifecycle storage, Electron main-process session IPC, desktop runtime `activeSessionId` state, and a basic website dashboard session history list; C7 transcript storage, session transcript viewing, and transcript download are now implemented locally through session-owned transcript rows, authenticated transcript routes, generation-time transcript writes, and dashboard transcript controls; C8 AI Notes and C9 Ask AI memory are not started
+[~] In progress - C6.1 desktop startup/session setup UI audit and plan complete in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`; C6.2A Startup Login Screen implemented locally for signed-out/token-expired desktop startup using existing safe preload auth APIs and a dev/local memory-only handoff store deferred to C16.1 for production hardening; C6.3 durable interview session lifecycle and cloud session storage are now implemented locally through authenticated backend routes, Supabase lifecycle storage, Electron main-process session IPC, desktop runtime `activeSessionId` state, and a basic website dashboard session history list; C7 transcript storage, session transcript viewing, and transcript download are now implemented locally through session-owned transcript rows, authenticated transcript routes, generation-time transcript writes, and dashboard transcript controls; C8 AI Notes is now implemented locally through transcript-based notes generation/storage and dashboard notes view in `docs/C8_AI_NOTES_GENERATION.md`; C9 Ask AI memory is not started
 ```
 
 ## Goal
@@ -1653,7 +1653,7 @@ As of 2026-08-28, C6.3 is implemented locally with the following scope:
 Explicit non-scope for this implementation:
 
 - C7 transcript storage, transcript viewing, and transcript download are implemented locally in this branch
-- C8 AI Notes and C9 Ask AI memory are not started
+- C8 AI Notes is implemented locally in `docs/C8_AI_NOTES_GENERATION.md`; C9 Ask AI memory is not started
 - no payments, admin console, or final UI redesign
 
 ## Desktop behavior
