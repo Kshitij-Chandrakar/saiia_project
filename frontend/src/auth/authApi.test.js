@@ -2,12 +2,14 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  askInterviewSessionAI,
   bootstrapProfile,
   confirmCloudResume,
   createDesktopHandoff,
   deleteCloudResume,
   downloadInterviewTranscript,
   extractCloudResume,
+  fetchInterviewAskAIMessages,
   fetchInterviewSessionNotes,
   fetchInterviewTranscriptEntries,
   fetchInterviewSessions,
@@ -512,6 +514,127 @@ test('generateInterviewSessionNotes posts authenticated generate request', async
 
   assert.equal(result.id, 'notes-1')
   assert.equal(result.notes_markdown, '# Interview Notes\n\nUpdated\n')
+})
+
+
+test('fetchInterviewAskAIMessages keeps only valid session messages', async () => {
+  const result = await fetchInterviewAskAIMessages('unit-test-access-token', 'session-1', {
+    backendUrl: 'http://localhost:8000',
+    fetchImpl: async (url, init) => {
+      assert.equal(url, 'http://localhost:8000/api/interview-sessions/session-1/ask-ai/messages?limit=50&page=1')
+      assert.equal(init.method, 'GET')
+      assert.equal(init.headers.Authorization, 'Bearer unit-test-access-token')
+      return {
+        ok: true,
+        json: async () => ({
+          items: [
+            null,
+            {},
+            { id: 'missing-session', role: 'user', turn_index: 1 },
+            { id: 'bad-role', session_id: 'session-1', role: 'system', turn_index: 1 },
+            {
+              id: 'message-1',
+              session_id: 'session-1',
+              role: 'user',
+              message_text: 'What should I improve?',
+              turn_index: 1,
+              created_at: '2026-09-01T10:15:00Z',
+            },
+          ],
+          limit: 50,
+          page: 1,
+        }),
+      }
+    },
+  })
+
+  assert.deepEqual(result, {
+    items: [
+      {
+        id: 'message-1',
+        session_id: 'session-1',
+        role: 'user',
+        message_text: 'What should I improve?',
+        turn_index: 1,
+        provider: null,
+        model: null,
+        generation_ms: null,
+        created_at: '2026-09-01T10:15:00Z',
+      },
+    ],
+    limit: 50,
+    page: 1,
+  })
+})
+
+
+test('askInterviewSessionAI posts authenticated session question and projects safe response', async () => {
+  const result = await askInterviewSessionAI('unit-test-access-token', 'session-1', 'What should I improve?', {
+    backendUrl: 'http://localhost:8000',
+    requestId: 'ask-1',
+    includeNotes: false,
+    fetchImpl: async (url, init) => {
+      assert.equal(url, 'http://localhost:8000/api/interview-sessions/session-1/ask-ai')
+      assert.equal(init.method, 'POST')
+      assert.equal(init.headers.Authorization, 'Bearer unit-test-access-token')
+      assert.equal(init.headers['Content-Type'], 'application/json')
+      assert.deepEqual(JSON.parse(init.body), {
+        question: 'What should I improve?',
+        request_id: 'ask-1',
+        include_notes: false,
+      })
+      return {
+        ok: true,
+        json: async () => ({
+          user_message: {
+            id: 'message-1',
+            session_id: 'session-1',
+            role: 'user',
+            message_text: 'What should I improve?',
+            turn_index: 1,
+          },
+          assistant_message: {
+            id: 'message-2',
+            session_id: 'session-1',
+            role: 'assistant',
+            message_text: String.raw`\### What you&#x2019;re doing well
+
+\- \*\*depth\*\*
+1\. Add examples&#x20;`,
+            turn_index: 2,
+            provider: 'openai',
+            model: 'gpt-test',
+            generation_ms: 123,
+          },
+          answer_text: String.raw`\### What you&#x2019;re doing well
+
+\- \*\*depth\*\*
+1\. Add examples&#x20;`,
+          provider: 'openai',
+          model: 'gpt-test',
+          generation_ms: 123,
+          context_used: {
+            transcript_entry_count: 2,
+            notes_used: true,
+            recent_message_count: 0,
+          },
+          access_token: 'must-not-leak',
+        }),
+      }
+    },
+  })
+
+  assert.equal(result.answer_text, 'What you’re doing well\n\n- depth\n1. Add examples')
+  assert.equal(result.answer_text.includes(String.raw`\*\*`), false)
+  assert.equal(result.answer_text.includes('&#x20;'), false)
+  assert.equal(result.assistant_message.message_text, 'What you’re doing well\n\n- depth\n1. Add examples')
+  assert.equal(result.assistant_message.provider, 'openai')
+  assert.deepEqual(result.context_used, {
+    transcript_entry_count: 2,
+    notes_used: true,
+    recent_message_count: 0,
+  })
+  assert.equal('access_token' in result, false)
 })
 
 

@@ -263,7 +263,8 @@
   border-top: 1px solid #d8dee8;
 }
 
-.auth-session-history__notes {
+.auth-session-history__notes,
+.auth-session-history__ask-ai {
   display: grid;
   gap: 10px;
   margin-top: 8px;
@@ -271,7 +272,8 @@
   border-top: 1px solid #d8dee8;
 }
 
-.auth-session-history__transcript-entry {
+.auth-session-history__transcript-entry,
+.auth-session-history__ask-ai-message {
   display: grid;
   gap: 6px;
   padding: 10px;
@@ -279,23 +281,79 @@
   background: #ffffff;
 }
 
-.auth-session-history__transcript-entry .auth-session-history__line {
+.auth-session-history__transcript-entry .auth-session-history__line,
+.auth-session-history__ask-ai-message .auth-session-history__line {
   white-space: pre-wrap;
 }
 
 .auth-session-history__notes-card {
   display: grid;
-  gap: 8px;
-  padding: 10px;
-  border-radius: 6px;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
   background: #ffffff;
 }
 
-.auth-session-history__notes-markdown {
+.auth-session-history__notes-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.auth-session-history__notes-section {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid #e4e9f1;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.auth-session-history__notes-section h4 {
   margin: 0;
-  white-space: pre-wrap;
-  font: inherit;
+  color: #111827;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.auth-session-history__notes-section p {
+  margin: 0;
   color: #1f2937;
+  line-height: 1.55;
+}
+
+.auth-session-history__notes-section ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #1f2937;
+  line-height: 1.55;
+}
+
+.auth-session-history__notes-section li + li {
+  margin-top: 4px;
+}
+
+.auth-session-history__ask-ai-form {
+  display: grid;
+  gap: 8px;
+}
+
+.auth-session-history__ask-ai-form textarea {
+  min-height: 96px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid #cfd6e2;
+  border-radius: 8px;
+  color: #1f2937;
+  background: #ffffff;
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.auth-session-history__ask-ai-form textarea::placeholder {
+  color: #6b7280;
 }
 
 .auth-review-form {

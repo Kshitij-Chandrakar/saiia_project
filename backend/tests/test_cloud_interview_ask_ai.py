@@ -1,0 +1,404 @@
+import logging
+
+import httpx
+from openai import BadRequestError
+import pytest
+
+from app.cloud.interview_ask_ai import (
+    ASK_AI_FAILURE_MESSAGE,
+    CloudInterviewAskAIMessageRecord,
+    CloudInterviewAskAIService,
+    InterviewAskAIMessageListPage,
+    OpenAIInterviewAskAIGenerator,
+)
+from app.cloud.interview_notes import CloudInterviewNotesRecord
+from app.cloud.interview_sessions import (
+    CloudInterviewSessionConflictError,
+    CloudInterviewSessionError,
+    CloudInterviewSessionNotFoundError,
+    CloudInterviewSessionRecord,
+    CloudInterviewSessionValidationError,
+)
+from app.cloud.interview_transcripts import CloudInterviewTranscriptEntryRecord, InterviewTranscriptEntryListPage
+from app.nlp.answer_generator import ProviderError
+
+
+SESSION_ID = "30000000-0000-4000-8000-000000000001"
+USER_ID = "00000000-0000-4000-8000-000000000001"
+
+
+def _session(**overrides: object) -> CloudInterviewSessionRecord:
+    payload = {
+        "id": SESSION_ID,
+        "user_id": USER_ID,
+        "selected_resume_id": None,
+        "job_context_id": None,
+        "title": "Design round",
+        "target_role": "Backend Engineer",
+        "company_name": "Acme",
+        "job_description_preview": "AI engineer",
+        "status": "ended",
+        "started_at": "2026-09-01T10:00:00Z",
+        "ended_at": "2026-09-01T10:10:00Z",
+        "created_at": "2026-09-01T10:00:00Z",
+        "updated_at": "2026-09-01T10:10:00Z",
+    }
+    payload.update(overrides)
+    return CloudInterviewSessionRecord(**payload)  # type: ignore[arg-type]
+
+
+def _entry(index: int = 1, **overrides: object) -> CloudInterviewTranscriptEntryRecord:
+    payload = {
+        "id": f"40000000-0000-4000-8000-00000000000{index}",
+        "user_id": USER_ID,
+        "session_id": SESSION_ID,
+        "turn_index": index,
+        "source": "chat",
+        "question_text": f"Question {index}",
+        "answer_text": f"Answer {index}",
+        "category": "technical",
+        "provider": "openai",
+        "model": "gpt-test",
+        "generation_ms": 123,
+        "created_at": "2026-09-01T10:05:00Z",
+    }
+    payload.update(overrides)
+    return CloudInterviewTranscriptEntryRecord(**payload)  # type: ignore[arg-type]
+
+
+def _notes(**overrides: object) -> CloudInterviewNotesRecord:
+    payload = {
+        "id": "50000000-0000-4000-8000-000000000001",
+        "user_id": USER_ID,
+        "session_id": SESSION_ID,
+        "status": "ready",
+        "notes_markdown": "# Interview Notes\n\nImprove specificity.",
+        "summary": "Based on this transcript, answers need stronger examples.",
+        "strengths": ["Clear structure"],
+        "improvement_areas": ["More metrics"],
+        "technical_topics": ["FastAPI"],
+        "key_questions": ["Question 1"],
+        "suggested_followups": ["Practice follow-ups"],
+        "provider": "openai",
+        "model": "gpt-test",
+        "generation_ms": 321,
+        "transcript_entry_count": 2,
+        "generated_at": "2026-09-01T10:12:00Z",
+        "created_at": "2026-09-01T10:12:00Z",
+        "updated_at": "2026-09-01T10:12:00Z",
+    }
+    payload.update(overrides)
+    return CloudInterviewNotesRecord(**payload)  # type: ignore[arg-type]
+
+
+def _message(index: int, role: str, text: str, **overrides: object) -> CloudInterviewAskAIMessageRecord:
+    payload = {
+        "id": f"60000000-0000-4000-8000-00000000000{index}",
+        "user_id": USER_ID,
+        "session_id": SESSION_ID,
+        "role": role,
+        "message_text": text,
+        "turn_index": index,
+        "provider": "openai" if role == "assistant" else None,
+        "model": "gpt-test" if role == "assistant" else None,
+        "generation_ms": 100 if role == "assistant" else None,
+        "created_at": "2026-09-01T10:15:00Z",
+    }
+    payload.update(overrides)
+    return CloudInterviewAskAIMessageRecord(**payload)  # type: ignore[arg-type]
+
+
+class FakeAskAIClient:
+    def __init__(self, messages: list[CloudInterviewAskAIMessageRecord] | None = None) -> None:
+        self.messages = list(messages or [])
+        self.create_calls: list[dict[str, object]] = []
+        self.list_calls: list[dict[str, object]] = []
+
+    def list_messages(self, *, user_id: str, session_id: str, limit: int, page: int):
+        self.list_calls.append({"user_id": user_id, "session_id": session_id, "limit": limit, "page": page})
+        return self.messages[:limit]
+
+    def create_message(self, *, user_id: str, session_id: str, payload: dict[str, object]):
+        self.create_calls.append({"user_id": user_id, "session_id": session_id, "payload": payload})
+        record = _message(
+            len(self.messages) + 1,
+            str(payload["role"]),
+            str(payload["message_text"]),
+            user_id=user_id,
+            session_id=session_id,
+            provider=payload["provider"],
+            model=payload["model"],
+            generation_ms=payload["generation_ms"],
+        )
+        self.messages.append(record)
+        return record
+
+
+class FakeSessionService:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, str]] = []
+        self.error: Exception | None = None
+
+    def get_session(self, *, user_id: str, session_id: str):
+        self.calls.append({"user_id": user_id, "session_id": session_id})
+        if self.error is not None:
+            raise self.error
+        return _session(user_id=user_id, id=session_id)
+
+
+class FakeTranscriptService:
+    def __init__(self, items: list[CloudInterviewTranscriptEntryRecord] | None = None) -> None:
+        self.items = [_entry(1), _entry(2)] if items is None else items
+        self.calls: list[dict[str, object]] = []
+
+    def list_transcript_entries(self, *, user_id: str, session_id: str, limit: int, page: int):
+        self.calls.append({"user_id": user_id, "session_id": session_id, "limit": limit, "page": page})
+        return InterviewTranscriptEntryListPage(items=self.items, limit=limit, page=page)
+
+
+class FakeNotesService:
+    def __init__(self, notes: CloudInterviewNotesRecord | None = None, error: Exception | None = None) -> None:
+        self.notes = notes if notes is not None else _notes()
+        self.error = error
+        self.calls: list[dict[str, str]] = []
+
+    def get_notes(self, *, user_id: str, session_id: str):
+        self.calls.append({"user_id": user_id, "session_id": session_id})
+        if self.error is not None:
+            raise self.error
+        return self.notes
+
+
+class FakeGenerator:
+    def __init__(self, *, error: Exception | None = None) -> None:
+        self.calls: list[dict[str, str]] = []
+        self.error = error
+
+    def generate(self, *, context: str, question: str):
+        self.calls.append({"context": context, "question": question})
+        if self.error is not None:
+            raise self.error
+        return {
+            "answer_text": "Based on this transcript, improve specificity and examples.",
+            "provider": "openai",
+            "model": "gpt-test",
+            "generation_ms": 222,
+        }
+
+
+def _service(
+    *,
+    client: FakeAskAIClient | None = None,
+    session_service: FakeSessionService | None = None,
+    transcript_service: FakeTranscriptService | None = None,
+    notes_service: FakeNotesService | None = None,
+    generator: FakeGenerator | None = None,
+) -> CloudInterviewAskAIService:
+    return CloudInterviewAskAIService(
+        client=client or FakeAskAIClient(),
+        session_service=session_service or FakeSessionService(),
+        transcript_service=transcript_service or FakeTranscriptService(),
+        notes_service=notes_service or FakeNotesService(),
+        generator=generator or FakeGenerator(),
+    )
+
+
+def test_list_messages_validates_session_and_uses_verified_user() -> None:
+    service = _service(client=FakeAskAIClient([_message(1, "user", "What should I improve?")]))
+
+    result = service.list_messages(user_id=USER_ID, session_id=SESSION_ID, limit=10, page=1)
+
+    assert isinstance(result, InterviewAskAIMessageListPage)
+    assert result.items[0].message_text == "What should I improve?"
+
+
+def test_ask_ai_rejects_empty_and_oversized_questions() -> None:
+    service = _service()
+
+    with pytest.raises(CloudInterviewSessionValidationError, match="question is required"):
+        service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="")
+
+    with pytest.raises(CloudInterviewSessionValidationError, match="question is too long"):
+        service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="x" * 2001)
+
+
+def test_ask_ai_cross_user_session_is_blocked_before_provider_call() -> None:
+    session_service = FakeSessionService()
+    session_service.error = CloudInterviewSessionNotFoundError("Interview session was not found.")
+    generator = FakeGenerator()
+    service = _service(session_service=session_service, generator=generator)
+
+    with pytest.raises(CloudInterviewSessionNotFoundError):
+        service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="What should I improve?")
+
+    assert generator.calls == []
+
+
+def test_ask_ai_empty_transcript_and_missing_notes_returns_409() -> None:
+    service = _service(
+        transcript_service=FakeTranscriptService(items=[]),
+        notes_service=FakeNotesService(error=CloudInterviewSessionNotFoundError("Interview session notes were not found.")),
+    )
+
+    with pytest.raises(CloudInterviewSessionConflictError, match="does not have transcript or AI notes context yet"):
+        service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="What should I improve?")
+
+
+def test_ask_ai_stores_user_and_assistant_messages_with_context() -> None:
+    client = FakeAskAIClient([_message(1, "user", "Earlier question")])
+    generator = FakeGenerator()
+    service = _service(client=client, generator=generator)
+
+    result = service.ask_ai(
+        user_id=USER_ID,
+        session_id=SESSION_ID,
+        question="Give me a better answer for question 2.",
+        request_id="ask-1",
+    )
+
+    assert result.answer_text.startswith("Based on this transcript")
+    assert result.context_used.transcript_entry_count == 2
+    assert result.context_used.notes_used is True
+    assert result.context_used.recent_message_count == 1
+    assert [call["payload"]["role"] for call in client.create_calls] == ["user", "assistant"]
+    assert client.create_calls[0]["payload"]["metadata"] == {"request_id": "ask-1"}
+    assert client.messages[-2].turn_index == 2
+    assert client.messages[-1].turn_index == 3
+    assert "Question 2" in generator.calls[0]["context"]
+    assert "Saved AI notes" in generator.calls[0]["context"]
+    assert "Earlier question" in generator.calls[0]["context"]
+
+
+def test_ask_ai_stores_readable_text_without_escaped_markdown_or_entities() -> None:
+    class EscapedGenerator(FakeGenerator):
+        def generate(self, *, context: str, question: str):
+            return {
+                "answer_text": r"\### What you&#x2019;re doing well\n\n\- \*\*depth\*\*\n1\. Add examples&#x20;",
+                "provider": "openai",
+                "model": "gpt-test",
+                "generation_ms": 222,
+            }
+
+    client = FakeAskAIClient()
+    service = _service(client=client, generator=EscapedGenerator())
+
+    result = service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="What should I improve?")
+
+    assert "###" not in result.answer_text
+    assert r"\*\*" not in result.answer_text
+    assert "&#x20;" not in result.answer_text
+    assert "What you\u2019re doing well" in result.answer_text
+    assert "- depth" in result.answer_text
+    assert "1. Add examples" in result.answer_text
+    assert client.create_calls[1]["payload"]["message_text"] == result.answer_text
+
+
+def test_ask_ai_provider_failure_is_safe_and_does_not_store_messages() -> None:
+    client = FakeAskAIClient()
+    service = _service(
+        client=client,
+        generator=FakeGenerator(
+            error=ProviderError(
+                "provider failed",
+                provider="openai",
+                model="gpt-test",
+                phase="interview_ask_ai",
+                error_type="timeout",
+            )
+        ),
+    )
+
+    with pytest.raises(CloudInterviewSessionError, match=ASK_AI_FAILURE_MESSAGE):
+        service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="What should I improve?")
+
+    assert client.create_calls == []
+
+
+def test_build_context_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.cloud.interview_ask_ai.settings.ASK_AI_MAX_INPUT_CHARS", 800)
+    service = _service()
+
+    context = service.build_context_from_session(
+        session=_session(title="T" * 5000, job_description_preview="J" * 5000),
+        transcript_entries=[_entry(1, question_text="Q" * 2000, answer_text="A" * 5000)],
+        notes_markdown="N" * 5000,
+        recent_messages=[_message(1, "user", "M" * 5000)],
+    )
+
+    assert len(context) <= 800
+    assert "T" * 500 not in context
+    assert "J" * 500 not in context
+
+
+class FakeOpenAIResponsesClient:
+    def __init__(self, *, response: object | None = None, error: Exception | None = None) -> None:
+        self.calls: list[dict[str, object]] = []
+        self._response = response
+        self._error = error
+        self.responses = self
+
+    def create(self, **kwargs: object):
+        self.calls.append(kwargs)
+        if self._error is not None:
+            raise self._error
+        return self._response
+
+
+def test_openai_ask_ai_generator_uses_plain_text_responses_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.cloud.interview_ask_ai.settings.OPENAI_API_KEY", "unit-test-key")
+    monkeypatch.setattr("app.cloud.interview_ask_ai.settings.ASK_AI_MODEL", "gpt-test")
+    client = FakeOpenAIResponsesClient(response=type("Response", (), {"output_text": "Based on this transcript, practice examples."})())
+    generator = OpenAIInterviewAskAIGenerator(openai_client=client)
+
+    result = generator.generate(context="Transcript entries:\nQuestion: Q\nAnswer: A", question="What should I improve?")
+
+    assert result["answer_text"].startswith("Based on this transcript")
+    assert client.calls[0]["model"] == "gpt-test"
+    assert "text" not in client.calls[0]
+    assert client.calls[0]["store"] is False
+
+
+def test_openai_ask_ai_generator_cleans_escaped_markdown_and_entities(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.cloud.interview_ask_ai.settings.OPENAI_API_KEY", "unit-test-key")
+    monkeypatch.setattr("app.cloud.interview_ask_ai.settings.ASK_AI_MODEL", "gpt-test")
+    client = FakeOpenAIResponsesClient(
+        response=type(
+            "Response",
+            (),
+            {"output_text": r"\### Focus\n\n\- \*\*depth\*\*\n1\. Improve examples&#x20;"},
+        )()
+    )
+    generator = OpenAIInterviewAskAIGenerator(openai_client=client)
+
+    result = generator.generate(context="Transcript entries:\nQuestion: Q\nAnswer: A", question="What should I improve?")
+
+    assert result["answer_text"] == "Focus\n- depth\n1. Improve examples"
+    assert r"\*" not in result["answer_text"]
+    assert "&#x20;" not in result["answer_text"]
+
+
+def test_openai_ask_ai_bad_request_logs_safe_fields_without_prompt_leak(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.cloud.interview_ask_ai.settings.OPENAI_API_KEY", "unit-test-key")
+    monkeypatch.setattr("app.cloud.interview_ask_ai.settings.ASK_AI_MODEL", "gpt-test")
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    response = httpx.Response(
+        400,
+        request=request,
+        json={"error": {"message": "Bad field", "param": "input", "code": "invalid_request_error"}},
+    )
+    client = FakeOpenAIResponsesClient(error=BadRequestError("bad request", response=response, body=response.json()))
+    generator = OpenAIInterviewAskAIGenerator(openai_client=client)
+
+    with caplog.at_level(logging.WARNING, logger="cloud_interview_ask_ai"), pytest.raises(ProviderError):
+        generator.generate(context="secret transcript", question="secret question")
+
+    assert "provider=openai" in caplog.text
+    assert "error_type=BadRequestError" in caplog.text
+    assert "error_code=invalid_request_error" in caplog.text
+    assert "error_param=input" in caplog.text
+    assert "secret transcript" not in caplog.text
+    assert "secret question" not in caplog.text
+    assert "unit-test-key" not in caplog.text
