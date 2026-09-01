@@ -7,9 +7,12 @@ import pytest
 from app.cloud.interview_ask_ai import (
     ASK_AI_FAILURE_MESSAGE,
     CloudInterviewAskAIMessageRecord,
+    CloudInterviewAskAIRequestKeyRecord,
     CloudInterviewAskAIService,
     InterviewAskAIMessageListPage,
+    MAX_RECENT_MESSAGES,
     OpenAIInterviewAskAIGenerator,
+    _payload_hash as _payload_hash_for_test,
 )
 from app.cloud.interview_notes import CloudInterviewNotesRecord
 from app.cloud.interview_sessions import (
@@ -108,15 +111,118 @@ def _message(index: int, role: str, text: str, **overrides: object) -> CloudInte
     return CloudInterviewAskAIMessageRecord(**payload)  # type: ignore[arg-type]
 
 
+def _request_key(index: int, **overrides: object) -> CloudInterviewAskAIRequestKeyRecord:
+    payload = {
+        "id": f"70000000-0000-4000-8000-00000000000{index}",
+        "user_id": USER_ID,
+        "session_id": SESSION_ID,
+        "request_id": f"ask-{index}",
+        "status": "processing",
+        "user_message_id": None,
+        "assistant_message_id": None,
+        "payload_hash": "hash",
+        "error_code": None,
+        "created_at": "2026-09-01T10:15:00Z",
+        "updated_at": "2026-09-01T10:15:00Z",
+    }
+    payload.update(overrides)
+    return CloudInterviewAskAIRequestKeyRecord(**payload)  # type: ignore[arg-type]
+
+
 class FakeAskAIClient:
     def __init__(self, messages: list[CloudInterviewAskAIMessageRecord] | None = None) -> None:
         self.messages = list(messages or [])
+        self.request_keys: dict[tuple[str, str, str], CloudInterviewAskAIRequestKeyRecord] = {}
         self.create_calls: list[dict[str, object]] = []
         self.list_calls: list[dict[str, object]] = []
+        self.recent_calls: list[dict[str, object]] = []
+        self.claim_calls: list[dict[str, object]] = []
+        self.complete_calls: list[dict[str, object]] = []
+        self.fail_calls: list[dict[str, object]] = []
 
     def list_messages(self, *, user_id: str, session_id: str, limit: int, page: int):
         self.list_calls.append({"user_id": user_id, "session_id": session_id, "limit": limit, "page": page})
-        return self.messages[:limit]
+        rows = [message for message in self.messages if message.user_id == user_id and message.session_id == session_id]
+        offset = (page - 1) * limit
+        return rows[offset : offset + limit]
+
+    def list_recent_messages(self, *, user_id: str, session_id: str, limit: int):
+        self.recent_calls.append({"user_id": user_id, "session_id": session_id, "limit": limit})
+        rows = [message for message in self.messages if message.user_id == user_id and message.session_id == session_id]
+        return rows[-limit:]
+
+    def get_message(self, *, user_id: str, session_id: str, message_id: str):
+        for message in self.messages:
+            if message.user_id == user_id and message.session_id == session_id and message.id == message_id:
+                return message
+        raise CloudInterviewSessionNotFoundError("Ask AI message was not found.")
+
+    def claim_request_key(self, *, user_id: str, session_id: str, request_id: str, payload_hash: str):
+        self.claim_calls.append({"user_id": user_id, "session_id": session_id, "request_id": request_id, "payload_hash": payload_hash})
+        key = (user_id, session_id, request_id)
+        existing = self.request_keys.get(key)
+        if existing is not None:
+            return existing, False
+        record = _request_key(
+            len(self.request_keys) + 1,
+            user_id=user_id,
+            session_id=session_id,
+            request_id=request_id,
+            payload_hash=payload_hash,
+        )
+        self.request_keys[key] = record
+        return record, True
+
+    def complete_request_key(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        request_id: str,
+        user_message_id: str,
+        assistant_message_id: str,
+    ):
+        self.complete_calls.append(
+            {
+                "user_id": user_id,
+                "session_id": session_id,
+                "request_id": request_id,
+                "user_message_id": user_message_id,
+                "assistant_message_id": assistant_message_id,
+            }
+        )
+        key = (user_id, session_id, request_id)
+        current = self.request_keys[key]
+        updated = _request_key(
+            1,
+            id=current.id,
+            user_id=user_id,
+            session_id=session_id,
+            request_id=request_id,
+            status="completed",
+            user_message_id=user_message_id,
+            assistant_message_id=assistant_message_id,
+            payload_hash=current.payload_hash,
+        )
+        self.request_keys[key] = updated
+        return updated
+
+    def fail_request_key(self, *, user_id: str, session_id: str, request_id: str, error_code: str):
+        self.fail_calls.append({"user_id": user_id, "session_id": session_id, "request_id": request_id, "error_code": error_code})
+        key = (user_id, session_id, request_id)
+        current = self.request_keys[key]
+        updated = _request_key(
+            1,
+            id=current.id,
+            user_id=user_id,
+            session_id=session_id,
+            request_id=request_id,
+            status="failed",
+            payload_hash=current.payload_hash,
+            error_code=error_code,
+        )
+        self.request_keys[key] = updated
+        return updated
 
     def create_message(self, *, user_id: str, session_id: str, payload: dict[str, object]):
         self.create_calls.append({"user_id": user_id, "session_id": session_id, "payload": payload})
@@ -210,6 +316,20 @@ def test_list_messages_validates_session_and_uses_verified_user() -> None:
 
     assert isinstance(result, InterviewAskAIMessageListPage)
     assert result.items[0].message_text == "What should I improve?"
+    assert result.has_more is False
+
+
+def test_list_messages_uses_page_offset_and_reports_more() -> None:
+    client = FakeAskAIClient([_message(index, "user", f"Message {index}") for index in range(1, 8)])
+    service = _service(client=client)
+
+    result = service.list_messages(user_id=USER_ID, session_id=SESSION_ID, limit=3, page=2)
+
+    assert [message.turn_index for message in result.items] == [5, 6, 7]
+    assert result.has_more is False
+    assert result.next_page is None
+    assert client.list_calls[-1]["limit"] == 4
+    assert client.list_calls[-1]["page"] == 2
 
 
 def test_ask_ai_rejects_empty_and_oversized_questions() -> None:
@@ -267,6 +387,108 @@ def test_ask_ai_stores_user_and_assistant_messages_with_context() -> None:
     assert "Question 2" in generator.calls[0]["context"]
     assert "Saved AI notes" in generator.calls[0]["context"]
     assert "Earlier question" in generator.calls[0]["context"]
+
+
+def test_ask_ai_request_id_replay_returns_same_messages_without_provider_call() -> None:
+    client = FakeAskAIClient()
+    generator = FakeGenerator()
+    service = _service(client=client, generator=generator)
+
+    first = service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="What should I improve?", request_id="ask-1")
+    second = service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="What should I improve?", request_id="ask-1")
+
+    assert len(generator.calls) == 1
+    assert len(client.create_calls) == 2
+    assert first.user_message.id == second.user_message.id
+    assert first.assistant_message.id == second.assistant_message.id
+    assert second.answer_text == first.answer_text
+
+
+def test_ask_ai_request_id_processing_and_failed_states_are_explicit() -> None:
+    client = FakeAskAIClient()
+    service = _service(client=client)
+    payload_hash = "abc123"
+    client.request_keys[(USER_ID, SESSION_ID, "ask-processing")] = _request_key(
+        1,
+        request_id="ask-processing",
+        payload_hash=payload_hash,
+        status="processing",
+    )
+    client.request_keys[(USER_ID, SESSION_ID, "ask-failed")] = _request_key(
+        2,
+        request_id="ask-failed",
+        payload_hash=payload_hash,
+        status="failed",
+    )
+
+    service_hash = _payload_hash_for_test(question="What should I improve?", include_notes=True)
+    client.request_keys[(USER_ID, SESSION_ID, "ask-processing")] = _request_key(
+        1,
+        request_id="ask-processing",
+        payload_hash=service_hash,
+        status="processing",
+    )
+    client.request_keys[(USER_ID, SESSION_ID, "ask-failed")] = _request_key(
+        2,
+        request_id="ask-failed",
+        payload_hash=service_hash,
+        status="failed",
+    )
+
+    with pytest.raises(CloudInterviewSessionConflictError, match="already processing"):
+        service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="What should I improve?", request_id="ask-processing")
+
+    with pytest.raises(CloudInterviewSessionConflictError, match="previously failed"):
+        service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="What should I improve?", request_id="ask-failed")
+
+
+def test_ask_ai_request_id_rejects_different_payload() -> None:
+    client = FakeAskAIClient()
+    service = _service(client=client)
+
+    service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="What should I improve?", request_id="ask-1")
+
+    with pytest.raises(CloudInterviewSessionConflictError, match="different input"):
+        service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="Which answer was weak?", request_id="ask-1")
+
+
+def test_ask_ai_same_request_id_is_scoped_to_user_and_session() -> None:
+    other_session_id = "30000000-0000-4000-8000-000000000002"
+    other_user_id = "00000000-0000-4000-8000-000000000002"
+    client = FakeAskAIClient()
+    generator = FakeGenerator()
+    service = _service(client=client, generator=generator)
+
+    service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="What should I improve?", request_id="ask-1")
+    service.ask_ai(user_id=USER_ID, session_id=other_session_id, question="What should I improve?", request_id="ask-1")
+    service.ask_ai(user_id=other_user_id, session_id=SESSION_ID, question="What should I improve?", request_id="ask-1")
+
+    assert len(generator.calls) == 3
+    assert len(client.request_keys) == 3
+
+
+def test_ask_ai_rejects_invalid_request_id_before_provider_call() -> None:
+    generator = FakeGenerator()
+    service = _service(generator=generator)
+
+    with pytest.raises(CloudInterviewSessionValidationError, match="request_id is invalid"):
+        service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="What should I improve?", request_id="../bad")
+
+    assert generator.calls == []
+
+
+def test_ask_ai_context_uses_newest_recent_messages() -> None:
+    messages = [_message(index, "user" if index % 2 else "assistant", f"Prior turn {index}") for index in range(1, 21)]
+    client = FakeAskAIClient(messages)
+    generator = FakeGenerator()
+    service = _service(client=client, generator=generator)
+
+    service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="Use recent context.")
+
+    context = generator.calls[0]["context"]
+    assert f"Prior turn {20}" in context
+    assert f"Prior turn {20 - MAX_RECENT_MESSAGES}" not in context
+    assert client.recent_calls == [{"user_id": USER_ID, "session_id": SESSION_ID, "limit": MAX_RECENT_MESSAGES}]
 
 
 def test_ask_ai_stores_readable_text_without_escaped_markdown_or_entities() -> None:

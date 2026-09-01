@@ -177,6 +177,8 @@ class InterviewSessionAskAIMessageListResponse(BaseModel):
     items: list[InterviewSessionAskAIMessageResponse]
     limit: int
     page: int
+    has_more: bool = False
+    next_page: int | None = None
 
 
 @lru_cache(maxsize=1)
@@ -543,6 +545,8 @@ def list_interview_session_ask_ai_messages(
         items=[_ask_ai_message_response(record) for record in result.items],
         limit=result.limit,
         page=result.page,
+        has_more=result.has_more,
+        next_page=result.next_page,
     )
 
 

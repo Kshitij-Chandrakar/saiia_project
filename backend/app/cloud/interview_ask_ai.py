@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import hashlib
 import html
 import json
 import logging
@@ -48,6 +49,7 @@ MAX_QUESTION_CHARS = 2000
 MAX_MESSAGE_TEXT_CHARS = 12000
 MAX_PROVIDER_CHARS = 80
 MAX_MODEL_CHARS = 120
+MAX_REQUEST_ID_CHARS = 128
 MAX_TRANSCRIPT_ENTRIES = 30
 MAX_RECENT_MESSAGES = 12
 MAX_ENTRY_QUESTION_CHARS = 500
@@ -59,6 +61,7 @@ SUPABASE_SELECT_TIMEOUT = 5
 SUPABASE_MUTATION_TIMEOUT = 8
 OPENAI_REASONING_EFFORT_FALLBACK = "low"
 OPENAI_SUPPORTED_REASONING_EFFORTS = {"none", "low", "medium", "high", "xhigh"}
+REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._~-]{1,128}$")
 
 
 @dataclass(frozen=True)
@@ -76,10 +79,27 @@ class CloudInterviewAskAIMessageRecord:
 
 
 @dataclass(frozen=True)
+class CloudInterviewAskAIRequestKeyRecord:
+    id: str
+    user_id: str
+    session_id: str
+    request_id: str
+    status: str
+    user_message_id: str | None
+    assistant_message_id: str | None
+    payload_hash: str | None
+    error_code: str | None
+    created_at: str | None
+    updated_at: str | None
+
+
+@dataclass(frozen=True)
 class InterviewAskAIMessageListPage:
     items: list[CloudInterviewAskAIMessageRecord]
     limit: int
     page: int
+    has_more: bool = False
+    next_page: int | None = None
 
 
 @dataclass(frozen=True)
@@ -127,6 +147,25 @@ def _normalize_readable_message_text(value: Any, *, field: str, max_chars: int, 
     return text.strip() or None
 
 
+def _normalize_request_id(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if len(text) > MAX_REQUEST_ID_CHARS or not REQUEST_ID_RE.fullmatch(text):
+        raise CloudInterviewSessionValidationError("request_id is invalid.")
+    return text
+
+
+def _payload_hash(*, question: str, include_notes: bool) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {"question": question, "include_notes": bool(include_notes)},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 def _record_from_payload(payload: dict[str, Any]) -> CloudInterviewAskAIMessageRecord:
     return CloudInterviewAskAIMessageRecord(
         id=str(payload.get("id") or ""),
@@ -139,6 +178,22 @@ def _record_from_payload(payload: dict[str, Any]) -> CloudInterviewAskAIMessageR
         model=str(payload.get("model")).strip() if payload.get("model") else None,
         generation_ms=int(payload.get("generation_ms")) if payload.get("generation_ms") is not None else None,
         created_at=payload.get("created_at"),
+    )
+
+
+def _request_key_from_payload(payload: dict[str, Any]) -> CloudInterviewAskAIRequestKeyRecord:
+    return CloudInterviewAskAIRequestKeyRecord(
+        id=str(payload.get("id") or ""),
+        user_id=str(payload.get("user_id") or ""),
+        session_id=str(payload.get("session_id") or ""),
+        request_id=str(payload.get("request_id") or ""),
+        status=str(payload.get("status") or ""),
+        user_message_id=str(payload.get("user_message_id")).strip() if payload.get("user_message_id") else None,
+        assistant_message_id=str(payload.get("assistant_message_id")).strip() if payload.get("assistant_message_id") else None,
+        payload_hash=str(payload.get("payload_hash")).strip() if payload.get("payload_hash") else None,
+        error_code=str(payload.get("error_code")).strip() if payload.get("error_code") else None,
+        created_at=payload.get("created_at"),
+        updated_at=payload.get("updated_at"),
     )
 
 
@@ -205,6 +260,127 @@ class SupabaseInterviewAskAIClient:
         )
         raise CloudInterviewSessionError(SAFE_FAILURE_MESSAGE) from exc
 
+    def claim_request_key(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        request_id: str,
+        payload_hash: str,
+    ) -> tuple[CloudInterviewAskAIRequestKeyRecord, bool]:
+        try:
+            response = self._session.post(
+                f"{self._rest_url}/interview_session_ask_ai_request_keys",
+                headers={**self._headers, "Prefer": "return=representation"},
+                json={
+                    "user_id": user_id,
+                    "session_id": session_id,
+                    "request_id": request_id,
+                    "payload_hash": payload_hash,
+                    "status": "processing",
+                },
+                timeout=SUPABASE_MUTATION_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            self._raise_request("interview_session_ask_ai_request_keys", "claim", exc)
+        if response.status_code in {200, 201}:
+            data = response.json()
+            if isinstance(data, list) and data and isinstance(data[0], dict):
+                return _request_key_from_payload(data[0]), True
+            raise CloudInterviewSessionError(SAFE_FAILURE_MESSAGE)
+        if response.status_code == 409:
+            return self.get_request_key(user_id=user_id, session_id=session_id, request_id=request_id), False
+        self._raise_response("interview_session_ask_ai_request_keys", "claim", response)
+        raise CloudInterviewSessionError(SAFE_FAILURE_MESSAGE)
+
+    def get_request_key(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        request_id: str,
+    ) -> CloudInterviewAskAIRequestKeyRecord:
+        rows = self._select_request_keys(
+            {
+                "select": "*",
+                "user_id": f"eq.{user_id}",
+                "session_id": f"eq.{session_id}",
+                "request_id": f"eq.{request_id}",
+                "limit": "1",
+            }
+        )
+        if not rows:
+            raise CloudInterviewSessionNotFoundError("Ask AI request was not found.")
+        return rows[0]
+
+    def complete_request_key(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        request_id: str,
+        user_message_id: str,
+        assistant_message_id: str,
+    ) -> CloudInterviewAskAIRequestKeyRecord:
+        return self._patch_request_key(
+            user_id=user_id,
+            session_id=session_id,
+            request_id=request_id,
+            payload={
+                "status": "completed",
+                "user_message_id": user_message_id,
+                "assistant_message_id": assistant_message_id,
+                "error_code": None,
+            },
+        )
+
+    def fail_request_key(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        request_id: str,
+        error_code: str,
+    ) -> CloudInterviewAskAIRequestKeyRecord:
+        return self._patch_request_key(
+            user_id=user_id,
+            session_id=session_id,
+            request_id=request_id,
+            payload={
+                "status": "failed",
+                "error_code": error_code[:80],
+            },
+        )
+
+    def _patch_request_key(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        request_id: str,
+        payload: dict[str, Any],
+    ) -> CloudInterviewAskAIRequestKeyRecord:
+        try:
+            response = self._session.patch(
+                f"{self._rest_url}/interview_session_ask_ai_request_keys",
+                headers={**self._headers, "Prefer": "return=representation"},
+                params={
+                    "user_id": f"eq.{user_id}",
+                    "session_id": f"eq.{session_id}",
+                    "request_id": f"eq.{request_id}",
+                },
+                json=payload,
+                timeout=SUPABASE_MUTATION_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            self._raise_request("interview_session_ask_ai_request_keys", "update", exc)
+        if response.status_code != 200:
+            self._raise_response("interview_session_ask_ai_request_keys", "update", response)
+        data = response.json()
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            return _request_key_from_payload(data[0])
+        raise CloudInterviewSessionError(SAFE_FAILURE_MESSAGE)
+
     def create_message(
         self,
         *,
@@ -267,6 +443,18 @@ class SupabaseInterviewAskAIClient:
             }
         )
 
+    def list_recent_messages(self, *, user_id: str, session_id: str, limit: int) -> list[CloudInterviewAskAIMessageRecord]:
+        rows = self._select_messages(
+            {
+                "select": "*",
+                "session_id": f"eq.{session_id}",
+                "user_id": f"eq.{user_id}",
+                "order": "turn_index.desc,created_at.desc,id.desc",
+                "limit": str(limit),
+            }
+        )
+        return list(reversed(rows))
+
     def _select_messages(self, params: dict[str, str]) -> list[CloudInterviewAskAIMessageRecord]:
         try:
             response = self._session.get(
@@ -283,6 +471,23 @@ class SupabaseInterviewAskAIClient:
         if not isinstance(data, list):
             raise CloudInterviewSessionError(SAFE_FAILURE_MESSAGE)
         return [_record_from_payload(item) for item in data if isinstance(item, dict)]
+
+    def _select_request_keys(self, params: dict[str, str]) -> list[CloudInterviewAskAIRequestKeyRecord]:
+        try:
+            response = self._session.get(
+                f"{self._rest_url}/interview_session_ask_ai_request_keys",
+                headers=self._headers,
+                params=params,
+                timeout=SUPABASE_SELECT_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            self._raise_request("interview_session_ask_ai_request_keys", "select", exc)
+        if response.status_code != 200:
+            self._raise_response("interview_session_ask_ai_request_keys", "select", response)
+        data = response.json()
+        if not isinstance(data, list):
+            raise CloudInterviewSessionError(SAFE_FAILURE_MESSAGE)
+        return [_request_key_from_payload(item) for item in data if isinstance(item, dict)]
 
 
 class OpenAIInterviewAskAIGenerator:
@@ -436,10 +641,13 @@ class CloudInterviewAskAIService:
         if page < 1 or page > 1000:
             raise CloudInterviewSessionValidationError("Page must be between 1 and 1000.")
         self._session_service.get_session(user_id=user_id, session_id=normalized_session_id)
+        rows = self._client.list_messages(user_id=user_id, session_id=normalized_session_id, limit=limit + 1, page=page)
         return InterviewAskAIMessageListPage(
-            items=self._client.list_messages(user_id=user_id, session_id=normalized_session_id, limit=limit, page=page),
+            items=rows[:limit],
             limit=limit,
             page=page,
+            has_more=len(rows) > limit,
+            next_page=page + 1 if len(rows) > limit else None,
         )
 
     def ask_ai(
@@ -458,6 +666,8 @@ class CloudInterviewAskAIService:
             raise CloudInterviewSessionValidationError("session_id is invalid.")
         normalized_question = _normalize_readable_message_text(question, field="question", max_chars=MAX_QUESTION_CHARS, required=True)
         assert normalized_question is not None
+        normalized_request_id = _normalize_request_id(request_id)
+        payload_hash = _payload_hash(question=normalized_question, include_notes=include_notes) if normalized_request_id else None
         session = self._session_service.get_session(user_id=user_id, session_id=normalized_session_id)
         transcript_page = self._transcript_service.list_transcript_entries(
             user_id=user_id,
@@ -472,14 +682,30 @@ class CloudInterviewAskAIService:
                 notes = self._notes_service.get_notes(user_id=user_id, session_id=normalized_session_id)
             except CloudInterviewSessionNotFoundError:
                 notes = None
-        recent_messages = self._client.list_messages(
+        recent_messages = self._client.list_recent_messages(
             user_id=user_id,
             session_id=normalized_session_id,
             limit=MAX_RECENT_MESSAGES,
-            page=1,
         )
         if not transcript_entries and notes is None:
             raise CloudInterviewSessionConflictError("This session does not have transcript or AI notes context yet.")
+        request_key = None
+        if normalized_request_id and payload_hash:
+            request_key, request_claimed = self._client.claim_request_key(
+                user_id=user_id,
+                session_id=normalized_session_id,
+                request_id=normalized_request_id,
+                payload_hash=payload_hash,
+            )
+            if not request_claimed:
+                replayed = self._replay_request_key(
+                    user_id=user_id,
+                    session_id=normalized_session_id,
+                    request_key=request_key,
+                    payload_hash=payload_hash,
+                )
+                if replayed is not None:
+                    return replayed
         context = self.build_context_from_session(
             session=session,
             transcript_entries=transcript_entries,
@@ -489,6 +715,13 @@ class CloudInterviewAskAIService:
         try:
             generated = self._generator.generate(context=context, question=normalized_question)
         except ProviderError as exc:
+            if normalized_request_id:
+                self._client.fail_request_key(
+                    user_id=user_id,
+                    session_id=normalized_session_id,
+                    request_id=normalized_request_id,
+                    error_code=type(exc).__name__,
+                )
             raise CloudInterviewSessionError(ASK_AI_FAILURE_MESSAGE) from exc
         provider = _normalize_text(generated.get("provider"), field="provider", max_chars=MAX_PROVIDER_CHARS)
         model = _normalize_text(generated.get("model"), field="model", max_chars=MAX_MODEL_CHARS)
@@ -500,7 +733,7 @@ class CloudInterviewAskAIService:
             required=True,
         )
         assert answer_text is not None
-        metadata = _normalize_metadata({"request_id": request_id} if request_id else {})
+        metadata = _normalize_metadata({"request_id": normalized_request_id} if normalized_request_id else {})
         user_message = self._client.create_message(
             user_id=user_id,
             session_id=normalized_session_id,
@@ -525,6 +758,14 @@ class CloudInterviewAskAIService:
                 "metadata": metadata,
             },
         )
+        if normalized_request_id:
+            self._client.complete_request_key(
+                user_id=user_id,
+                session_id=normalized_session_id,
+                request_id=normalized_request_id,
+                user_message_id=user_message.id,
+                assistant_message_id=assistant_message.id,
+            )
         return AskAIResult(
             user_message=user_message,
             assistant_message=assistant_message,
@@ -536,6 +777,40 @@ class CloudInterviewAskAIService:
                 transcript_entry_count=len(transcript_entries),
                 notes_used=notes is not None,
                 recent_message_count=len(recent_messages),
+            ),
+        )
+
+    def _replay_request_key(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        request_key: CloudInterviewAskAIRequestKeyRecord,
+        payload_hash: str,
+    ) -> AskAIResult | None:
+        if request_key.payload_hash != payload_hash:
+            raise CloudInterviewSessionConflictError("Ask AI request_id was already used with different input.")
+        if request_key.status == "processing":
+            raise CloudInterviewSessionConflictError("Ask AI request is already processing.")
+        if request_key.status == "failed":
+            raise CloudInterviewSessionConflictError("Ask AI request previously failed. Please retry with a new request_id.")
+        if request_key.status != "completed":
+            raise CloudInterviewSessionConflictError("Ask AI request is in an invalid replay state.")
+        if not request_key.user_message_id or not request_key.assistant_message_id:
+            raise CloudInterviewSessionConflictError("Ask AI request replay is incomplete.")
+        user_message = self._client.get_message(user_id=user_id, session_id=session_id, message_id=request_key.user_message_id)
+        assistant_message = self._client.get_message(user_id=user_id, session_id=session_id, message_id=request_key.assistant_message_id)
+        return AskAIResult(
+            user_message=user_message,
+            assistant_message=assistant_message,
+            answer_text=assistant_message.message_text,
+            provider=assistant_message.provider,
+            model=assistant_message.model,
+            generation_ms=assistant_message.generation_ms,
+            context_used=AskAIContextUsed(
+                transcript_entry_count=0,
+                notes_used=False,
+                recent_message_count=0,
             ),
         )
 

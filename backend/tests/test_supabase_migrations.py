@@ -14,6 +14,7 @@ C7_MIGRATION = MIGRATIONS_DIR / "20260829103000_add_interview_session_transcript
 C7_LOCKDOWN_MIGRATION = MIGRATIONS_DIR / "20260829170000_lock_down_transcript_entry_inserts.sql"
 C8_MIGRATION = MIGRATIONS_DIR / "20260829223000_add_interview_session_ai_notes.sql"
 C9_MIGRATION = MIGRATIONS_DIR / "20260901103000_add_interview_session_ask_ai_messages.sql"
+C9_IDEMPOTENCY_MIGRATION = MIGRATIONS_DIR / "20260901123000_add_ask_ai_request_idempotency_keys.sql"
 
 
 def _normalized_sql() -> str:
@@ -431,3 +432,22 @@ def test_c9_ask_ai_migration_keeps_authenticated_writes_backend_only() -> None:
     assert f"revoke all on function {signature} from anon" in sql
     assert f"revoke all on function {signature} from authenticated" in sql
     assert f"grant execute on function {signature} to service_role" in sql
+
+
+def test_c9_ask_ai_idempotency_migration_adds_request_keys_table() -> None:
+    sql = " ".join(C9_IDEMPOTENCY_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "create table if not exists public.interview_session_ask_ai_request_keys" in sql
+    assert "session_id uuid not null references public.interview_sessions(id) on delete cascade" in sql
+    assert "request_id text not null" in sql
+    assert "status text not null default 'processing'" in sql
+    assert "user_message_id uuid null references public.interview_session_ask_ai_messages(id) on delete set null" in sql
+    assert "assistant_message_id uuid null references public.interview_session_ask_ai_messages(id) on delete set null" in sql
+    assert "constraint interview_session_ask_ai_request_key_status_check check (status in ('processing', 'completed', 'failed'))" in sql
+    assert "constraint interview_session_ask_ai_request_key_unique unique (user_id, session_id, request_id)" in sql
+    assert "alter table public.interview_session_ask_ai_request_keys enable row level security" in sql
+    assert "alter table public.interview_session_ask_ai_request_keys force row level security" in sql
+    assert "create policy interview_session_ask_ai_request_key_select_own" in sql
+    assert "grant select on table public.interview_session_ask_ai_request_keys to authenticated" in sql
+    assert "grant select, insert, update, delete on table public.interview_session_ask_ai_request_keys to service_role" in sql
+    assert "grant insert on table public.interview_session_ask_ai_request_keys to authenticated" not in sql
