@@ -506,12 +506,14 @@ def test_generation_lock_release_does_not_allow_acquire_before_map_cleanup(monke
 
     thread = threading.Thread(target=release_lock)
     thread.start()
-    assert guard.entered.wait(timeout=5)
-    assert lock.locked()
-    assert _NOTES_GENERATION_LOCKS[session_id] is lock
+    try:
+        assert guard.entered.wait(timeout=5)
+        assert lock.locked()
+        assert _NOTES_GENERATION_LOCKS[session_id] is lock
+    finally:
+        guard.proceed.set()
+        thread.join(timeout=5)
 
-    guard.proceed.set()
-    thread.join(timeout=5)
     assert not thread.is_alive()
     assert _NOTES_GENERATION_LOCKS == {}
     assert not lock.locked()
