@@ -8,6 +8,8 @@ import pytest
 
 from app.cloud.interview_notes import (
     _NOTES_GENERATION_LOCKS,
+    _NOTES_GENERATION_LOCKS_GUARD,
+    _release_generation_lock,
     CloudInterviewNotesRecord,
     CloudInterviewNotesService,
     OpenAIInterviewNotesGenerator,
@@ -476,6 +478,43 @@ def test_same_session_concurrent_generate_returns_in_progress_conflict() -> None
     thread.join(timeout=5)
     assert len(client.upsert_calls) == 1
     assert _NOTES_GENERATION_LOCKS == {}
+
+
+def test_generation_lock_release_does_not_allow_acquire_before_map_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    session_id = SESSION_ID
+    lock = threading.Lock()
+    assert lock.acquire(blocking=False)
+    _NOTES_GENERATION_LOCKS[session_id] = lock
+
+    class BlockingGuard:
+        def __init__(self) -> None:
+            self.entered = threading.Event()
+            self.proceed = threading.Event()
+
+        def __enter__(self) -> None:
+            self.entered.set()
+            assert self.proceed.wait(timeout=5)
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+    guard = BlockingGuard()
+    monkeypatch.setattr("app.cloud.interview_notes._NOTES_GENERATION_LOCKS_GUARD", guard)
+
+    def release_lock() -> None:
+        _release_generation_lock(session_id, lock)
+
+    thread = threading.Thread(target=release_lock)
+    thread.start()
+    assert guard.entered.wait(timeout=5)
+    assert lock.locked()
+    assert _NOTES_GENERATION_LOCKS[session_id] is lock
+
+    guard.proceed.set()
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert _NOTES_GENERATION_LOCKS == {}
+    assert not lock.locked()
 
 
 def test_different_sessions_generate_independently() -> None:

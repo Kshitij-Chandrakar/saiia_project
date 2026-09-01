@@ -116,16 +116,16 @@ def _acquire_generation_lock(session_id: str) -> Any | None:
         if lock is None:
             lock = threading.Lock()
             _NOTES_GENERATION_LOCKS[session_id] = lock
-    if not lock.acquire(blocking=False):
-        return None
-    return lock
+        if not lock.acquire(blocking=False):
+            return None
+        return lock
 
 
 def _release_generation_lock(session_id: str, lock: Any) -> None:
-    lock.release()
     with _NOTES_GENERATION_LOCKS_GUARD:
         if _NOTES_GENERATION_LOCKS.get(session_id) is lock:
             _NOTES_GENERATION_LOCKS.pop(session_id, None)
+        lock.release()
 
 
 def _record_from_payload(payload: dict[str, Any]) -> CloudInterviewNotesRecord:
