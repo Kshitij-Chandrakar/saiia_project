@@ -9,12 +9,14 @@ import {
   deleteCloudResume,
   downloadInterviewTranscript,
   extractCloudResume,
+  fetchInterviewSessionNotes,
   fetchInterviewTranscriptEntries,
   fetchInterviewSessions,
   fetchCloudResumeStatus,
   fetchCurrentCloudResume,
   fetchCurrentUser,
   fetchReviewCandidate,
+  generateInterviewSessionNotes,
   rebuildCloudResumeIndex,
   uploadCloudResume,
 } from './authApi'
@@ -380,6 +382,22 @@ function formatTranscriptDisplayMetaLine(entry) {
     parts.push(`Category: ${entry.category}`)
   }
   parts.push(`Created: ${formatSessionTime(entry?.created_at)}`)
+  return parts.join(' - ')
+}
+
+
+function formatInterviewNotesMetaLine(notes) {
+  const parts = []
+  if (notes?.provider) {
+    parts.push(`Provider: ${notes.provider}`)
+  }
+  if (notes?.model) {
+    parts.push(`Model: ${notes.model}`)
+  }
+  parts.push(`Entries: ${notes?.transcript_entry_count || 0}`)
+  if (notes?.generated_at) {
+    parts.push(`Generated: ${formatSessionTime(notes.generated_at)}`)
+  }
   return parts.join(' - ')
 }
 
@@ -1096,6 +1114,11 @@ export function AuthDashboardPage({ backendUrl }) {
   const [transcriptLoading, setTranscriptLoading] = useState(false)
   const [transcriptError, setTranscriptError] = useState('')
   const [transcriptDownloadKey, setTranscriptDownloadKey] = useState('')
+  const [openNotesSessionId, setOpenNotesSessionId] = useState('')
+  const [sessionNotes, setSessionNotes] = useState(null)
+  const [notesLoading, setNotesLoading] = useState(false)
+  const [notesError, setNotesError] = useState('')
+  const [notesGenerateKey, setNotesGenerateKey] = useState('')
   const navigate = useNavigate()
   const {
     bootstrapResult,
@@ -1144,6 +1167,9 @@ export function AuthDashboardPage({ backendUrl }) {
           setOpenTranscriptSessionId('')
           setTranscriptEntries([])
           setTranscriptError('')
+          setOpenNotesSessionId('')
+          setSessionNotes(null)
+          setNotesError('')
         }
       } catch {
         if (!ignore) {
@@ -1152,6 +1178,9 @@ export function AuthDashboardPage({ backendUrl }) {
           setOpenTranscriptSessionId('')
           setTranscriptEntries([])
           setTranscriptError('')
+          setOpenNotesSessionId('')
+          setSessionNotes(null)
+          setNotesError('')
         }
       } finally {
         if (!ignore) {
@@ -1194,12 +1223,18 @@ export function AuthDashboardPage({ backendUrl }) {
       setOpenTranscriptSessionId('')
       setTranscriptEntries([])
       setTranscriptError('')
+      setOpenNotesSessionId('')
+      setSessionNotes(null)
+      setNotesError('')
     } catch {
       setSessionHistory([])
       setSessionHistoryError('Could not load interview sessions. Please try again.')
       setOpenTranscriptSessionId('')
       setTranscriptEntries([])
       setTranscriptError('')
+      setOpenNotesSessionId('')
+      setSessionNotes(null)
+      setNotesError('')
     } finally {
       setSessionHistoryLoading(false)
     }
@@ -1274,6 +1309,79 @@ export function AuthDashboardPage({ backendUrl }) {
       setTranscriptError('Could not download the transcript. Please try again.')
     } finally {
       setTranscriptDownloadKey('')
+    }
+  }
+
+  async function handleNotesToggle(sessionId) {
+    const normalizedSessionId = String(sessionId || '').trim()
+    if (!normalizedSessionId || notesLoading) {
+      return
+    }
+    if (openNotesSessionId === normalizedSessionId) {
+      setOpenNotesSessionId('')
+      setSessionNotes(null)
+      setNotesError('')
+      return
+    }
+    setOpenNotesSessionId(normalizedSessionId)
+    setSessionNotes(null)
+    setNotesError('')
+    setNotesLoading(true)
+    try {
+      if (!supabase) {
+        setNotesError('AI notes access is unavailable until auth is ready.')
+        return
+      }
+      const { data, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError || !data.session?.access_token) {
+        setNotesError('Could not verify AI notes access. Please sign in again.')
+        return
+      }
+      const result = await fetchInterviewSessionNotes(data.session.access_token, normalizedSessionId, {
+        backendUrl,
+      })
+      setSessionNotes(result)
+    } catch (loadError) {
+      if (String(loadError?.message || '').includes('were not found')) {
+        setNotesError('No AI notes yet. Generate AI Notes to create them.')
+      } else {
+        setNotesError('Could not load AI notes. Please try again.')
+      }
+    } finally {
+      setNotesLoading(false)
+    }
+  }
+
+  async function handleNotesGenerate(sessionId, forceRegenerate = false) {
+    const normalizedSessionId = String(sessionId || '').trim()
+    if (!normalizedSessionId || notesLoading || notesGenerateKey) {
+      return
+    }
+    setNotesGenerateKey(normalizedSessionId)
+    setOpenNotesSessionId(normalizedSessionId)
+    setSessionNotes(null)
+    setNotesError('')
+    setNotesLoading(true)
+    try {
+      if (!supabase) {
+        setNotesError('AI notes generation is unavailable until auth is ready.')
+        return
+      }
+      const { data, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError || !data.session?.access_token) {
+        setNotesError('Could not verify AI notes generation access. Please sign in again.')
+        return
+      }
+      const result = await generateInterviewSessionNotes(data.session.access_token, normalizedSessionId, {
+        backendUrl,
+        forceRegenerate,
+      })
+      setSessionNotes(result)
+    } catch (generateError) {
+      setNotesError(String(generateError?.message || '').trim() || 'Could not generate AI notes. Please try again.')
+    } finally {
+      setNotesLoading(false)
+      setNotesGenerateKey('')
     }
   }
 
@@ -1360,6 +1468,22 @@ export function AuthDashboardPage({ backendUrl }) {
                     <button
                       className="auth-session-history__action"
                       type="button"
+                      onClick={() => handleNotesGenerate(session.id)}
+                      disabled={Boolean(notesGenerateKey) || notesLoading}
+                    >
+                      {notesGenerateKey === session.id ? 'Generating AI Notes...' : 'Generate AI Notes'}
+                    </button>
+                    <button
+                      className="auth-session-history__action"
+                      type="button"
+                      onClick={() => handleNotesToggle(session.id)}
+                      disabled={notesLoading && openNotesSessionId !== session.id}
+                    >
+                      {openNotesSessionId === session.id ? 'Hide AI Notes' : 'View AI Notes'}
+                    </button>
+                    <button
+                      className="auth-session-history__action"
+                      type="button"
                       onClick={() => handleTranscriptDownload(session.id, 'txt')}
                       disabled={Boolean(transcriptDownloadKey)}
                     >
@@ -1390,6 +1514,43 @@ export function AuthDashboardPage({ backendUrl }) {
                         ))
                       ) : (
                         <p className="auth-session-history__line">No transcript entries yet.</p>
+                      )}
+                    </div>
+                  ) : null}
+                  {openNotesSessionId === session.id ? (
+                    <div className="auth-session-history__notes">
+                      {notesLoading ? (
+                        <p className="auth-session-history__line">Loading AI notes...</p>
+                      ) : notesError ? (
+                        <div>
+                          <p className="auth-message error">{notesError}</p>
+                          <button
+                            className="auth-session-history__action"
+                            type="button"
+                            onClick={() => handleNotesGenerate(session.id, true)}
+                            disabled={Boolean(notesGenerateKey)}
+                          >
+                            Retry AI Notes
+                          </button>
+                        </div>
+                      ) : sessionNotes ? (
+                        <section className="auth-session-history__notes-card">
+                          {sessionNotes.summary ? (
+                            <p className="auth-session-history__line"><strong>Summary:</strong> {sessionNotes.summary}</p>
+                          ) : null}
+                          <p className="auth-session-history__meta">{formatInterviewNotesMetaLine(sessionNotes)}</p>
+                          <pre className="auth-session-history__notes-markdown">{sessionNotes.notes_markdown}</pre>
+                          <button
+                            className="auth-session-history__action"
+                            type="button"
+                            onClick={() => handleNotesGenerate(session.id, true)}
+                            disabled={Boolean(notesGenerateKey)}
+                          >
+                            Regenerate AI Notes
+                          </button>
+                        </section>
+                      ) : (
+                        <p className="auth-session-history__line">No AI notes yet. Generate AI Notes to create them.</p>
                       )}
                     </div>
                   ) : null}

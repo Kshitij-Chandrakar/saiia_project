@@ -100,6 +100,11 @@ class Settings:
 
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
     OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini-2026-03-17").strip()
+    AI_NOTES_MODEL = os.getenv("AI_NOTES_MODEL", OPENAI_MODEL).strip()
+    AI_NOTES_TIMEOUT_SECONDS = float(os.getenv("AI_NOTES_TIMEOUT_SECONDS", "20"))
+    AI_NOTES_MAX_INPUT_CHARS = int(os.getenv("AI_NOTES_MAX_INPUT_CHARS", "18000"))
+    AI_NOTES_MAX_OUTPUT_TOKENS = int(os.getenv("AI_NOTES_MAX_OUTPUT_TOKENS", "2500"))
+    AI_NOTES_REASONING_EFFORT = os.getenv("AI_NOTES_REASONING_EFFORT", "low").strip().lower()
     OPENAI_DEFAULT_REASONING_EFFORT = os.getenv("OPENAI_DEFAULT_REASONING_EFFORT", "low").strip().lower()
     OPENAI_COMPLEX_REASONING_EFFORT = os.getenv("OPENAI_COMPLEX_REASONING_EFFORT", "medium").strip().lower()
     OPENAI_VALIDATION_REASONING_EFFORT = os.getenv("OPENAI_VALIDATION_REASONING_EFFORT", "low").strip().lower()

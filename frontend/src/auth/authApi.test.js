@@ -8,12 +8,14 @@ import {
   deleteCloudResume,
   downloadInterviewTranscript,
   extractCloudResume,
+  fetchInterviewSessionNotes,
   fetchInterviewTranscriptEntries,
   fetchInterviewSessions,
   fetchCloudResumeStatus,
   fetchCurrentCloudResume,
   fetchCurrentUser,
   fetchReviewCandidate,
+  generateInterviewSessionNotes,
   rebuildCloudResumeIndex,
   uploadCloudResume,
 } from './authApi.js'
@@ -427,6 +429,89 @@ test('downloadInterviewTranscript uses authenticated download route and safe fil
     content: '# Interview Transcript\n',
     format: 'md',
   })
+})
+
+
+test('fetchInterviewSessionNotes keeps only valid notes records', async () => {
+  const result = await fetchInterviewSessionNotes('unit-test-access-token', 'session-1', {
+    backendUrl: 'http://localhost:8000',
+    fetchImpl: async (url, init) => {
+      assert.equal(url, 'http://localhost:8000/api/interview-sessions/session-1/notes')
+      assert.equal(init.method, 'GET')
+      assert.equal(init.headers.Authorization, 'Bearer unit-test-access-token')
+      return {
+        ok: true,
+        json: async () => ({
+          id: 'notes-1',
+          session_id: 'session-1',
+          status: 'ready',
+          notes_markdown: '# Interview Notes\n',
+          summary: 'Based on this transcript...',
+          strengths: ['Clear examples', '', null],
+          improvement_areas: ['More metrics'],
+          technical_topics: ['FastAPI'],
+          key_questions: ['How is auth implemented?'],
+          suggested_followups: ['Practice tradeoffs'],
+          provider: 'openai',
+          model: 'gpt-test',
+          generation_ms: 120,
+          transcript_entry_count: 2,
+          generated_at: '2026-08-29T10:30:00Z',
+        }),
+      }
+    },
+  })
+
+  assert.deepEqual(result, {
+    id: 'notes-1',
+    session_id: 'session-1',
+    status: 'ready',
+    notes_markdown: '# Interview Notes\n',
+    summary: 'Based on this transcript...',
+    strengths: ['Clear examples'],
+    improvement_areas: ['More metrics'],
+    technical_topics: ['FastAPI'],
+    key_questions: ['How is auth implemented?'],
+    suggested_followups: ['Practice tradeoffs'],
+    provider: 'openai',
+    model: 'gpt-test',
+    generation_ms: 120,
+    transcript_entry_count: 2,
+    generated_at: '2026-08-29T10:30:00Z',
+  })
+})
+
+
+test('generateInterviewSessionNotes posts authenticated generate request', async () => {
+  const result = await generateInterviewSessionNotes('unit-test-access-token', 'session-1', {
+    backendUrl: 'http://localhost:8000',
+    forceRegenerate: true,
+    fetchImpl: async (url, init) => {
+      assert.equal(url, 'http://localhost:8000/api/interview-sessions/session-1/notes/generate')
+      assert.equal(init.method, 'POST')
+      assert.equal(init.headers.Authorization, 'Bearer unit-test-access-token')
+      assert.equal(init.headers['Content-Type'], 'application/json')
+      assert.deepEqual(JSON.parse(init.body), { force_regenerate: true })
+      return {
+        ok: true,
+        json: async () => ({
+          id: 'notes-1',
+          session_id: 'session-1',
+          status: 'ready',
+          notes_markdown: '# Interview Notes\n\nUpdated\n',
+          strengths: [],
+          improvement_areas: [],
+          technical_topics: [],
+          key_questions: [],
+          suggested_followups: [],
+          transcript_entry_count: 0,
+        }),
+      }
+    },
+  })
+
+  assert.equal(result.id, 'notes-1')
+  assert.equal(result.notes_markdown, '# Interview Notes\n\nUpdated\n')
 })
 
 

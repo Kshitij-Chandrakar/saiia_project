@@ -85,6 +85,39 @@ function projectInterviewTranscriptEntry(record) {
   }
 }
 
+function projectInterviewSessionNotes(record) {
+  if (!record || typeof record !== 'object') {
+    return null
+  }
+  const id = typeof record.id === 'string' ? record.id.trim() : ''
+  const sessionId = typeof record.session_id === 'string' ? record.session_id.trim() : ''
+  if (!id || !sessionId) {
+    return null
+  }
+  const toStringList = (value) => (
+    Array.isArray(value)
+      ? value.map((item) => String(item || '').trim()).filter(Boolean)
+      : []
+  )
+  return {
+    id,
+    session_id: sessionId,
+    status: record.status || '',
+    notes_markdown: record.notes_markdown || '',
+    summary: record.summary || null,
+    strengths: toStringList(record.strengths),
+    improvement_areas: toStringList(record.improvement_areas),
+    technical_topics: toStringList(record.technical_topics),
+    key_questions: toStringList(record.key_questions),
+    suggested_followups: toStringList(record.suggested_followups),
+    provider: record.provider || null,
+    model: record.model || null,
+    generation_ms: Number.isInteger(record.generation_ms) ? record.generation_ms : null,
+    transcript_entry_count: Number.isInteger(record.transcript_entry_count) ? record.transcript_entry_count : 0,
+    generated_at: record.generated_at || null,
+  }
+}
+
 function getSafeDownloadFilename(response, fallback) {
   const contentDisposition = String(
     response?.headers?.get?.('content-disposition')
@@ -473,4 +506,53 @@ export async function downloadInterviewTranscript(accessToken, sessionId, format
     content: await response.text(),
     format: normalizedFormat,
   }
+}
+
+
+export async function fetchInterviewSessionNotes(accessToken, sessionId, options = {}) {
+  const token = requireAccessToken(accessToken)
+  const {
+    backendUrl = DEFAULT_BACKEND_URL,
+    fetchImpl = fetch,
+    signal,
+  } = options
+
+  const payload = await parseJsonResponse(
+    await fetchImpl(`${backendUrl}/api/interview-sessions/${encodeURIComponent(sessionId)}/notes`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      signal,
+    }),
+    'Unable to load AI notes.',
+  )
+
+  return projectInterviewSessionNotes(payload)
+}
+
+
+export async function generateInterviewSessionNotes(accessToken, sessionId, options = {}) {
+  const token = requireAccessToken(accessToken)
+  const {
+    backendUrl = DEFAULT_BACKEND_URL,
+    fetchImpl = fetch,
+    signal,
+    forceRegenerate = false,
+  } = options
+
+  const payload = await parseJsonResponse(
+    await fetchImpl(`${backendUrl}/api/interview-sessions/${encodeURIComponent(sessionId)}/notes/generate`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ force_regenerate: Boolean(forceRegenerate) }),
+      signal,
+    }),
+    'Unable to generate AI notes.',
+  )
+
+  return projectInterviewSessionNotes(payload)
 }

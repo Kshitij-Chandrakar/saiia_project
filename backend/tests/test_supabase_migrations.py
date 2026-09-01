@@ -12,6 +12,7 @@ C6_3_MIGRATION = MIGRATIONS_DIR / "20260828120000_add_interview_session_lifecycl
 C6_3_RPC_FIX_MIGRATION = MIGRATIONS_DIR / "20260828153000_fix_interview_session_idempotency_rpc.sql"
 C7_MIGRATION = MIGRATIONS_DIR / "20260829103000_add_interview_session_transcript_storage.sql"
 C7_LOCKDOWN_MIGRATION = MIGRATIONS_DIR / "20260829170000_lock_down_transcript_entry_inserts.sql"
+C8_MIGRATION = MIGRATIONS_DIR / "20260829223000_add_interview_session_ai_notes.sql"
 
 
 def _normalized_sql() -> str:
@@ -362,3 +363,34 @@ def test_c7_transcript_lockdown_migration_removes_authenticated_direct_insert_pa
     assert "drop policy if exists interview_session_transcript_insert_own on public.interview_session_transcript_entries" in sql
     assert "grant insert on table public.interview_session_transcript_entries to authenticated" not in sql
     assert "create policy interview_session_transcript_insert_own" not in sql
+
+
+def test_c8_ai_notes_migration_adds_table_constraints_and_rls() -> None:
+    sql = " ".join(C8_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "create table if not exists public.interview_session_ai_notes" in sql
+    assert "session_id uuid not null references public.interview_sessions(id) on delete cascade" in sql
+    assert "notes_markdown text not null" in sql
+    assert "strengths jsonb not null default '[]'::jsonb" in sql
+    assert "improvement_areas jsonb not null default '[]'::jsonb" in sql
+    assert "technical_topics jsonb not null default '[]'::jsonb" in sql
+    assert "key_questions jsonb not null default '[]'::jsonb" in sql
+    assert "suggested_followups jsonb not null default '[]'::jsonb" in sql
+    assert "transcript_entry_count integer not null default 0" in sql
+    assert "constraint interview_session_ai_notes_status_check check (status in ('ready', 'failed'))" in sql
+    assert "constraint interview_session_ai_notes_markdown_length check (char_length(notes_markdown) between 1 and 24000)" in sql
+    assert "create unique index if not exists interview_session_ai_notes_session_idx" in sql
+    assert "alter table public.interview_session_ai_notes enable row level security" in sql
+    assert "alter table public.interview_session_ai_notes force row level security" in sql
+    assert "create policy interview_session_ai_notes_select_own" in sql
+
+
+def test_c8_ai_notes_migration_keeps_authenticated_writes_backend_only() -> None:
+    sql = " ".join(C8_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "grant select on table public.interview_session_ai_notes to authenticated" in sql
+    assert "grant select, insert, update, delete on table public.interview_session_ai_notes to service_role" in sql
+    assert "grant insert on table public.interview_session_ai_notes to authenticated" not in sql
+    assert "grant update on table public.interview_session_ai_notes to authenticated" not in sql
+    assert "create policy interview_session_ai_notes_insert_own" not in sql
+    assert "create policy interview_session_ai_notes_update_own" not in sql

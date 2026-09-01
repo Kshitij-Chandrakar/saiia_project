@@ -1,0 +1,547 @@
+import logging
+import threading
+import time
+
+import httpx
+from openai import BadRequestError
+import pytest
+
+from app.cloud.interview_notes import (
+    _NOTES_GENERATION_LOCKS,
+    _NOTES_GENERATION_LOCKS_GUARD,
+    _release_generation_lock,
+    CloudInterviewNotesRecord,
+    CloudInterviewNotesService,
+    OpenAIInterviewNotesGenerator,
+)
+from app.cloud.interview_sessions import (
+    CloudInterviewSessionConflictError,
+    CloudInterviewSessionError,
+    CloudInterviewSessionNotFoundError,
+    CloudInterviewSessionRecord,
+    CloudInterviewSessionValidationError,
+)
+from app.cloud.interview_transcripts import CloudInterviewTranscriptEntryRecord, InterviewTranscriptEntryListPage
+from app.nlp.answer_generator import ProviderError
+
+
+SESSION_ID = "30000000-0000-4000-8000-000000000001"
+USER_ID = "00000000-0000-4000-8000-000000000001"
+
+
+def _session(**overrides: object) -> CloudInterviewSessionRecord:
+    payload = {
+        "id": SESSION_ID,
+        "user_id": USER_ID,
+        "selected_resume_id": None,
+        "job_context_id": None,
+        "title": "Design round",
+        "target_role": "Backend Engineer",
+        "company_name": "Acme",
+        "job_description_preview": "AI engineer",
+        "status": "ended",
+        "started_at": "2026-08-29T10:00:00Z",
+        "ended_at": "2026-08-29T10:10:00Z",
+        "created_at": "2026-08-29T10:00:00Z",
+        "updated_at": "2026-08-29T10:10:00Z",
+    }
+    payload.update(overrides)
+    return CloudInterviewSessionRecord(**payload)  # type: ignore[arg-type]
+
+
+def _entry(index: int = 1, **overrides: object) -> CloudInterviewTranscriptEntryRecord:
+    payload = {
+        "id": f"40000000-0000-4000-8000-00000000000{index}",
+        "user_id": USER_ID,
+        "session_id": SESSION_ID,
+        "turn_index": index,
+        "source": "chat",
+        "question_text": f"Question {index}",
+        "answer_text": f"Answer {index}",
+        "category": "technical",
+        "provider": "openai",
+        "model": "gpt-test",
+        "generation_ms": 123,
+        "created_at": "2026-08-29T10:05:00Z",
+    }
+    payload.update(overrides)
+    return CloudInterviewTranscriptEntryRecord(**payload)  # type: ignore[arg-type]
+
+
+def _notes(**overrides: object) -> CloudInterviewNotesRecord:
+    payload = {
+        "id": "50000000-0000-4000-8000-000000000001",
+        "user_id": USER_ID,
+        "session_id": SESSION_ID,
+        "status": "ready",
+        "notes_markdown": "# Interview Notes\n",
+        "summary": "Based on this transcript, the candidate was solid.",
+        "strengths": ["Clear examples"],
+        "improvement_areas": ["More metrics"],
+        "technical_topics": ["FastAPI"],
+        "key_questions": ["How do you secure auth?"],
+        "suggested_followups": ["Practice system design"],
+        "provider": "openai",
+        "model": "gpt-test",
+        "generation_ms": 321,
+        "transcript_entry_count": 2,
+        "generated_at": "2026-08-29T10:12:00Z",
+        "created_at": "2026-08-29T10:12:00Z",
+        "updated_at": "2026-08-29T10:12:00Z",
+    }
+    payload.update(overrides)
+    return CloudInterviewNotesRecord(**payload)  # type: ignore[arg-type]
+
+
+class FakeNotesClient:
+    def __init__(self) -> None:
+        self.get_calls: list[dict[str, str]] = []
+        self.upsert_calls: list[dict[str, object]] = []
+        self.stored: CloudInterviewNotesRecord | None = None
+
+    def get_notes(self, *, user_id: str, session_id: str) -> CloudInterviewNotesRecord:
+        self.get_calls.append({"user_id": user_id, "session_id": session_id})
+        if self.stored is None:
+            raise CloudInterviewSessionNotFoundError("Interview session notes were not found.")
+        return self.stored
+
+    def upsert_notes(self, *, user_id: str, session_id: str, payload: dict[str, object]) -> CloudInterviewNotesRecord:
+        self.upsert_calls.append({"user_id": user_id, "session_id": session_id, "payload": payload})
+        self.stored = _notes(
+            user_id=user_id,
+            session_id=session_id,
+            notes_markdown=str(payload["notes_markdown"]),
+            summary=payload["summary"],
+            strengths=list(payload["strengths"]),
+            improvement_areas=list(payload["improvement_areas"]),
+            technical_topics=list(payload["technical_topics"]),
+            key_questions=list(payload["key_questions"]),
+            suggested_followups=list(payload["suggested_followups"]),
+            provider=payload["provider"],
+            model=payload["model"],
+            generation_ms=payload["generation_ms"],
+            transcript_entry_count=payload["transcript_entry_count"],
+            generated_at=payload["generated_at"],
+        )
+        return self.stored
+
+
+class FakeSessionService:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, str]] = []
+        self.error: Exception | None = None
+
+    def get_session(self, *, user_id: str, session_id: str) -> CloudInterviewSessionRecord:
+        self.calls.append({"user_id": user_id, "session_id": session_id})
+        if self.error is not None:
+            raise self.error
+        return _session(user_id=user_id, id=session_id)
+
+
+class FakeTranscriptService:
+    def __init__(self, items: list[CloudInterviewTranscriptEntryRecord] | None = None) -> None:
+        self.items = items if items is not None else [_entry(1), _entry(2)]
+        self.calls: list[dict[str, object]] = []
+
+    def list_transcript_entries(self, *, user_id: str, session_id: str, limit: int, page: int) -> InterviewTranscriptEntryListPage:
+        self.calls.append({"user_id": user_id, "session_id": session_id, "limit": limit, "page": page})
+        return InterviewTranscriptEntryListPage(items=self.items, limit=limit, page=page)
+
+
+class FakeGenerator:
+    def __init__(self, *, result: dict[str, object] | None = None, error: Exception | None = None) -> None:
+        self.calls: list[dict[str, object]] = []
+        self.result = result or {
+            "status": "ready",
+            "notes_markdown": "# Interview Notes\n\n## Summary\n\nBased on this transcript, the answers were solid.\n",
+            "summary": "Based on this transcript, the answers were solid.",
+            "strengths": ["Clear explanations"],
+            "improvement_areas": ["More examples"],
+            "technical_topics": ["Authentication"],
+            "key_questions": ["How is auth implemented?"],
+            "suggested_followups": ["Practice tradeoff answers"],
+            "provider": "openai",
+            "model": "gpt-test",
+            "generation_ms": 222,
+        }
+        self.error = error
+
+    def generate(self, *, session: CloudInterviewSessionRecord, transcript_entries: list[CloudInterviewTranscriptEntryRecord]) -> dict[str, object]:
+        self.calls.append({"session": session, "transcript_entries": transcript_entries})
+        if self.error is not None:
+            raise self.error
+        return dict(self.result)
+
+
+@pytest.fixture(autouse=True)
+def clear_generation_locks() -> None:
+    _NOTES_GENERATION_LOCKS.clear()
+    yield
+    _NOTES_GENERATION_LOCKS.clear()
+
+
+def test_get_notes_requires_valid_session_id() -> None:
+    service = CloudInterviewNotesService(
+        client=FakeNotesClient(),
+        session_service=FakeSessionService(),
+        transcript_service=FakeTranscriptService(),
+        generator=FakeGenerator(),
+    )
+
+    with pytest.raises(CloudInterviewSessionValidationError):
+        service.get_notes(user_id=USER_ID, session_id="bad-id")
+
+
+def test_generate_notes_returns_existing_notes_without_regenerating() -> None:
+    client = FakeNotesClient()
+    client.stored = _notes()
+    generator = FakeGenerator()
+    service = CloudInterviewNotesService(
+        client=client,
+        session_service=FakeSessionService(),
+        transcript_service=FakeTranscriptService(),
+        generator=generator,
+    )
+
+    result = service.generate_notes(user_id=USER_ID, session_id=SESSION_ID, force_regenerate=False)
+
+    assert result.id == client.stored.id
+    assert generator.calls == []
+    assert client.upsert_calls == []
+    assert _NOTES_GENERATION_LOCKS == {}
+
+
+def test_generate_notes_creates_and_stores_notes_for_owned_session() -> None:
+    client = FakeNotesClient()
+    transcript_service = FakeTranscriptService()
+    generator = FakeGenerator()
+    service = CloudInterviewNotesService(
+        client=client,
+        session_service=FakeSessionService(),
+        transcript_service=transcript_service,
+        generator=generator,
+    )
+
+    result = service.generate_notes(user_id=USER_ID, session_id=SESSION_ID, force_regenerate=True)
+
+    assert result.session_id == SESSION_ID
+    assert transcript_service.calls == [{"user_id": USER_ID, "session_id": SESSION_ID, "limit": 200, "page": 1}]
+    assert len(generator.calls[0]["transcript_entries"]) == 2
+    assert client.upsert_calls[0]["user_id"] == USER_ID
+    assert client.upsert_calls[0]["payload"]["transcript_entry_count"] == 2
+    assert client.upsert_calls[0]["payload"]["generated_at"].endswith("Z")
+    assert _NOTES_GENERATION_LOCKS == {}
+
+
+def test_generate_notes_rejects_empty_transcript() -> None:
+    service = CloudInterviewNotesService(
+        client=FakeNotesClient(),
+        session_service=FakeSessionService(),
+        transcript_service=FakeTranscriptService(items=[]),
+        generator=FakeGenerator(),
+    )
+
+    with pytest.raises(CloudInterviewSessionConflictError, match="does not have transcript entries yet"):
+        service.generate_notes(user_id=USER_ID, session_id=SESSION_ID, force_regenerate=True)
+    assert _NOTES_GENERATION_LOCKS == {}
+
+
+def test_generate_notes_maps_provider_failure_to_safe_error() -> None:
+    service = CloudInterviewNotesService(
+        client=FakeNotesClient(),
+        session_service=FakeSessionService(),
+        transcript_service=FakeTranscriptService(),
+        generator=FakeGenerator(
+            error=ProviderError(
+                "provider failed",
+                provider="openai",
+                model="gpt-test",
+                phase="interview_notes_generate",
+                error_type="timeout",
+            )
+        ),
+    )
+
+    with pytest.raises(CloudInterviewSessionError, match="AI notes generation is temporarily unavailable."):
+        service.generate_notes(user_id=USER_ID, session_id=SESSION_ID, force_regenerate=True)
+    assert _NOTES_GENERATION_LOCKS == {}
+
+
+def test_generate_notes_force_regenerate_replaces_existing_notes() -> None:
+    client = FakeNotesClient()
+    client.stored = _notes(summary="Old summary")
+    generator = FakeGenerator(result={
+        "status": "ready",
+        "notes_markdown": "# Interview Notes\n\nUpdated\n",
+        "summary": "Updated summary",
+        "strengths": ["Updated strength"],
+        "improvement_areas": ["Updated gap"],
+        "technical_topics": ["Vector search"],
+        "key_questions": ["How did you build it?"],
+        "suggested_followups": ["Practice scaling"],
+        "provider": "openai",
+        "model": "gpt-new",
+        "generation_ms": 111,
+    })
+    service = CloudInterviewNotesService(
+        client=client,
+        session_service=FakeSessionService(),
+        transcript_service=FakeTranscriptService(),
+        generator=generator,
+    )
+
+    result = service.generate_notes(user_id=USER_ID, session_id=SESSION_ID, force_regenerate=True)
+
+    assert result.summary == "Updated summary"
+    assert client.upsert_calls
+    assert result.generated_at != "2026-08-29T10:12:00Z"
+    assert _NOTES_GENERATION_LOCKS == {}
+
+
+def test_generate_notes_without_force_keeps_existing_notes_without_regenerating() -> None:
+    client = FakeNotesClient()
+    client.stored = _notes(generated_at="2026-08-29T10:12:00Z")
+    generator = FakeGenerator()
+    service = CloudInterviewNotesService(
+        client=client,
+        session_service=FakeSessionService(),
+        transcript_service=FakeTranscriptService(),
+        generator=generator,
+    )
+
+    result = service.generate_notes(user_id=USER_ID, session_id=SESSION_ID, force_regenerate=False)
+
+    assert result.generated_at == "2026-08-29T10:12:00Z"
+    assert generator.calls == []
+    assert client.upsert_calls == []
+    assert _NOTES_GENERATION_LOCKS == {}
+
+
+def test_generate_notes_invalid_session_id_leaves_no_lock_entry() -> None:
+    service = CloudInterviewNotesService(
+        client=FakeNotesClient(),
+        session_service=FakeSessionService(),
+        transcript_service=FakeTranscriptService(),
+        generator=FakeGenerator(),
+    )
+
+    with pytest.raises(CloudInterviewSessionValidationError):
+        service.generate_notes(user_id=USER_ID, session_id="bad-id", force_regenerate=True)
+
+    assert _NOTES_GENERATION_LOCKS == {}
+
+
+def test_generate_notes_not_found_session_leaves_no_lock_entry() -> None:
+    session_service = FakeSessionService()
+    session_service.error = CloudInterviewSessionNotFoundError("Interview session was not found.")
+    service = CloudInterviewNotesService(
+        client=FakeNotesClient(),
+        session_service=session_service,
+        transcript_service=FakeTranscriptService(),
+        generator=FakeGenerator(),
+    )
+
+    with pytest.raises(CloudInterviewSessionNotFoundError):
+        service.generate_notes(user_id=USER_ID, session_id=SESSION_ID, force_regenerate=True)
+
+    assert _NOTES_GENERATION_LOCKS == {}
+
+
+class FakeOpenAIResponsesClient:
+    def __init__(self, *, response: object | None = None, error: Exception | None = None) -> None:
+        self.calls: list[dict[str, object]] = []
+        self._response = response
+        self._error = error
+        self.responses = self
+
+    def create(self, **kwargs: object):
+        self.calls.append(kwargs)
+        if self._error is not None:
+            raise self._error
+        return self._response
+
+
+def test_openai_notes_generator_uses_supported_reasoning_effort(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.cloud.interview_notes.settings.OPENAI_API_KEY", "unit-test-key")
+    monkeypatch.setattr("app.cloud.interview_notes.settings.AI_NOTES_MODEL", "gpt-5.4-mini-2026-03-17")
+    monkeypatch.setattr("app.cloud.interview_notes.settings.AI_NOTES_REASONING_EFFORT", "minimal")
+    client = FakeOpenAIResponsesClient(
+        response=type("Response", (), {"output_text": '{"summary":"ok","technical_topics":[],"key_questions":[],"strengths":[],"improvement_areas":[],"suggested_followups":[],"overall_feedback":"fine"}'})()
+    )
+    generator = OpenAIInterviewNotesGenerator(openai_client=client)
+
+    result = generator.generate(session=_session(), transcript_entries=[_entry(1)])
+
+    assert result["summary"] == "ok"
+    assert client.calls[0]["reasoning"] == {"effort": "low"}
+    assert client.calls[0]["input"]
+    assert client.calls[0]["text"]["format"]["type"] == "json_schema"
+
+
+def test_openai_notes_generator_bounds_session_context_and_total_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.cloud.interview_notes.settings.OPENAI_API_KEY", "unit-test-key")
+    monkeypatch.setattr("app.cloud.interview_notes.settings.AI_NOTES_MODEL", "gpt-5.4-mini-2026-03-17")
+    monkeypatch.setattr("app.cloud.interview_notes.settings.AI_NOTES_MAX_INPUT_CHARS", 700)
+    client = FakeOpenAIResponsesClient(
+        response=type("Response", (), {"output_text": '{"summary":"ok","technical_topics":[],"key_questions":[],"strengths":[],"improvement_areas":[],"suggested_followups":[],"overall_feedback":"fine"}'})()
+    )
+    generator = OpenAIInterviewNotesGenerator(openai_client=client)
+
+    generator.generate(
+        session=_session(
+            title="T" * 5000,
+            target_role="R" * 5000,
+            company_name="C" * 5000,
+            job_description_preview="J" * 5000,
+        ),
+        transcript_entries=[_entry(1, question_text="Q" * 500, answer_text="A" * 2000)],
+    )
+
+    prompt = client.calls[0]["input"]
+    assert len(prompt) <= 700
+    assert "T" * 500 not in prompt
+    assert "J" * 1000 not in prompt
+    assert "Transcript entries:" in prompt
+
+
+def test_openai_bad_request_logs_safe_fields_without_prompt_leak(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.cloud.interview_notes.settings.OPENAI_API_KEY", "unit-test-key")
+    monkeypatch.setattr("app.cloud.interview_notes.settings.AI_NOTES_MODEL", "gpt-5.4-mini-2026-03-17")
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    response = httpx.Response(
+        400,
+        request=request,
+        json={
+            "error": {
+                "message": "Unsupported value: 'minimal' is not supported with this model.",
+                "type": "invalid_request_error",
+                "param": "reasoning.effort",
+                "code": "unsupported_value",
+            }
+        },
+    )
+    error = BadRequestError("bad request", response=response, body=response.json())
+    client = FakeOpenAIResponsesClient(error=error)
+    generator = OpenAIInterviewNotesGenerator(openai_client=client)
+
+    with caplog.at_level(logging.WARNING, logger="cloud_interview_notes"), pytest.raises(ProviderError):
+        generator.generate(session=_session(), transcript_entries=[_entry(1, question_text="secret question", answer_text="secret answer")])
+
+    assert "provider=openai" in caplog.text
+    assert "model=gpt-5.4-mini-2026-03-17" in caplog.text
+    assert "error_type=BadRequestError" in caplog.text
+    assert "error_code=unsupported_value" in caplog.text
+    assert "error_param=reasoning.effort" in caplog.text
+    assert "Unsupported value: 'minimal' is not supported with this model." in caplog.text
+    assert "secret question" not in caplog.text
+    assert "secret answer" not in caplog.text
+    assert "unit-test-key" not in caplog.text
+
+
+def test_same_session_concurrent_generate_returns_in_progress_conflict() -> None:
+    client = FakeNotesClient()
+    release = threading.Event()
+    started = threading.Event()
+
+    class BlockingGenerator(FakeGenerator):
+        def generate(self, *, session: CloudInterviewSessionRecord, transcript_entries: list[CloudInterviewTranscriptEntryRecord]) -> dict[str, object]:
+            started.set()
+            release.wait(timeout=5)
+            return super().generate(session=session, transcript_entries=transcript_entries)
+
+    service = CloudInterviewNotesService(
+        client=client,
+        session_service=FakeSessionService(),
+        transcript_service=FakeTranscriptService(),
+        generator=BlockingGenerator(),
+    )
+    results: list[tuple[str, object]] = []
+
+    def run_first() -> None:
+        try:
+            record = service.generate_notes(user_id=USER_ID, session_id=SESSION_ID, force_regenerate=True)
+            results.append(("ok", record))
+        except Exception as exc:  # pragma: no cover - defensive in thread
+            results.append(("error", exc))
+
+    thread = threading.Thread(target=run_first)
+    thread.start()
+    assert started.wait(timeout=5)
+
+    with pytest.raises(CloudInterviewSessionConflictError, match="already in progress"):
+        service.generate_notes(user_id=USER_ID, session_id=SESSION_ID, force_regenerate=True)
+
+    release.set()
+    thread.join(timeout=5)
+    assert len(client.upsert_calls) == 1
+    assert _NOTES_GENERATION_LOCKS == {}
+
+
+def test_generation_lock_release_does_not_allow_acquire_before_map_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    session_id = SESSION_ID
+    lock = threading.Lock()
+    assert lock.acquire(blocking=False)
+    _NOTES_GENERATION_LOCKS[session_id] = lock
+
+    class BlockingGuard:
+        def __init__(self) -> None:
+            self.entered = threading.Event()
+            self.proceed = threading.Event()
+
+        def __enter__(self) -> None:
+            self.entered.set()
+            assert self.proceed.wait(timeout=5)
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+    guard = BlockingGuard()
+    monkeypatch.setattr("app.cloud.interview_notes._NOTES_GENERATION_LOCKS_GUARD", guard)
+
+    def release_lock() -> None:
+        _release_generation_lock(session_id, lock)
+
+    thread = threading.Thread(target=release_lock)
+    thread.start()
+    try:
+        assert guard.entered.wait(timeout=5)
+        assert lock.locked()
+        assert _NOTES_GENERATION_LOCKS[session_id] is lock
+    finally:
+        guard.proceed.set()
+        thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert _NOTES_GENERATION_LOCKS == {}
+    assert not lock.locked()
+
+
+def test_different_sessions_generate_independently() -> None:
+    client_one = FakeNotesClient()
+    client_two = FakeNotesClient()
+    generator_one = FakeGenerator()
+    generator_two = FakeGenerator()
+    service_one = CloudInterviewNotesService(
+        client=client_one,
+        session_service=FakeSessionService(),
+        transcript_service=FakeTranscriptService(items=[_entry(1, session_id="30000000-0000-4000-8000-000000000001")]),
+        generator=generator_one,
+    )
+    service_two = CloudInterviewNotesService(
+        client=client_two,
+        session_service=FakeSessionService(),
+        transcript_service=FakeTranscriptService(items=[_entry(1, session_id="30000000-0000-4000-8000-000000000002")]),
+        generator=generator_two,
+    )
+
+    first = service_one.generate_notes(user_id=USER_ID, session_id="30000000-0000-4000-8000-000000000001", force_regenerate=True)
+    second = service_two.generate_notes(user_id=USER_ID, session_id="30000000-0000-4000-8000-000000000002", force_regenerate=True)
+
+    assert first.session_id == "30000000-0000-4000-8000-000000000001"
+    assert second.session_id == "30000000-0000-4000-8000-000000000002"
+    assert len(generator_one.calls) == 1
+    assert len(generator_two.calls) == 1
+    assert _NOTES_GENERATION_LOCKS == {}
