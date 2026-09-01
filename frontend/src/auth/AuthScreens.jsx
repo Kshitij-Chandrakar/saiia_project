@@ -1194,9 +1194,11 @@ export function AuthDashboardPage({ backendUrl }) {
   const [notesGenerateKey, setNotesGenerateKey] = useState('')
   const [openAskAISessionId, setOpenAskAISessionId] = useState('')
   const [askAIMessages, setAskAIMessages] = useState([])
+  const [askAIMessagesNextPage, setAskAIMessagesNextPage] = useState(null)
   const [askAIDrafts, setAskAIDrafts] = useState({})
   const [askAILoading, setAskAILoading] = useState(false)
   const [askAIError, setAskAIError] = useState('')
+  const askAIMessagesControllerRef = useRef(null)
   const navigate = useNavigate()
   const {
     bootstrapResult,
@@ -1209,6 +1211,10 @@ export function AuthDashboardPage({ backendUrl }) {
     sessionErrorMessage: 'Session expired or signed out. Please log in again.',
     disabled: logoutPending,
   })
+
+  useEffect(() => () => {
+    askAIMessagesControllerRef.current?.abort()
+  }, [])
   const profileBootstrapDisabled = bootstrapLoading || logoutPending
 
   useEffect(() => {
@@ -1477,17 +1483,25 @@ export function AuthDashboardPage({ backendUrl }) {
 
   async function handleAskAIToggle(sessionId) {
     const normalizedSessionId = String(sessionId || '').trim()
-    if (!normalizedSessionId || askAILoading) {
+    if (!normalizedSessionId) {
       return
     }
     if (openAskAISessionId === normalizedSessionId) {
+      askAIMessagesControllerRef.current?.abort()
+      askAIMessagesControllerRef.current = null
       setOpenAskAISessionId('')
       setAskAIMessages([])
+      setAskAIMessagesNextPage(null)
       setAskAIError('')
+      setAskAILoading(false)
       return
     }
+    askAIMessagesControllerRef.current?.abort()
+    const controller = new AbortController()
+    askAIMessagesControllerRef.current = controller
     setOpenAskAISessionId(normalizedSessionId)
     setAskAIMessages([])
+    setAskAIMessagesNextPage(null)
     setAskAIError('')
     setAskAILoading(true)
     try {
@@ -1504,12 +1518,70 @@ export function AuthDashboardPage({ backendUrl }) {
         backendUrl,
         limit: 50,
         page: 1,
+        signal: controller.signal,
       })
+      if (controller.signal.aborted || askAIMessagesControllerRef.current !== controller) {
+        return
+      }
       setAskAIMessages(result.items)
-    } catch {
+      setAskAIMessagesNextPage(result.next_page)
+    } catch (loadError) {
+      if (controller.signal.aborted || loadError?.name === 'AbortError') {
+        return
+      }
       setAskAIError('Could not load Ask AI messages. Please try again.')
     } finally {
-      setAskAILoading(false)
+      if (askAIMessagesControllerRef.current === controller) {
+        askAIMessagesControllerRef.current = null
+        setAskAILoading(false)
+      }
+    }
+  }
+
+  async function handleAskAILoadMore(sessionId) {
+    const normalizedSessionId = String(sessionId || '').trim()
+    if (!normalizedSessionId || askAILoading || !askAIMessagesNextPage) {
+      return
+    }
+    askAIMessagesControllerRef.current?.abort()
+    const controller = new AbortController()
+    askAIMessagesControllerRef.current = controller
+    setAskAIError('')
+    setAskAILoading(true)
+    try {
+      if (!supabase) {
+        setAskAIError('Ask AI is unavailable until auth is ready.')
+        return
+      }
+      const { data, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError || !data.session?.access_token) {
+        setAskAIError('Could not verify Ask AI access. Please sign in again.')
+        return
+      }
+      const result = await fetchInterviewAskAIMessages(data.session.access_token, normalizedSessionId, {
+        backendUrl,
+        limit: 50,
+        page: askAIMessagesNextPage,
+        signal: controller.signal,
+      })
+      if (controller.signal.aborted || askAIMessagesControllerRef.current !== controller || openAskAISessionId !== normalizedSessionId) {
+        return
+      }
+      setAskAIMessages((current) => {
+        const seen = new Set(current.map((message) => message.id))
+        return [...current, ...result.items.filter((message) => !seen.has(message.id))]
+      })
+      setAskAIMessagesNextPage(result.next_page)
+    } catch (loadError) {
+      if (controller.signal.aborted || loadError?.name === 'AbortError') {
+        return
+      }
+      setAskAIError('Could not load Ask AI messages. Please try again.')
+    } finally {
+      if (askAIMessagesControllerRef.current === controller) {
+        askAIMessagesControllerRef.current = null
+        setAskAILoading(false)
+      }
     }
   }
 
@@ -1780,6 +1852,16 @@ export function AuthDashboardPage({ backendUrl }) {
                               <p className="auth-session-history__meta">{formatAskAIMessageMetaLine(message)}</p>
                             </section>
                           ))}
+                          {askAIMessagesNextPage ? (
+                            <button
+                              className="auth-session-history__action"
+                              type="button"
+                              onClick={() => handleAskAILoadMore(session.id)}
+                              disabled={askAILoading}
+                            >
+                              {askAILoading ? 'Loading more messages...' : 'Load more messages'}
+                            </button>
+                          ) : null}
                         </div>
                       ) : !askAILoading && !askAIError ? (
                         <p className="auth-session-history__line">No Ask AI messages yet.</p>

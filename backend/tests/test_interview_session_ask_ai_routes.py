@@ -98,6 +98,8 @@ class FakeAskAIService:
             items=[_message(1, "user", "What should I improve?", user_id=user_id, session_id=session_id)],
             limit=limit,
             page=page,
+            has_more=True,
+            next_page=page + 1,
         )
 
     def ask_ai(
@@ -163,6 +165,8 @@ def test_list_ask_ai_messages_uses_verified_user(client: TestClient, fake_servic
 
     assert response.status_code == 200
     assert response.json()["items"][0]["message_text"] == "What should I improve?"
+    assert response.json()["has_more"] is True
+    assert response.json()["next_page"] == 3
     assert fake_service.list_calls == [{"user_id": TEST_USER_ID, "session_id": SESSION_ID, "limit": 10, "page": 2}]
 
 

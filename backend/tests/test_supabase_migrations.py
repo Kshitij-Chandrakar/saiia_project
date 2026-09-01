@@ -15,6 +15,9 @@ C7_LOCKDOWN_MIGRATION = MIGRATIONS_DIR / "20260829170000_lock_down_transcript_en
 C8_MIGRATION = MIGRATIONS_DIR / "20260829223000_add_interview_session_ai_notes.sql"
 C9_MIGRATION = MIGRATIONS_DIR / "20260901103000_add_interview_session_ask_ai_messages.sql"
 C9_IDEMPOTENCY_MIGRATION = MIGRATIONS_DIR / "20260901123000_add_ask_ai_request_idempotency_keys.sql"
+C9_IDEMPOTENCY_TRIGGER_MIGRATION = (
+    MIGRATIONS_DIR / "20260901170000_add_ask_ai_request_key_updated_at_trigger.sql"
+)
 
 
 def _normalized_sql() -> str:
@@ -451,3 +454,15 @@ def test_c9_ask_ai_idempotency_migration_adds_request_keys_table() -> None:
     assert "grant select on table public.interview_session_ask_ai_request_keys to authenticated" in sql
     assert "grant select, insert, update, delete on table public.interview_session_ask_ai_request_keys to service_role" in sql
     assert "grant insert on table public.interview_session_ask_ai_request_keys to authenticated" not in sql
+    assert "grant update on table public.interview_session_ask_ai_request_keys to authenticated" not in sql
+    assert "create policy interview_session_ask_ai_request_key_insert" not in sql
+    assert "create policy interview_session_ask_ai_request_key_update" not in sql
+
+
+def test_c9_ask_ai_idempotency_followup_migration_adds_updated_at_trigger() -> None:
+    sql = " ".join(C9_IDEMPOTENCY_TRIGGER_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "create or replace function public.set_interview_session_ask_ai_request_key_updated_at()" in sql
+    assert "create trigger interview_session_ask_ai_request_key_updated_at" in sql
+    assert "before update on public.interview_session_ask_ai_request_keys" in sql
+    assert "execute function public.set_interview_session_ask_ai_request_key_updated_at()" in sql

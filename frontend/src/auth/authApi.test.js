@@ -518,12 +518,15 @@ test('generateInterviewSessionNotes posts authenticated generate request', async
 
 
 test('fetchInterviewAskAIMessages keeps only valid session messages', async () => {
+  const controller = new AbortController()
   const result = await fetchInterviewAskAIMessages('unit-test-access-token', 'session-1', {
     backendUrl: 'http://localhost:8000',
+    signal: controller.signal,
     fetchImpl: async (url, init) => {
       assert.equal(url, 'http://localhost:8000/api/interview-sessions/session-1/ask-ai/messages?limit=50&page=1')
       assert.equal(init.method, 'GET')
       assert.equal(init.headers.Authorization, 'Bearer unit-test-access-token')
+      assert.equal(init.signal, controller.signal)
       return {
         ok: true,
         json: async () => ({
@@ -543,6 +546,8 @@ test('fetchInterviewAskAIMessages keeps only valid session messages', async () =
           ],
           limit: 50,
           page: 1,
+          has_more: true,
+          next_page: 2,
         }),
       }
     },
@@ -564,6 +569,8 @@ test('fetchInterviewAskAIMessages keeps only valid session messages', async () =
     ],
     limit: 50,
     page: 1,
+    has_more: true,
+    next_page: 2,
   })
 })
 

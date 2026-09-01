@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 import logging
 
 import httpx
@@ -139,11 +140,16 @@ class FakeAskAIClient:
         self.claim_calls: list[dict[str, object]] = []
         self.complete_calls: list[dict[str, object]] = []
         self.fail_calls: list[dict[str, object]] = []
+        self.reclaim_calls: list[dict[str, object]] = []
 
     def list_messages(self, *, user_id: str, session_id: str, limit: int, page: int):
         self.list_calls.append({"user_id": user_id, "session_id": session_id, "limit": limit, "page": page})
-        rows = [message for message in self.messages if message.user_id == user_id and message.session_id == session_id]
         offset = (page - 1) * limit
+        return self.list_messages_window(user_id=user_id, session_id=session_id, limit=limit, offset=offset)
+
+    def list_messages_window(self, *, user_id: str, session_id: str, limit: int, offset: int):
+        self.list_calls.append({"user_id": user_id, "session_id": session_id, "limit": limit, "offset": offset})
+        rows = [message for message in self.messages if message.user_id == user_id and message.session_id == session_id]
         return rows[offset : offset + limit]
 
     def list_recent_messages(self, *, user_id: str, session_id: str, limit: int):
@@ -224,6 +230,44 @@ class FakeAskAIClient:
         self.request_keys[key] = updated
         return updated
 
+    def reclaim_stale_request_key(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        request_id: str,
+        payload_hash: str,
+        stale_before: datetime,
+    ):
+        self.reclaim_calls.append(
+            {
+                "user_id": user_id,
+                "session_id": session_id,
+                "request_id": request_id,
+                "payload_hash": payload_hash,
+                "stale_before": stale_before,
+            }
+        )
+        key = (user_id, session_id, request_id)
+        current = self.request_keys.get(key)
+        if current is None or current.status != "processing" or current.payload_hash != payload_hash:
+            return None, False
+        updated_at = datetime.fromisoformat(str(current.updated_at).replace("Z", "+00:00"))
+        if updated_at >= stale_before:
+            return None, False
+        updated = _request_key(
+            1,
+            id=current.id,
+            user_id=user_id,
+            session_id=session_id,
+            request_id=request_id,
+            status="processing",
+            payload_hash=payload_hash,
+            updated_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        )
+        self.request_keys[key] = updated
+        return updated, True
+
     def create_message(self, *, user_id: str, session_id: str, payload: dict[str, object]):
         self.create_calls.append({"user_id": user_id, "session_id": session_id, "payload": payload})
         record = _message(
@@ -292,6 +336,12 @@ class FakeGenerator:
         }
 
 
+class ExplodingGenerator(FakeGenerator):
+    def generate(self, *, context: str, question: str):
+        self.calls.append({"context": context, "question": question})
+        raise RuntimeError("boom")
+
+
 def _service(
     *,
     client: FakeAskAIClient | None = None,
@@ -323,13 +373,24 @@ def test_list_messages_uses_page_offset_and_reports_more() -> None:
     client = FakeAskAIClient([_message(index, "user", f"Message {index}") for index in range(1, 8)])
     service = _service(client=client)
 
-    result = service.list_messages(user_id=USER_ID, session_id=SESSION_ID, limit=3, page=2)
+    page_1 = service.list_messages(user_id=USER_ID, session_id=SESSION_ID, limit=3, page=1)
+    page_2 = service.list_messages(user_id=USER_ID, session_id=SESSION_ID, limit=3, page=2)
+    page_3 = service.list_messages(user_id=USER_ID, session_id=SESSION_ID, limit=3, page=3)
 
-    assert [message.turn_index for message in result.items] == [5, 6, 7]
-    assert result.has_more is False
-    assert result.next_page is None
-    assert client.list_calls[-1]["limit"] == 4
-    assert client.list_calls[-1]["page"] == 2
+    assert [message.turn_index for message in page_1.items] == [1, 2, 3]
+    assert page_1.has_more is True
+    assert page_1.next_page == 2
+    assert [message.turn_index for message in page_2.items] == [4, 5, 6]
+    assert page_2.has_more is True
+    assert page_2.next_page == 3
+    assert [message.turn_index for message in page_3.items] == [7]
+    assert page_3.has_more is False
+    assert page_3.next_page is None
+    assert client.list_calls == [
+        {"user_id": USER_ID, "session_id": SESSION_ID, "limit": 4, "offset": 0},
+        {"user_id": USER_ID, "session_id": SESSION_ID, "limit": 4, "offset": 3},
+        {"user_id": USER_ID, "session_id": SESSION_ID, "limit": 4, "offset": 6},
+    ]
 
 
 def test_ask_ai_rejects_empty_and_oversized_questions() -> None:
@@ -390,7 +451,7 @@ def test_ask_ai_stores_user_and_assistant_messages_with_context() -> None:
 
 
 def test_ask_ai_request_id_replay_returns_same_messages_without_provider_call() -> None:
-    client = FakeAskAIClient()
+    client = FakeAskAIClient([_message(1, "user", "Earlier question")])
     generator = FakeGenerator()
     service = _service(client=client, generator=generator)
 
@@ -402,31 +463,21 @@ def test_ask_ai_request_id_replay_returns_same_messages_without_provider_call() 
     assert first.user_message.id == second.user_message.id
     assert first.assistant_message.id == second.assistant_message.id
     assert second.answer_text == first.answer_text
+    assert second.context_used.transcript_entry_count == 2
+    assert second.context_used.notes_used is True
+    assert second.context_used.recent_message_count == 3
 
 
 def test_ask_ai_request_id_processing_and_failed_states_are_explicit() -> None:
     client = FakeAskAIClient()
     service = _service(client=client)
-    payload_hash = "abc123"
-    client.request_keys[(USER_ID, SESSION_ID, "ask-processing")] = _request_key(
-        1,
-        request_id="ask-processing",
-        payload_hash=payload_hash,
-        status="processing",
-    )
-    client.request_keys[(USER_ID, SESSION_ID, "ask-failed")] = _request_key(
-        2,
-        request_id="ask-failed",
-        payload_hash=payload_hash,
-        status="failed",
-    )
-
     service_hash = _payload_hash_for_test(question="What should I improve?", include_notes=True)
     client.request_keys[(USER_ID, SESSION_ID, "ask-processing")] = _request_key(
         1,
         request_id="ask-processing",
         payload_hash=service_hash,
         status="processing",
+        updated_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     )
     client.request_keys[(USER_ID, SESSION_ID, "ask-failed")] = _request_key(
         2,
@@ -440,6 +491,61 @@ def test_ask_ai_request_id_processing_and_failed_states_are_explicit() -> None:
 
     with pytest.raises(CloudInterviewSessionConflictError, match="previously failed"):
         service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="What should I improve?", request_id="ask-failed")
+
+
+def test_ask_ai_stale_processing_request_id_is_reclaimed() -> None:
+    client = FakeAskAIClient()
+    generator = FakeGenerator()
+    service = _service(client=client, generator=generator)
+    service_hash = _payload_hash_for_test(question="What should I improve?", include_notes=True)
+    stale_time = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat().replace("+00:00", "Z")
+    client.request_keys[(USER_ID, SESSION_ID, "ask-stale")] = _request_key(
+        1,
+        request_id="ask-stale",
+        payload_hash=service_hash,
+        status="processing",
+        updated_at=stale_time,
+    )
+
+    result = service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="What should I improve?", request_id="ask-stale")
+
+    assert result.answer_text.startswith("Based on this transcript")
+    assert len(generator.calls) == 1
+    assert client.reclaim_calls[0]["request_id"] == "ask-stale"
+    assert client.request_keys[(USER_ID, SESSION_ID, "ask-stale")].status == "completed"
+
+
+def test_ask_ai_provider_failure_marks_request_key_failed() -> None:
+    client = FakeAskAIClient()
+    service = _service(
+        client=client,
+        generator=FakeGenerator(
+            error=ProviderError(
+                "provider failed",
+                provider="openai",
+                model="gpt-test",
+                phase="interview_ask_ai",
+                error_type="timeout",
+            )
+        ),
+    )
+
+    with pytest.raises(CloudInterviewSessionError, match=ASK_AI_FAILURE_MESSAGE):
+        service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="What should I improve?", request_id="ask-fail")
+
+    assert client.fail_calls[-1]["request_id"] == "ask-fail"
+    assert client.request_keys[(USER_ID, SESSION_ID, "ask-fail")].status == "failed"
+
+
+def test_ask_ai_non_provider_failure_marks_request_key_failed() -> None:
+    client = FakeAskAIClient()
+    service = _service(client=client, generator=ExplodingGenerator())
+
+    with pytest.raises(RuntimeError, match="boom"):
+        service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="What should I improve?", request_id="ask-boom")
+
+    assert client.fail_calls[-1]["request_id"] == "ask-boom"
+    assert client.request_keys[(USER_ID, SESSION_ID, "ask-boom")].status == "failed"
 
 
 def test_ask_ai_request_id_rejects_different_payload() -> None:

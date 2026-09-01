@@ -646,6 +646,8 @@ export async function fetchInterviewAskAIMessages(accessToken, sessionId, option
     items: Array.isArray(payload.items) ? payload.items.map(projectInterviewAskAIMessage).filter(Boolean) : [],
     limit: Number.isInteger(payload.limit) ? payload.limit : Number(limit) || 50,
     page: Number.isInteger(payload.page) ? payload.page : Number(page) || 1,
+    has_more: Boolean(payload.has_more),
+    next_page: Number.isInteger(payload.next_page) ? payload.next_page : null,
   }
 }
 

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 import hashlib
 import html
 import json
@@ -62,6 +63,7 @@ SUPABASE_MUTATION_TIMEOUT = 8
 OPENAI_REASONING_EFFORT_FALLBACK = "low"
 OPENAI_SUPPORTED_REASONING_EFFORTS = {"none", "low", "medium", "high", "xhigh"}
 REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._~-]{1,128}$")
+MIN_PROCESSING_STALE_SECONDS = 60
 
 
 @dataclass(frozen=True)
@@ -164,6 +166,11 @@ def _payload_hash(*, question: str, include_notes: bool) -> str:
             separators=(",", ":"),
         ).encode("utf-8")
     ).hexdigest()
+
+
+def _processing_stale_before() -> datetime:
+    seconds = max(float(settings.ASK_AI_TIMEOUT_SECONDS or 0) * 2, MIN_PROCESSING_STALE_SECONDS)
+    return datetime.now(timezone.utc) - timedelta(seconds=seconds)
 
 
 def _record_from_payload(payload: dict[str, Any]) -> CloudInterviewAskAIMessageRecord:
@@ -352,6 +359,44 @@ class SupabaseInterviewAskAIClient:
             },
         )
 
+    def reclaim_stale_request_key(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        request_id: str,
+        payload_hash: str,
+        stale_before: datetime,
+    ) -> tuple[CloudInterviewAskAIRequestKeyRecord | None, bool]:
+        try:
+            response = self._session.patch(
+                f"{self._rest_url}/interview_session_ask_ai_request_keys",
+                headers={**self._headers, "Prefer": "return=representation"},
+                params={
+                    "user_id": f"eq.{user_id}",
+                    "session_id": f"eq.{session_id}",
+                    "request_id": f"eq.{request_id}",
+                    "payload_hash": f"eq.{payload_hash}",
+                    "status": "eq.processing",
+                    "updated_at": f"lt.{stale_before.isoformat().replace('+00:00', 'Z')}",
+                },
+                json={
+                    "status": "processing",
+                    "error_code": None,
+                    "user_message_id": None,
+                    "assistant_message_id": None,
+                },
+                timeout=SUPABASE_MUTATION_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            self._raise_request("interview_session_ask_ai_request_keys", "reclaim", exc)
+        if response.status_code != 200:
+            self._raise_response("interview_session_ask_ai_request_keys", "reclaim", response)
+        data = response.json()
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            return _request_key_from_payload(data[0]), True
+        return None, False
+
     def _patch_request_key(
         self,
         *,
@@ -432,6 +477,9 @@ class SupabaseInterviewAskAIClient:
 
     def list_messages(self, *, user_id: str, session_id: str, limit: int, page: int) -> list[CloudInterviewAskAIMessageRecord]:
         offset = (page - 1) * limit
+        return self.list_messages_window(user_id=user_id, session_id=session_id, limit=limit, offset=offset)
+
+    def list_messages_window(self, *, user_id: str, session_id: str, limit: int, offset: int) -> list[CloudInterviewAskAIMessageRecord]:
         return self._select_messages(
             {
                 "select": "*",
@@ -641,7 +689,8 @@ class CloudInterviewAskAIService:
         if page < 1 or page > 1000:
             raise CloudInterviewSessionValidationError("Page must be between 1 and 1000.")
         self._session_service.get_session(user_id=user_id, session_id=normalized_session_id)
-        rows = self._client.list_messages(user_id=user_id, session_id=normalized_session_id, limit=limit + 1, page=page)
+        offset = (page - 1) * limit
+        rows = self._client.list_messages_window(user_id=user_id, session_id=normalized_session_id, limit=limit + 1, offset=offset)
         return InterviewAskAIMessageListPage(
             items=rows[:limit],
             limit=limit,
@@ -689,6 +738,11 @@ class CloudInterviewAskAIService:
         )
         if not transcript_entries and notes is None:
             raise CloudInterviewSessionConflictError("This session does not have transcript or AI notes context yet.")
+        context_used = AskAIContextUsed(
+            transcript_entry_count=len(transcript_entries),
+            notes_used=notes is not None,
+            recent_message_count=len(recent_messages),
+        )
         request_key = None
         if normalized_request_id and payload_hash:
             request_key, request_claimed = self._client.claim_request_key(
@@ -703,6 +757,7 @@ class CloudInterviewAskAIService:
                     session_id=normalized_session_id,
                     request_key=request_key,
                     payload_hash=payload_hash,
+                    context_used=context_used,
                 )
                 if replayed is not None:
                     return replayed
@@ -715,14 +770,21 @@ class CloudInterviewAskAIService:
         try:
             generated = self._generator.generate(context=context, question=normalized_question)
         except ProviderError as exc:
-            if normalized_request_id:
-                self._client.fail_request_key(
-                    user_id=user_id,
-                    session_id=normalized_session_id,
-                    request_id=normalized_request_id,
-                    error_code=type(exc).__name__,
-                )
+            self._mark_request_key_failed(
+                user_id=user_id,
+                session_id=normalized_session_id,
+                request_id=normalized_request_id,
+                error_code=type(exc).__name__,
+            )
             raise CloudInterviewSessionError(ASK_AI_FAILURE_MESSAGE) from exc
+        except Exception as exc:
+            self._mark_request_key_failed(
+                user_id=user_id,
+                session_id=normalized_session_id,
+                request_id=normalized_request_id,
+                error_code=type(exc).__name__,
+            )
+            raise
         provider = _normalize_text(generated.get("provider"), field="provider", max_chars=MAX_PROVIDER_CHARS)
         model = _normalize_text(generated.get("model"), field="model", max_chars=MAX_MODEL_CHARS)
         generation_ms = _normalize_generation_ms(generated.get("generation_ms"))
@@ -773,11 +835,7 @@ class CloudInterviewAskAIService:
             provider=provider,
             model=model,
             generation_ms=generation_ms,
-            context_used=AskAIContextUsed(
-                transcript_entry_count=len(transcript_entries),
-                notes_used=notes is not None,
-                recent_message_count=len(recent_messages),
-            ),
+            context_used=context_used,
         )
 
     def _replay_request_key(
@@ -787,10 +845,20 @@ class CloudInterviewAskAIService:
         session_id: str,
         request_key: CloudInterviewAskAIRequestKeyRecord,
         payload_hash: str,
+        context_used: AskAIContextUsed,
     ) -> AskAIResult | None:
         if request_key.payload_hash != payload_hash:
             raise CloudInterviewSessionConflictError("Ask AI request_id was already used with different input.")
         if request_key.status == "processing":
+            reclaimed_key, reclaimed = self._client.reclaim_stale_request_key(
+                user_id=user_id,
+                session_id=session_id,
+                request_id=request_key.request_id,
+                payload_hash=payload_hash,
+                stale_before=_processing_stale_before(),
+            )
+            if reclaimed and reclaimed_key is not None:
+                return None
             raise CloudInterviewSessionConflictError("Ask AI request is already processing.")
         if request_key.status == "failed":
             raise CloudInterviewSessionConflictError("Ask AI request previously failed. Please retry with a new request_id.")
@@ -807,11 +875,24 @@ class CloudInterviewAskAIService:
             provider=assistant_message.provider,
             model=assistant_message.model,
             generation_ms=assistant_message.generation_ms,
-            context_used=AskAIContextUsed(
-                transcript_entry_count=0,
-                notes_used=False,
-                recent_message_count=0,
-            ),
+            context_used=context_used,
+        )
+
+    def _mark_request_key_failed(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        request_id: str | None,
+        error_code: str,
+    ) -> None:
+        if not request_id:
+            return
+        self._client.fail_request_key(
+            user_id=user_id,
+            session_id=session_id,
+            request_id=request_id,
+            error_code=error_code,
         )
 
     def build_context_from_session(
