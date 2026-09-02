@@ -311,6 +311,7 @@ class FakeAskAIClient:
             status="processing",
             payload_hash=payload_hash,
             updated_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            claim_token="reclaimed-claim",
         )
         self.request_keys[key] = updated
         return updated, True
@@ -572,6 +573,7 @@ def test_ask_ai_stale_processing_request_id_is_reclaimed() -> None:
     assert len(generator.calls) == 1
     assert client.reclaim_calls[0]["request_id"] == "ask-stale"
     assert client.request_keys[(USER_ID, SESSION_ID, "ask-stale")].status == "completed"
+    assert client.complete_turn_calls[0]["claim_token"] == "reclaimed-claim"
 
 
 def test_ask_ai_provider_failure_marks_request_key_failed() -> None:
@@ -798,6 +800,20 @@ def test_openai_ask_ai_generator_cleans_escaped_markdown_and_entities(monkeypatc
     assert result["answer_text"] == "Focus\n- depth\n1. Improve examples"
     assert r"\*" not in result["answer_text"]
     assert "&#x20;" not in result["answer_text"]
+
+
+def test_openai_ask_ai_generator_empty_output_is_provider_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.cloud.interview_ask_ai.settings.OPENAI_API_KEY", "unit-test-key")
+    monkeypatch.setattr("app.cloud.interview_ask_ai.settings.ASK_AI_MODEL", "gpt-test")
+    client = FakeOpenAIResponsesClient(response=type("Response", (), {"output_text": ""})())
+    generator = OpenAIInterviewAskAIGenerator(openai_client=client)
+
+    with pytest.raises(ProviderError) as error:
+        generator.generate(context="Transcript entries:\nQuestion: Q\nAnswer: A", question="What should I improve?")
+
+    assert error.value.provider == "openai"
+    assert error.value.model == "gpt-test"
+    assert error.value.error_type == "empty_response"
 
 
 def test_openai_ask_ai_bad_request_logs_safe_fields_without_prompt_leak(

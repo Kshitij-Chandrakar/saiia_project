@@ -651,12 +651,21 @@ class OpenAIInterviewAskAIGenerator:
                 error_type=type(exc).__name__,
                 error_message=self._safe_error_message(exc),
             ) from exc
-        answer = _normalize_readable_message_text(
-            getattr(response, "output_text", ""),
-            field="answer_text",
-            max_chars=MAX_MESSAGE_TEXT_CHARS,
-            required=True,
-        )
+        try:
+            answer = _normalize_readable_message_text(
+                getattr(response, "output_text", ""),
+                field="answer_text",
+                max_chars=MAX_MESSAGE_TEXT_CHARS,
+                required=True,
+            )
+        except CloudInterviewSessionValidationError as exc:
+            raise ProviderError(
+                ASK_AI_FAILURE_MESSAGE,
+                provider="openai",
+                model=settings.ASK_AI_MODEL,
+                phase="interview_ask_ai",
+                error_type="empty_response",
+            ) from exc
         return {
             "answer_text": answer,
             "provider": "openai",
@@ -811,7 +820,7 @@ class CloudInterviewAskAIService:
                 payload_hash=payload_hash,
             )
             if not request_claimed:
-                replayed = self._replay_request_key(
+                replayed, request_key = self._replay_request_key(
                     user_id=user_id,
                     session_id=normalized_session_id,
                     request_key=request_key,
@@ -863,7 +872,7 @@ class CloudInterviewAskAIService:
                         request_id=normalized_request_id,
                     )
                     if current_key.status == "completed":
-                        replayed = self._replay_request_key(
+                        replayed, _ = self._replay_request_key(
                             user_id=user_id,
                             session_id=normalized_session_id,
                             request_key=current_key,
@@ -942,7 +951,7 @@ class CloudInterviewAskAIService:
         request_key: CloudInterviewAskAIRequestKeyRecord,
         payload_hash: str,
         context_used: AskAIContextUsed,
-    ) -> AskAIResult | None:
+    ) -> tuple[AskAIResult | None, CloudInterviewAskAIRequestKeyRecord]:
         if request_key.payload_hash != payload_hash:
             raise CloudInterviewSessionConflictError("Ask AI request_id was already used with different input.")
         if request_key.status == "processing":
@@ -954,7 +963,7 @@ class CloudInterviewAskAIService:
                 stale_before=_processing_stale_before(),
             )
             if reclaimed and reclaimed_key is not None:
-                return None
+                return None, reclaimed_key
             raise CloudInterviewSessionConflictError("Ask AI request is already processing.")
         if request_key.status == "failed":
             raise CloudInterviewSessionConflictError("Ask AI request previously failed. Please retry with a new request_id.")
@@ -972,7 +981,7 @@ class CloudInterviewAskAIService:
             model=assistant_message.model,
             generation_ms=assistant_message.generation_ms,
             context_used=context_used,
-        )
+        ), request_key
 
     def _mark_request_key_failed(
         self,

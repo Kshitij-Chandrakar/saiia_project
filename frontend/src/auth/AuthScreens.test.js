@@ -10,6 +10,7 @@ const signupPageSource = source.match(/export function AuthSignupPage[\s\S]*?exp
 const loginPageSource = source.match(/export function AuthLoginPage[\s\S]*?export function AuthForgotPasswordPage/)?.[0] || ''
 const statusPageSource = source.match(/export function AuthStatusPage[\s\S]*?function RequireAuth/)?.[0] || ''
 const dashboardPageSource = source.match(/export function AuthDashboardPage[\s\S]*?export function AuthResumePage/)?.[0] || ''
+const askAIToggleSource = dashboardPageSource.match(/async function handleAskAIToggle[\s\S]*?\n  \}\n\n  async function handleAskAILoadMore/)?.[0] || ''
 const resumePageSource = source.match(/export function AuthResumePage[\s\S]*?export function AuthLogoutPage/)?.[0] || ''
 const statusLogoutSource = statusPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n  \}\n\n  return \(/)?.[0] || ''
 const dashboardLogoutSource = dashboardPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n  \}\n\n  return \(/)?.[0] || ''
@@ -22,6 +23,7 @@ assert.ok(signupPageSource, 'AuthSignupPage source slice should be found')
 assert.ok(loginPageSource, 'AuthLoginPage source slice should be found')
 assert.ok(statusPageSource, 'AuthStatusPage source slice should be found')
 assert.ok(dashboardPageSource, 'AuthDashboardPage source slice should be found')
+assert.ok(askAIToggleSource, 'handleAskAIToggle source slice should be found')
 assert.ok(resumePageSource, 'AuthResumePage source slice should be found')
 assert.ok(statusLogoutSource, 'AuthStatusPage handleLogout source slice should be found')
 assert.ok(dashboardLogoutSource, 'AuthDashboardPage handleLogout source slice should be found')
@@ -240,7 +242,8 @@ test('dashboard loads session history and transcript controls with separate load
   assert.match(dashboardPageSource, /Ask AI/)
   assert.match(dashboardPageSource, /async function handleAskAIToggle\(sessionId, \{ reload = false \} = \{\}\) \{[\s\S]*setOpenAskAISessionId\(normalizedSessionId\)[\s\S]*fetchInterviewAskAIMessages\(data\.session\.access_token, normalizedSessionId/)
   assert.match(dashboardPageSource, /if \(openAskAISessionId === normalizedSessionId && !reload\) \{[\s\S]*resetAskAIState\(\)[\s\S]*return/)
-  assert.doesNotMatch(dashboardPageSource, /if \(!normalizedSessionId \|\| askAILoading\)/)
+  assert.match(askAIToggleSource, /async function handleAskAIToggle/)
+  assert.doesNotMatch(askAIToggleSource, /askAILoading/)
   assert.match(dashboardPageSource, /const controller = new AbortController\(\)[\s\S]*askAIMessagesControllerRef\.current = controller/)
   assert.match(dashboardPageSource, /signal: controller\.signal/)
   assert.match(dashboardPageSource, /controller\.signal\.aborted \|\| askAIMessagesControllerRef\.current !== controller/)
