@@ -13,6 +13,13 @@ C6_3_RPC_FIX_MIGRATION = MIGRATIONS_DIR / "20260828153000_fix_interview_session_
 C7_MIGRATION = MIGRATIONS_DIR / "20260829103000_add_interview_session_transcript_storage.sql"
 C7_LOCKDOWN_MIGRATION = MIGRATIONS_DIR / "20260829170000_lock_down_transcript_entry_inserts.sql"
 C8_MIGRATION = MIGRATIONS_DIR / "20260829223000_add_interview_session_ai_notes.sql"
+C9_MIGRATION = MIGRATIONS_DIR / "20260901103000_add_interview_session_ask_ai_messages.sql"
+C9_IDEMPOTENCY_MIGRATION = MIGRATIONS_DIR / "20260901123000_add_ask_ai_request_idempotency_keys.sql"
+C9_IDEMPOTENCY_TRIGGER_MIGRATION = (
+    MIGRATIONS_DIR / "20260901170000_add_ask_ai_request_key_updated_at_trigger.sql"
+)
+C9_ATOMIC_TURN_MIGRATION = MIGRATIONS_DIR / "20260902120000_add_ask_ai_atomic_turn_persistence.sql"
+C9_INDEX_CLEANUP_MIGRATION = MIGRATIONS_DIR / "20260902130000_drop_redundant_ask_ai_message_index.sql"
 
 
 def _normalized_sql() -> str:
@@ -394,3 +401,104 @@ def test_c8_ai_notes_migration_keeps_authenticated_writes_backend_only() -> None
     assert "grant update on table public.interview_session_ai_notes to authenticated" not in sql
     assert "create policy interview_session_ai_notes_insert_own" not in sql
     assert "create policy interview_session_ai_notes_update_own" not in sql
+
+
+def test_c9_ask_ai_migration_adds_messages_table_constraints_and_rls() -> None:
+    sql = " ".join(C9_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "create table if not exists public.interview_session_ask_ai_messages" in sql
+    assert "session_id uuid not null references public.interview_sessions(id) on delete cascade" in sql
+    assert "role text not null" in sql
+    assert "message_text text not null" in sql
+    assert "turn_index integer not null" in sql
+    assert "metadata jsonb not null default '{}'::jsonb" in sql
+    assert "constraint interview_session_ask_ai_role_check check (role in ('user', 'assistant'))" in sql
+    assert "constraint interview_session_ask_ai_message_length check (char_length(message_text) between 1 and 12000)" in sql
+    assert "constraint interview_session_ask_ai_metadata_size check (octet_length(metadata::text) <= 4000)" in sql
+    assert "create unique index if not exists interview_session_ask_ai_session_turn_idx" in sql
+    assert "alter table public.interview_session_ask_ai_messages enable row level security" in sql
+    assert "alter table public.interview_session_ask_ai_messages force row level security" in sql
+    assert "create policy interview_session_ask_ai_select_own" in sql
+    assert "auth.uid() = user_id and exists" in sql
+    assert "where s.id = session_id and s.user_id = auth.uid()" in sql
+
+
+def test_c9_ask_ai_migration_keeps_authenticated_writes_backend_only() -> None:
+    sql = " ".join(C9_MIGRATION.read_text(encoding="utf-8").lower().split())
+    signature = "public.create_interview_session_ask_ai_message( uuid, uuid, text, text, text, text, integer, jsonb )"
+
+    assert "create or replace function public.create_interview_session_ask_ai_message" in sql
+    assert "where s.id = p_session_id and s.user_id = p_user_id" in sql
+    assert "select max(m.turn_index)" in sql
+    assert "where m.session_id = p_session_id" in sql
+    assert "grant select on table public.interview_session_ask_ai_messages to authenticated" in sql
+    assert "grant select, insert, update, delete on table public.interview_session_ask_ai_messages to service_role" in sql
+    assert "grant insert on table public.interview_session_ask_ai_messages to authenticated" not in sql
+    assert "grant update on table public.interview_session_ask_ai_messages to authenticated" not in sql
+    assert "grant delete on table public.interview_session_ask_ai_messages to authenticated" not in sql
+    assert "create policy interview_session_ask_ai_insert_own" not in sql
+    assert "create policy interview_session_ask_ai_update_own" not in sql
+    assert "create policy interview_session_ask_ai_delete_own" not in sql
+    assert f"revoke all on function {signature} from public" in sql
+    assert f"revoke all on function {signature} from anon" in sql
+    assert f"revoke all on function {signature} from authenticated" in sql
+    assert f"grant execute on function {signature} to service_role" in sql
+
+
+def test_c9_ask_ai_idempotency_migration_adds_request_keys_table() -> None:
+    sql = " ".join(C9_IDEMPOTENCY_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "create table if not exists public.interview_session_ask_ai_request_keys" in sql
+    assert "session_id uuid not null references public.interview_sessions(id) on delete cascade" in sql
+    assert "request_id text not null" in sql
+    assert "status text not null default 'processing'" in sql
+    assert "user_message_id uuid null references public.interview_session_ask_ai_messages(id) on delete set null" in sql
+    assert "assistant_message_id uuid null references public.interview_session_ask_ai_messages(id) on delete set null" in sql
+    assert "constraint interview_session_ask_ai_request_key_status_check check (status in ('processing', 'completed', 'failed'))" in sql
+    assert "constraint interview_session_ask_ai_request_key_unique unique (user_id, session_id, request_id)" in sql
+    assert "alter table public.interview_session_ask_ai_request_keys enable row level security" in sql
+    assert "alter table public.interview_session_ask_ai_request_keys force row level security" in sql
+    assert "create policy interview_session_ask_ai_request_key_select_own" in sql
+    assert "auth.uid() = user_id and exists" in sql
+    assert "where s.id = session_id and s.user_id = auth.uid()" in sql
+    assert "grant select on table public.interview_session_ask_ai_request_keys to authenticated" in sql
+    assert "grant select, insert, update, delete on table public.interview_session_ask_ai_request_keys to service_role" in sql
+    assert "grant insert on table public.interview_session_ask_ai_request_keys to authenticated" not in sql
+    assert "grant update on table public.interview_session_ask_ai_request_keys to authenticated" not in sql
+    assert "grant delete on table public.interview_session_ask_ai_request_keys to authenticated" not in sql
+    assert "create policy interview_session_ask_ai_request_key_insert" not in sql
+    assert "create policy interview_session_ask_ai_request_key_update" not in sql
+    assert "create policy interview_session_ask_ai_request_key_delete" not in sql
+
+
+def test_c9_ask_ai_idempotency_followup_migration_adds_updated_at_trigger() -> None:
+    sql = " ".join(C9_IDEMPOTENCY_TRIGGER_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "create or replace function public.set_interview_session_ask_ai_request_key_updated_at()" in sql
+    assert "new.updated_at := timezone('utc', now())" in sql
+    assert "create trigger interview_session_ask_ai_request_key_updated_at" in sql
+    assert "before update on public.interview_session_ask_ai_request_keys" in sql
+    assert "execute function public.set_interview_session_ask_ai_request_key_updated_at()" in sql
+
+
+def test_c9_ask_ai_atomic_turn_migration_adds_fenced_completion_rpc() -> None:
+    sql = " ".join(C9_ATOMIC_TURN_MIGRATION.read_text(encoding="utf-8").lower().split())
+    signature = "public.complete_interview_session_ask_ai_turn( uuid, uuid, text, uuid, text, text, text, text, integer, jsonb )"
+
+    assert "add column if not exists claim_token uuid" in sql
+    assert "alter column claim_token set not null" in sql
+    assert "create or replace function public.complete_interview_session_ask_ai_turn" in sql
+    assert "p_claim_token uuid" in sql
+    assert "where k.id = v_request_key.id" in sql
+    assert "and k.claim_token = p_claim_token" in sql
+    assert "insert into public.interview_session_ask_ai_messages" in sql
+    assert f"revoke all on function {signature} from public" in sql
+    assert f"revoke all on function {signature} from anon" in sql
+    assert f"revoke all on function {signature} from authenticated" in sql
+    assert f"grant execute on function {signature} to service_role" in sql
+
+
+def test_c9_ask_ai_index_cleanup_migration_drops_redundant_index() -> None:
+    sql = " ".join(C9_INDEX_CLEANUP_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "drop index if exists public.interview_session_ask_ai_session_created_idx" in sql

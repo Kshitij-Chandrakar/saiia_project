@@ -118,6 +118,62 @@ function projectInterviewSessionNotes(record) {
   }
 }
 
+function decodeHtmlCodePoint(value, radix) {
+  const codePoint = Number.parseInt(value, radix)
+  return Number.isFinite(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
+    ? String.fromCodePoint(codePoint)
+    : ''
+}
+
+export function normalizeReadableAskAIText(value) {
+  let text = String(value || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  text = text
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => decodeHtmlCodePoint(hex, 16))
+    .replace(/&#(\d+);/g, (_, code) => decodeHtmlCodePoint(code, 10))
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+  text = text.replace(/\\([\\`*_{}\[\]()#+\-.!>])/g, '$1')
+  text = text
+    .split('\n')
+    .map((line) => line
+      .replace(/^\s{0,3}#{1,6}\s*/, '')
+      .replace(/^\s*[-*+]\s+/, '- ')
+      .replace(/^\s*(\d+)\\?\.\s+/, '$1. '))
+    .join('\n')
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .trim()
+}
+
+function projectInterviewAskAIMessage(record) {
+  if (!record || typeof record !== 'object') {
+    return null
+  }
+  const id = typeof record.id === 'string' ? record.id.trim() : ''
+  const sessionId = typeof record.session_id === 'string' ? record.session_id.trim() : ''
+  const role = typeof record.role === 'string' ? record.role.trim() : ''
+  const turnIndex = Number(record.turn_index)
+  if (!id || !sessionId || !['user', 'assistant'].includes(role) || !Number.isInteger(turnIndex) || turnIndex < 1) {
+    return null
+  }
+  return {
+    id,
+    session_id: sessionId,
+    role,
+    message_text: normalizeReadableAskAIText(record.message_text),
+    turn_index: turnIndex,
+    provider: record.provider || null,
+    model: record.model || null,
+    generation_ms: Number.isInteger(record.generation_ms) ? record.generation_ms : null,
+    created_at: record.created_at || null,
+  }
+}
+
 function getSafeDownloadFilename(response, fallback) {
   const contentDisposition = String(
     response?.headers?.get?.('content-disposition')
@@ -555,4 +611,81 @@ export async function generateInterviewSessionNotes(accessToken, sessionId, opti
   )
 
   return projectInterviewSessionNotes(payload)
+}
+
+
+export async function fetchInterviewAskAIMessages(accessToken, sessionId, options = {}) {
+  const token = requireAccessToken(accessToken)
+  const {
+    backendUrl = DEFAULT_BACKEND_URL,
+    fetchImpl = fetch,
+    signal,
+    limit = 50,
+    page = 1,
+  } = options
+
+  const payload = await parseJsonResponse(
+    await fetchImpl(
+      `${backendUrl}/api/interview-sessions/${encodeURIComponent(sessionId)}/ask-ai/messages?limit=${encodeURIComponent(String(limit))}&page=${encodeURIComponent(String(page))}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        signal,
+      },
+    ),
+    'Unable to load Ask AI messages.',
+  )
+
+  return {
+    items: Array.isArray(payload.items) ? payload.items.map(projectInterviewAskAIMessage).filter(Boolean) : [],
+    limit: Number.isInteger(payload.limit) ? payload.limit : Number(limit) || 50,
+    page: Number.isInteger(payload.page) ? payload.page : Number(page) || 1,
+    has_more: Boolean(payload.has_more),
+    next_page: Number.isInteger(payload.next_page) ? payload.next_page : null,
+  }
+}
+
+
+export async function askInterviewSessionAI(accessToken, sessionId, question, options = {}) {
+  const token = requireAccessToken(accessToken)
+  const {
+    backendUrl = DEFAULT_BACKEND_URL,
+    fetchImpl = fetch,
+    signal,
+    requestId = null,
+    includeNotes = true,
+  } = options
+
+  const payload = await parseJsonResponse(
+    await fetchImpl(`${backendUrl}/api/interview-sessions/${encodeURIComponent(sessionId)}/ask-ai`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        question,
+        request_id: requestId,
+        include_notes: Boolean(includeNotes),
+      }),
+      signal,
+    }),
+    'Unable to ask AI about this session.',
+  )
+
+  return {
+    user_message: projectInterviewAskAIMessage(payload.user_message),
+    assistant_message: projectInterviewAskAIMessage(payload.assistant_message),
+    answer_text: normalizeReadableAskAIText(payload.answer_text),
+    provider: payload.provider || null,
+    model: payload.model || null,
+    generation_ms: Number.isInteger(payload.generation_ms) ? payload.generation_ms : null,
+    context_used: {
+      transcript_entry_count: Number(payload.context_used?.transcript_entry_count || 0),
+      notes_used: Boolean(payload.context_used?.notes_used),
+      recent_message_count: Number(payload.context_used?.recent_message_count || 0),
+    },
+  }
 }

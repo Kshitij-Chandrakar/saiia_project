@@ -3,12 +3,14 @@ import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react
 import { Eye, EyeOff, FileText, LogOut, Upload } from 'lucide-react'
 
 import {
+  askInterviewSessionAI,
   bootstrapProfile,
   confirmCloudResume,
   createDesktopHandoff,
   deleteCloudResume,
   downloadInterviewTranscript,
   extractCloudResume,
+  fetchInterviewAskAIMessages,
   fetchInterviewSessionNotes,
   fetchInterviewTranscriptEntries,
   fetchInterviewSessions,
@@ -398,6 +400,77 @@ function formatInterviewNotesMetaLine(notes) {
   if (notes?.generated_at) {
     parts.push(`Generated: ${formatSessionTime(notes.generated_at)}`)
   }
+  return parts.join(' - ')
+}
+
+
+const INTERVIEW_NOTES_SECTIONS = [
+  ['summary', 'Summary'],
+  ['technical_topics', 'Topics Covered'],
+  ['key_questions', 'Key Questions Asked'],
+  ['strengths', 'Strong Points'],
+  ['improvement_areas', 'Areas to Improve'],
+  ['suggested_followups', 'Suggested Follow-up Practice'],
+]
+
+
+const ASK_AI_CONTEXT_MISSING_ERROR = 'This session does not have transcript or AI notes context yet.'
+const ASK_AI_CONTEXT_MISSING_MESSAGE = 'This session does not have transcript or AI notes context yet. Record interview questions first, then come back to Ask AI.'
+
+
+function isAskAIContextMissingError(message) {
+  const text = String(message || '')
+  return text === ASK_AI_CONTEXT_MISSING_ERROR || text === ASK_AI_CONTEXT_MISSING_MESSAGE
+}
+
+
+function cleanNotesMarkdownLine(line) {
+  return String(line || '')
+    .replace(/^\s{0,3}#{1,6}\s*/, '')
+    .replace(/^\s*[-*+]\s+/, '')
+    .replace(/^\s*\d+\.\s+/, '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .trim()
+}
+
+
+function getNotesMarkdownFallbackItems(notes) {
+  return String(notes?.notes_markdown || '')
+    .split(/\r?\n/)
+    .map(cleanNotesMarkdownLine)
+    .filter((line) => line && !/^interview notes$/i.test(line))
+}
+
+
+function getStructuredNotesSections(notes) {
+  if (!notes) {
+    return []
+  }
+  const sections = INTERVIEW_NOTES_SECTIONS.map(([key, title]) => {
+    const value = notes[key]
+    const items = Array.isArray(value)
+      ? value.map((item) => String(item || '').trim()).filter(Boolean)
+      : [String(value || '').trim()].filter(Boolean)
+    return { key, title, items }
+  }).filter((section) => section.items.length)
+
+  if (sections.length) {
+    return sections
+  }
+  const fallbackItems = getNotesMarkdownFallbackItems(notes)
+  return fallbackItems.length ? [{ key: 'notes_markdown', title: 'Overall Feedback', items: fallbackItems }] : []
+}
+
+
+function formatAskAIMessageMetaLine(message) {
+  const parts = [`Turn: ${message?.turn_index || 0}`]
+  if (message?.provider) {
+    parts.push(`Provider: ${message.provider}`)
+  }
+  if (message?.model) {
+    parts.push(`Model: ${message.model}`)
+  }
+  parts.push(`Created: ${formatSessionTime(message?.created_at)}`)
   return parts.join(' - ')
 }
 
@@ -1119,6 +1192,15 @@ export function AuthDashboardPage({ backendUrl }) {
   const [notesLoading, setNotesLoading] = useState(false)
   const [notesError, setNotesError] = useState('')
   const [notesGenerateKey, setNotesGenerateKey] = useState('')
+  const [openAskAISessionId, setOpenAskAISessionId] = useState('')
+  const [askAIMessages, setAskAIMessages] = useState([])
+  const [askAIMessagesNextPage, setAskAIMessagesNextPage] = useState(null)
+  const [askAIDrafts, setAskAIDrafts] = useState({})
+  const [askAIRequestIds, setAskAIRequestIds] = useState({})
+  const [askAILoading, setAskAILoading] = useState(false)
+  const [askAIError, setAskAIError] = useState('')
+  const askAIMessagesControllerRef = useRef(null)
+  const askAISubmitControllerRef = useRef(null)
   const navigate = useNavigate()
   const {
     bootstrapResult,
@@ -1131,6 +1213,22 @@ export function AuthDashboardPage({ backendUrl }) {
     sessionErrorMessage: 'Session expired or signed out. Please log in again.',
     disabled: logoutPending,
   })
+
+  function resetAskAIState() {
+    askAIMessagesControllerRef.current?.abort()
+    askAISubmitControllerRef.current?.abort()
+    askAIMessagesControllerRef.current = null
+    askAISubmitControllerRef.current = null
+    setOpenAskAISessionId('')
+    setAskAIMessages([])
+    setAskAIMessagesNextPage(null)
+    setAskAIError('')
+    setAskAILoading(false)
+  }
+
+  useEffect(() => () => {
+    resetAskAIState()
+  }, [])
   const profileBootstrapDisabled = bootstrapLoading || logoutPending
 
   useEffect(() => {
@@ -1170,6 +1268,7 @@ export function AuthDashboardPage({ backendUrl }) {
           setOpenNotesSessionId('')
           setSessionNotes(null)
           setNotesError('')
+          resetAskAIState()
         }
       } catch {
         if (!ignore) {
@@ -1181,6 +1280,7 @@ export function AuthDashboardPage({ backendUrl }) {
           setOpenNotesSessionId('')
           setSessionNotes(null)
           setNotesError('')
+          resetAskAIState()
         }
       } finally {
         if (!ignore) {
@@ -1226,6 +1326,7 @@ export function AuthDashboardPage({ backendUrl }) {
       setOpenNotesSessionId('')
       setSessionNotes(null)
       setNotesError('')
+      resetAskAIState()
     } catch {
       setSessionHistory([])
       setSessionHistoryError('Could not load interview sessions. Please try again.')
@@ -1235,6 +1336,7 @@ export function AuthDashboardPage({ backendUrl }) {
       setOpenNotesSessionId('')
       setSessionNotes(null)
       setNotesError('')
+      resetAskAIState()
     } finally {
       setSessionHistoryLoading(false)
     }
@@ -1385,6 +1487,180 @@ export function AuthDashboardPage({ backendUrl }) {
     }
   }
 
+  async function handleAskAIToggle(sessionId, { reload = false } = {}) {
+    const normalizedSessionId = String(sessionId || '').trim()
+    if (!normalizedSessionId) {
+      return
+    }
+    if (openAskAISessionId === normalizedSessionId && !reload) {
+      resetAskAIState()
+      return
+    }
+    resetAskAIState()
+    const controller = new AbortController()
+    askAIMessagesControllerRef.current = controller
+    setOpenAskAISessionId(normalizedSessionId)
+    setAskAIMessages([])
+    setAskAIMessagesNextPage(null)
+    setAskAIError('')
+    setAskAILoading(true)
+    try {
+      if (!supabase) {
+        setAskAIError('Ask AI is unavailable until auth is ready.')
+        return
+      }
+      const { data, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError || !data.session?.access_token) {
+        setAskAIError('Could not verify Ask AI access. Please sign in again.')
+        return
+      }
+      const result = await fetchInterviewAskAIMessages(data.session.access_token, normalizedSessionId, {
+        backendUrl,
+        limit: 50,
+        page: 1,
+        signal: controller.signal,
+      })
+      if (controller.signal.aborted || askAIMessagesControllerRef.current !== controller) {
+        return
+      }
+      setAskAIMessages(result.items)
+      setAskAIMessagesNextPage(result.next_page)
+    } catch (loadError) {
+      if (controller.signal.aborted || loadError?.name === 'AbortError') {
+        return
+      }
+      setAskAIError('Could not load Ask AI messages. Please try again.')
+    } finally {
+      if (askAIMessagesControllerRef.current === controller) {
+        askAIMessagesControllerRef.current = null
+        setAskAILoading(false)
+      }
+    }
+  }
+
+  async function handleAskAILoadMore(sessionId) {
+    const normalizedSessionId = String(sessionId || '').trim()
+    if (!normalizedSessionId || askAILoading || !askAIMessagesNextPage) {
+      return
+    }
+    askAIMessagesControllerRef.current?.abort()
+    const controller = new AbortController()
+    askAIMessagesControllerRef.current = controller
+    setAskAIError('')
+    setAskAILoading(true)
+    try {
+      if (!supabase) {
+        setAskAIError('Ask AI is unavailable until auth is ready.')
+        return
+      }
+      const { data, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError || !data.session?.access_token) {
+        setAskAIError('Could not verify Ask AI access. Please sign in again.')
+        return
+      }
+      const result = await fetchInterviewAskAIMessages(data.session.access_token, normalizedSessionId, {
+        backendUrl,
+        limit: 50,
+        page: askAIMessagesNextPage,
+        signal: controller.signal,
+      })
+      if (controller.signal.aborted || askAIMessagesControllerRef.current !== controller || openAskAISessionId !== normalizedSessionId) {
+        return
+      }
+      setAskAIMessages((current) => {
+        const seen = new Set(current.map((message) => message.id))
+        return [...current, ...result.items.filter((message) => !seen.has(message.id))]
+      })
+      setAskAIMessagesNextPage(result.next_page)
+    } catch (loadError) {
+      if (controller.signal.aborted || loadError?.name === 'AbortError') {
+        return
+      }
+      setAskAIError('Could not load Ask AI messages. Please try again.')
+    } finally {
+      if (askAIMessagesControllerRef.current === controller) {
+        askAIMessagesControllerRef.current = null
+        setAskAILoading(false)
+      }
+    }
+  }
+
+  async function handleAskAISubmit(event, sessionId) {
+    event.preventDefault()
+    const normalizedSessionId = String(sessionId || '').trim()
+    const question = String(askAIDrafts[normalizedSessionId] || '').trim()
+    if (!normalizedSessionId || !question || askAILoading) {
+      return
+    }
+    askAISubmitControllerRef.current?.abort()
+    const controller = new AbortController()
+    askAISubmitControllerRef.current = controller
+    const requestState = askAIRequestIds[normalizedSessionId]
+    const requestId = requestState?.question === question
+      ? requestState.requestId
+      : `ask-ai-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    setAskAIRequestIds((current) => ({
+      ...current,
+      [normalizedSessionId]: { question, requestId },
+    }))
+    setOpenAskAISessionId(normalizedSessionId)
+    setAskAIError('')
+    setAskAILoading(true)
+    try {
+      if (!supabase) {
+        setAskAIError('Ask AI is unavailable until auth is ready.')
+        return
+      }
+      const { data, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError || !data.session?.access_token) {
+        setAskAIError('Could not verify Ask AI access. Please sign in again.')
+        return
+      }
+      const result = await askInterviewSessionAI(data.session.access_token, normalizedSessionId, question, {
+        backendUrl,
+        requestId,
+        includeNotes: true,
+        signal: controller.signal,
+      })
+      if (controller.signal.aborted || askAISubmitControllerRef.current !== controller || openAskAISessionId !== normalizedSessionId) {
+        return
+      }
+      setAskAIMessages((current) => [
+        ...current,
+        result.user_message,
+        result.assistant_message,
+      ].filter(Boolean))
+      setAskAIDrafts((current) => ({
+        ...current,
+        [normalizedSessionId]: '',
+      }))
+      setAskAIRequestIds((current) => {
+        const next = { ...current }
+        delete next[normalizedSessionId]
+        return next
+      })
+    } catch (askError) {
+      if (controller.signal.aborted || askError?.name === 'AbortError' || askAISubmitControllerRef.current !== controller || openAskAISessionId !== normalizedSessionId) {
+        return
+      }
+      const message = String(askError?.message || '').trim()
+      if (isAskAIContextMissingError(message)) {
+        setAskAIError(ASK_AI_CONTEXT_MISSING_MESSAGE)
+        setAskAIDrafts((current) => ({
+          ...current,
+          [normalizedSessionId]: '',
+        }))
+      } else {
+        setAskAIError(message || 'Could not ask AI about this session. Please try again.')
+      }
+    } finally {
+      if (askAISubmitControllerRef.current === controller) {
+        askAISubmitControllerRef.current = null
+        setAskAILoading(false)
+      }
+    }
+  }
+
   async function handleLogout() {
     if (!supabase || logoutPending) {
       return
@@ -1484,6 +1760,14 @@ export function AuthDashboardPage({ backendUrl }) {
                     <button
                       className="auth-session-history__action"
                       type="button"
+                      onClick={() => handleAskAIToggle(session.id)}
+                      disabled={askAILoading && openAskAISessionId !== session.id}
+                    >
+                      {openAskAISessionId === session.id ? 'Hide Ask AI' : 'Ask AI'}
+                    </button>
+                    <button
+                      className="auth-session-history__action"
+                      type="button"
                       onClick={() => handleTranscriptDownload(session.id, 'txt')}
                       disabled={Boolean(transcriptDownloadKey)}
                     >
@@ -1535,11 +1819,23 @@ export function AuthDashboardPage({ backendUrl }) {
                         </div>
                       ) : sessionNotes ? (
                         <section className="auth-session-history__notes-card">
-                          {sessionNotes.summary ? (
-                            <p className="auth-session-history__line"><strong>Summary:</strong> {sessionNotes.summary}</p>
-                          ) : null}
                           <p className="auth-session-history__meta">{formatInterviewNotesMetaLine(sessionNotes)}</p>
-                          <pre className="auth-session-history__notes-markdown">{sessionNotes.notes_markdown}</pre>
+                          <div className="auth-session-history__notes-sections">
+                            {getStructuredNotesSections(sessionNotes).map((section) => (
+                              <section key={section.key} className="auth-session-history__notes-section">
+                                <h4>{section.title}</h4>
+                                {section.items.length === 1 && section.key === 'summary' ? (
+                                  <p>{section.items[0]}</p>
+                                ) : (
+                                  <ul>
+                                    {section.items.map((item, index) => (
+                                      <li key={`${section.key}-${index}`}>{item}</li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </section>
+                            ))}
+                          </div>
                           <button
                             className="auth-session-history__action"
                             type="button"
@@ -1552,6 +1848,88 @@ export function AuthDashboardPage({ backendUrl }) {
                       ) : (
                         <p className="auth-session-history__line">No AI notes yet. Generate AI Notes to create them.</p>
                       )}
+                    </div>
+                  ) : null}
+                  {openAskAISessionId === session.id ? (
+                    <div className="auth-session-history__ask-ai">
+                      {askAIError ? (
+                        <div>
+                          <p className="auth-message error">{askAIError}</p>
+                          {!isAskAIContextMissingError(askAIError) ? (
+                            <button
+                              className="auth-session-history__action"
+                              type="button"
+                              onClick={() => handleAskAIToggle(session.id, { reload: true })}
+                              disabled={askAILoading}
+                            >
+                              Retry Ask AI
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {askAILoading && !askAIMessages.length ? (
+                        <p className="auth-session-history__line">Loading Ask AI...</p>
+                      ) : null}
+                      {askAIMessages.length ? (
+                        <div className="auth-session-history__ask-ai-messages">
+                          {askAIMessages.map((message) => (
+                            <section key={message.id} className="auth-session-history__ask-ai-message">
+                              <p className="auth-session-history__line"><strong>{message.role === 'user' ? 'You' : 'AI'}:</strong> {message.message_text}</p>
+                              <p className="auth-session-history__meta">{formatAskAIMessageMetaLine(message)}</p>
+                            </section>
+                          ))}
+                          {askAIMessagesNextPage ? (
+                            <button
+                              className="auth-session-history__action"
+                              type="button"
+                              onClick={() => handleAskAILoadMore(session.id)}
+                              disabled={askAILoading}
+                            >
+                              {askAILoading ? 'Loading more messages...' : 'Load more messages'}
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : !askAILoading && !askAIError ? (
+                        <p className="auth-session-history__line">No Ask AI messages yet.</p>
+                      ) : null}
+                      {!isAskAIContextMissingError(askAIError) ? (
+                        <form className="auth-session-history__ask-ai-form" onSubmit={(event) => handleAskAISubmit(event, session.id)}>
+                          <label>
+                            Ask about this session
+                            <textarea
+                              value={askAIDrafts[session.id] || ''}
+                              onChange={(event) => {
+                                setAskAIDrafts((current) => ({
+                                  ...current,
+                                  [session.id]: event.target.value,
+                                }))
+                                const value = event.target.value
+                                setAskAIRequestIds((current) => {
+                                  const requestState = current[session.id]
+                                  if (!requestState || requestState.question === value.trim()) {
+                                    return current
+                                  }
+                                  const next = { ...current }
+                                  delete next[session.id]
+                                  return next
+                                })
+                              }}
+                              disabled={askAILoading}
+                              spellCheck={false}
+                              autoCorrect="off"
+                              autoComplete="off"
+                              placeholder="Ask what to improve, rewrite an answer, or practice follow-ups..."
+                            />
+                          </label>
+                          <button
+                            className="auth-session-history__action"
+                            type="submit"
+                            disabled={askAILoading || !String(askAIDrafts[session.id] || '').trim()}
+                          >
+                            {askAILoading ? 'Asking AI...' : 'Send Ask AI'}
+                          </button>
+                        </form>
+                      ) : null}
                     </div>
                   ) : null}
                 </article>

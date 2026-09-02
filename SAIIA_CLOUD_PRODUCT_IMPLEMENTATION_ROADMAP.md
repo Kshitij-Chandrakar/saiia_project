@@ -4,9 +4,9 @@
 **Document type:** Detailed implementation roadmap and execution source of truth  
 **Track:** Desktop stabilization â†’ Cloud account system â†’ Website integration â†’ Session intelligence â†’ Subscription and release  
 **Version:** 1.1  
-**Last updated:** 2026-08-29
+**Last updated:** 2026-09-01
 **Created:** 2026-07-10  
-**Current active phase:** C8 - AI Notes generation implemented locally with explicit dashboard generation from stored transcript entries; manual live verification is still pending, C9 Ask AI memory is not started, and broader startup-shell polish, C4.4 generation integration follow-up, cloud sync engine expansion, and local/cloud data migration remain not started
+**Current active phase:** C9 - Ask AI and follow-up context memory implemented locally with session-scoped messages, authenticated Ask AI routes, transcript/notes-grounded answers, and dashboard Ask AI panel; manual live verification is pending, C10 email system is not started, and payments/admin/pricing remain not started
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -1583,7 +1583,7 @@ Desktop may cache:
 ## Status
 
 ```text
-[~] In progress - C6.1 desktop startup/session setup UI audit and plan complete in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`; C6.2A Startup Login Screen implemented locally for signed-out/token-expired desktop startup using existing safe preload auth APIs and a dev/local memory-only handoff store deferred to C16.1 for production hardening; C6.3 durable interview session lifecycle and cloud session storage are now implemented locally through authenticated backend routes, Supabase lifecycle storage, Electron main-process session IPC, desktop runtime `activeSessionId` state, and a basic website dashboard session history list; C7 transcript storage, session transcript viewing, and transcript download are now implemented locally through session-owned transcript rows, authenticated transcript routes, generation-time transcript writes, and dashboard transcript controls; C8 AI Notes is now implemented locally through transcript-based notes generation/storage and dashboard notes view in `docs/C8_AI_NOTES_GENERATION.md`; C9 Ask AI memory is not started
+[~] In progress - C6.1 desktop startup/session setup UI audit and plan complete in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`; C6.2A Startup Login Screen implemented locally for signed-out/token-expired desktop startup using existing safe preload auth APIs and a dev/local memory-only handoff store deferred to C16.1 for production hardening; C6.3 durable interview session lifecycle and cloud session storage are now implemented locally through authenticated backend routes, Supabase lifecycle storage, Electron main-process session IPC, desktop runtime `activeSessionId` state, and a basic website dashboard session history list; C7 transcript storage, session transcript viewing, and transcript download are implemented locally through session-owned transcript rows, authenticated transcript routes, generation-time transcript writes, and dashboard transcript controls; C8 AI Notes is implemented locally through transcript-based notes generation/storage and dashboard notes view in `docs/C8_AI_NOTES_GENERATION.md`; C9 Ask AI and follow-up context memory is implemented locally in `docs/C9_ASK_AI_FOLLOWUP_CONTEXT_MEMORY.md`; C10 email is not started
 ```
 
 ## Goal
@@ -1653,7 +1653,7 @@ As of 2026-08-28, C6.3 is implemented locally with the following scope:
 Explicit non-scope for this implementation:
 
 - C7 transcript storage, transcript viewing, and transcript download are implemented locally in this branch
-- C8 AI Notes is implemented locally in `docs/C8_AI_NOTES_GENERATION.md`; C9 Ask AI memory is not started
+- C8 AI Notes is implemented locally in `docs/C8_AI_NOTES_GENERATION.md`; C9 Ask AI is implemented locally in `docs/C9_ASK_AI_FOLLOWUP_CONTEXT_MEMORY.md`
 - no payments, admin console, or final UI redesign
 
 ## Desktop behavior
@@ -1732,7 +1732,7 @@ DELETE /api/sessions/{session_id}
 ## Status
 
 ```text
-[ ] Not started
+[x] Implemented locally through session-owned transcript storage, viewing, and `.txt`/`.md` download; C8 AI Notes is implemented locally in `docs/C8_AI_NOTES_GENERATION.md`; C9 Ask AI is implemented locally in `docs/C9_ASK_AI_FOLLOWUP_CONTEXT_MEMORY.md`; C10 email is not started.
 ```
 
 ## Goal
@@ -1883,7 +1883,7 @@ GET /api/sessions/{id}/transcript/export?format=txt
 ## Status
 
 ```text
-[ ] Not started
+[x] Implemented locally through transcript-based notes generation/storage and dashboard notes view in `docs/C8_AI_NOTES_GENERATION.md`; C9 Ask AI is implemented locally in `docs/C9_ASK_AI_FOLLOWUP_CONTEXT_MEMORY.md`; C10 email is not started.
 ```
 
 ## Goal
@@ -1993,7 +1993,7 @@ Do not add a heavy job queue unless needed. A lightweight background task may be
 ## Status
 
 ```text
-[ ] Not started
+[x] Implemented locally in `docs/C9_ASK_AI_FOLLOWUP_CONTEXT_MEMORY.md`; session-scoped authenticated Ask AI messages, bounded transcript/notes context, request idempotency, safe dashboard history, and pagination are implemented. Manual live verification remains the release check. C10 email is not started.
 ```
 
 ## Goal
@@ -2015,33 +2015,12 @@ Ask AI may use:
 - session transcript
 - generated answers
 - AI notes
-- active job context
-- user profile/resume context, when relevant
-- previous Ask AI messages in the same thread
+- safe session metadata
+- previous Ask AI messages for the same interview session
 
 ## Data model
 
-### `ask_ai_threads`
-
-- `id`
-- `user_id`
-- `session_id`
-- `title`
-- `created_at`
-- `updated_at`
-
-### `ask_ai_messages`
-
-- `id`
-- `user_id`
-- `thread_id`
-- `role`
-- `content`
-- `resolved_query`
-- `context_message_ids`
-- `provider`
-- `model`
-- `created_at`
+The current C9 storage contract is the session-scoped `interview_session_ask_ai_messages` table plus `interview_session_ask_ai_request_keys` for idempotency. It is backed by the C9 request-key trigger and atomic turn-persistence follow-up migrations. There is no global memory or `ask_ai_threads` contract; C10 email is not started.
 
 ## Follow-up resolver
 
@@ -2084,13 +2063,11 @@ For long sessions:
 
 ## API routes
 
-Possible routes:
+Current routes:
 
 ```text
-POST /api/sessions/{id}/ask
-GET  /api/sessions/{id}/ask/threads
-GET  /api/ask/threads/{thread_id}
-DELETE /api/ask/threads/{thread_id}
+POST /api/interview-sessions/{session_id}/ask-ai
+GET  /api/interview-sessions/{session_id}/ask-ai/messages
 ```
 
 ## C9 tests
@@ -2103,15 +2080,14 @@ DELETE /api/ask/threads/{thread_id}
 - long session retrieval
 - no transcript evidence
 - ownership
-- thread persistence
-- deletion
+- session-scoped message persistence
 
 ## C9 exit criteria
 
 - Ask AI works on a session
 - follow-ups resolve correctly in tested cases
 - unsupported transcript claims are avoided
-- threads persist
+- session-scoped Ask AI messages persist
 - long sessions use bounded context
 
 ---
@@ -4052,8 +4028,8 @@ auth.users
     |      +-- transcript_messages
     |      +-- ai_answers
     |      +-- ai_notes
-    |      +-- ask_ai_threads
-    |             +-- ask_ai_messages
+    |      +-- interview_session_ask_ai_messages
+    |      +-- interview_session_ask_ai_request_keys
     +-- subscriptions
     +-- usage_events
     +-- usage_monthly
@@ -4085,9 +4061,9 @@ Expected API groups:
 /api/resumes/*
 /api/job-contexts/*
 /api/sessions/*
-/api/sessions/{id}/transcript/*
-/api/sessions/{id}/notes/*
-/api/sessions/{id}/ask/*
+/api/interview-sessions/{session_id}/transcript/*
+/api/interview-sessions/{session_id}/notes/*
+/api/interview-sessions/{session_id}/ask-ai/*
 /api/plans
 /api/billing/*
 /api/usage/*
@@ -4800,11 +4776,10 @@ Scope:
 
 This C0 feature is a live-interview prerequisite only. It does not implement the persistent C9 Ask AI system.
 
-C9 remains responsible for:
+C9 currently provides:
 
 - saved sessions
-- stored threads
-- `ask_ai_messages`
+- session-scoped `interview_session_ask_ai_messages`
 - transcript retrieval
 - AI Notes
 - persistence after restart

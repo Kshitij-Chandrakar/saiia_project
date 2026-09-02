@@ -1,5 +1,6 @@
 from functools import lru_cache
 import logging
+import threading
 from typing import Annotated
 from uuid import UUID
 
@@ -24,6 +25,14 @@ from app.cloud.interview_notes import (
     NOTES_GENERATION_FAILURE_MESSAGE,
     SAFE_FAILURE_MESSAGE as NOTES_SAFE_FAILURE_MESSAGE,
 )
+from app.cloud.interview_ask_ai import (
+    ASK_AI_FAILURE_MESSAGE,
+    AskAIResult,
+    CloudInterviewAskAIMessageRecord,
+    CloudInterviewAskAIService,
+    InterviewAskAIMessageListPage,
+    SAFE_FAILURE_MESSAGE as ASK_AI_SAFE_FAILURE_MESSAGE,
+)
 from app.cloud.interview_transcripts import (
     CloudInterviewTranscriptEntryRecord,
     CloudInterviewTranscriptService,
@@ -34,6 +43,7 @@ from app.cloud.supabase_config import SupabaseConfigurationError
 
 router = APIRouter()
 logger = logging.getLogger("cloud_interview_session_api")
+_ASK_AI_CAPACITY = threading.BoundedSemaphore(8)
 
 
 class InterviewSessionCreateRequest(BaseModel):
@@ -129,6 +139,50 @@ class InterviewSessionNotesResponse(BaseModel):
     generated_at: str | None = None
 
 
+class InterviewSessionAskAIRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str
+    request_id: str | None = None
+    include_notes: bool = True
+
+
+class InterviewSessionAskAIMessageResponse(BaseModel):
+    id: str
+    session_id: str
+    role: str
+    message_text: str
+    turn_index: int
+    provider: str | None = None
+    model: str | None = None
+    generation_ms: int | None = None
+    created_at: str | None = None
+
+
+class InterviewSessionAskAIContextResponse(BaseModel):
+    transcript_entry_count: int
+    notes_used: bool
+    recent_message_count: int
+
+
+class InterviewSessionAskAIResponse(BaseModel):
+    user_message: InterviewSessionAskAIMessageResponse
+    assistant_message: InterviewSessionAskAIMessageResponse
+    answer_text: str
+    provider: str | None = None
+    model: str | None = None
+    generation_ms: int | None = None
+    context_used: InterviewSessionAskAIContextResponse
+
+
+class InterviewSessionAskAIMessageListResponse(BaseModel):
+    items: list[InterviewSessionAskAIMessageResponse]
+    limit: int
+    page: int
+    has_more: bool = False
+    next_page: int | None = None
+
+
 @lru_cache(maxsize=1)
 def _cached_cloud_interview_session_service() -> CloudInterviewSessionService:
     return CloudInterviewSessionService()
@@ -142,6 +196,11 @@ def _cached_cloud_interview_transcript_service() -> CloudInterviewTranscriptServ
 @lru_cache(maxsize=1)
 def _cached_cloud_interview_notes_service() -> CloudInterviewNotesService:
     return CloudInterviewNotesService()
+
+
+@lru_cache(maxsize=1)
+def _cached_cloud_interview_ask_ai_service() -> CloudInterviewAskAIService:
+    return CloudInterviewAskAIService()
 
 
 def get_cloud_interview_session_service() -> CloudInterviewSessionService:
@@ -165,9 +224,17 @@ def get_cloud_interview_notes_service() -> CloudInterviewNotesService:
         raise _handle_cloud_error(exc) from exc
 
 
+def get_cloud_interview_ask_ai_service() -> CloudInterviewAskAIService:
+    try:
+        return _cached_cloud_interview_ask_ai_service()
+    except SupabaseConfigurationError as exc:
+        raise _handle_cloud_error(exc) from exc
+
+
 CloudInterviewSessionServiceDep = Annotated[CloudInterviewSessionService, Depends(get_cloud_interview_session_service)]
 CloudInterviewTranscriptServiceDep = Annotated[CloudInterviewTranscriptService, Depends(get_cloud_interview_transcript_service)]
 CloudInterviewNotesServiceDep = Annotated[CloudInterviewNotesService, Depends(get_cloud_interview_notes_service)]
+CloudInterviewAskAIServiceDep = Annotated[CloudInterviewAskAIService, Depends(get_cloud_interview_ask_ai_service)]
 
 
 def _session_response(record: CloudInterviewSessionRecord) -> InterviewSessionResponse:
@@ -221,6 +288,36 @@ def _notes_response(record: CloudInterviewNotesRecord) -> InterviewSessionNotesR
     )
 
 
+def _ask_ai_message_response(record: CloudInterviewAskAIMessageRecord) -> InterviewSessionAskAIMessageResponse:
+    return InterviewSessionAskAIMessageResponse(
+        id=record.id,
+        session_id=record.session_id,
+        role=record.role,
+        message_text=record.message_text,
+        turn_index=record.turn_index,
+        provider=record.provider,
+        model=record.model,
+        generation_ms=record.generation_ms,
+        created_at=record.created_at,
+    )
+
+
+def _ask_ai_response(result: AskAIResult) -> InterviewSessionAskAIResponse:
+    return InterviewSessionAskAIResponse(
+        user_message=_ask_ai_message_response(result.user_message),
+        assistant_message=_ask_ai_message_response(result.assistant_message),
+        answer_text=result.answer_text,
+        provider=result.provider,
+        model=result.model,
+        generation_ms=result.generation_ms,
+        context_used=InterviewSessionAskAIContextResponse(
+            transcript_entry_count=result.context_used.transcript_entry_count,
+            notes_used=result.context_used.notes_used,
+            recent_message_count=result.context_used.recent_message_count,
+        ),
+    )
+
+
 def _transcript_filename(format: str) -> str:
     return f'interview-session-transcript.{format}'
 
@@ -235,6 +332,16 @@ def _handle_cloud_error(exc: Exception) -> HTTPException:
         return HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=NOTES_SAFE_FAILURE_MESSAGE,
+        )
+    if str(exc) == ASK_AI_FAILURE_MESSAGE:
+        return HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=ASK_AI_FAILURE_MESSAGE,
+        )
+    if str(exc) == ASK_AI_SAFE_FAILURE_MESSAGE:
+        return HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=ASK_AI_SAFE_FAILURE_MESSAGE,
         )
     if isinstance(exc, SupabaseConfigurationError):
         return HTTPException(
@@ -417,3 +524,56 @@ def generate_interview_session_notes(
     except Exception as exc:
         raise _handle_cloud_error(exc) from exc
     return _notes_response(record)
+
+
+@router.get("/{session_id}/ask-ai/messages", response_model=InterviewSessionAskAIMessageListResponse)
+def list_interview_session_ask_ai_messages(
+    session_id: UUID,
+    current_user: CurrentUserDep,
+    service: CloudInterviewAskAIServiceDep,
+    limit: int = 50,
+    page: int = 1,
+) -> InterviewSessionAskAIMessageListResponse:
+    try:
+        result: InterviewAskAIMessageListPage = service.list_messages(
+            user_id=current_user.user_id,
+            session_id=str(session_id),
+            limit=limit,
+            page=page,
+        )
+    except Exception as exc:
+        raise _handle_cloud_error(exc) from exc
+    return InterviewSessionAskAIMessageListResponse(
+        items=[_ask_ai_message_response(record) for record in result.items],
+        limit=result.limit,
+        page=result.page,
+        has_more=result.has_more,
+        next_page=result.next_page,
+    )
+
+
+@router.post("/{session_id}/ask-ai", response_model=InterviewSessionAskAIResponse)
+def ask_interview_session_ai(
+    session_id: UUID,
+    payload: InterviewSessionAskAIRequest,
+    current_user: CurrentUserDep,
+    service: CloudInterviewAskAIServiceDep,
+) -> InterviewSessionAskAIResponse:
+    if not _ASK_AI_CAPACITY.acquire(blocking=False):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Ask AI is busy. Please try again shortly.",
+        )
+    try:
+        result = service.ask_ai(
+            user_id=current_user.user_id,
+            session_id=str(session_id),
+            question=payload.question,
+            request_id=payload.request_id,
+            include_notes=payload.include_notes,
+        )
+    except Exception as exc:
+        raise _handle_cloud_error(exc) from exc
+    finally:
+        _ASK_AI_CAPACITY.release()
+    return _ask_ai_response(result)
