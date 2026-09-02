@@ -1196,6 +1196,7 @@ export function AuthDashboardPage({ backendUrl }) {
   const [askAIMessages, setAskAIMessages] = useState([])
   const [askAIMessagesNextPage, setAskAIMessagesNextPage] = useState(null)
   const [askAIDrafts, setAskAIDrafts] = useState({})
+  const [askAIRequestIds, setAskAIRequestIds] = useState({})
   const [askAILoading, setAskAILoading] = useState(false)
   const [askAIError, setAskAIError] = useState('')
   const askAIMessagesControllerRef = useRef(null)
@@ -1594,6 +1595,14 @@ export function AuthDashboardPage({ backendUrl }) {
     askAISubmitControllerRef.current?.abort()
     const controller = new AbortController()
     askAISubmitControllerRef.current = controller
+    const requestState = askAIRequestIds[normalizedSessionId]
+    const requestId = requestState?.question === question
+      ? requestState.requestId
+      : `ask-ai-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    setAskAIRequestIds((current) => ({
+      ...current,
+      [normalizedSessionId]: { question, requestId },
+    }))
     setOpenAskAISessionId(normalizedSessionId)
     setAskAIError('')
     setAskAILoading(true)
@@ -1609,7 +1618,7 @@ export function AuthDashboardPage({ backendUrl }) {
       }
       const result = await askInterviewSessionAI(data.session.access_token, normalizedSessionId, question, {
         backendUrl,
-        requestId: `ask-ai-${Date.now()}`,
+        requestId,
         includeNotes: true,
         signal: controller.signal,
       })
@@ -1625,6 +1634,11 @@ export function AuthDashboardPage({ backendUrl }) {
         ...current,
         [normalizedSessionId]: '',
       }))
+      setAskAIRequestIds((current) => {
+        const next = { ...current }
+        delete next[normalizedSessionId]
+        return next
+      })
     } catch (askError) {
       if (controller.signal.aborted || askError?.name === 'AbortError' || askAISubmitControllerRef.current !== controller || openAskAISessionId !== normalizedSessionId) {
         return
@@ -1884,10 +1898,22 @@ export function AuthDashboardPage({ backendUrl }) {
                             Ask about this session
                             <textarea
                               value={askAIDrafts[session.id] || ''}
-                              onChange={(event) => setAskAIDrafts((current) => ({
-                                ...current,
-                                [session.id]: event.target.value,
-                              }))}
+                              onChange={(event) => {
+                                setAskAIDrafts((current) => ({
+                                  ...current,
+                                  [session.id]: event.target.value,
+                                }))
+                                const value = event.target.value
+                                setAskAIRequestIds((current) => {
+                                  const requestState = current[session.id]
+                                  if (!requestState || requestState.question === value.trim()) {
+                                    return current
+                                  }
+                                  const next = { ...current }
+                                  delete next[session.id]
+                                  return next
+                                })
+                              }}
                               disabled={askAILoading}
                               spellCheck={false}
                               autoCorrect="off"

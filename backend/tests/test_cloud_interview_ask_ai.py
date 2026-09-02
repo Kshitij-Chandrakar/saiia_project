@@ -125,6 +125,7 @@ def _request_key(index: int, **overrides: object) -> CloudInterviewAskAIRequestK
         "error_code": None,
         "created_at": "2026-09-01T10:15:00Z",
         "updated_at": "2026-09-01T10:15:00Z",
+        "claim_token": f"claim-{index}",
     }
     payload.update(overrides)
     return CloudInterviewAskAIRequestKeyRecord(**payload)  # type: ignore[arg-type]
@@ -139,6 +140,7 @@ class FakeAskAIClient:
         self.recent_calls: list[dict[str, object]] = []
         self.claim_calls: list[dict[str, object]] = []
         self.complete_calls: list[dict[str, object]] = []
+        self.complete_turn_calls: list[dict[str, object]] = []
         self.fail_calls: list[dict[str, object]] = []
         self.reclaim_calls: list[dict[str, object]] = []
         self.fail_create_on_call: int | None = None
@@ -181,6 +183,41 @@ class FakeAskAIClient:
         )
         self.request_keys[key] = record
         return record, True
+
+    def complete_turn(self, *, user_id, session_id, request_id, claim_token, question, answer, provider, model, generation_ms, metadata):
+        self.complete_turn_calls.append({"request_id": request_id, "claim_token": claim_token})
+        user_message = self.create_message(
+            user_id=user_id,
+            session_id=session_id,
+            payload={
+                "role": "user",
+                "message_text": question,
+                "provider": None,
+                "model": None,
+                "generation_ms": None,
+                "metadata": metadata,
+            },
+        )
+        assistant_message = self.create_message(
+            user_id=user_id,
+            session_id=session_id,
+            payload={
+                "role": "assistant",
+                "message_text": answer,
+                "provider": provider,
+                "model": model,
+                "generation_ms": generation_ms,
+                "metadata": metadata,
+            },
+        )
+        self.complete_request_key(
+            user_id=user_id,
+            session_id=session_id,
+            request_id=request_id,
+            user_message_id=user_message.id,
+            assistant_message_id=assistant_message.id,
+        )
+        return user_message, assistant_message
 
     def complete_request_key(
         self,
@@ -464,6 +501,7 @@ def test_ask_ai_stores_user_and_assistant_messages_with_context() -> None:
     assert result.context_used.recent_message_count == 1
     assert [call["payload"]["role"] for call in client.create_calls] == ["user", "assistant"]
     assert client.create_calls[0]["payload"]["metadata"] == {"request_id": "ask-1"}
+    assert client.complete_turn_calls[0]["request_id"] == "ask-1"
     assert client.messages[-2].turn_index == 2
     assert client.messages[-1].turn_index == 3
     assert "Question 2" in generator.calls[0]["context"]

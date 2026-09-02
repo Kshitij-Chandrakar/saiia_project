@@ -18,6 +18,7 @@ C9_IDEMPOTENCY_MIGRATION = MIGRATIONS_DIR / "20260901123000_add_ask_ai_request_i
 C9_IDEMPOTENCY_TRIGGER_MIGRATION = (
     MIGRATIONS_DIR / "20260901170000_add_ask_ai_request_key_updated_at_trigger.sql"
 )
+C9_ATOMIC_TURN_MIGRATION = MIGRATIONS_DIR / "20260902120000_add_ask_ai_atomic_turn_persistence.sql"
 
 
 def _normalized_sql() -> str:
@@ -477,3 +478,16 @@ def test_c9_ask_ai_idempotency_followup_migration_adds_updated_at_trigger() -> N
     assert "create trigger interview_session_ask_ai_request_key_updated_at" in sql
     assert "before update on public.interview_session_ask_ai_request_keys" in sql
     assert "execute function public.set_interview_session_ask_ai_request_key_updated_at()" in sql
+
+
+def test_c9_ask_ai_atomic_turn_migration_adds_fenced_completion_rpc() -> None:
+    sql = " ".join(C9_ATOMIC_TURN_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "add column if not exists claim_token uuid" in sql
+    assert "create or replace function public.complete_interview_session_ask_ai_turn" in sql
+    assert "p_claim_token uuid" in sql
+    assert "where k.id = v_request_key.id" in sql
+    assert "and k.claim_token = p_claim_token" in sql
+    assert "insert into public.interview_session_ask_ai_messages" in sql
+    assert "grant execute on function public.complete_interview_session_ask_ai_turn" in sql
+    assert "from authenticated" in sql
