@@ -356,8 +356,9 @@ class SupabaseInterviewAskAIClient:
         user_id: str,
         session_id: str,
         request_id: str,
+        claim_token: str,
         error_code: str,
-    ) -> CloudInterviewAskAIRequestKeyRecord:
+    ) -> CloudInterviewAskAIRequestKeyRecord | None:
         return self._patch_request_key(
             user_id=user_id,
             session_id=session_id,
@@ -366,6 +367,11 @@ class SupabaseInterviewAskAIClient:
                 "status": "failed",
                 "error_code": error_code[:80],
             },
+            filters={
+                "status": "eq.processing",
+                "claim_token": f"eq.{claim_token}",
+            },
+            allow_empty=True,
         )
 
     def reclaim_stale_request_key(
@@ -414,16 +420,21 @@ class SupabaseInterviewAskAIClient:
         session_id: str,
         request_id: str,
         payload: dict[str, Any],
-    ) -> CloudInterviewAskAIRequestKeyRecord:
+        filters: dict[str, str] | None = None,
+        allow_empty: bool = False,
+    ) -> CloudInterviewAskAIRequestKeyRecord | None:
+        request_filters = {
+            "user_id": f"eq.{user_id}",
+            "session_id": f"eq.{session_id}",
+            "request_id": f"eq.{request_id}",
+        }
+        if filters:
+            request_filters.update(filters)
         try:
             response = self._session.patch(
                 f"{self._rest_url}/interview_session_ask_ai_request_keys",
                 headers={**self._headers, "Prefer": "return=representation"},
-                params={
-                    "user_id": f"eq.{user_id}",
-                    "session_id": f"eq.{session_id}",
-                    "request_id": f"eq.{request_id}",
-                },
+                params=request_filters,
                 json=payload,
                 timeout=SUPABASE_MUTATION_TIMEOUT,
             )
@@ -434,6 +445,8 @@ class SupabaseInterviewAskAIClient:
         data = response.json()
         if isinstance(data, list) and data and isinstance(data[0], dict):
             return _request_key_from_payload(data[0])
+        if allow_empty:
+            return None
         raise CloudInterviewSessionError(SAFE_FAILURE_MESSAGE)
 
     def create_message(
@@ -884,6 +897,7 @@ class CloudInterviewAskAIService:
                         user_id=user_id,
                         session_id=normalized_session_id,
                         request_id=normalized_request_id,
+                        claim_token=request_key.claim_token,
                         error_code=type(completion_error).__name__,
                     )
                     request_key_failure_marked = True
@@ -894,6 +908,7 @@ class CloudInterviewAskAIService:
                     user_id=user_id,
                     session_id=normalized_session_id,
                     request_id=normalized_request_id,
+                    claim_token=request_key.claim_token,
                     error_code=type(exc).__name__,
                 )
             raise CloudInterviewSessionError(ASK_AI_FAILURE_MESSAGE) from exc
@@ -903,6 +918,7 @@ class CloudInterviewAskAIService:
                     user_id=user_id,
                     session_id=normalized_session_id,
                     request_id=normalized_request_id,
+                    claim_token=request_key.claim_token,
                     error_code=type(exc).__name__,
                 )
             raise
@@ -962,14 +978,16 @@ class CloudInterviewAskAIService:
         user_id: str,
         session_id: str,
         request_id: str | None,
+        claim_token: str | None,
         error_code: str,
     ) -> None:
-        if not request_id:
+        if not request_id or not claim_token:
             return
         self._client.fail_request_key(
             user_id=user_id,
             session_id=session_id,
             request_id=request_id,
+            claim_token=claim_token,
             error_code=error_code,
         )
 

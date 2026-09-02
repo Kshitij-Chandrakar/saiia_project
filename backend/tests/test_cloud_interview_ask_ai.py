@@ -260,10 +260,12 @@ class FakeAskAIClient:
     def get_request_key(self, *, user_id: str, session_id: str, request_id: str):
         return self.request_keys[(user_id, session_id, request_id)]
 
-    def fail_request_key(self, *, user_id: str, session_id: str, request_id: str, error_code: str):
-        self.fail_calls.append({"user_id": user_id, "session_id": session_id, "request_id": request_id, "error_code": error_code})
+    def fail_request_key(self, *, user_id: str, session_id: str, request_id: str, claim_token: str, error_code: str):
+        self.fail_calls.append({"user_id": user_id, "session_id": session_id, "request_id": request_id, "claim_token": claim_token, "error_code": error_code})
         key = (user_id, session_id, request_id)
         current = self.request_keys[key]
+        if current.status != "processing" or current.claim_token != claim_token:
+            return None
         updated = _request_key(
             1,
             id=current.id,
@@ -585,6 +587,42 @@ def test_ask_ai_stale_processing_request_id_is_reclaimed() -> None:
     assert client.reclaim_calls[0]["request_id"] == "ask-stale"
     assert client.request_keys[(USER_ID, SESSION_ID, "ask-stale")].status == "completed"
     assert client.complete_turn_calls[0]["claim_token"] == "reclaimed-claim"
+
+
+def test_request_key_failure_requires_matching_processing_claim() -> None:
+    client = FakeAskAIClient()
+    service = _service(client=client)
+    request_id = "ask-claim-fence"
+    key = (USER_ID, SESSION_ID, request_id)
+
+    client.request_keys[key] = _request_key(1, request_id=request_id, status="processing", claim_token="reclaimed-claim")
+    service._mark_request_key_failed(
+        user_id=USER_ID,
+        session_id=SESSION_ID,
+        request_id=request_id,
+        claim_token="original-claim",
+        error_code="late_failure",
+    )
+    assert client.request_keys[key].status == "processing"
+
+    service._mark_request_key_failed(
+        user_id=USER_ID,
+        session_id=SESSION_ID,
+        request_id=request_id,
+        claim_token="reclaimed-claim",
+        error_code="current_failure",
+    )
+    assert client.request_keys[key].status == "failed"
+
+    client.request_keys[key] = _request_key(1, request_id=request_id, status="completed", claim_token="reclaimed-claim")
+    service._mark_request_key_failed(
+        user_id=USER_ID,
+        session_id=SESSION_ID,
+        request_id=request_id,
+        claim_token="reclaimed-claim",
+        error_code="late_failure",
+    )
+    assert client.request_keys[key].status == "completed"
 
 
 def test_ask_ai_provider_failure_marks_request_key_failed() -> None:
