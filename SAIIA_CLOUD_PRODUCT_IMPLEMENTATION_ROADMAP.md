@@ -4,9 +4,9 @@
 **Document type:** Detailed implementation roadmap and execution source of truth  
 **Track:** Desktop stabilization â†’ Cloud account system â†’ Website integration â†’ Session intelligence â†’ Subscription and release  
 **Version:** 1.1  
-**Last updated:** 2026-09-01
+**Last updated:** 2026-09-02
 **Created:** 2026-07-10  
-**Current active phase:** C9 - Ask AI and follow-up context memory implemented locally with session-scoped messages, authenticated Ask AI routes, transcript/notes-grounded answers, and dashboard Ask AI panel; manual live verification is pending, C10 email system is not started, and payments/admin/pricing remain not started
+**Current active phase:** C10.1 - Email system planning and safety contract in progress; C9 Ask AI and follow-up context memory is merged/closed, C10.2 Supabase Auth email delivery is not started, and real email sending/payments/admin/pricing remain not started. See `docs/C10_EMAIL_SYSTEM_PLAN.md`.
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -2092,17 +2092,25 @@ GET  /api/interview-sessions/{session_id}/ask-ai/messages
 
 ---
 
-# C10 â€” Resend Email System
+# C10 - Resend Email System
 
 ## Status
 
 ```text
-[ ] Not started
+[~] C10.1 Email system planning and safety contract in progress; implementation and delivery are not started
 ```
 
 ## Goal
 
-Create a reliable email layer for authentication, transactional messages, and consent-based promotional communication.
+Create a reliable email layer for authentication, transactional messages, and consent-based promotional communication. The C10.1 scope is planning only; the safety contract is documented in `docs/C10_EMAIL_SYSTEM_PLAN.md`.
+
+## C10.1 boundary
+
+- Supabase Auth remains responsible for secure verification/reset link generation.
+- Resend is the planned delivery provider only; it is not called or configured in C10.1.
+- Local automated tests remain dry-run by default.
+- No real API keys, email sends, SMTP configuration, migrations, or implementation are included.
+- C9 is merged/closed. C10.2 is not started.
 
 ## Email categories
 
@@ -2110,13 +2118,13 @@ Create a reliable email layer for authentication, transactional messages, and co
 
 - email verification
 - welcome
-- password reset, if custom
+- password reset through Supabase Auth
 - login/security notification, optional
 - interview summary ready
-- payment success
-- payment failure
-- subscription renewal/cancellation
-- data export ready
+- account/security notification
+- session summary ready
+- transcript export
+- AI notes ready
 
 ### Promotional
 
@@ -2129,31 +2137,48 @@ Promotional email requires explicit consent and unsubscribe support.
 
 ## Configuration
 
+The complete C10.1 environment contract and local/demo strategy are defined in `docs/C10_EMAIL_SYSTEM_PLAN.md`. No values are configured by this phase.
+
 Backend environment variables may include:
 
 ```env
+EMAIL_ENABLED=false
+EMAIL_DRY_RUN=true
+EMAIL_PROVIDER=resend
 RESEND_API_KEY=
-RESEND_FROM_EMAIL=
-RESEND_REPLY_TO=
+EMAIL_FROM=
+EMAIL_REPLY_TO=
 RESEND_WEBHOOK_SECRET=
 APP_PUBLIC_URL=
 ```
 
-## `email_events` table
+## `outbound_email_events` table plan
 
 Recommended fields:
 
 - `id`
 - `user_id`
+- `session_id` nullable
 - `email_type`
-- `recipient_hash_or_safe_reference`
+- `recipient_email`
 - `provider_message_id`
+- `idempotency_key`
 - `status`
-- `failure_reason`
+- `error_code`
+- `metadata_json`
 - `created_at`
 - `updated_at`
 
-Do not store full email bodies unless required.
+Backend-only writes are preferred. Do not store raw transcript, resume/chunk, prompt, token, header, or secret data.
+
+## C10.1 phase breakdown
+
+- C10.1 - Email plan and safety contract - in progress
+- C10.2 - Supabase Auth emails through Resend SMTP - not started
+- C10.3 - Backend email config and dry-run provider - not started
+- C10.4 - Welcome email - not started
+- C10.5 - Session summary, transcript, and AI notes emails - not started
+- C10.6 - Marketing preferences and promotional emails later - not started
 
 ## Templates
 
