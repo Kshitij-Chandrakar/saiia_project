@@ -8,12 +8,13 @@ from fastapi.testclient import TestClient
 from app.api import interview_sessions as interview_sessions_api
 from app.auth.supabase_auth import AUTH_ERROR_DETAIL, get_auth_verification_config
 from app.cloud.interview_ask_ai import (
+    ASK_AI_FAILURE_MESSAGE,
     AskAIContextUsed,
     AskAIResult,
     CloudInterviewAskAIMessageRecord,
     InterviewAskAIMessageListPage,
 )
-from app.cloud.interview_sessions import CloudInterviewSessionConflictError, CloudInterviewSessionNotFoundError
+from app.cloud.interview_sessions import CloudInterviewSessionConflictError, CloudInterviewSessionError, CloudInterviewSessionNotFoundError
 from app.cloud.supabase_config import CLOUD_MODE_ENV, SUPABASE_REQUIRED_ENV_VARS, get_supabase_settings
 
 TEST_SECRET = "unit-test-jwt-secret"
@@ -244,3 +245,37 @@ def test_empty_context_ask_ai_maps_to_409(client: TestClient) -> None:
 
     assert response.status_code == 409
     assert response.json() == {"detail": "This session does not have transcript or AI notes context yet."}
+
+
+def test_provider_failure_ask_ai_maps_to_502(client: TestClient) -> None:
+    class RaisingAskAIService(FakeAskAIService):
+        def ask_ai(self, **kwargs):
+            raise CloudInterviewSessionError(ASK_AI_FAILURE_MESSAGE)
+
+    client.app.dependency_overrides[interview_sessions_api.get_cloud_interview_ask_ai_service] = lambda: RaisingAskAIService()
+    response = client.post(
+        f"/api/interview-sessions/{SESSION_ID}/ask-ai",
+        headers={"Authorization": f"Bearer {_token()}"},
+        json={"question": "What should I improve?"},
+    )
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": ASK_AI_FAILURE_MESSAGE}
+
+
+def test_ask_ai_capacity_guard_returns_retryable_503(client: TestClient, fake_service: FakeAskAIService) -> None:
+    acquired = [interview_sessions_api._ASK_AI_CAPACITY.acquire(blocking=False) for _ in range(8)]
+    try:
+        response = client.post(
+            f"/api/interview-sessions/{SESSION_ID}/ask-ai",
+            headers={"Authorization": f"Bearer {_token()}"},
+            json={"question": "What should I improve?"},
+        )
+    finally:
+        for did_acquire in acquired:
+            if did_acquire:
+                interview_sessions_api._ASK_AI_CAPACITY.release()
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Ask AI is busy. Please try again shortly."}
+    assert fake_service.ask_calls == []

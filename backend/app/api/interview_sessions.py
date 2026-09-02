@@ -1,5 +1,6 @@
 from functools import lru_cache
 import logging
+import threading
 from typing import Annotated
 from uuid import UUID
 
@@ -42,6 +43,7 @@ from app.cloud.supabase_config import SupabaseConfigurationError
 
 router = APIRouter()
 logger = logging.getLogger("cloud_interview_session_api")
+_ASK_AI_CAPACITY = threading.BoundedSemaphore(8)
 
 
 class InterviewSessionCreateRequest(BaseModel):
@@ -557,6 +559,11 @@ def ask_interview_session_ai(
     current_user: CurrentUserDep,
     service: CloudInterviewAskAIServiceDep,
 ) -> InterviewSessionAskAIResponse:
+    if not _ASK_AI_CAPACITY.acquire(blocking=False):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Ask AI is busy. Please try again shortly.",
+        )
     try:
         result = service.ask_ai(
             user_id=current_user.user_id,
@@ -567,4 +574,6 @@ def ask_interview_session_ai(
         )
     except Exception as exc:
         raise _handle_cloud_error(exc) from exc
+    finally:
+        _ASK_AI_CAPACITY.release()
     return _ask_ai_response(result)

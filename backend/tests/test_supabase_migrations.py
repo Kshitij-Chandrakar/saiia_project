@@ -417,6 +417,8 @@ def test_c9_ask_ai_migration_adds_messages_table_constraints_and_rls() -> None:
     assert "alter table public.interview_session_ask_ai_messages enable row level security" in sql
     assert "alter table public.interview_session_ask_ai_messages force row level security" in sql
     assert "create policy interview_session_ask_ai_select_own" in sql
+    assert "auth.uid() = user_id and exists" in sql
+    assert "where s.id = session_id and s.user_id = auth.uid()" in sql
 
 
 def test_c9_ask_ai_migration_keeps_authenticated_writes_backend_only() -> None:
@@ -451,6 +453,8 @@ def test_c9_ask_ai_idempotency_migration_adds_request_keys_table() -> None:
     assert "alter table public.interview_session_ask_ai_request_keys enable row level security" in sql
     assert "alter table public.interview_session_ask_ai_request_keys force row level security" in sql
     assert "create policy interview_session_ask_ai_request_key_select_own" in sql
+    assert "auth.uid() = user_id and exists" in sql
+    assert "where s.id = session_id and s.user_id = auth.uid()" in sql
     assert "grant select on table public.interview_session_ask_ai_request_keys to authenticated" in sql
     assert "grant select, insert, update, delete on table public.interview_session_ask_ai_request_keys to service_role" in sql
     assert "grant insert on table public.interview_session_ask_ai_request_keys to authenticated" not in sql
@@ -463,6 +467,7 @@ def test_c9_ask_ai_idempotency_followup_migration_adds_updated_at_trigger() -> N
     sql = " ".join(C9_IDEMPOTENCY_TRIGGER_MIGRATION.read_text(encoding="utf-8").lower().split())
 
     assert "create or replace function public.set_interview_session_ask_ai_request_key_updated_at()" in sql
+    assert "new.updated_at := timezone('utc', now())" in sql
     assert "create trigger interview_session_ask_ai_request_key_updated_at" in sql
     assert "before update on public.interview_session_ask_ai_request_keys" in sql
     assert "execute function public.set_interview_session_ask_ai_request_key_updated_at()" in sql
