@@ -1199,6 +1199,7 @@ export function AuthDashboardPage({ backendUrl }) {
   const [askAILoading, setAskAILoading] = useState(false)
   const [askAIError, setAskAIError] = useState('')
   const askAIMessagesControllerRef = useRef(null)
+  const askAISubmitControllerRef = useRef(null)
   const navigate = useNavigate()
   const {
     bootstrapResult,
@@ -1481,14 +1482,16 @@ export function AuthDashboardPage({ backendUrl }) {
     }
   }
 
-  async function handleAskAIToggle(sessionId) {
+  async function handleAskAIToggle(sessionId, { reload = false } = {}) {
     const normalizedSessionId = String(sessionId || '').trim()
     if (!normalizedSessionId) {
       return
     }
-    if (openAskAISessionId === normalizedSessionId) {
+    if (openAskAISessionId === normalizedSessionId && !reload) {
       askAIMessagesControllerRef.current?.abort()
       askAIMessagesControllerRef.current = null
+      askAISubmitControllerRef.current?.abort()
+      askAISubmitControllerRef.current = null
       setOpenAskAISessionId('')
       setAskAIMessages([])
       setAskAIMessagesNextPage(null)
@@ -1497,6 +1500,8 @@ export function AuthDashboardPage({ backendUrl }) {
       return
     }
     askAIMessagesControllerRef.current?.abort()
+    askAISubmitControllerRef.current?.abort()
+    askAISubmitControllerRef.current = null
     const controller = new AbortController()
     askAIMessagesControllerRef.current = controller
     setOpenAskAISessionId(normalizedSessionId)
@@ -1592,6 +1597,9 @@ export function AuthDashboardPage({ backendUrl }) {
     if (!normalizedSessionId || !question || askAILoading) {
       return
     }
+    askAISubmitControllerRef.current?.abort()
+    const controller = new AbortController()
+    askAISubmitControllerRef.current = controller
     setOpenAskAISessionId(normalizedSessionId)
     setAskAIError('')
     setAskAILoading(true)
@@ -1609,7 +1617,11 @@ export function AuthDashboardPage({ backendUrl }) {
         backendUrl,
         requestId: `ask-ai-${Date.now()}`,
         includeNotes: true,
+        signal: controller.signal,
       })
+      if (controller.signal.aborted || askAISubmitControllerRef.current !== controller || openAskAISessionId !== normalizedSessionId) {
+        return
+      }
       setAskAIMessages((current) => [
         ...current,
         result.user_message,
@@ -1620,6 +1632,9 @@ export function AuthDashboardPage({ backendUrl }) {
         [normalizedSessionId]: '',
       }))
     } catch (askError) {
+      if (controller.signal.aborted || askError?.name === 'AbortError' || askAISubmitControllerRef.current !== controller || openAskAISessionId !== normalizedSessionId) {
+        return
+      }
       const message = String(askError?.message || '').trim()
       if (isAskAIContextMissingError(message)) {
         setAskAIError(ASK_AI_CONTEXT_MISSING_MESSAGE)
@@ -1631,7 +1646,10 @@ export function AuthDashboardPage({ backendUrl }) {
         setAskAIError(message || 'Could not ask AI about this session. Please try again.')
       }
     } finally {
-      setAskAILoading(false)
+      if (askAISubmitControllerRef.current === controller) {
+        askAISubmitControllerRef.current = null
+        setAskAILoading(false)
+      }
     }
   }
 
@@ -1833,7 +1851,7 @@ export function AuthDashboardPage({ backendUrl }) {
                             <button
                               className="auth-session-history__action"
                               type="button"
-                              onClick={() => handleAskAIToggle(session.id)}
+                              onClick={() => handleAskAIToggle(session.id, { reload: true })}
                               disabled={askAILoading}
                             >
                               Retry Ask AI

@@ -141,6 +141,8 @@ class FakeAskAIClient:
         self.complete_calls: list[dict[str, object]] = []
         self.fail_calls: list[dict[str, object]] = []
         self.reclaim_calls: list[dict[str, object]] = []
+        self.fail_create_on_call: int | None = None
+        self.fail_complete = False
 
     def list_messages(self, *, user_id: str, session_id: str, limit: int, page: int):
         self.list_calls.append({"user_id": user_id, "session_id": session_id, "limit": limit, "page": page})
@@ -188,6 +190,8 @@ class FakeAskAIClient:
         user_message_id: str,
         assistant_message_id: str,
     ):
+        if self.fail_complete:
+            raise RuntimeError("complete failed")
         self.complete_calls.append(
             {
                 "user_id": user_id,
@@ -269,6 +273,8 @@ class FakeAskAIClient:
         return updated, True
 
     def create_message(self, *, user_id: str, session_id: str, payload: dict[str, object]):
+        if self.fail_create_on_call == len(self.create_calls) + 1:
+            raise RuntimeError("persist failed")
         self.create_calls.append({"user_id": user_id, "session_id": session_id, "payload": payload})
         record = _message(
             len(self.messages) + 1,
@@ -340,6 +346,12 @@ class ExplodingGenerator(FakeGenerator):
     def generate(self, *, context: str, question: str):
         self.calls.append({"context": context, "question": question})
         raise RuntimeError("boom")
+
+
+class InvalidAnswerGenerator(FakeGenerator):
+    def generate(self, *, context: str, question: str):
+        self.calls.append({"context": context, "question": question})
+        return {"answer_text": "", "provider": "openai", "model": "gpt-test", "generation_ms": 1}
 
 
 def _service(
@@ -546,6 +558,21 @@ def test_ask_ai_non_provider_failure_marks_request_key_failed() -> None:
 
     assert client.fail_calls[-1]["request_id"] == "ask-boom"
     assert client.request_keys[(USER_ID, SESSION_ID, "ask-boom")].status == "failed"
+
+
+@pytest.mark.parametrize("failure", ["normalize", "first_message", "second_message", "complete"])
+def test_ask_ai_post_generation_failures_mark_request_key_failed(failure: str) -> None:
+    client = FakeAskAIClient()
+    client.fail_create_on_call = {"first_message": 1, "second_message": 2}.get(failure)
+    client.fail_complete = failure == "complete"
+    service = _service(client=client, generator=InvalidAnswerGenerator() if failure == "normalize" else FakeGenerator())
+    request_id = f"ask-post-failure-{failure}"
+
+    with pytest.raises(CloudInterviewSessionError if failure == "normalize" else RuntimeError):
+        service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="What should I improve?", request_id=request_id)
+
+    assert client.fail_calls[-1]["request_id"] == request_id
+    assert client.request_keys[(USER_ID, SESSION_ID, request_id)].status == "failed"
 
 
 def test_ask_ai_request_id_rejects_different_payload() -> None:

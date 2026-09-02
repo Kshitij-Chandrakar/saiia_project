@@ -761,14 +761,57 @@ class CloudInterviewAskAIService:
                 )
                 if replayed is not None:
                     return replayed
-        context = self.build_context_from_session(
-            session=session,
-            transcript_entries=transcript_entries,
-            notes_markdown=notes.notes_markdown if notes else "",
-            recent_messages=recent_messages,
-        )
         try:
+            context = self.build_context_from_session(
+                session=session,
+                transcript_entries=transcript_entries,
+                notes_markdown=notes.notes_markdown if notes else "",
+                recent_messages=recent_messages,
+            )
             generated = self._generator.generate(context=context, question=normalized_question)
+            provider = _normalize_text(generated.get("provider"), field="provider", max_chars=MAX_PROVIDER_CHARS)
+            model = _normalize_text(generated.get("model"), field="model", max_chars=MAX_MODEL_CHARS)
+            generation_ms = _normalize_generation_ms(generated.get("generation_ms"))
+            answer_text = _normalize_readable_message_text(
+                generated.get("answer_text"),
+                field="answer_text",
+                max_chars=MAX_MESSAGE_TEXT_CHARS,
+                required=True,
+            )
+            assert answer_text is not None
+            metadata = _normalize_metadata({"request_id": normalized_request_id} if normalized_request_id else {})
+            user_message = self._client.create_message(
+                user_id=user_id,
+                session_id=normalized_session_id,
+                payload={
+                    "role": "user",
+                    "message_text": normalized_question,
+                    "provider": None,
+                    "model": None,
+                    "generation_ms": None,
+                    "metadata": metadata,
+                },
+            )
+            assistant_message = self._client.create_message(
+                user_id=user_id,
+                session_id=normalized_session_id,
+                payload={
+                    "role": "assistant",
+                    "message_text": answer_text,
+                    "provider": provider,
+                    "model": model,
+                    "generation_ms": generation_ms,
+                    "metadata": metadata,
+                },
+            )
+            if normalized_request_id:
+                self._client.complete_request_key(
+                    user_id=user_id,
+                    session_id=normalized_session_id,
+                    request_id=normalized_request_id,
+                    user_message_id=user_message.id,
+                    assistant_message_id=assistant_message.id,
+                )
         except ProviderError as exc:
             self._mark_request_key_failed(
                 user_id=user_id,
@@ -785,49 +828,6 @@ class CloudInterviewAskAIService:
                 error_code=type(exc).__name__,
             )
             raise
-        provider = _normalize_text(generated.get("provider"), field="provider", max_chars=MAX_PROVIDER_CHARS)
-        model = _normalize_text(generated.get("model"), field="model", max_chars=MAX_MODEL_CHARS)
-        generation_ms = _normalize_generation_ms(generated.get("generation_ms"))
-        answer_text = _normalize_readable_message_text(
-            generated.get("answer_text"),
-            field="answer_text",
-            max_chars=MAX_MESSAGE_TEXT_CHARS,
-            required=True,
-        )
-        assert answer_text is not None
-        metadata = _normalize_metadata({"request_id": normalized_request_id} if normalized_request_id else {})
-        user_message = self._client.create_message(
-            user_id=user_id,
-            session_id=normalized_session_id,
-            payload={
-                "role": "user",
-                "message_text": normalized_question,
-                "provider": None,
-                "model": None,
-                "generation_ms": None,
-                "metadata": metadata,
-            },
-        )
-        assistant_message = self._client.create_message(
-            user_id=user_id,
-            session_id=normalized_session_id,
-            payload={
-                "role": "assistant",
-                "message_text": answer_text,
-                "provider": provider,
-                "model": model,
-                "generation_ms": generation_ms,
-                "metadata": metadata,
-            },
-        )
-        if normalized_request_id:
-            self._client.complete_request_key(
-                user_id=user_id,
-                session_id=normalized_session_id,
-                request_id=normalized_request_id,
-                user_message_id=user_message.id,
-                assistant_message_id=assistant_message.id,
-            )
         return AskAIResult(
             user_message=user_message,
             assistant_message=assistant_message,
