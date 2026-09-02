@@ -510,6 +510,17 @@ def test_ask_ai_stores_user_and_assistant_messages_with_context() -> None:
     assert "Earlier question" in generator.calls[0]["context"]
 
 
+def test_ask_ai_without_request_id_uses_server_generated_atomic_request() -> None:
+    client = FakeAskAIClient()
+    service = _service(client=client)
+
+    service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="What should I improve?")
+
+    assert client.complete_turn_calls[0]["request_id"].startswith("server-")
+    assert len(client.create_calls) == 2
+    assert client.request_keys[(USER_ID, SESSION_ID, client.complete_turn_calls[0]["request_id"])].status == "completed"
+
+
 def test_ask_ai_request_id_replay_returns_same_messages_without_provider_call() -> None:
     client = FakeAskAIClient([_message(1, "user", "Earlier question")])
     generator = FakeGenerator()
@@ -753,6 +764,24 @@ def test_build_context_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(context) <= 800
     assert "T" * 500 not in context
     assert "J" * 500 not in context
+
+
+def test_build_context_reserves_budget_for_notes_and_recent_messages(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.cloud.interview_ask_ai.settings.ASK_AI_MAX_INPUT_CHARS", 1800)
+    client = FakeAskAIClient([_message(index, "user", f"Recent message {index}") for index in range(1, 13)])
+    service = _service(client=client)
+
+    context = service.build_context_from_session(
+        session=_session(),
+        transcript_entries=[_entry(index, question_text="Q" * 200, answer_text="A" * 400) for index in range(1, 31)],
+        notes_markdown="Saved notes " * 300,
+        recent_messages=client.messages,
+    )
+
+    assert len(context) <= 1800
+    assert "Saved AI notes:" in context
+    assert "Recent Ask AI messages:" in context
+    assert "Recent message 12" in context
 
 
 class FakeOpenAIResponsesClient:

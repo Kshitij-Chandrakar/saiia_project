@@ -784,7 +784,8 @@ class CloudInterviewAskAIService:
         if normalized_question is None:
             raise CloudInterviewSessionValidationError("question is required.")
         normalized_request_id = _normalize_request_id(request_id)
-        payload_hash = _payload_hash(question=normalized_question, include_notes=include_notes) if normalized_request_id else None
+        normalized_request_id = normalized_request_id or f"server-{uuid4().hex}"
+        payload_hash = _payload_hash(question=normalized_question, include_notes=include_notes)
         session = self._session_service.get_session(user_id=user_id, session_id=normalized_session_id)
         transcript_page = self._transcript_service.list_transcript_entries(
             user_id=user_id,
@@ -811,24 +812,22 @@ class CloudInterviewAskAIService:
             notes_used=notes is not None,
             recent_message_count=len(recent_messages),
         )
-        request_key = None
-        if normalized_request_id and payload_hash:
-            request_key, request_claimed = self._client.claim_request_key(
+        request_key, request_claimed = self._client.claim_request_key(
+            user_id=user_id,
+            session_id=normalized_session_id,
+            request_id=normalized_request_id,
+            payload_hash=payload_hash,
+        )
+        if not request_claimed:
+            replayed, request_key = self._replay_request_key(
                 user_id=user_id,
                 session_id=normalized_session_id,
-                request_id=normalized_request_id,
+                request_key=request_key,
                 payload_hash=payload_hash,
+                context_used=context_used,
             )
-            if not request_claimed:
-                replayed, request_key = self._replay_request_key(
-                    user_id=user_id,
-                    session_id=normalized_session_id,
-                    request_key=request_key,
-                    payload_hash=payload_hash,
-                    context_used=context_used,
-                )
-                if replayed is not None:
-                    return replayed
+            if replayed is not None:
+                return replayed
         request_key_failure_marked = False
         try:
             context = self.build_context_from_session(
@@ -849,72 +848,46 @@ class CloudInterviewAskAIService:
             )
             assert answer_text is not None
             metadata = _normalize_metadata({"request_id": normalized_request_id} if normalized_request_id else {})
-            if normalized_request_id:
-                if request_key is None or not request_key.claim_token:
-                    raise CloudInterviewSessionConflictError("Ask AI request claim is unavailable.")
-                try:
-                    user_message, assistant_message = self._client.complete_turn(
+            if not request_key.claim_token:
+                raise CloudInterviewSessionConflictError("Ask AI request claim is unavailable.")
+            try:
+                user_message, assistant_message = self._client.complete_turn(
+                    user_id=user_id,
+                    session_id=normalized_session_id,
+                    request_id=normalized_request_id,
+                    claim_token=request_key.claim_token,
+                    question=normalized_question,
+                    answer=answer_text,
+                    provider=provider,
+                    model=model,
+                    generation_ms=generation_ms,
+                    metadata=metadata,
+                )
+            except Exception as completion_error:
+                current_key = self._client.get_request_key(
+                    user_id=user_id,
+                    session_id=normalized_session_id,
+                    request_id=normalized_request_id,
+                )
+                if current_key.status == "completed":
+                    replayed, _ = self._replay_request_key(
+                        user_id=user_id,
+                        session_id=normalized_session_id,
+                        request_key=current_key,
+                        payload_hash=payload_hash,
+                        context_used=context_used,
+                    )
+                    if replayed is not None:
+                        return replayed
+                if current_key.status == "processing":
+                    self._mark_request_key_failed(
                         user_id=user_id,
                         session_id=normalized_session_id,
                         request_id=normalized_request_id,
-                        claim_token=request_key.claim_token,
-                        question=normalized_question,
-                        answer=answer_text,
-                        provider=provider,
-                        model=model,
-                        generation_ms=generation_ms,
-                        metadata=metadata,
+                        error_code=type(completion_error).__name__,
                     )
-                except Exception as completion_error:
-                    current_key = self._client.get_request_key(
-                        user_id=user_id,
-                        session_id=normalized_session_id,
-                        request_id=normalized_request_id,
-                    )
-                    if current_key.status == "completed":
-                        replayed, _ = self._replay_request_key(
-                            user_id=user_id,
-                            session_id=normalized_session_id,
-                            request_key=current_key,
-                            payload_hash=payload_hash or "",
-                            context_used=context_used,
-                        )
-                        if replayed is not None:
-                            return replayed
-                    if current_key.status == "processing":
-                        self._mark_request_key_failed(
-                            user_id=user_id,
-                            session_id=normalized_session_id,
-                            request_id=normalized_request_id,
-                            error_code=type(completion_error).__name__,
-                        )
-                        request_key_failure_marked = True
-                    raise
-            else:
-                user_message = self._client.create_message(
-                    user_id=user_id,
-                    session_id=normalized_session_id,
-                    payload={
-                        "role": "user",
-                        "message_text": normalized_question,
-                        "provider": None,
-                        "model": None,
-                        "generation_ms": None,
-                        "metadata": metadata,
-                    },
-                )
-                assistant_message = self._client.create_message(
-                    user_id=user_id,
-                    session_id=normalized_session_id,
-                    payload={
-                        "role": "assistant",
-                        "message_text": answer_text,
-                        "provider": provider,
-                        "model": model,
-                        "generation_ms": generation_ms,
-                        "metadata": metadata,
-                    },
-                )
+                    request_key_failure_marked = True
+                raise
         except ProviderError as exc:
             if not request_key_failure_marked:
                 self._mark_request_key_failed(
@@ -1008,6 +981,7 @@ class CloudInterviewAskAIService:
         notes_markdown: str,
         recent_messages: list[CloudInterviewAskAIMessageRecord],
     ) -> str:
+        max_input_chars = settings.ASK_AI_MAX_INPUT_CHARS
         parts = [
             "Session context:",
             f"Title: {_compact(session.title or 'Untitled session', MAX_SESSION_FIELD_CHARS)}",
@@ -1018,30 +992,42 @@ class CloudInterviewAskAIService:
             "Transcript entries:",
         ]
         total_chars = sum(len(part) for part in parts)
+        notes_text = _compact(notes_markdown, MAX_NOTES_CHARS)
+        support_budget = min(
+            max(0, max_input_chars - total_chars),
+            max(1200, max_input_chars // 3),
+        )
+        transcript_budget = max(0, max_input_chars - total_chars - support_budget)
+        transcript_chars = 0
         for entry in transcript_entries[:MAX_TRANSCRIPT_ENTRIES]:
             block = (
                 f"Turn {entry.turn_index}\n"
                 f"Question: {entry.question_text[:MAX_ENTRY_QUESTION_CHARS]}\n"
                 f"Answer: {entry.answer_text[:MAX_ENTRY_ANSWER_CHARS]}\n"
             )
-            if total_chars + len(block) > settings.ASK_AI_MAX_INPUT_CHARS:
+            if transcript_chars + len(block) > transcript_budget:
                 break
             parts.extend(["", block])
             total_chars += len(block)
-        notes_text = _compact(notes_markdown, MAX_NOTES_CHARS)
-        if notes_text and total_chars + len(notes_text) + 20 <= settings.ASK_AI_MAX_INPUT_CHARS:
+            transcript_chars += len(block)
+        support_chars = 0
+        if notes_text:
+            notes_text = notes_text[: max(0, support_budget // 2 - 20)].rstrip()
+        if notes_text and support_chars + len(notes_text) + 20 <= support_budget:
             parts.extend(["", "Saved AI notes:", notes_text])
-            total_chars += len(notes_text) + 20
+            support_chars += len(notes_text) + 20
         if recent_messages:
             parts.extend(["", "Recent Ask AI messages:"])
-            total_chars += 24
-            for message in recent_messages[-MAX_RECENT_MESSAGES:]:
+            support_chars += 24
+            recent_budget = max(0, support_budget - support_chars)
+            recent_blocks = []
+            for message in reversed(recent_messages[-MAX_RECENT_MESSAGES:]):
                 block = f"{message.role}: {_compact(message.message_text, 800)}"
-                if total_chars + len(block) > settings.ASK_AI_MAX_INPUT_CHARS:
+                if sum(len(item) for item in recent_blocks) + len(block) > recent_budget:
                     break
-                parts.append(block)
-                total_chars += len(block)
-        return "\n".join(parts).strip()[: settings.ASK_AI_MAX_INPUT_CHARS]
+                recent_blocks.append(block)
+            parts.extend(reversed(recent_blocks))
+        return "\n".join(parts).strip()[:max_input_chars]
 
 
 def _compact(value: Any, max_chars: int) -> str:

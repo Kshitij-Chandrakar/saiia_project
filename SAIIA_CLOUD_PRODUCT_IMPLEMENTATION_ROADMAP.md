@@ -2020,7 +2020,7 @@ Ask AI may use:
 
 ## Data model
 
-The current C9 storage contract is the session-scoped `interview_session_ask_ai_messages` table. There is no global memory or `ask_ai_threads` contract.
+The current C9 storage contract is the session-scoped `interview_session_ask_ai_messages` table plus `interview_session_ask_ai_request_keys` for idempotency. It is backed by the C9 request-key trigger and atomic turn-persistence follow-up migrations. There is no global memory or `ask_ai_threads` contract; C10 email is not started.
 
 ## Follow-up resolver
 
@@ -4029,6 +4029,7 @@ auth.users
     |      +-- ai_answers
     |      +-- ai_notes
     |      +-- interview_session_ask_ai_messages
+    |      +-- interview_session_ask_ai_request_keys
     +-- subscriptions
     +-- usage_events
     +-- usage_monthly

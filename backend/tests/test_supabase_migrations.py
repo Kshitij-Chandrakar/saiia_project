@@ -19,6 +19,7 @@ C9_IDEMPOTENCY_TRIGGER_MIGRATION = (
     MIGRATIONS_DIR / "20260901170000_add_ask_ai_request_key_updated_at_trigger.sql"
 )
 C9_ATOMIC_TURN_MIGRATION = MIGRATIONS_DIR / "20260902120000_add_ask_ai_atomic_turn_persistence.sql"
+C9_INDEX_CLEANUP_MIGRATION = MIGRATIONS_DIR / "20260902130000_drop_redundant_ask_ai_message_index.sql"
 
 
 def _normalized_sql() -> str:
@@ -482,12 +483,22 @@ def test_c9_ask_ai_idempotency_followup_migration_adds_updated_at_trigger() -> N
 
 def test_c9_ask_ai_atomic_turn_migration_adds_fenced_completion_rpc() -> None:
     sql = " ".join(C9_ATOMIC_TURN_MIGRATION.read_text(encoding="utf-8").lower().split())
+    signature = "public.complete_interview_session_ask_ai_turn( uuid, uuid, text, uuid, text, text, text, text, integer, jsonb )"
 
     assert "add column if not exists claim_token uuid" in sql
+    assert "alter column claim_token set not null" in sql
     assert "create or replace function public.complete_interview_session_ask_ai_turn" in sql
     assert "p_claim_token uuid" in sql
     assert "where k.id = v_request_key.id" in sql
     assert "and k.claim_token = p_claim_token" in sql
     assert "insert into public.interview_session_ask_ai_messages" in sql
-    assert "grant execute on function public.complete_interview_session_ask_ai_turn" in sql
-    assert "from authenticated" in sql
+    assert f"revoke all on function {signature} from public" in sql
+    assert f"revoke all on function {signature} from anon" in sql
+    assert f"revoke all on function {signature} from authenticated" in sql
+    assert f"grant execute on function {signature} to service_role" in sql
+
+
+def test_c9_ask_ai_index_cleanup_migration_drops_redundant_index() -> None:
+    sql = " ".join(C9_INDEX_CLEANUP_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "drop index if exists public.interview_session_ask_ai_session_created_idx" in sql

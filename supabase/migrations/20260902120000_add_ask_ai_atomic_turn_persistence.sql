@@ -1,11 +1,10 @@
 -- C9 follow-up: fence idempotent Ask AI turn completion and persist both messages atomically.
 
 alter table public.interview_session_ask_ai_request_keys
-  add column if not exists claim_token uuid null default extensions.gen_random_uuid();
+  add column if not exists claim_token uuid default extensions.gen_random_uuid();
 
-update public.interview_session_ask_ai_request_keys as k
-set claim_token = extensions.gen_random_uuid()
-where k.claim_token is null;
+alter table public.interview_session_ask_ai_request_keys
+  alter column claim_token set not null;
 
 create or replace function public.complete_interview_session_ask_ai_turn(
   p_user_id uuid,

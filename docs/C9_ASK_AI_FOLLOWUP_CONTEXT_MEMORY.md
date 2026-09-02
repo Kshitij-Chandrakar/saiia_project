@@ -26,8 +26,14 @@ Implemented locally / pending manual live verification.
 ## Supabase Migration
 
 - `supabase/migrations/20260901103000_add_interview_session_ask_ai_messages.sql`
+- `supabase/migrations/20260901123000_add_ask_ai_request_idempotency_keys.sql`
+- `supabase/migrations/20260901170000_add_ask_ai_request_key_updated_at_trigger.sql`
+- `supabase/migrations/20260902120000_add_ask_ai_atomic_turn_persistence.sql`
+- `supabase/migrations/20260902130000_drop_redundant_ask_ai_message_index.sql`
 
 The migration creates `interview_session_ask_ai_messages` with RLS enabled and forced. Authenticated users can read only messages for sessions they own. Direct authenticated inserts are not granted; backend/service-role creation uses `public.create_interview_session_ask_ai_message`.
+
+`interview_session_ask_ai_request_keys` is the C9 idempotency store. Request-bound turns use the backend-only atomic completion RPC with a per-attempt claim fence.
 
 ## Backend Routes
 
@@ -38,7 +44,7 @@ The migration creates `interview_session_ask_ai_messages` with RLS enabled and f
 
 - `backend/app/cloud/interview_ask_ai.py`
 
-The service validates the session owner, bounds question/context sizes, fetches transcript entries, optionally fetches saved AI notes, includes recent Ask AI messages for follow-up continuity, calls the configured OpenAI model, and stores user/assistant messages.
+The service validates the session owner, bounds question/context sizes, fetches transcript entries, optionally fetches saved AI notes, includes recent Ask AI messages for follow-up continuity, calls the configured OpenAI model, and atomically stores user/assistant messages for every request, including server-generated request IDs.
 
 ## Context Rules
 

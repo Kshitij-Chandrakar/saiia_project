@@ -147,7 +147,6 @@ export function normalizeReadableAskAIText(value) {
   return text
     .replace(/\*\*(.*?)\*\*/g, '$1')
     .replace(/__(.*?)__/g, '$1')
-    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1$2')
     .trim()
 }
 

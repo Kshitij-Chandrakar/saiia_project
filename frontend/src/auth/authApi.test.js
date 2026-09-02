@@ -651,6 +651,11 @@ test('Ask AI text preserves literal escaped newlines while normalizing real line
 })
 
 
+test('Ask AI text preserves arithmetic and inline technical syntax', () => {
+  assert.equal(normalizeReadableAskAIText('2 * 3 * 4 and `a * b`'), '2 * 3 * 4 and `a * b`')
+})
+
+
 test('cloud resume helpers use safe fallback for validation-array detail', async () => {
   await assert.rejects(
     () => uploadCloudResume('unit-test-access-token', new Blob(['resume'], { type: 'text/plain' }), {
