@@ -1653,7 +1653,7 @@ As of 2026-08-28, C6.3 is implemented locally with the following scope:
 Explicit non-scope for this implementation:
 
 - C7 transcript storage, transcript viewing, and transcript download are implemented locally in this branch
-- C8 AI Notes is implemented locally in `docs/C8_AI_NOTES_GENERATION.md`; C9 Ask AI memory is not started
+- C8 AI Notes is implemented locally in `docs/C8_AI_NOTES_GENERATION.md`; C9 Ask AI is implemented locally in `docs/C9_ASK_AI_FOLLOWUP_CONTEXT_MEMORY.md`
 - no payments, admin console, or final UI redesign
 
 ## Desktop behavior
@@ -1732,7 +1732,7 @@ DELETE /api/sessions/{session_id}
 ## Status
 
 ```text
-[ ] Not started
+[x] Implemented locally through session-owned transcript storage, viewing, and `.txt`/`.md` download; C8 AI Notes is implemented locally in `docs/C8_AI_NOTES_GENERATION.md`; C9 Ask AI is implemented locally in `docs/C9_ASK_AI_FOLLOWUP_CONTEXT_MEMORY.md`; C10 email is not started.
 ```
 
 ## Goal
@@ -1883,7 +1883,7 @@ GET /api/sessions/{id}/transcript/export?format=txt
 ## Status
 
 ```text
-[ ] Not started
+[x] Implemented locally through transcript-based notes generation/storage and dashboard notes view in `docs/C8_AI_NOTES_GENERATION.md`; C9 Ask AI is implemented locally in `docs/C9_ASK_AI_FOLLOWUP_CONTEXT_MEMORY.md`; C10 email is not started.
 ```
 
 ## Goal
@@ -1993,7 +1993,7 @@ Do not add a heavy job queue unless needed. A lightweight background task may be
 ## Status
 
 ```text
-[ ] Not started
+[x] Implemented locally in `docs/C9_ASK_AI_FOLLOWUP_CONTEXT_MEMORY.md`; session-scoped authenticated Ask AI messages, bounded transcript/notes context, request idempotency, safe dashboard history, and pagination are implemented. Manual live verification remains the release check. C10 email is not started.
 ```
 
 ## Goal
@@ -2015,33 +2015,12 @@ Ask AI may use:
 - session transcript
 - generated answers
 - AI notes
-- active job context
-- user profile/resume context, when relevant
-- previous Ask AI messages in the same thread
+- safe session metadata
+- previous Ask AI messages for the same interview session
 
 ## Data model
 
-### `ask_ai_threads`
-
-- `id`
-- `user_id`
-- `session_id`
-- `title`
-- `created_at`
-- `updated_at`
-
-### `ask_ai_messages`
-
-- `id`
-- `user_id`
-- `thread_id`
-- `role`
-- `content`
-- `resolved_query`
-- `context_message_ids`
-- `provider`
-- `model`
-- `created_at`
+The current C9 storage contract is the session-scoped `interview_session_ask_ai_messages` table. There is no global memory or `ask_ai_threads` contract.
 
 ## Follow-up resolver
 
@@ -2084,13 +2063,11 @@ For long sessions:
 
 ## API routes
 
-Possible routes:
+Current routes:
 
 ```text
-POST /api/sessions/{id}/ask
-GET  /api/sessions/{id}/ask/threads
-GET  /api/ask/threads/{thread_id}
-DELETE /api/ask/threads/{thread_id}
+POST /api/interview-sessions/{session_id}/ask-ai
+GET  /api/interview-sessions/{session_id}/ask-ai/messages
 ```
 
 ## C9 tests
@@ -2103,15 +2080,14 @@ DELETE /api/ask/threads/{thread_id}
 - long session retrieval
 - no transcript evidence
 - ownership
-- thread persistence
-- deletion
+- session-scoped message persistence
 
 ## C9 exit criteria
 
 - Ask AI works on a session
 - follow-ups resolve correctly in tested cases
 - unsupported transcript claims are avoided
-- threads persist
+- session-scoped Ask AI messages persist
 - long sessions use bounded context
 
 ---
@@ -4052,8 +4028,7 @@ auth.users
     |      +-- transcript_messages
     |      +-- ai_answers
     |      +-- ai_notes
-    |      +-- ask_ai_threads
-    |             +-- ask_ai_messages
+    |      +-- interview_session_ask_ai_messages
     +-- subscriptions
     +-- usage_events
     +-- usage_monthly
@@ -4085,9 +4060,9 @@ Expected API groups:
 /api/resumes/*
 /api/job-contexts/*
 /api/sessions/*
-/api/sessions/{id}/transcript/*
-/api/sessions/{id}/notes/*
-/api/sessions/{id}/ask/*
+/api/interview-sessions/{session_id}/transcript/*
+/api/interview-sessions/{session_id}/notes/*
+/api/interview-sessions/{session_id}/ask-ai/*
 /api/plans
 /api/billing/*
 /api/usage/*
@@ -4800,11 +4775,10 @@ Scope:
 
 This C0 feature is a live-interview prerequisite only. It does not implement the persistent C9 Ask AI system.
 
-C9 remains responsible for:
+C9 currently provides:
 
 - saved sessions
-- stored threads
-- `ask_ai_messages`
+- session-scoped `interview_session_ask_ai_messages`
 - transcript retrieval
 - AI Notes
 - persistence after restart

@@ -146,7 +146,10 @@ def _normalize_readable_message_text(value: Any, *, field: str, max_chars: int, 
     text = re.sub(r"(?<!\*)\*(?!\*)([^*\n]+)(?<!\*)\*(?!\*)", r"\1", text)
     if len(text) > max_chars:
         raise CloudInterviewSessionValidationError(f"{field} is too long.")
-    return text.strip() or None
+    text = text.strip()
+    if required and not text:
+        raise CloudInterviewSessionValidationError(f"{field} is required.")
+    return text or None
 
 
 def _normalize_request_id(value: Any) -> str | None:
@@ -714,7 +717,8 @@ class CloudInterviewAskAIService:
         if normalized_session_id is None:
             raise CloudInterviewSessionValidationError("session_id is invalid.")
         normalized_question = _normalize_readable_message_text(question, field="question", max_chars=MAX_QUESTION_CHARS, required=True)
-        assert normalized_question is not None
+        if normalized_question is None:
+            raise CloudInterviewSessionValidationError("question is required.")
         normalized_request_id = _normalize_request_id(request_id)
         payload_hash = _payload_hash(question=normalized_question, include_notes=include_notes) if normalized_request_id else None
         session = self._session_service.get_session(user_id=user_id, session_id=normalized_session_id)

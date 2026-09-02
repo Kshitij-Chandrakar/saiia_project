@@ -125,12 +125,9 @@ function decodeHtmlCodePoint(value, radix) {
     : ''
 }
 
-function normalizeReadableAskAIText(value) {
+export function normalizeReadableAskAIText(value) {
   let text = String(value || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
   text = text
-    .replace(/\\r\\n/g, '\n')
-    .replace(/\\n/g, '\n')
-    .replace(/\\r/g, '\n')
     .replace(/&#x([0-9a-f]+);/gi, (_, hex) => decodeHtmlCodePoint(hex, 16))
     .replace(/&#(\d+);/g, (_, code) => decodeHtmlCodePoint(code, 10))
     .replace(/&nbsp;/gi, ' ')

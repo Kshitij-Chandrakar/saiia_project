@@ -1213,8 +1213,20 @@ export function AuthDashboardPage({ backendUrl }) {
     disabled: logoutPending,
   })
 
-  useEffect(() => () => {
+  function resetAskAIState() {
     askAIMessagesControllerRef.current?.abort()
+    askAISubmitControllerRef.current?.abort()
+    askAIMessagesControllerRef.current = null
+    askAISubmitControllerRef.current = null
+    setOpenAskAISessionId('')
+    setAskAIMessages([])
+    setAskAIMessagesNextPage(null)
+    setAskAIError('')
+    setAskAILoading(false)
+  }
+
+  useEffect(() => () => {
+    resetAskAIState()
   }, [])
   const profileBootstrapDisabled = bootstrapLoading || logoutPending
 
@@ -1255,9 +1267,7 @@ export function AuthDashboardPage({ backendUrl }) {
           setOpenNotesSessionId('')
           setSessionNotes(null)
           setNotesError('')
-          setOpenAskAISessionId('')
-          setAskAIMessages([])
-          setAskAIError('')
+          resetAskAIState()
         }
       } catch {
         if (!ignore) {
@@ -1269,9 +1279,7 @@ export function AuthDashboardPage({ backendUrl }) {
           setOpenNotesSessionId('')
           setSessionNotes(null)
           setNotesError('')
-          setOpenAskAISessionId('')
-          setAskAIMessages([])
-          setAskAIError('')
+          resetAskAIState()
         }
       } finally {
         if (!ignore) {
@@ -1317,9 +1325,7 @@ export function AuthDashboardPage({ backendUrl }) {
       setOpenNotesSessionId('')
       setSessionNotes(null)
       setNotesError('')
-      setOpenAskAISessionId('')
-      setAskAIMessages([])
-      setAskAIError('')
+      resetAskAIState()
     } catch {
       setSessionHistory([])
       setSessionHistoryError('Could not load interview sessions. Please try again.')
@@ -1329,9 +1335,7 @@ export function AuthDashboardPage({ backendUrl }) {
       setOpenNotesSessionId('')
       setSessionNotes(null)
       setNotesError('')
-      setOpenAskAISessionId('')
-      setAskAIMessages([])
-      setAskAIError('')
+      resetAskAIState()
     } finally {
       setSessionHistoryLoading(false)
     }
@@ -1488,20 +1492,10 @@ export function AuthDashboardPage({ backendUrl }) {
       return
     }
     if (openAskAISessionId === normalizedSessionId && !reload) {
-      askAIMessagesControllerRef.current?.abort()
-      askAIMessagesControllerRef.current = null
-      askAISubmitControllerRef.current?.abort()
-      askAISubmitControllerRef.current = null
-      setOpenAskAISessionId('')
-      setAskAIMessages([])
-      setAskAIMessagesNextPage(null)
-      setAskAIError('')
-      setAskAILoading(false)
+      resetAskAIState()
       return
     }
-    askAIMessagesControllerRef.current?.abort()
-    askAISubmitControllerRef.current?.abort()
-    askAISubmitControllerRef.current = null
+    resetAskAIState()
     const controller = new AbortController()
     askAIMessagesControllerRef.current = controller
     setOpenAskAISessionId(normalizedSessionId)
@@ -1820,8 +1814,8 @@ export function AuthDashboardPage({ backendUrl }) {
                                   <p>{section.items[0]}</p>
                                 ) : (
                                   <ul>
-                                    {section.items.map((item) => (
-                                      <li key={item}>{item}</li>
+                                    {section.items.map((item, index) => (
+                                      <li key={`${section.key}-${index}`}>{item}</li>
                                     ))}
                                   </ul>
                                 )}

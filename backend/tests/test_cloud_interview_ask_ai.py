@@ -411,6 +411,9 @@ def test_ask_ai_rejects_empty_and_oversized_questions() -> None:
     with pytest.raises(CloudInterviewSessionValidationError, match="question is required"):
         service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="")
 
+    with pytest.raises(CloudInterviewSessionValidationError, match="question is required"):
+        service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="###")
+
     with pytest.raises(CloudInterviewSessionValidationError, match="question is too long"):
         service.ask_ai(user_id=USER_ID, session_id=SESSION_ID, question="x" * 2001)
 

@@ -19,6 +19,7 @@ import {
   fetchReviewCandidate,
   generateInterviewSessionNotes,
   rebuildCloudResumeIndex,
+  normalizeReadableAskAIText,
   uploadCloudResume,
 } from './authApi.js'
 import { getSupabaseAuthConfig, hasSupabaseAuthConfig } from './supabaseClient.js'
@@ -642,6 +643,11 @@ test('askInterviewSessionAI posts authenticated session question and projects sa
     recent_message_count: 0,
   })
   assert.equal('access_token' in result, false)
+})
+
+
+test('Ask AI text preserves literal escaped newlines while normalizing real line endings', () => {
+  assert.equal(normalizeReadableAskAIText('literal\\npath\\rvalue\r\nnext'), 'literal\\npath\\rvalue\nnext')
 })
 
 
