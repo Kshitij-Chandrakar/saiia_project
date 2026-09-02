@@ -143,6 +143,7 @@ class FakeAskAIClient:
         self.reclaim_calls: list[dict[str, object]] = []
         self.fail_create_on_call: int | None = None
         self.fail_complete = False
+        self.complete_after_update_fails = False
 
     def list_messages(self, *, user_id: str, session_id: str, limit: int, page: int):
         self.list_calls.append({"user_id": user_id, "session_id": session_id, "limit": limit, "page": page})
@@ -215,7 +216,12 @@ class FakeAskAIClient:
             payload_hash=current.payload_hash,
         )
         self.request_keys[key] = updated
+        if self.complete_after_update_fails:
+            raise RuntimeError("completion response lost")
         return updated
+
+    def get_request_key(self, *, user_id: str, session_id: str, request_id: str):
+        return self.request_keys[(user_id, session_id, request_id)]
 
     def fail_request_key(self, *, user_id: str, session_id: str, request_id: str, error_code: str):
         self.fail_calls.append({"user_id": user_id, "session_id": session_id, "request_id": request_id, "error_code": error_code})
@@ -576,6 +582,27 @@ def test_ask_ai_post_generation_failures_mark_request_key_failed(failure: str) -
 
     assert client.fail_calls[-1]["request_id"] == request_id
     assert client.request_keys[(USER_ID, SESSION_ID, request_id)].status == "failed"
+
+
+def test_ask_ai_completion_response_failure_replays_completed_turn() -> None:
+    client = FakeAskAIClient()
+    client.complete_after_update_fails = True
+    generator = FakeGenerator()
+    service = _service(client=client, generator=generator)
+
+    result = service.ask_ai(
+        user_id=USER_ID,
+        session_id=SESSION_ID,
+        question="What should I improve?",
+        request_id="ask-complete-response-lost",
+    )
+
+    key = client.request_keys[(USER_ID, SESSION_ID, "ask-complete-response-lost")]
+    assert key.status == "completed"
+    assert client.fail_calls == []
+    assert len(generator.calls) == 1
+    assert result.user_message.id == key.user_message_id
+    assert result.assistant_message.id == key.assistant_message_id
 
 
 def test_ask_ai_request_id_rejects_different_payload() -> None:

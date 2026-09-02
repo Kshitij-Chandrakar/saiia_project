@@ -808,14 +808,6 @@ class CloudInterviewAskAIService:
                     "metadata": metadata,
                 },
             )
-            if normalized_request_id:
-                self._client.complete_request_key(
-                    user_id=user_id,
-                    session_id=normalized_session_id,
-                    request_id=normalized_request_id,
-                    user_message_id=user_message.id,
-                    assistant_message_id=assistant_message.id,
-                )
         except ProviderError as exc:
             self._mark_request_key_failed(
                 user_id=user_id,
@@ -832,6 +824,42 @@ class CloudInterviewAskAIService:
                 error_code=type(exc).__name__,
             )
             raise
+        if normalized_request_id:
+            try:
+                self._client.complete_request_key(
+                    user_id=user_id,
+                    session_id=normalized_session_id,
+                    request_id=normalized_request_id,
+                    user_message_id=user_message.id,
+                    assistant_message_id=assistant_message.id,
+                )
+            except Exception as completion_error:
+                try:
+                    current_key = self._client.get_request_key(
+                        user_id=user_id,
+                        session_id=normalized_session_id,
+                        request_id=normalized_request_id,
+                    )
+                except Exception:
+                    raise completion_error
+                if current_key.status == "completed":
+                    replayed = self._replay_request_key(
+                        user_id=user_id,
+                        session_id=normalized_session_id,
+                        request_key=current_key,
+                        payload_hash=payload_hash or "",
+                        context_used=context_used,
+                    )
+                    if replayed is not None:
+                        return replayed
+                elif current_key.status == "processing":
+                    self._mark_request_key_failed(
+                        user_id=user_id,
+                        session_id=normalized_session_id,
+                        request_id=normalized_request_id,
+                        error_code=type(completion_error).__name__,
+                    )
+                raise completion_error
         return AskAIResult(
             user_message=user_message,
             assistant_message=assistant_message,

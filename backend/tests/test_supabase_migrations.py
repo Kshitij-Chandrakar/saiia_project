@@ -432,7 +432,11 @@ def test_c9_ask_ai_migration_keeps_authenticated_writes_backend_only() -> None:
     assert "grant select on table public.interview_session_ask_ai_messages to authenticated" in sql
     assert "grant select, insert, update, delete on table public.interview_session_ask_ai_messages to service_role" in sql
     assert "grant insert on table public.interview_session_ask_ai_messages to authenticated" not in sql
+    assert "grant update on table public.interview_session_ask_ai_messages to authenticated" not in sql
+    assert "grant delete on table public.interview_session_ask_ai_messages to authenticated" not in sql
     assert "create policy interview_session_ask_ai_insert_own" not in sql
+    assert "create policy interview_session_ask_ai_update_own" not in sql
+    assert "create policy interview_session_ask_ai_delete_own" not in sql
     assert f"revoke all on function {signature} from public" in sql
     assert f"revoke all on function {signature} from anon" in sql
     assert f"revoke all on function {signature} from authenticated" in sql
@@ -459,8 +463,10 @@ def test_c9_ask_ai_idempotency_migration_adds_request_keys_table() -> None:
     assert "grant select, insert, update, delete on table public.interview_session_ask_ai_request_keys to service_role" in sql
     assert "grant insert on table public.interview_session_ask_ai_request_keys to authenticated" not in sql
     assert "grant update on table public.interview_session_ask_ai_request_keys to authenticated" not in sql
+    assert "grant delete on table public.interview_session_ask_ai_request_keys to authenticated" not in sql
     assert "create policy interview_session_ask_ai_request_key_insert" not in sql
     assert "create policy interview_session_ask_ai_request_key_update" not in sql
+    assert "create policy interview_session_ask_ai_request_key_delete" not in sql
 
 
 def test_c9_ask_ai_idempotency_followup_migration_adds_updated_at_trigger() -> None:
