@@ -4,9 +4,9 @@
 **Document type:** Detailed implementation roadmap and execution source of truth  
 **Track:** Desktop stabilization â†’ Cloud account system â†’ Website integration â†’ Session intelligence â†’ Subscription and release  
 **Version:** 1.1  
-**Last updated:** 2026-09-01
+**Last updated:** 2026-09-02
 **Created:** 2026-07-10  
-**Current active phase:** C9 - Ask AI and follow-up context memory implemented locally with session-scoped messages, authenticated Ask AI routes, transcript/notes-grounded answers, and dashboard Ask AI panel; manual live verification is pending, C10 email system is not started, and payments/admin/pricing remain not started
+**Current active phase:** C10.1 - Email system planning and safety contract in progress; C9 Ask AI and follow-up context memory is merged/closed, C10.2 Supabase Auth email delivery is not started, and real email sending/payments/admin/pricing remain not started. See `docs/C10_EMAIL_SYSTEM_PLAN.md`.
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -2092,68 +2092,108 @@ GET  /api/interview-sessions/{session_id}/ask-ai/messages
 
 ---
 
-# C10 â€” Resend Email System
+# C10 - Resend Email System
 
 ## Status
 
 ```text
-[ ] Not started
+[~] C10.1 Email system planning and safety contract in progress; implementation and delivery are not started
 ```
 
 ## Goal
 
-Create a reliable email layer for authentication, transactional messages, and consent-based promotional communication.
+Create a reliable email layer for authentication, transactional messages, and consent-based promotional communication. The C10.1 scope is planning only; the safety contract is documented in `docs/C10_EMAIL_SYSTEM_PLAN.md`.
+
+## C10.1 boundary
+
+- Supabase Auth remains responsible for secure verification/reset link generation.
+- Resend is the planned delivery provider only; it is not called or configured in C10.1.
+- Local automated tests remain dry-run by default.
+- No real API keys, email sends, SMTP configuration, migrations, or implementation are included.
+- C9 is merged/closed. C10.2 is not started.
+- Payment, billing, subscription, and cancellation emails are out of scope for C10 and deferred to the future pricing/subscription/payment phases.
+- Supabase Auth template variables such as `ConfirmationURL` and `RecoveryURL` are allowed when required by Auth, but full Auth URLs must not be logged, tracked, telemetered, or stored in `outbound_email_events` metadata.
+- Redirect URLs are fixed per environment: local may allow only `http://localhost:5173/auth/callback` and `http://localhost:5173/auth/reset-password`; staging/production require HTTPS approved-domain URLs. User-supplied and unapproved destinations are rejected, and C10.2 must manually test allowed and rejected URLs.
+- Resend SMTP must be authenticated and use TLS/encryption with certificate validation; plaintext SMTP is prohibited. The C10.2 setup checklist must verify the SMTP host, port, authentication, TLS, and certificate settings before any real demo email. SMTP passwords/API keys must not appear in the repository, docs, or tests.
 
 ## Email categories
 
-### Transactional
+### Supabase Auth delivery
 
-- email verification
-- welcome
-- password reset, if custom
-- login/security notification, optional
-- interview summary ready
-- payment success
-- payment failure
-- subscription renewal/cancellation
-- data export ready
+- `auth_signup_verification` - signup verification
+- `auth_password_reset` - password reset through Supabase Auth
+- `auth_email_change_confirmation_future` - future email-change confirmation
+- `auth_magic_link_future` - future magic link if enabled
+
+Supabase Auth owns secure link/token generation, resend/cooldown/rate-limit behavior, and auth-email duplicate control. Resend SMTP only delivers these messages. `outbound_email_events` does not claim or deduplicate them. No custom verification/reset token logic is allowed.
+
+### Backend transactional
+
+- `welcome` - welcome email
+- `account_security` - account/security notification
+- `ai_notes_ready` - AI notes ready email
+- `session_summary` - session summary email
+- `transcript_export` - transcript export email
+
+These backend types alone use `outbound_email_events` idempotency, claim leases, retry, and reconciliation rules.
 
 ### Promotional
 
-- product updates
-- offers
-- feature announcements
-- educational content
+- `marketing_promotion_future` - future promotional offers
+- `marketing_product_update_future` - future product updates
 
 Promotional email requires explicit consent and unsubscribe support.
 
 ## Configuration
 
+The complete C10.1 environment contract and local/demo strategy are defined in `docs/C10_EMAIL_SYSTEM_PLAN.md`. No values are configured by this phase.
+
 Backend environment variables may include:
 
 ```env
+EMAIL_ENABLED=false
+EMAIL_DRY_RUN=true
+EMAIL_PROVIDER=resend
 RESEND_API_KEY=
-RESEND_FROM_EMAIL=
-RESEND_REPLY_TO=
+EMAIL_FROM=
+EMAIL_REPLY_TO=
 RESEND_WEBHOOK_SECRET=
 APP_PUBLIC_URL=
 ```
 
-## `email_events` table
+## `outbound_email_events` table plan
 
 Recommended fields:
 
 - `id`
 - `user_id`
+- `session_id` nullable
 - `email_type`
-- `recipient_hash_or_safe_reference`
-- `provider_message_id`
+- `recipient_email`
+- `provider`
+- `provider_message_id` nullable
+- `idempotency_key`
+- `claim_token` or `attempt_id`
+- `reconciliation_token` or `row_version`
+- `sending_started_at` nullable
+- `lease_expires_at` nullable
+- `pending_expires_at` nullable
 - `status`
-- `failure_reason`
+- `error_code` nullable
+- `metadata_json` safe metadata only
 - `created_at`
 - `updated_at`
 
-Do not store full email bodies unless required.
+Outbound email event inserts and updates are backend-only; frontend/client direct insert, update, and delete are prohibited. The uniqueness scope is `user_id`, `email_type`, `recipient_email`, nullable `session_id`, and `idempotency_key`, enforced with PostgreSQL `NULLS NOT DISTINCT` so `session_id IS NULL` claims cannot duplicate. If unavailable, use equivalent partial unique indexes for `session_id IS NULL` and `session_id IS NOT NULL`. The backend claims a row before provider send to prevent concurrent duplicates. `pending` is a pre-send reservation and must have a present `pending_expires_at` or equivalent pending lease. It may be reclaimed only when no active sending attempt exists and that present lease is expired, using an atomic compare-and-claim matching the idempotency scope, prior status `pending`, and `pending_expires_at < now()`; success assigns a new `claim_token` or `attempt_id` and moves the row to `sending`. A missing pending lease is invalid/corrupt and moves to `needs_reconciliation` or `retry_blocked`, never blind reclaim. Each sending claim may be updated only by its claim token. Expired sending claims must be reconciled with provider idempotency, lookup, or webhooks before retry, never reset blindly. `sent` returns the previous result, active `sending` returns already-processing, expired `sending` enters reconciliation, and expired `pending` may be reclaimed because provider send has not started. Only transient or explicitly retryable failures receive a new claim; permanent failures remain failed, confirmed not-sent is not automatically retryable, and unknown provider state becomes `needs_reconciliation` or `retry_blocked`. Moving into reconciliation assigns a `reconciliation_token` or increments `row_version`; only the current token or matching version may update the outcome, and stale claim tokens are rejected. Reconciliation may reach `sent` only on provider confirmation, `failed` only on confirmed permanent failure, or `sending`/retry only when confirmed not sent and retryable. No blind resend is allowed. C10.3 migration/service tests must cover duplicate prevention for both NULL and populated `session_id` values, abandoned pending recovery, missing-lease rejection, expired-claim non-duplication, and stale claim/reconciliation token protection. Authenticated users may receive only safe projected status through backend APIs if needed later. Do not store raw transcript, resume/chunk, prompt, token, header, or secret data.
+
+## C10.1 phase breakdown
+
+- C10.1 - Email plan and safety contract - in progress
+- C10.2 - Supabase Auth emails through Resend SMTP - not started
+- C10.3 - Backend email config and dry-run provider - not started
+- C10.4 - Welcome email - not started
+- C10.5 - Session summary, transcript, and AI notes emails - not started
+- C10.6 - Marketing preferences and promotional emails later - not started
 
 ## Templates
 
@@ -2162,9 +2202,6 @@ Create versioned templates for:
 - verification
 - welcome
 - interview notes ready
-- payment confirmation
-- payment failure
-- cancellation
 - marketing message
 
 Templates should include:
@@ -2174,13 +2211,14 @@ Templates should include:
 - safe links
 - support contact
 - unsubscribe link for marketing
-- no secrets in query strings
+- no secrets in query strings for custom intervuAI transactional or marketing links; required Supabase Auth variables such as `ConfirmationURL`/`RecoveryURL` are handled only by Supabase Auth templates and are never logged or stored in event metadata
 
 ## Delivery rules
 
 - idempotency for repeated events
 - retry only transient failures
-- avoid duplicate welcome/payment emails
+- avoid duplicate backend transactional emails through `outbound_email_events`
+- keep Supabase Auth verification/reset duplicate control owned by Supabase Auth resend/cooldown/rate-limit settings
 - respect consent
 - record provider status
 - validate email webhook signatures if used
