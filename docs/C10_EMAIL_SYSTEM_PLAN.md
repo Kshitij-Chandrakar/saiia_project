@@ -28,9 +28,13 @@ This category includes signup verification, password reset, and future email-cha
 - intervuAI does not create custom verification or reset tokens.
 - Resend only delivers the email through SMTP.
 - Templates use Supabase-supported variables.
-- Redirect URLs must be tested carefully in each environment.
+- Supabase Auth template variables such as `ConfirmationURL` and `RecoveryURL` are allowed when required by Supabase Auth; their full values must never be logged, tracked, telemetered, or stored.
+- Redirect URLs must be fixed per environment. Local development may allow only `http://localhost:5173/auth/callback` and `http://localhost:5173/auth/reset-password`; staging and production must require HTTPS approved-domain URLs. User-supplied or unapproved destinations are rejected.
 - `outbound_email_events` does not claim or deduplicate Supabase Auth verification, reset, email-change confirmation, or magic-link emails.
-- C10.2 must document and test Supabase Auth redirect URLs, resend behavior, cooldown/rate limits, and SMTP delivery.
+- C10.2 must document and manually test allowed and rejected Supabase Auth redirect URLs, resend behavior, cooldown/rate limits, and SMTP delivery.
+- Resend SMTP must use authenticated SMTP with TLS/encryption and certificate validation; plaintext SMTP is prohibited. The C10.2 setup checklist must verify the SMTP host, port, authentication, TLS, and certificate settings before any real demo email. SMTP passwords and API keys must not appear in the repository, docs, or tests.
+
+For custom transactional and marketing links created by intervuAI, secrets are prohibited in query strings. Full Supabase Auth URLs must not be placed in `outbound_email_events` metadata, analytics, or logs. No custom auth tokens are created.
 
 ### B. Backend Transactional Emails Through the Resend API
 
@@ -51,6 +55,16 @@ This category includes welcome emails after verified login/profile bootstrap, AI
 - Only transient or explicitly retryable failures can receive a new claim/retry. Permanent failures remain `failed` and require user correction or a new valid request after the cause is fixed. Confirmed not-sent is not automatically retryable unless the failure is transient or explicitly retryable.
 - Provider success followed by a database update failure requires reconciliation rather than an automatic resend. A provider timeout or unknown result must not blindly resend. Provider idempotency support is used where available in addition to database uniqueness.
 - Logs and any event records contain safe metadata only.
+
+Canonical backend transactional `email_type` values are:
+
+- `welcome`
+- `account_security`
+- `ai_notes_ready`
+- `session_summary`
+- `transcript_export`
+
+The human-readable descriptions above are aliases only. These values, and only these values, use `outbound_email_events` idempotency.
 
 ### Abandoned sending claims
 
@@ -77,6 +91,10 @@ Discounts, product updates, launch offers, and plan-upgrade offers are not imple
 - Require unsubscribe support.
 - Remain separate from transactional email.
 - Unsubscribing from marketing must not block auth or security emails.
+
+Deferred marketing `email_type` values are `marketing_promotion_future` and `marketing_product_update_future`; they require opt-in and unsubscribe support before any implementation.
+
+Supabase-owned auth `email_type` labels, which are not stored in `outbound_email_events`, are `auth_signup_verification`, `auth_password_reset`, `auth_email_change_confirmation_future`, and `auth_magic_link_future`.
 
 ## 3. Real Email Demo Strategy
 

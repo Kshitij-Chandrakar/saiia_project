@@ -2112,33 +2112,35 @@ Create a reliable email layer for authentication, transactional messages, and co
 - No real API keys, email sends, SMTP configuration, migrations, or implementation are included.
 - C9 is merged/closed. C10.2 is not started.
 - Payment, billing, subscription, and cancellation emails are out of scope for C10 and deferred to the future pricing/subscription/payment phases.
+- Supabase Auth template variables such as `ConfirmationURL` and `RecoveryURL` are allowed when required by Auth, but full Auth URLs must not be logged, tracked, telemetered, or stored in `outbound_email_events` metadata.
+- Redirect URLs are fixed per environment: local may allow only `http://localhost:5173/auth/callback` and `http://localhost:5173/auth/reset-password`; staging/production require HTTPS approved-domain URLs. User-supplied and unapproved destinations are rejected, and C10.2 must manually test allowed and rejected URLs.
+- Resend SMTP must be authenticated and use TLS/encryption with certificate validation; plaintext SMTP is prohibited. The C10.2 setup checklist must verify the SMTP host, port, authentication, TLS, and certificate settings before any real demo email. SMTP passwords/API keys must not appear in the repository, docs, or tests.
 
 ## Email categories
 
 ### Supabase Auth delivery
 
-- email verification
-- password reset through Supabase Auth
-- future email-change confirmation or magic link if enabled
+- `auth_signup_verification` - signup verification
+- `auth_password_reset` - password reset through Supabase Auth
+- `auth_email_change_confirmation_future` - future email-change confirmation
+- `auth_magic_link_future` - future magic link if enabled
 
-Supabase Auth owns secure link/token generation, resend/cooldown/rate-limit behavior, and auth-email duplicate control. Resend SMTP only delivers these messages. `outbound_email_events` does not claim or deduplicate them. C10.2 must document and test Supabase Auth redirect URLs, resend behavior, cooldown/rate limits, and SMTP delivery; no custom verification/reset token logic is allowed.
+Supabase Auth owns secure link/token generation, resend/cooldown/rate-limit behavior, and auth-email duplicate control. Resend SMTP only delivers these messages. `outbound_email_events` does not claim or deduplicate them. No custom verification/reset token logic is allowed.
 
 ### Backend transactional
 
-- welcome
-- login/security notification, optional
-- interview summary ready
-- account/security notification
-- session summary ready
-- transcript export
-- AI notes ready
+- `welcome` - welcome email
+- `account_security` - account/security notification
+- `ai_notes_ready` - AI notes ready email
+- `session_summary` - session summary email
+- `transcript_export` - transcript export email
+
+These backend types alone use `outbound_email_events` idempotency, claim leases, retry, and reconciliation rules.
 
 ### Promotional
 
-- product updates
-- offers
-- feature announcements
-- educational content
+- `marketing_promotion_future` - future promotional offers
+- `marketing_product_update_future` - future product updates
 
 Promotional email requires explicit consent and unsubscribe support.
 
@@ -2209,7 +2211,7 @@ Templates should include:
 - safe links
 - support contact
 - unsubscribe link for marketing
-- no secrets in query strings
+- no secrets in query strings for custom intervuAI transactional or marketing links; required Supabase Auth variables such as `ConfirmationURL`/`RecoveryURL` are handled only by Supabase Auth templates and are never logged or stored in event metadata
 
 ## Delivery rules
 
