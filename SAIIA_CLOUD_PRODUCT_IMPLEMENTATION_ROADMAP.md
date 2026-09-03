@@ -2170,7 +2170,7 @@ Recommended fields:
 - `created_at`
 - `updated_at`
 
-Backend-only writes are preferred. The uniqueness scope is `user_id`, `email_type`, `recipient_email`, nullable `session_id`, and `idempotency_key`; the backend claims a row before provider send to prevent concurrent duplicates. Do not store raw transcript, resume/chunk, prompt, token, header, or secret data.
+Outbound email event inserts and updates are backend-only; frontend/client direct insert, update, and delete are prohibited. The uniqueness scope is `user_id`, `email_type`, `recipient_email`, nullable `session_id`, and `idempotency_key`, enforced with PostgreSQL `NULLS NOT DISTINCT` so `session_id IS NULL` claims cannot duplicate. If unavailable, use equivalent partial unique indexes for `session_id IS NULL` and `session_id IS NOT NULL`. The backend claims a row before provider send to prevent concurrent duplicates. C10.3 migration tests must cover duplicate prevention for both NULL and populated `session_id` values. Authenticated users may receive only safe projected status through backend APIs if needed later. Do not store raw transcript, resume/chunk, prompt, token, header, or secret data.
 
 ## C10.1 phase breakdown
 

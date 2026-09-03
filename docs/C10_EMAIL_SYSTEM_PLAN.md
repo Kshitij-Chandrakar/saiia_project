@@ -38,11 +38,14 @@ This category includes welcome emails after verified login/profile bootstrap, AI
 - Session ownership is verified server-side.
 - `user_id` is never trusted from a request body.
 - Idempotency is scoped by `user_id`, `email_type`, `recipient_email`, nullable `session_id`, and `idempotency_key`.
-- Before calling the provider, the backend atomically creates or claims an `outbound_email_events` row. A unique constraint on that scope prevents concurrent duplicate claims.
+- The planned unique index/constraint uses PostgreSQL `NULLS NOT DISTINCT` across `user_id`, `email_type`, `recipient_email`, `session_id`, and `idempotency_key`, so sessionless events are also unique. If that syntax is unavailable, equivalent partial unique indexes must separately cover `session_id IS NULL` and `session_id IS NOT NULL`.
+- Before calling the provider, the backend atomically creates or claims an `outbound_email_events` row. This NULL-safe uniqueness rule prevents concurrent duplicate claims.
 - Event status is one of `pending`, `sending`, `sent`, `failed`, or `canceled` as needed; only one active send attempt exists for a given idempotency scope.
 - Reusing an idempotency key reuses the existing event state. A `sent` event returns its prior `provider_message_id` and status; `pending` or `sending` returns a safe retry/conflict response; `failed` may be retried only for an explicitly retryable failure or may require a new key.
 - Provider success followed by a database update failure requires reconciliation rather than an automatic resend. A provider timeout or unknown result must not blindly resend. Provider idempotency support is used where available in addition to database uniqueness.
 - Logs and any event records contain safe metadata only.
+
+The future C10.3 migration tests must prove duplicate prevention for both `session_id IS NULL` and a populated `session_id`.
 
 ### C. Marketing and Promotional Emails
 
@@ -112,7 +115,7 @@ The planned backend-owned table is `outbound_email_events`:
 - `created_at`
 - `updated_at`
 
-Backend-only insert/update is preferred. A future user-owned safe-metadata select may be added if needed. Frontend direct writes are not allowed. No event log may contain raw transcript, resume text/chunks, prompts, tokens, headers, or secrets.
+Outbound email event inserts and updates are backend-only. Frontend/client direct insert, update, and delete are prohibited. A future user-facing API may return only safe projected status for the authenticated owner; there are no frontend direct table writes. No event log may contain raw transcript, resume text/chunks, prompts, tokens, headers, or secrets.
 
 ### Access, projection, and retention
 
