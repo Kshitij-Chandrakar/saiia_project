@@ -2164,13 +2164,16 @@ Recommended fields:
 - `provider`
 - `provider_message_id` nullable
 - `idempotency_key`
+- `claim_token` or `attempt_id`
+- `sending_started_at` nullable
+- `lease_expires_at` nullable
 - `status`
 - `error_code` nullable
 - `metadata_json` safe metadata only
 - `created_at`
 - `updated_at`
 
-Outbound email event inserts and updates are backend-only; frontend/client direct insert, update, and delete are prohibited. The uniqueness scope is `user_id`, `email_type`, `recipient_email`, nullable `session_id`, and `idempotency_key`, enforced with PostgreSQL `NULLS NOT DISTINCT` so `session_id IS NULL` claims cannot duplicate. If unavailable, use equivalent partial unique indexes for `session_id IS NULL` and `session_id IS NOT NULL`. The backend claims a row before provider send to prevent concurrent duplicates. C10.3 migration tests must cover duplicate prevention for both NULL and populated `session_id` values. Authenticated users may receive only safe projected status through backend APIs if needed later. Do not store raw transcript, resume/chunk, prompt, token, header, or secret data.
+Outbound email event inserts and updates are backend-only; frontend/client direct insert, update, and delete are prohibited. The uniqueness scope is `user_id`, `email_type`, `recipient_email`, nullable `session_id`, and `idempotency_key`, enforced with PostgreSQL `NULLS NOT DISTINCT` so `session_id IS NULL` claims cannot duplicate. If unavailable, use equivalent partial unique indexes for `session_id IS NULL` and `session_id IS NOT NULL`. The backend claims a row before provider send to prevent concurrent duplicates. Each sending claim uses a `claim_token` or `attempt_id`, `sending_started_at`, and `lease_expires_at`; only that claim may update the attempt. Expired sending claims must be reconciled with provider idempotency, lookup, or webhooks before retry, never reset blindly. Confirmed sent becomes `sent`, confirmed not-sent may receive a new claim token, and unknown provider state becomes `needs_reconciliation` or `retry_blocked`. C10.3 migration tests must cover duplicate prevention for both NULL and populated `session_id` values, expired-claim non-duplication, and stale claim-token update rejection. Authenticated users may receive only safe projected status through backend APIs if needed later. Do not store raw transcript, resume/chunk, prompt, token, header, or secret data.
 
 ## C10.1 phase breakdown
 

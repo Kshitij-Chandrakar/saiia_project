@@ -40,12 +40,19 @@ This category includes welcome emails after verified login/profile bootstrap, AI
 - Idempotency is scoped by `user_id`, `email_type`, `recipient_email`, nullable `session_id`, and `idempotency_key`.
 - The planned unique index/constraint uses PostgreSQL `NULLS NOT DISTINCT` across `user_id`, `email_type`, `recipient_email`, `session_id`, and `idempotency_key`, so sessionless events are also unique. If that syntax is unavailable, equivalent partial unique indexes must separately cover `session_id IS NULL` and `session_id IS NOT NULL`.
 - Before calling the provider, the backend atomically creates or claims an `outbound_email_events` row. This NULL-safe uniqueness rule prevents concurrent duplicate claims.
-- Event status is one of `pending`, `sending`, `sent`, `failed`, or `canceled` as needed; only one active send attempt exists for a given idempotency scope.
-- Reusing an idempotency key reuses the existing event state. A `sent` event returns its prior `provider_message_id` and status; `pending` or `sending` returns a safe retry/conflict response; `failed` may be retried only for an explicitly retryable failure or may require a new key.
+- Event status is one of `pending`, `sending`, `sent`, `failed`, `canceled`, `needs_reconciliation`, or `retry_blocked` as needed; only one active send attempt exists for a given idempotency scope.
+- Reusing an idempotency key reuses the existing event state. A `sent` event returns its prior `provider_message_id` and status; a fresh `sending` claim returns a safe already-processing response; `pending` returns a safe retry/conflict response; `failed` may be retried only for an explicitly retryable failure or may require a new key.
 - Provider success followed by a database update failure requires reconciliation rather than an automatic resend. A provider timeout or unknown result must not blindly resend. Provider idempotency support is used where available in addition to database uniqueness.
 - Logs and any event records contain safe metadata only.
 
-The future C10.3 migration tests must prove duplicate prevention for both `session_id IS NULL` and a populated `session_id`.
+### Abandoned sending claims
+
+- Each send attempt has a `claim_token` or `attempt_id`, plus `sending_started_at` and `lease_expires_at`. Only the holder of the active claim token may update that attempt.
+- An expired `sending` lease is never reset blindly to `pending`. First reconcile provider state using the provider idempotency key, provider lookup, or delivery webhook when available.
+- If the provider confirms sent, mark the event `sent`. If it confirms failed or not sent, claim a retry with a new token and retry safely. If provider state is unknown, mark the event `needs_reconciliation` or `retry_blocked` and defer to documented support/manual handling rather than risking a duplicate.
+- A same-key request with an expired sending claim enters reconciliation. A retry may send only after the provider proves the message was not sent or provider idempotency guarantees deduplication.
+
+The future C10.3 migration tests must prove duplicate prevention for both `session_id IS NULL` and a populated `session_id`, prove an expired sending claim is not retried blindly, and prove `claim_token` prevents stale attempt updates.
 
 ### C. Marketing and Promotional Emails
 
@@ -109,6 +116,9 @@ The planned backend-owned table is `outbound_email_events`:
 - `provider`
 - `provider_message_id` nullable
 - `idempotency_key`
+- `claim_token` or `attempt_id`
+- `sending_started_at` nullable
+- `lease_expires_at` nullable
 - `status`
 - `error_code` nullable
 - `metadata_json` containing safe metadata only
