@@ -24,10 +24,13 @@ C10 will build a safe email system for:
 This category includes signup verification, password reset, and future email-change confirmation or magic-link emails if needed.
 
 - Supabase Auth generates secure verification and reset links.
+- Supabase Auth owns auth-email resend, cooldown, and rate-limit behavior.
 - intervuAI does not create custom verification or reset tokens.
 - Resend only delivers the email through SMTP.
 - Templates use Supabase-supported variables.
 - Redirect URLs must be tested carefully in each environment.
+- `outbound_email_events` does not claim or deduplicate Supabase Auth verification, reset, email-change confirmation, or magic-link emails.
+- C10.2 must document and test Supabase Auth redirect URLs, resend behavior, cooldown/rate limits, and SMTP delivery.
 
 ### B. Backend Transactional Emails Through the Resend API
 
@@ -37,6 +40,7 @@ This category includes welcome emails after verified login/profile bootstrap, AI
 - User-action routes are authenticated and use `CurrentUserDep`.
 - Session ownership is verified server-side.
 - `user_id` is never trusted from a request body.
+- The idempotency, claim-lease, retry, and reconciliation rules below apply only to backend transactional emails, not Supabase Auth emails.
 - Idempotency is scoped by `user_id`, `email_type`, `recipient_email`, nullable `session_id`, and `idempotency_key`.
 - The planned unique index/constraint uses PostgreSQL `NULLS NOT DISTINCT` across `user_id`, `email_type`, `recipient_email`, `session_id`, and `idempotency_key`, so sessionless events are also unique. If that syntax is unavailable, equivalent partial unique indexes must separately cover `session_id IS NULL` and `session_id IS NOT NULL`.
 - Before calling the provider, the backend atomically creates or claims an `outbound_email_events` row. This NULL-safe uniqueness rule prevents concurrent duplicate claims.

@@ -2115,11 +2115,17 @@ Create a reliable email layer for authentication, transactional messages, and co
 
 ## Email categories
 
-### Transactional
+### Supabase Auth delivery
 
 - email verification
-- welcome
 - password reset through Supabase Auth
+- future email-change confirmation or magic link if enabled
+
+Supabase Auth owns secure link/token generation, resend/cooldown/rate-limit behavior, and auth-email duplicate control. Resend SMTP only delivers these messages. `outbound_email_events` does not claim or deduplicate them. C10.2 must document and test Supabase Auth redirect URLs, resend behavior, cooldown/rate limits, and SMTP delivery; no custom verification/reset token logic is allowed.
+
+### Backend transactional
+
+- welcome
 - login/security notification, optional
 - interview summary ready
 - account/security notification
@@ -2209,7 +2215,8 @@ Templates should include:
 
 - idempotency for repeated events
 - retry only transient failures
-- avoid duplicate auth and transactional emails
+- avoid duplicate backend transactional emails through `outbound_email_events`
+- keep Supabase Auth verification/reset duplicate control owned by Supabase Auth resend/cooldown/rate-limit settings
 - respect consent
 - record provider status
 - validate email webhook signatures if used
