@@ -40,8 +40,11 @@ This category includes welcome emails after verified login/profile bootstrap, AI
 - Idempotency is scoped by `user_id`, `email_type`, `recipient_email`, nullable `session_id`, and `idempotency_key`.
 - The planned unique index/constraint uses PostgreSQL `NULLS NOT DISTINCT` across `user_id`, `email_type`, `recipient_email`, `session_id`, and `idempotency_key`, so sessionless events are also unique. If that syntax is unavailable, equivalent partial unique indexes must separately cover `session_id IS NULL` and `session_id IS NOT NULL`.
 - Before calling the provider, the backend atomically creates or claims an `outbound_email_events` row. This NULL-safe uniqueness rule prevents concurrent duplicate claims.
+- `pending` is a pre-send reservation. The backend may claim it only when no active sending attempt exists, its claim lease is absent or expired, and the same idempotency scope still matches. Claiming it moves it to `sending` with a new `claim_token` or `attempt_id`, `sending_started_at`, and `lease_expires_at`.
 - Event status is one of `pending`, `sending`, `sent`, `failed`, `canceled`, `needs_reconciliation`, or `retry_blocked` as needed; only one active send attempt exists for a given idempotency scope.
-- Reusing an idempotency key reuses the existing event state. A `sent` event returns its prior `provider_message_id` and status; a fresh `sending` claim returns a safe already-processing response; `pending` returns a safe retry/conflict response; `failed` may be retried only for an explicitly retryable failure or may require a new key.
+- Reusing an idempotency key reuses the existing event state. A `sent` event returns its prior `provider_message_id` and status; a fresh `sending` claim returns a safe already-processing response; an unexpired `pending` reservation returns a safe already-processing response; an expired `pending` reservation may be reclaimed because provider send has not started.
+- Every pending reservation has `pending_expires_at` or an equivalent claim-lease timeout. Expired pending rows are safely reclaimable without changing the unique idempotency scope or violating the single-active-attempt rule.
+- Only transient or explicitly retryable failures can receive a new claim/retry. Permanent failures remain `failed` and require user correction or a new valid request after the cause is fixed. Confirmed not-sent is not automatically retryable unless the failure is transient or explicitly retryable.
 - Provider success followed by a database update failure requires reconciliation rather than an automatic resend. A provider timeout or unknown result must not blindly resend. Provider idempotency support is used where available in addition to database uniqueness.
 - Logs and any event records contain safe metadata only.
 
@@ -49,10 +52,11 @@ This category includes welcome emails after verified login/profile bootstrap, AI
 
 - Each send attempt has a `claim_token` or `attempt_id`, plus `sending_started_at` and `lease_expires_at`. Only the holder of the active claim token may update that attempt.
 - An expired `sending` lease is never reset blindly to `pending`. First reconcile provider state using the provider idempotency key, provider lookup, or delivery webhook when available.
-- If the provider confirms sent, mark the event `sent`. If it confirms failed or not sent, claim a retry with a new token and retry safely. If provider state is unknown, mark the event `needs_reconciliation` or `retry_blocked` and defer to documented support/manual handling rather than risking a duplicate.
+- If the provider confirms sent, mark the event `sent`. If it confirms failed or not sent, claim a retry with a new token only when the failure is transient or explicitly retryable; otherwise keep it `failed` and require correction or a new valid request. If provider state is unknown, mark the event `needs_reconciliation` or `retry_blocked` and defer to documented support/manual handling rather than risking a duplicate.
 - A same-key request with an expired sending claim enters reconciliation. A retry may send only after the provider proves the message was not sent or provider idempotency guarantees deduplication.
+- A same-key request with an expired pending claim may be reclaimed safely because the provider call has not started; it still requires a new claim token and preserves the unique scope.
 
-The future C10.3 migration tests must prove duplicate prevention for both `session_id IS NULL` and a populated `session_id`, prove an expired sending claim is not retried blindly, and prove `claim_token` prevents stale attempt updates.
+The future C10.3 migration/service tests must prove duplicate prevention for both `session_id IS NULL` and a populated `session_id`, abandoned pending recovery, expired sending claims are not retried blindly, only transient/explicitly retryable failures receive a new claim, and `claim_token` prevents stale attempt updates.
 
 ### C. Marketing and Promotional Emails
 
@@ -119,6 +123,7 @@ The planned backend-owned table is `outbound_email_events`:
 - `claim_token` or `attempt_id`
 - `sending_started_at` nullable
 - `lease_expires_at` nullable
+- `pending_expires_at` nullable
 - `status`
 - `error_code` nullable
 - `metadata_json` containing safe metadata only
