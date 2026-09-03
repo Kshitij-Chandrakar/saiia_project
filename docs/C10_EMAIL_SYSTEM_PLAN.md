@@ -40,10 +40,10 @@ This category includes welcome emails after verified login/profile bootstrap, AI
 - Idempotency is scoped by `user_id`, `email_type`, `recipient_email`, nullable `session_id`, and `idempotency_key`.
 - The planned unique index/constraint uses PostgreSQL `NULLS NOT DISTINCT` across `user_id`, `email_type`, `recipient_email`, `session_id`, and `idempotency_key`, so sessionless events are also unique. If that syntax is unavailable, equivalent partial unique indexes must separately cover `session_id IS NULL` and `session_id IS NOT NULL`.
 - Before calling the provider, the backend atomically creates or claims an `outbound_email_events` row. This NULL-safe uniqueness rule prevents concurrent duplicate claims.
-- `pending` is a pre-send reservation. The backend may claim it only when no active sending attempt exists, its claim lease is absent or expired, and the same idempotency scope still matches. Claiming it moves it to `sending` with a new `claim_token` or `attempt_id`, `sending_started_at`, and `lease_expires_at`.
+- `pending` is a pre-send reservation. Every pending reservation must have a present `pending_expires_at` or equivalent pending lease. The backend may reclaim it only when no active sending attempt exists, that present lease is expired, and the same idempotency scope still matches. Reclamation uses an atomic compare-and-claim matching the scope, previous status `pending`, and `pending_expires_at < now()`; only a successful claim moves it to `sending` with a new `claim_token` or `attempt_id`, `sending_started_at`, and `lease_expires_at`.
 - Event status is one of `pending`, `sending`, `sent`, `failed`, `canceled`, `needs_reconciliation`, or `retry_blocked` as needed; only one active send attempt exists for a given idempotency scope.
 - Reusing an idempotency key reuses the existing event state. A `sent` event returns its prior `provider_message_id` and status; a fresh `sending` claim returns a safe already-processing response; an unexpired `pending` reservation returns a safe already-processing response; an expired `pending` reservation may be reclaimed because provider send has not started.
-- Every pending reservation has `pending_expires_at` or an equivalent claim-lease timeout. Expired pending rows are safely reclaimable without changing the unique idempotency scope or violating the single-active-attempt rule.
+- A pending row without a pending lease is invalid or corrupt. It must move to `needs_reconciliation` or `retry_blocked`, not be blindly reclaimed. Expired pending rows are safely reclaimable only through the atomic compare-and-claim, without changing the unique idempotency scope or violating the single-active-attempt rule.
 - Only transient or explicitly retryable failures can receive a new claim/retry. Permanent failures remain `failed` and require user correction or a new valid request after the cause is fixed. Confirmed not-sent is not automatically retryable unless the failure is transient or explicitly retryable.
 - Provider success followed by a database update failure requires reconciliation rather than an automatic resend. A provider timeout or unknown result must not blindly resend. Provider idempotency support is used where available in addition to database uniqueness.
 - Logs and any event records contain safe metadata only.
@@ -54,9 +54,16 @@ This category includes welcome emails after verified login/profile bootstrap, AI
 - An expired `sending` lease is never reset blindly to `pending`. First reconcile provider state using the provider idempotency key, provider lookup, or delivery webhook when available.
 - If the provider confirms sent, mark the event `sent`. If it confirms failed or not sent, claim a retry with a new token only when the failure is transient or explicitly retryable; otherwise keep it `failed` and require correction or a new valid request. If provider state is unknown, mark the event `needs_reconciliation` or `retry_blocked` and defer to documented support/manual handling rather than risking a duplicate.
 - A same-key request with an expired sending claim enters reconciliation. A retry may send only after the provider proves the message was not sent or provider idempotency guarantees deduplication.
-- A same-key request with an expired pending claim may be reclaimed safely because the provider call has not started; it still requires a new claim token and preserves the unique scope.
+- A same-key request with an expired pending claim may be reclaimed safely because the provider call has not started; it still requires a present expired pending lease, an atomic compare-and-claim, a new claim token, and the preserved unique scope.
 
-The future C10.3 migration/service tests must prove duplicate prevention for both `session_id IS NULL` and a populated `session_id`, abandoned pending recovery, expired sending claims are not retried blindly, only transient/explicitly retryable failures receive a new claim, and `claim_token` prevents stale attempt updates.
+### Reconciliation authority
+
+- Moving an event into `needs_reconciliation` assigns a `reconciliation_token` or increments a `row_version`. Only the holder of the current reconciliation token, or an update matching the current row version, may record the outcome.
+- Late results carrying an old `claim_token` or `attempt_id` are rejected and cannot overwrite reconciled state. Reconciliation updates are conditional compare-and-set operations.
+- `needs_reconciliation` may move to `sent` only when the provider confirms sent; to `failed` only when the provider confirms permanent failure; or to `sending`/retry only when the provider confirms not sent and the failure is transient or explicitly retryable. Unknown provider state remains `needs_reconciliation` or `retry_blocked`.
+- No reconciliation path may perform a blind resend.
+
+The future C10.3 migration/service tests must prove duplicate prevention for both `session_id IS NULL` and a populated `session_id`, abandoned pending recovery, a pending row with a missing lease is not blindly reclaimed, expired sending claims are not retried blindly, only transient/explicitly retryable failures receive a new claim, `claim_token` prevents stale attempt updates, and `reconciliation_token` or `row_version` prevents stale worker overwrites.
 
 ### C. Marketing and Promotional Emails
 
@@ -121,6 +128,7 @@ The planned backend-owned table is `outbound_email_events`:
 - `provider_message_id` nullable
 - `idempotency_key`
 - `claim_token` or `attempt_id`
+- `reconciliation_token` or `row_version`
 - `sending_started_at` nullable
 - `lease_expires_at` nullable
 - `pending_expires_at` nullable
