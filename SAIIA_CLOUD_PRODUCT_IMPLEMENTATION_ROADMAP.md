@@ -2111,6 +2111,7 @@ Create a reliable email layer for authentication, transactional messages, and co
 - Local automated tests remain dry-run by default.
 - No real API keys, email sends, SMTP configuration, migrations, or implementation are included.
 - C9 is merged/closed. C10.2 is not started.
+- Payment, billing, subscription, and cancellation emails are out of scope for C10 and deferred to the future pricing/subscription/payment phases.
 
 ## Email categories
 
@@ -2193,9 +2194,6 @@ Create versioned templates for:
 - verification
 - welcome
 - interview notes ready
-- payment confirmation
-- payment failure
-- cancellation
 - marketing message
 
 Templates should include:
@@ -2211,7 +2209,7 @@ Templates should include:
 
 - idempotency for repeated events
 - retry only transient failures
-- avoid duplicate welcome/payment emails
+- avoid duplicate auth and transactional emails
 - respect consent
 - record provider status
 - validate email webhook signatures if used
