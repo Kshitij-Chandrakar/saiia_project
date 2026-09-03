@@ -37,7 +37,11 @@ This category includes welcome emails after verified login/profile bootstrap, AI
 - User-action routes are authenticated and use `CurrentUserDep`.
 - Session ownership is verified server-side.
 - `user_id` is never trusted from a request body.
-- Idempotency keys prevent duplicate sends.
+- Idempotency is scoped by `user_id`, `email_type`, `recipient_email`, nullable `session_id`, and `idempotency_key`.
+- Before calling the provider, the backend atomically creates or claims an `outbound_email_events` row. A unique constraint on that scope prevents concurrent duplicate claims.
+- Event status is one of `pending`, `sending`, `sent`, `failed`, or `canceled` as needed; only one active send attempt exists for a given idempotency scope.
+- Reusing an idempotency key reuses the existing event state. A `sent` event returns its prior `provider_message_id` and status; `pending` or `sending` returns a safe retry/conflict response; `failed` may be retried only for an explicitly retryable failure or may require a new key.
+- Provider success followed by a database update failure requires reconciliation rather than an automatic resend. A provider timeout or unknown result must not blindly resend. Provider idempotency support is used where available in addition to database uniqueness.
 - Logs and any event records contain safe metadata only.
 
 ### C. Marketing and Promotional Emails
@@ -109,6 +113,15 @@ The planned backend-owned table is `outbound_email_events`:
 - `updated_at`
 
 Backend-only insert/update is preferred. A future user-owned safe-metadata select may be added if needed. Frontend direct writes are not allowed. No event log may contain raw transcript, resume text/chunks, prompts, tokens, headers, or secrets.
+
+### Access, projection, and retention
+
+- Backend/service-role processes may read full event metadata for delivery and reconciliation.
+- Users may read only their own safe event status if a user-facing email history is added later; the initial implementation has no frontend direct table reads or writes.
+- A user-facing response may expose `email_type`, `status`, `created_at`, `provider`, and a safe message. `recipient_email` should be masked in UI and log output when possible. `provider_message_id` remains internal unless support needs it.
+- Keep event logs for a limited support/debug window, 90 days by default. Longer retention requires a later compliance, billing, or security decision.
+- Account deletion should delete or anonymize that user's email events. Privacy deletion removes or anonymizes `recipient_email`.
+- Never retain raw email bodies, transcript/resume content, prompts, tokens, headers, or secrets.
 
 No migration is created in C10.1.
 

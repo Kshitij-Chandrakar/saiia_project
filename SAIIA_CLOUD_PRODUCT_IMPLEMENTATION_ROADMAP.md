@@ -2161,15 +2161,16 @@ Recommended fields:
 - `session_id` nullable
 - `email_type`
 - `recipient_email`
-- `provider_message_id`
+- `provider`
+- `provider_message_id` nullable
 - `idempotency_key`
 - `status`
-- `error_code`
-- `metadata_json`
+- `error_code` nullable
+- `metadata_json` safe metadata only
 - `created_at`
 - `updated_at`
 
-Backend-only writes are preferred. Do not store raw transcript, resume/chunk, prompt, token, header, or secret data.
+Backend-only writes are preferred. The uniqueness scope is `user_id`, `email_type`, `recipient_email`, nullable `session_id`, and `idempotency_key`; the backend claims a row before provider send to prevent concurrent duplicates. Do not store raw transcript, resume/chunk, prompt, token, header, or secret data.
 
 ## C10.1 phase breakdown
 
