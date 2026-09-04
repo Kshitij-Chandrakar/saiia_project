@@ -42,7 +42,6 @@ MAX_LEASE_SECONDS = 3600
 DEFAULT_PENDING_LEASE_SECONDS = 300
 DEFAULT_SENDING_LEASE_SECONDS = 300
 SUPABASE_HTTP_POOL_SIZE = 20
-SUPABASE_SELECT_TIMEOUT = 5
 SUPABASE_MUTATION_TIMEOUT = 8
 
 
@@ -348,28 +347,12 @@ class SupabaseOutboundEmailEventClient:
             raise OutboundEmailEventError(SAFE_FAILURE_MESSAGE)
         return data[0]
 
-    def _select_one(self, *, user_id: str, event_id: str) -> OutboundEmailEventRecord:
-        try:
-            response = self._session.get(
-                f"{self._rest_url}/outbound_email_events",
-                headers=self._headers,
-                params={"select": "*", "id": f"eq.{event_id}", "user_id": f"eq.{user_id}", "limit": "1"},
-                timeout=SUPABASE_SELECT_TIMEOUT,
-            )
-        except requests.RequestException as exc:
-            logger.error(
-                "Outbound email event failure: operation=select status=request_error error_type=%s",
-                type(exc).__name__,
-            )
-            raise OutboundEmailEventError(SAFE_FAILURE_MESSAGE) from exc
-        if response.status_code != 200:
-            self._raise_response("select", response)
-        data = response.json()
-        if not isinstance(data, list) or not data:
-            raise OutboundEmailEventNotFoundError("Outbound email event was not found.")
-        if not isinstance(data[0], dict):
+    @staticmethod
+    def _record_from_rpc_result(payload: Mapping[str, Any]) -> OutboundEmailEventRecord:
+        record = _record_from_payload(payload)
+        if not record.id:
             raise OutboundEmailEventError(SAFE_FAILURE_MESSAGE)
-        return _record_from_payload(data[0])
+        return record
 
     def claim_event(
         self,
@@ -389,11 +372,8 @@ class SupabaseOutboundEmailEventClient:
                 "p_pending_expires_at": pending_expires_at,
             },
         )
-        event_id = str(result.get("event_id") or "")
-        if not event_id:
-            raise OutboundEmailEventError(SAFE_FAILURE_MESSAGE)
         return OutboundEmailEventClaim(
-            event=self._select_one(user_id=request.user_id, event_id=event_id),
+            event=self._record_from_rpc_result(result),
             replayed=bool(result.get("replayed")),
             conflict_reason=str(result.get("conflict_reason")).strip()
             if result.get("conflict_reason")
@@ -405,7 +385,7 @@ class SupabaseOutboundEmailEventClient:
             "begin_outbound_email_event_send",
             {"p_user_id": user_id, "p_event_id": event_id, "p_lease_expires_at": lease_expires_at},
         )
-        return self._select_one(user_id=user_id, event_id=str(result.get("event_id") or event_id))
+        return self._record_from_rpc_result(result)
 
     def reclaim_pending(
         self,
@@ -418,7 +398,7 @@ class SupabaseOutboundEmailEventClient:
             "reclaim_outbound_email_event_pending",
             {"p_user_id": user_id, "p_event_id": event_id, "p_lease_expires_at": lease_expires_at},
         )
-        return self._select_one(user_id=user_id, event_id=str(result.get("event_id") or event_id))
+        return self._record_from_rpc_result(result)
 
     def complete_event(
         self,
@@ -443,7 +423,7 @@ class SupabaseOutboundEmailEventClient:
                 "p_error_code": error_code,
             },
         )
-        return self._select_one(user_id=user_id, event_id=str(result.get("event_id") or event_id))
+        return self._record_from_rpc_result(result)
 
     def retry_failed(
         self,
@@ -462,14 +442,14 @@ class SupabaseOutboundEmailEventClient:
                 "p_retryable": retryable,
             },
         )
-        return self._select_one(user_id=user_id, event_id=str(result.get("event_id") or event_id))
+        return self._record_from_rpc_result(result)
 
     def reconcile_expired(self, *, user_id: str, event_id: str) -> OutboundEmailEventRecord:
         result = self._rpc(
             "reconcile_outbound_email_event",
             {"p_user_id": user_id, "p_event_id": event_id},
         )
-        return self._select_one(user_id=user_id, event_id=str(result.get("event_id") or event_id))
+        return self._record_from_rpc_result(result)
 
     def resolve_reconciliation(
         self,
@@ -500,7 +480,7 @@ class SupabaseOutboundEmailEventClient:
                 "p_error_code": error_code,
             },
         )
-        return self._select_one(user_id=user_id, event_id=str(result.get("event_id") or event_id))
+        return self._record_from_rpc_result(result)
 
 
 class OutboundEmailEventService:
@@ -658,6 +638,8 @@ class OutboundEmailEventService:
             raise OutboundEmailEventConflictError("Only confirmed permanent failures can be marked failed.")
         if outcome == "retry" and (provider_state != "not_sent" or not retryable):
             raise OutboundEmailEventConflictError("Only confirmed retryable failures can be retried.")
+        if outcome == "retry_blocked" and provider_state != "unknown":
+            raise OutboundEmailEventConflictError("retry_blocked requires unknown provider state.")
         lease_expires_at = (
             _lease_expiry(sending_lease_seconds, "sending_lease_seconds") if outcome == "retry" else None
         )

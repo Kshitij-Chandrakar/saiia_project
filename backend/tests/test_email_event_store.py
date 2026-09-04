@@ -1,4 +1,4 @@
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -10,6 +10,8 @@ from app.email.event_store import (
     OutboundEmailEventRecord,
     OutboundEmailEventService,
     OutboundEmailEventValidationError,
+    OutboundEmailEventRequest,
+    SupabaseOutboundEmailEventClient,
 )
 from app.email.provider import EmailSendRequest, EmailSendResult
 from app.email.service import EmailService
@@ -19,8 +21,8 @@ def _future_iso(seconds: int = 300) -> str:
     return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
 
 
-def _past_iso() -> str:
-    return (datetime.now(timezone.utc) - timedelta(seconds=300)).isoformat().replace("+00:00", "Z")
+def _past_iso(seconds: int = 300) -> str:
+    return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
 
 
 def _record(
@@ -61,6 +63,7 @@ class FakeEventClient:
         self.records: dict[tuple[str, str, str, str | None, str], OutboundEmailEventRecord] = {}
         self.claim_calls: list[dict[str, object]] = []
         self.complete_calls: list[dict[str, object]] = []
+        self.resolve_calls: list[dict[str, object]] = []
         self._next_id = 1
 
     def _key(self, request) -> tuple[str, str, str, str | None, str]:
@@ -104,7 +107,20 @@ class FakeEventClient:
 
     def reclaim_pending(self, *, user_id: str, event_id: str, lease_expires_at: str) -> OutboundEmailEventRecord:
         key, event = self._find(event_id)
-        if event.user_id != user_id or event.status != "pending" or not event.pending_expires_at or event.pending_expires_at > _past_iso():
+        try:
+            pending_expires_at = datetime.fromisoformat(
+                (event.pending_expires_at or "").replace("Z", "+00:00")
+            )
+        except (TypeError, ValueError):
+            raise OutboundEmailEventConflictError("pending lease is not expired")
+        if pending_expires_at.tzinfo is None:
+            pending_expires_at = pending_expires_at.replace(tzinfo=timezone.utc)
+        if (
+            event.user_id != user_id
+            or event.status != "pending"
+            or not event.pending_expires_at
+            or not pending_expires_at < datetime.now(timezone.utc)
+        ):
             raise OutboundEmailEventConflictError("pending lease is not expired")
         updated = replace(event, status="sending", claim_token=f"claim-{event_id}", lease_expires_at=lease_expires_at)
         self.records[key] = updated
@@ -146,6 +162,7 @@ class FakeEventClient:
         return updated
 
     def resolve_reconciliation(self, *, user_id: str, event_id: str, reconciliation_token: str, outcome: str, provider_state: str, retryable: bool, lease_expires_at: str | None, provider: str | None, provider_message_id: str | None, error_code: str | None) -> OutboundEmailEventRecord:
+        self.resolve_calls.append({"outcome": outcome, "provider_state": provider_state})
         key, event = self._find(event_id)
         if event.user_id != user_id or event.status != "needs_reconciliation" or event.reconciliation_token != reconciliation_token:
             raise OutboundEmailEventConflictError("reconciliation claim is no longer active")
@@ -191,6 +208,31 @@ def _send_kwargs(*, idempotency_key: str = "email-1") -> dict[str, object]:
     return {"subject": "Interview notes ready", **_event_kwargs(idempotency_key=idempotency_key)}
 
 
+class FakeRpcResponse:
+    status_code = 200
+
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.payload = payload
+
+    def json(self) -> list[dict[str, object]]:
+        return [self.payload]
+
+
+class FakeRpcSession:
+    def __init__(self, responses: list[FakeRpcResponse]) -> None:
+        self.responses = responses
+        self.post_calls: list[dict[str, object]] = []
+        self.get_calls = 0
+
+    def post(self, url: str, **kwargs: object) -> FakeRpcResponse:
+        self.post_calls.append({"url": url, **kwargs})
+        return self.responses.pop(0)
+
+    def get(self, *args: object, **kwargs: object) -> None:
+        self.get_calls += 1
+        raise AssertionError("atomic lifecycle RPC wrapper performed a follow-up select")
+
+
 def test_reserve_uses_null_safe_scope_and_keeps_session_scopes_separate() -> None:
     client = FakeEventClient()
     service = OutboundEmailEventService(client=client)
@@ -221,6 +263,55 @@ def test_reserve_uses_null_safe_scope_and_keeps_session_scopes_separate() -> Non
     assert replay.already_processing is True
     assert session_scoped.event.id != first.event.id
     assert client.claim_calls[0]["pending_expires_at"]
+
+
+def test_supabase_lifecycle_wrappers_parse_atomic_rpc_rows_without_followup_select() -> None:
+    sent_payload = asdict(
+        _record(
+            event_id="event-sent",
+            status="sent",
+        )
+    )
+    sent_payload.update({"provider": "dry_run", "provider_message_id": "dry-run", "replayed": True, "conflict_reason": None})
+    sending_payload = asdict(
+        _record(
+            event_id="event-sending",
+            status="sending",
+            claim_token="claim-event-sending",
+            lease_expires_at=_future_iso(),
+            pending_expires_at=None,
+        )
+    )
+    sending_payload.update({"replayed": False, "conflict_reason": None})
+    session = FakeRpcSession([FakeRpcResponse(sent_payload), FakeRpcResponse(sending_payload)])
+    client = object.__new__(SupabaseOutboundEmailEventClient)
+    client._rest_url = "https://example.supabase.co/rest/v1"
+    client._headers = {}
+    client._session = session
+
+    claim = client.claim_event(
+        request=OutboundEmailEventRequest(
+            user_id="user-1",
+            session_id=None,
+            email_type="welcome",
+            recipient_email="mentor@example.com",
+            idempotency_key="welcome-1",
+            safe_metadata={},
+        ),
+        pending_expires_at=_future_iso(),
+    )
+    sending = client.begin_send(
+        user_id="user-1",
+        event_id="event-sending",
+        lease_expires_at=_future_iso(),
+    )
+
+    assert claim.event.id == "event-sent"
+    assert claim.replayed is True
+    assert claim.conflict_reason is None
+    assert sending.id == "event-sending"
+    assert sending.status == "sending"
+    assert session.get_calls == 0
 
 
 def test_status_transitions_fence_stale_claims_and_permanent_failures() -> None:
@@ -262,7 +353,7 @@ def test_pending_reclaim_requires_present_expired_lease_and_reconciliation_fence
     with pytest.raises(OutboundEmailEventConflictError):
         service.reclaim_pending(user_id="user-1", event_id=event.id)
 
-    client.records[key] = replace(stored, pending_expires_at=_past_iso())
+    client.records[key] = replace(stored, pending_expires_at=_past_iso(10))
     sending = service.reclaim_pending(user_id="user-1", event_id=event.id)
     key, _ = client._find(event.id)
     client.records[key] = replace(sending, lease_expires_at=_past_iso())
@@ -329,6 +420,22 @@ def test_event_metadata_rejects_sensitive_values_before_client_call() -> None:
             safe_metadata={"authorization": "Bearer secret"},
         )
     assert client.claim_calls == []
+
+
+def test_retry_blocked_rejects_non_unknown_provider_state_before_client_call() -> None:
+    client = FakeEventClient()
+    service = OutboundEmailEventService(client=client)
+
+    with pytest.raises(OutboundEmailEventConflictError, match="retry_blocked"):
+        service.resolve_reconciliation(
+            user_id="user-1",
+            event_id="event-1",
+            reconciliation_token="reconcile-event-1",
+            outcome="retry_blocked",
+            provider_state="sent",
+        )
+
+    assert client.resolve_calls == []
 
 
 def test_email_service_claims_event_before_dry_run_send_and_completes_it() -> None:

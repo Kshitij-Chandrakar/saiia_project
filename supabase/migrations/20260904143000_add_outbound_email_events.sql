@@ -90,9 +90,25 @@ create or replace function public.claim_outbound_email_event(
   p_pending_expires_at timestamptz
 )
 returns table (
-  event_id uuid,
-  status text,
+  id uuid,
+  user_id uuid,
+  session_id uuid,
+  email_type text,
+  recipient_email text,
+  provider text,
+  provider_message_id text,
+  idempotency_key text,
   claim_token uuid,
+  reconciliation_token uuid,
+  row_version bigint,
+  sending_started_at timestamptz,
+  lease_expires_at timestamptz,
+  pending_expires_at timestamptz,
+  status text,
+  error_code text,
+  metadata_json jsonb,
+  created_at timestamptz,
+  updated_at timestamptz,
   replayed boolean,
   conflict_reason text
 )
@@ -140,11 +156,20 @@ begin
     coalesce(p_metadata_json, '{}'::jsonb)
   )
   on conflict (user_id, email_type, recipient_email, session_id, idempotency_key) do nothing
-  returning id, outbound_email_events.status, outbound_email_events.claim_token
+  returning outbound_email_events.id, outbound_email_events.status, outbound_email_events.claim_token
   into v_event_id, v_status, v_claim_token;
 
   if v_event_id is not null then
-    return query select v_event_id, v_status, v_claim_token, false, null::text;
+    return query
+    select
+      e.id, e.user_id, e.session_id, e.email_type, e.recipient_email,
+      e.provider, e.provider_message_id, e.idempotency_key, e.claim_token,
+      e.reconciliation_token, e.row_version, e.sending_started_at,
+      e.lease_expires_at, e.pending_expires_at, e.status, e.error_code,
+      e.metadata_json, e.created_at, e.updated_at,
+      false, null::text
+    from public.outbound_email_events as e
+    where e.id = v_event_id;
     return;
   end if;
 
@@ -178,7 +203,16 @@ begin
     v_conflict_reason := 'event_not_retryable';
   end if;
 
-  return query select v_event_id, v_status, v_claim_token, v_replayed, v_conflict_reason;
+  return query
+  select
+    e.id, e.user_id, e.session_id, e.email_type, e.recipient_email,
+    e.provider, e.provider_message_id, e.idempotency_key, e.claim_token,
+    e.reconciliation_token, e.row_version, e.sending_started_at,
+    e.lease_expires_at, e.pending_expires_at, e.status, e.error_code,
+    e.metadata_json, e.created_at, e.updated_at,
+    v_replayed, v_conflict_reason
+  from public.outbound_email_events as e
+  where e.id = v_event_id;
 end;
 $$;
 
@@ -187,7 +221,29 @@ create or replace function public.begin_outbound_email_event_send(
   p_event_id uuid,
   p_lease_expires_at timestamptz
 )
-returns table (event_id uuid, status text)
+returns table (
+  id uuid,
+  user_id uuid,
+  session_id uuid,
+  email_type text,
+  recipient_email text,
+  provider text,
+  provider_message_id text,
+  idempotency_key text,
+  claim_token uuid,
+  reconciliation_token uuid,
+  row_version bigint,
+  sending_started_at timestamptz,
+  lease_expires_at timestamptz,
+  pending_expires_at timestamptz,
+  status text,
+  error_code text,
+  metadata_json jsonb,
+  created_at timestamptz,
+  updated_at timestamptz,
+  replayed boolean,
+  conflict_reason text
+)
 language plpgsql
 security definer
 set search_path = public, extensions
@@ -216,7 +272,16 @@ begin
   if v_event_id is null then
     raise exception 'outbound email event is not claimable' using errcode = 'P0001';
   end if;
-  return query select v_event_id, 'sending'::text;
+  return query
+  select
+    e.id, e.user_id, e.session_id, e.email_type, e.recipient_email,
+    e.provider, e.provider_message_id, e.idempotency_key, e.claim_token,
+    e.reconciliation_token, e.row_version, e.sending_started_at,
+    e.lease_expires_at, e.pending_expires_at, e.status, e.error_code,
+    e.metadata_json, e.created_at, e.updated_at,
+    false, null::text
+  from public.outbound_email_events as e
+  where e.id = v_event_id;
 end;
 $$;
 
@@ -225,7 +290,29 @@ create or replace function public.reclaim_outbound_email_event_pending(
   p_event_id uuid,
   p_lease_expires_at timestamptz
 )
-returns table (event_id uuid, status text)
+returns table (
+  id uuid,
+  user_id uuid,
+  session_id uuid,
+  email_type text,
+  recipient_email text,
+  provider text,
+  provider_message_id text,
+  idempotency_key text,
+  claim_token uuid,
+  reconciliation_token uuid,
+  row_version bigint,
+  sending_started_at timestamptz,
+  lease_expires_at timestamptz,
+  pending_expires_at timestamptz,
+  status text,
+  error_code text,
+  metadata_json jsonb,
+  created_at timestamptz,
+  updated_at timestamptz,
+  replayed boolean,
+  conflict_reason text
+)
 language plpgsql
 security definer
 set search_path = public, extensions
@@ -254,7 +341,16 @@ begin
   if v_event_id is null then
     raise exception 'outbound email pending lease is not expired or is missing' using errcode = 'P0001';
   end if;
-  return query select v_event_id, 'sending'::text;
+  return query
+  select
+    e.id, e.user_id, e.session_id, e.email_type, e.recipient_email,
+    e.provider, e.provider_message_id, e.idempotency_key, e.claim_token,
+    e.reconciliation_token, e.row_version, e.sending_started_at,
+    e.lease_expires_at, e.pending_expires_at, e.status, e.error_code,
+    e.metadata_json, e.created_at, e.updated_at,
+    false, null::text
+  from public.outbound_email_events as e
+  where e.id = v_event_id;
 end;
 $$;
 
@@ -267,7 +363,29 @@ create or replace function public.complete_outbound_email_event(
   p_provider_message_id text,
   p_error_code text
 )
-returns table (event_id uuid, status text)
+returns table (
+  id uuid,
+  user_id uuid,
+  session_id uuid,
+  email_type text,
+  recipient_email text,
+  provider text,
+  provider_message_id text,
+  idempotency_key text,
+  claim_token uuid,
+  reconciliation_token uuid,
+  row_version bigint,
+  sending_started_at timestamptz,
+  lease_expires_at timestamptz,
+  pending_expires_at timestamptz,
+  status text,
+  error_code text,
+  metadata_json jsonb,
+  created_at timestamptz,
+  updated_at timestamptz,
+  replayed boolean,
+  conflict_reason text
+)
 language plpgsql
 security definer
 set search_path = public, extensions
@@ -298,7 +416,16 @@ begin
   if v_event_id is null then
     raise exception 'outbound email event claim is no longer active' using errcode = 'P0002';
   end if;
-  return query select v_event_id, p_status;
+  return query
+  select
+    e.id, e.user_id, e.session_id, e.email_type, e.recipient_email,
+    e.provider, e.provider_message_id, e.idempotency_key, e.claim_token,
+    e.reconciliation_token, e.row_version, e.sending_started_at,
+    e.lease_expires_at, e.pending_expires_at, e.status, e.error_code,
+    e.metadata_json, e.created_at, e.updated_at,
+    false, null::text
+  from public.outbound_email_events as e
+  where e.id = v_event_id;
 end;
 $$;
 
@@ -308,7 +435,29 @@ create or replace function public.retry_outbound_email_event(
   p_pending_expires_at timestamptz,
   p_retryable boolean
 )
-returns table (event_id uuid, status text)
+returns table (
+  id uuid,
+  user_id uuid,
+  session_id uuid,
+  email_type text,
+  recipient_email text,
+  provider text,
+  provider_message_id text,
+  idempotency_key text,
+  claim_token uuid,
+  reconciliation_token uuid,
+  row_version bigint,
+  sending_started_at timestamptz,
+  lease_expires_at timestamptz,
+  pending_expires_at timestamptz,
+  status text,
+  error_code text,
+  metadata_json jsonb,
+  created_at timestamptz,
+  updated_at timestamptz,
+  replayed boolean,
+  conflict_reason text
+)
 language plpgsql
 security definer
 set search_path = public, extensions
@@ -342,7 +491,16 @@ begin
   if v_event_id is null then
     raise exception 'outbound email event is not eligible for retry' using errcode = 'P0001';
   end if;
-  return query select v_event_id, 'pending'::text;
+  return query
+  select
+    e.id, e.user_id, e.session_id, e.email_type, e.recipient_email,
+    e.provider, e.provider_message_id, e.idempotency_key, e.claim_token,
+    e.reconciliation_token, e.row_version, e.sending_started_at,
+    e.lease_expires_at, e.pending_expires_at, e.status, e.error_code,
+    e.metadata_json, e.created_at, e.updated_at,
+    false, null::text
+  from public.outbound_email_events as e
+  where e.id = v_event_id;
 end;
 $$;
 
@@ -350,7 +508,29 @@ create or replace function public.reconcile_outbound_email_event(
   p_user_id uuid,
   p_event_id uuid
 )
-returns table (event_id uuid, status text, reconciliation_token uuid)
+returns table (
+  id uuid,
+  user_id uuid,
+  session_id uuid,
+  email_type text,
+  recipient_email text,
+  provider text,
+  provider_message_id text,
+  idempotency_key text,
+  claim_token uuid,
+  reconciliation_token uuid,
+  row_version bigint,
+  sending_started_at timestamptz,
+  lease_expires_at timestamptz,
+  pending_expires_at timestamptz,
+  status text,
+  error_code text,
+  metadata_json jsonb,
+  created_at timestamptz,
+  updated_at timestamptz,
+  replayed boolean,
+  conflict_reason text
+)
 language plpgsql
 security definer
 set search_path = public, extensions
@@ -377,7 +557,16 @@ begin
   if v_event_id is null then
     raise exception 'outbound email event is not ready for reconciliation' using errcode = 'P0001';
   end if;
-  return query select v_event_id, 'needs_reconciliation'::text, v_reconciliation_token;
+  return query
+  select
+    e.id, e.user_id, e.session_id, e.email_type, e.recipient_email,
+    e.provider, e.provider_message_id, e.idempotency_key, e.claim_token,
+    e.reconciliation_token, e.row_version, e.sending_started_at,
+    e.lease_expires_at, e.pending_expires_at, e.status, e.error_code,
+    e.metadata_json, e.created_at, e.updated_at,
+    false, null::text
+  from public.outbound_email_events as e
+  where e.id = v_event_id;
 end;
 $$;
 
@@ -393,7 +582,29 @@ create or replace function public.resolve_outbound_email_event_reconciliation(
   p_provider_message_id text,
   p_error_code text
 )
-returns table (event_id uuid, status text)
+returns table (
+  id uuid,
+  user_id uuid,
+  session_id uuid,
+  email_type text,
+  recipient_email text,
+  provider text,
+  provider_message_id text,
+  idempotency_key text,
+  claim_token uuid,
+  reconciliation_token uuid,
+  row_version bigint,
+  sending_started_at timestamptz,
+  lease_expires_at timestamptz,
+  pending_expires_at timestamptz,
+  status text,
+  error_code text,
+  metadata_json jsonb,
+  created_at timestamptz,
+  updated_at timestamptz,
+  replayed boolean,
+  conflict_reason text
+)
 language plpgsql
 security definer
 set search_path = public, extensions
@@ -455,7 +666,16 @@ begin
   if v_event_id is null then
     raise exception 'reconciliation claim is no longer active' using errcode = 'P0002';
   end if;
-  return query select v_event_id, v_status;
+  return query
+  select
+    e.id, e.user_id, e.session_id, e.email_type, e.recipient_email,
+    e.provider, e.provider_message_id, e.idempotency_key, e.claim_token,
+    e.reconciliation_token, e.row_version, e.sending_started_at,
+    e.lease_expires_at, e.pending_expires_at, e.status, e.error_code,
+    e.metadata_json, e.created_at, e.updated_at,
+    false, null::text
+  from public.outbound_email_events as e
+  where e.id = v_event_id;
 end;
 $$;
 
