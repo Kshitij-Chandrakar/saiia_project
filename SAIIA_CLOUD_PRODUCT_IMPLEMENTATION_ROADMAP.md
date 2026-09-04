@@ -4,9 +4,9 @@
 **Document type:** Detailed implementation roadmap and execution source of truth  
 **Track:** Desktop stabilization â†’ Cloud account system â†’ Website integration â†’ Session intelligence â†’ Subscription and release  
 **Version:** 1.1  
-**Last updated:** 2026-09-02
+**Last updated:** 2026-09-04
 **Created:** 2026-07-10  
-**Current active phase:** C10.1 - Email system planning and safety contract in progress; C9 Ask AI and follow-up context memory is merged/closed, C10.2 Supabase Auth email delivery is not started, and real email sending/payments/admin/pricing remain not started. See `docs/C10_EMAIL_SYSTEM_PLAN.md`.
+**Current active phase:** C10.2A - Supabase Auth verification/reset email SMTP setup and safe manual validation in progress; C10.1 is completed/merged, C10.2 delivery is not complete, and real email sending/payments/admin/pricing remain not started. See `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`.
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -2110,7 +2110,7 @@ Create a reliable email layer for authentication, transactional messages, and co
 - Resend is the planned delivery provider only; it is not called or configured in C10.1.
 - Local automated tests remain dry-run by default.
 - No real API keys, email sends, SMTP configuration, migrations, or implementation are included.
-- C9 is merged/closed. C10.2 is not started.
+- C9 is merged/closed. C10.1 is completed/merged. C10.2A is in progress through `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.2 implementation/delivery is not complete.
 - Payment, billing, subscription, and cancellation emails are out of scope for C10 and deferred to the future pricing/subscription/payment phases.
 - Supabase Auth template variables such as `ConfirmationURL` and `RecoveryURL` are allowed when required by Auth, but full Auth URLs must not be logged, tracked, telemetered, or stored in `outbound_email_events` metadata.
 - Redirect URLs are fixed per environment: local may allow only `http://localhost:5173/auth/callback` and `http://localhost:5173/auth/reset-password`; staging/production require HTTPS approved-domain URLs. User-supplied and unapproved destinations are rejected, and C10.2 must manually test allowed and rejected URLs.
@@ -2125,7 +2125,7 @@ Create a reliable email layer for authentication, transactional messages, and co
 - `auth_email_change_confirmation_future` - future email-change confirmation
 - `auth_magic_link_future` - future magic link if enabled
 
-Supabase Auth owns secure link/token generation, resend/cooldown/rate-limit behavior, and auth-email duplicate control. Resend SMTP only delivers these messages. `outbound_email_events` does not claim or deduplicate them. No custom verification/reset token logic is allowed.
+Supabase Auth owns secure link/token generation, resend/cooldown/rate-limit behavior, and auth-email duplicate control. Resend SMTP only delivers these messages. `outbound_email_events` does not claim or deduplicate them. No custom verification/reset token logic is allowed. C10.2A operational setup and safe manual checks are defined in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; live verification/reset delivery remains pending.
 
 ### Backend transactional
 
@@ -2188,8 +2188,9 @@ Outbound email event inserts and updates are backend-only; frontend/client direc
 
 ## C10.1 phase breakdown
 
-- C10.1 - Email plan and safety contract - in progress
-- C10.2 - Supabase Auth emails through Resend SMTP - not started
+- C10.1 - Email plan and safety contract - completed/merged
+- C10.2A - Supabase Auth emails through Resend SMTP - runbook and controlled setup/validation in progress; not complete
+- C10.2 - Supabase Auth email delivery - not complete until live verification/reset emails are tested
 - C10.3 - Backend email config and dry-run provider - not started
 - C10.4 - Welcome email - not started
 - C10.5 - Session summary, transcript, and AI notes emails - not started

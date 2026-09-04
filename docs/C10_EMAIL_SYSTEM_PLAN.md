@@ -2,7 +2,7 @@
 
 ## Status
 
-**In progress: planning document created.** C10.1 is documentation-only. No email provider has been called, no SMTP has been configured, and no real email has been sent. C10.2 implementation has not started.
+**Completed/merged.** C10.1 is documentation-only and defines the email safety contract. No email provider has been called, no SMTP has been configured, and no real email has been sent by this repository. C10.2A setup and live validation are tracked separately in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md` and remain in progress.
 
 ## 1. C10 Goal
 
@@ -214,8 +214,9 @@ Each future route must be authenticated, verify session ownership, require an id
 
 ## 9. C10 Phase Breakdown
 
-- **C10.1 - Email plan and safety contract:** this document; no sending implementation.
-- **C10.2 - Supabase Auth emails through Resend SMTP:** configure and test Auth delivery; not started.
+- **C10.1 - Email plan and safety contract:** completed/merged; no sending implementation.
+- **C10.2A - Supabase Auth emails through Resend SMTP:** runbook and controlled setup/validation in progress; not complete.
+- **C10.2 - Supabase Auth email delivery:** not complete until live verification/reset emails are tested.
 - **C10.3 - Backend email config and dry-run provider:** add backend provider boundary and safe local default; not started.
 - **C10.4 - Welcome email:** add the verified-login welcome flow; not started.
 - **C10.5 - Session summary, transcript, and AI notes emails:** add explicit authenticated user actions; not started.
@@ -234,4 +235,4 @@ The later demo should show:
 
 ## Safety Boundary
 
-C10.1 does not call Resend, configure Supabase SMTP, add real API keys, send emails, create custom verification/reset tokens, modify applied migrations, or implement promotional messaging. C9 remains merged/closed. C10.2 is not started.
+C10.1 does not call Resend, configure Supabase SMTP, add real API keys, send emails, create custom verification/reset tokens, modify applied migrations, or implement promotional messaging. C9 remains merged/closed. C10.2A is runbook/setup preparation only and remains in progress; C10.2 delivery is not complete.
