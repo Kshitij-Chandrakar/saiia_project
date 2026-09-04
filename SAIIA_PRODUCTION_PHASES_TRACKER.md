@@ -3,7 +3,7 @@
 **Product:** SAIIA â€” Smart AI Interview Assistant  
 **Document Type:** Production phase checklist for developer + Codex  
 **Version:** 1.1  
-**Last updated:** 2026-08-29
+**Last updated:** 2026-09-04
 **Purpose:** Track SAIIA after MVP and guide development toward a polished production-ready application.
 
 ---
@@ -36,7 +36,7 @@ This tracker is the live execution log for the production build.
 Current active execution phase:
 
 ```text
-C10.1 - Email system planning and safety contract is in progress in `docs/C10_EMAIL_SYSTEM_PLAN.md`; C9 Ask AI and follow-up context memory is merged/closed, C10.2 Supabase Auth email delivery is not started, and real email sending, payments/admin/pricing remain not started
+C10.3 - Backend transactional email delivery remains after local completion of C10.3A, C10.3B, and C10.3C dry-run foundations; C10.1 email planning and the C10.2A runbook are completed/merged, C10.2B live Supabase Auth delivery is blocked pending a verified Resend sender/domain, C10.2 is not complete, the `outbound_email_events` migration is not applied remotely, and real email sending, payments/admin/pricing remain not started
 ```
 
 Screen Intelligence documentation:
@@ -134,7 +134,37 @@ C6.2A current status:
 C6.3 current status:
 
 ```text
-[~] Implemented locally - Durable interview session lifecycle and cloud session storage are implemented through a new Supabase `interview_sessions` lifecycle migration, authenticated FastAPI session routes, service-role-only idempotent create RPC, Electron main-process session IPC, desktop runtime `activeSessionId` handling, logout/end finalization, and a basic website dashboard session history list. C7 transcript storage is now implemented locally through a new transcript-entry Supabase migration, authenticated transcript routes, generation-time transcript writes tied to `activeSessionId`, and dashboard transcript view/download controls. C8 AI Notes is implemented locally through transcript-based notes generation/storage and dashboard notes view in `docs/C8_AI_NOTES_GENERATION.md`. C9 Ask AI is merged/closed as session-scoped follow-up memory in `docs/C9_ASK_AI_FOLLOWUP_CONTEXT_MEMORY.md`. C10.1 email planning is in progress in `docs/C10_EMAIL_SYSTEM_PLAN.md`; C10.2 is not started.
+[~] Implemented locally - Durable interview session lifecycle and cloud session storage are implemented through a new Supabase `interview_sessions` lifecycle migration, authenticated FastAPI session routes, service-role-only idempotent create RPC, Electron main-process session IPC, desktop runtime `activeSessionId` handling, logout/end finalization, and a basic website dashboard session history list. C7 transcript storage is now implemented locally through a new transcript-entry Supabase migration, authenticated transcript routes, generation-time transcript writes tied to `activeSessionId`, and dashboard transcript view/download controls. C8 AI Notes is implemented locally through transcript-based notes generation/storage and dashboard notes view in `docs/C8_AI_NOTES_GENERATION.md`. C9 Ask AI is merged/closed as session-scoped follow-up memory in `docs/C9_ASK_AI_FOLLOWUP_CONTEXT_MEMORY.md`. C10.1 email planning is completed/merged in `docs/C10_EMAIL_SYSTEM_PLAN.md`; C10.2A runbook/documentation is completed/merged in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.2B live Supabase Auth delivery is blocked pending a verified Resend sender/domain; C10.2 is not complete.
+```
+
+C10.2A current status:
+
+```text
+[x] Completed/merged - Supabase Auth verification and password reset delivery through authenticated encrypted Resend SMTP are documented in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; fixed local and HTTPS production-placeholder redirect allowlists, safe smoke tests, rollback, and evidence handling are defined. C10.2B live SMTP/provider setup and real email verification remain blocked pending a verified Resend sender/domain, so C10.2 remains incomplete.
+```
+
+C10.3A current status:
+
+```text
+[x] Completed/merged - Backend email settings, provider contract, safe in-memory dry-run provider, transactional service boundary, and focused no-network/safety tests are implemented locally. No real Resend/SMTP delivery, transactional email triggers, or outbound event persistence/idempotency were added in C10.3A; marketing email remains out of scope.
+```
+
+C10.3B current status:
+
+```text
+[x] Completed/merged - Backend-owned `outbound_email_events` persistence, NULL-safe idempotency scope, pending/sending leases, claim-token fencing, reconciliation compare-and-set state, service boundary, migration assertions, and focused event-store tests are implemented locally. No real email delivery was added.
+```
+
+C10.3C current status:
+
+```text
+[x] Completed locally - Backend transactional email service is connected to the backend-owned `outbound_email_events` store in dry-run mode only. Events are claimed before provider invocation, sent outcomes are completed with the active claim token, sent events replay safely, lease/reconciliation/retry behavior remains fenced, and focused service integration tests pass. No Resend/SMTP calls, real email delivery, or remote migration application were performed.
+```
+
+C10.3 current status:
+
+```text
+[ ] Not complete - Live transactional provider integration and transactional email triggers remain to be implemented. C10.3A dry-run, C10.3B event persistence/idempotency, and C10.3C dry-run event-store integration are complete locally; the `outbound_email_events` migration remains unapplied remotely.
 ```
 
 C16.1 future production auth hardening release blocker:
@@ -1608,7 +1638,7 @@ P17 Protected commercial edition
 # Current Immediate Next Phase
 
 ```text
-C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is merged and live smoke-tested. C3.3 frontend authenticated upload/review UI is implemented under `/auth/resume`. C3.4 cloud RAG/index activation is implemented through user-owned chunk generation, backend-only activation, and ready-current resume behavior. C3.4.5 GPT-based resume extraction provider is implemented. C3.5 delete/rebuild/status closure is implemented. C4 Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing and live Supabase smoke validation passed on saiia-dev. C4.3 main website job-target UI is cancelled/re-scoped; job target selection moves to desktop startup/session setup after desktop authenticated cloud identity exists. C5.1 desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`. C5.2 desktop authenticated cloud identity is implemented locally with Electron main-process auth/session handling and focused tests. C5.3 desktop auth status/login/logout UI wiring is implemented locally through existing safe preload APIs. C5.4 desktop cloud startup context plumbing is implemented locally through existing safe preload APIs and authenticated backend summary routes. C6.1 desktop startup/session setup UI audit and plan is documented in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`. C6.2A Startup Login Screen is implemented locally with a dev/local memory-only desktop handoff store; production shared atomic TTL-backed handoff storage is deferred to C16.1 Production Auth Hardening and blocks public production release. C6.3 durable interview session lifecycle and cloud session storage are implemented locally through authenticated backend routes, a Supabase lifecycle migration, Electron main-process session ownership, and a basic dashboard history list. C7 transcript storage, transcript viewing, and transcript download are implemented locally through session-owned transcript entries, authenticated export routes, generation-time transcript writes, and dashboard transcript controls. C8 AI Notes is implemented locally through transcript-based notes generation/storage and dashboard notes view. C9 Ask AI and follow-up context memory is merged/closed as session-scoped dashboard Ask AI over transcript/notes context. C10.1 email planning is in progress in `docs/C10_EMAIL_SYSTEM_PLAN.md`; C10.2 Supabase Auth email delivery is not started. No billing, usage, payment, licensing, admin console, or final website UI redesign work has started.
+C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is merged and live smoke-tested. C3.3 frontend authenticated upload/review UI is implemented under `/auth/resume`. C3.4 cloud RAG/index activation is implemented through user-owned chunk generation, backend-only activation, and ready-current resume behavior. C3.4.5 GPT-based resume extraction provider is implemented. C3.5 delete/rebuild/status closure is implemented. C4 Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing and live Supabase smoke validation passed on saiia-dev. C4.3 main website job-target UI is cancelled/re-scoped; job target selection moves to desktop startup/session setup after desktop authenticated cloud identity exists. C5.1 desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`. C5.2 desktop authenticated cloud identity is implemented locally with Electron main-process auth/session handling and focused tests. C5.3 desktop auth status/login/logout UI wiring is implemented locally through existing safe preload APIs. C5.4 desktop cloud startup context plumbing is implemented locally through existing safe preload APIs and authenticated backend summary routes. C6.1 desktop startup/session setup UI audit and plan is documented in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`. C6.2A Startup Login Screen is implemented locally with a dev/local memory-only desktop handoff store; production shared atomic TTL-backed handoff storage is deferred to C16.1 Production Auth Hardening and blocks public production release. C6.3 durable interview session lifecycle and cloud session storage are implemented locally through authenticated backend routes, a Supabase lifecycle migration, Electron main-process session ownership, and a basic dashboard history list. C7 transcript storage, transcript viewing, and transcript download are implemented locally through session-owned transcript entries, authenticated export routes, generation-time transcript writes, and dashboard transcript controls. C8 AI Notes is implemented locally through transcript-based notes generation/storage and dashboard notes view. C9 Ask AI and follow-up context memory is merged/closed as session-scoped dashboard Ask AI over transcript/notes context. C10.1 email planning is completed/merged in `docs/C10_EMAIL_SYSTEM_PLAN.md`. C10.2A Supabase Auth verification/reset SMTP runbook/documentation is completed/merged in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.2B live delivery is blocked pending a verified Resend sender/domain, so C10.2 is not complete. C10.3A, C10.3B, and C10.3C are completed locally with dry-run-only behavior; the `outbound_email_events` migration is not applied remotely and full C10.3 remains incomplete. No billing, usage, payment, licensing, admin console, or final website UI redesign work has started.
 ```
 
 P6B/P8/P9 consolidation records are preserved as historical desktop validation notes, not as the current execution authority.

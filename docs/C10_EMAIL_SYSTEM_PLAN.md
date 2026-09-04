@@ -2,7 +2,7 @@
 
 ## Status
 
-**In progress: planning document created.** C10.1 is documentation-only. No email provider has been called, no SMTP has been configured, and no real email has been sent. C10.2 implementation has not started.
+**C10.1 completed/merged.** C10.1 is documentation-only and defines the email safety contract. No email provider has been called, no SMTP has been configured, and no real email has been sent by this repository. The C10.2A runbook is complete in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.2B live delivery remains blocked pending a verified Resend sender/domain. C10.3A, C10.3B, and C10.3C backend foundations are completed locally; full C10.3 remains incomplete. The `outbound_email_events` migration is not applied to remote Supabase.
 
 ## 1. C10 Goal
 
@@ -81,7 +81,7 @@ The human-readable descriptions above are aliases only. These values, and only t
 - `needs_reconciliation` may move to `sent` only when the provider confirms sent; to `failed` only when the provider confirms permanent failure; or to `sending`/retry only when the provider confirms not sent and the failure is transient or explicitly retryable. Unknown provider state remains `needs_reconciliation` or `retry_blocked`.
 - No reconciliation path may perform a blind resend.
 
-The future C10.3 migration/service tests must prove duplicate prevention for both `session_id IS NULL` and a populated `session_id`, abandoned pending recovery, a pending row with a missing lease is not blindly reclaimed, expired sending claims are not retried blindly, only transient/explicitly retryable failures receive a new claim, `claim_token` prevents stale attempt updates, and `reconciliation_token` or `row_version` prevents stale worker overwrites.
+C10.3B migration/service tests prove duplicate prevention for both `session_id IS NULL` and a populated `session_id`, abandoned pending recovery, a pending row with a missing lease is not blindly reclaimed, expired sending claims are not retried blindly, only transient/explicitly retryable failures receive a new claim, `claim_token` prevents stale attempt updates, and `reconciliation_token` or `row_version` prevents stale worker overwrites.
 
 ### C. Marketing and Promotional Emails
 
@@ -139,7 +139,7 @@ Secrets are never hardcoded or committed. Real keys belong only in local environ
 
 ## 5. Database Event Log Plan
 
-The planned backend-owned table is `outbound_email_events`:
+The C10.3B backend-owned table is implemented locally as `outbound_email_events` through `supabase/migrations/20260904143000_add_outbound_email_events.sql`; the migration remains unapplied to remote Supabase. C10.3C connects this event store to the offline/dry-run email service without adding delivery:
 
 - `id`
 - `user_id`
@@ -214,9 +214,13 @@ Each future route must be authenticated, verify session ownership, require an id
 
 ## 9. C10 Phase Breakdown
 
-- **C10.1 - Email plan and safety contract:** this document; no sending implementation.
-- **C10.2 - Supabase Auth emails through Resend SMTP:** configure and test Auth delivery; not started.
-- **C10.3 - Backend email config and dry-run provider:** add backend provider boundary and safe local default; not started.
+- **C10.1 - Email plan and safety contract:** completed/merged; no sending implementation.
+- **C10.2A - Supabase Auth emails through Resend SMTP:** runbook/setup documentation completed/merged; live C10.2B delivery is blocked pending a verified Resend sender/domain.
+- **C10.2 - Supabase Auth email delivery:** not complete until live verification/reset emails are tested.
+- **C10.3A - Backend email foundation with dry-run provider:** completed locally; backend config, provider contract, safe dry-run provider, and tests are present, with no real sending.
+- **C10.3B - Outbound email event persistence and idempotency foundation:** completed locally; backend-only event storage, NULL-safe claims, lease/state transitions, reconciliation fencing, and tests are present, with no delivery. The migration is not applied remotely.
+- **C10.3C - Dry-run event-store integration:** completed locally; the service claims events before the dry-run provider, updates outcomes with the active claim token, replays sent events safely, and covers lease/retry behavior without network delivery.
+- **C10.3 - Backend transactional email delivery:** not complete; live provider integration and transactional triggers remain deferred.
 - **C10.4 - Welcome email:** add the verified-login welcome flow; not started.
 - **C10.5 - Session summary, transcript, and AI notes emails:** add explicit authenticated user actions; not started.
 - **C10.6 - Marketing preferences and promotional emails later:** add consent and unsubscribe controls; not started.
@@ -234,4 +238,4 @@ The later demo should show:
 
 ## Safety Boundary
 
-C10.1 does not call Resend, configure Supabase SMTP, add real API keys, send emails, create custom verification/reset tokens, modify applied migrations, or implement promotional messaging. C9 remains merged/closed. C10.2 is not started.
+C10.1, C10.3A, C10.3B, and C10.3C do not call Resend, configure Supabase SMTP, add real API keys, send emails, create custom verification/reset tokens, modify applied migrations, or implement promotional messaging. C9 remains merged/closed. C10.2A runbook/setup documentation is completed/merged, but C10.2B live verification/reset delivery is blocked pending a verified Resend sender/domain, so C10.2 delivery is not complete. C10.3A is completed locally with disabled/offline dry-run defaults. C10.3B adds only the backend-owned `outbound_email_events` migration and event-store boundary; that migration is not applied remotely. C10.3C connects the event store to the dry-run provider only. Full C10.3 remains incomplete because live delivery and transactional triggers are not implemented.

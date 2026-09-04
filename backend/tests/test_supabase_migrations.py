@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "supabase" / "migrations"
@@ -20,10 +21,27 @@ C9_IDEMPOTENCY_TRIGGER_MIGRATION = (
 )
 C9_ATOMIC_TURN_MIGRATION = MIGRATIONS_DIR / "20260902120000_add_ask_ai_atomic_turn_persistence.sql"
 C9_INDEX_CLEANUP_MIGRATION = MIGRATIONS_DIR / "20260902130000_drop_redundant_ask_ai_message_index.sql"
+C10_3B_MIGRATION = MIGRATIONS_DIR / "20260904143000_add_outbound_email_events.sql"
 
 
 def _normalized_sql() -> str:
     return " ".join(GRANTS_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+
+def _check_constraint_definition(sql: str, name: str) -> str:
+    match = re.search(
+        rf"constraint\s+{re.escape(name)}\s+check\s*\((.*?)\)\s*,",
+        sql,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    assert match is not None, f"missing CHECK constraint: {name}"
+    return re.sub(r"\s+", "", match.group(1)).lower()
+
+
+def _migration_function_sql(sql: str, name: str) -> str:
+    start = sql.lower().index(f"create or replace function public.{name.lower()}")
+    end = sql.lower().index("language plpgsql", start)
+    return sql[start:end]
 
 
 def test_c2_3_privilege_migration_grants_required_roles_and_tables() -> None:
@@ -502,3 +520,118 @@ def test_c9_ask_ai_index_cleanup_migration_drops_redundant_index() -> None:
     sql = " ".join(C9_INDEX_CLEANUP_MIGRATION.read_text(encoding="utf-8").lower().split())
 
     assert "drop index if exists public.interview_session_ask_ai_session_created_idx" in sql
+
+
+def test_c10_3b_outbound_email_events_migration_adds_backend_idempotency_contract() -> None:
+    raw_sql = C10_3B_MIGRATION.read_text(encoding="utf-8")
+    sql = " ".join(raw_sql.lower().split())
+
+    assert "create table if not exists public.outbound_email_events" in sql
+    for column in (
+        "user_id uuid not null references auth.users(id) on delete cascade",
+        "session_id uuid null references public.interview_sessions(id) on delete set null",
+        "email_type text not null",
+        "recipient_email text not null",
+        "provider text null",
+        "provider_message_id text null",
+        "idempotency_key text not null",
+        "claim_token uuid null",
+        "reconciliation_token uuid null",
+        "row_version bigint not null default 1",
+        "sending_started_at timestamptz null",
+        "lease_expires_at timestamptz null",
+        "pending_expires_at timestamptz null",
+        "metadata_json jsonb not null default '{}'::jsonb",
+    ):
+        assert column in sql
+    type_definition = _check_constraint_definition(
+        C10_3B_MIGRATION.read_text(encoding="utf-8"),
+        "outbound_email_events_type_check",
+    )
+    assert type_definition == (
+        "email_typein('welcome','account_security','ai_notes_ready',"
+        "'session_summary','transcript_export')"
+    )
+    status_definition = _check_constraint_definition(
+        C10_3B_MIGRATION.read_text(encoding="utf-8"),
+        "outbound_email_events_status_check",
+    )
+    assert status_definition == (
+        "statusin('pending','sending','sent','failed','canceled',"
+        "'needs_reconciliation','retry_blocked')"
+    )
+
+    assert ") nulls not distinct" in sql
+    assert "outbound_email_events_pending_lease_check" in sql
+    assert "status <> 'pending' or pending_expires_at is not null" in sql
+    assert "outbound_email_events_sending_lease_check" in sql
+    assert "claim_token is not null" in sql
+    assert "sending_started_at is not null" in sql
+    assert "lease_expires_at is not null" in sql
+    assert "alter table public.outbound_email_events enable row level security" in sql
+    assert "alter table public.outbound_email_events force row level security" in sql
+    assert "revoke all on table public.outbound_email_events from authenticated" in sql
+    assert "grant select, insert, update, delete on table public.outbound_email_events to service_role" in sql
+    assert "grant insert on table public.outbound_email_events to authenticated" not in sql
+    assert "grant update on table public.outbound_email_events to authenticated" not in sql
+    assert "grant delete on table public.outbound_email_events to authenticated" not in sql
+    assert "create policy" not in sql
+    assert "create or replace function public.claim_outbound_email_event" in sql
+    assert "on conflict (user_id, email_type, recipient_email, session_id, idempotency_key) do nothing" in sql
+    assert "e.session_id is not distinct from p_session_id" in sql
+    assert "create or replace function public.begin_outbound_email_event_send" in sql
+    assert "create or replace function public.reclaim_outbound_email_event_pending" in sql
+    assert "e.pending_expires_at is not null" in sql
+    assert "e.pending_expires_at < timezone('utc', now())" in sql
+    assert "create or replace function public.complete_outbound_email_event" in sql
+    assert "and e.claim_token = p_claim_token" in sql
+    assert "create or replace function public.reconcile_outbound_email_event" in sql
+    assert "reconciliation_token = extensions.gen_random_uuid()" in sql
+    assert "create or replace function public.resolve_outbound_email_event_reconciliation" in sql
+    assert "and e.reconciliation_token = p_reconciliation_token" in sql
+    assert "row_version = e.row_version + 1" in sql
+    assert "grant execute on function public.claim_outbound_email_event" in sql
+    assert "grant execute on function public.resolve_outbound_email_event_reconciliation" in sql
+
+    rpc_row_columns = (
+        ("id", "uuid"),
+        ("user_id", "uuid"),
+        ("session_id", "uuid"),
+        ("email_type", "text"),
+        ("recipient_email", "text"),
+        ("provider", "text"),
+        ("provider_message_id", "text"),
+        ("idempotency_key", "text"),
+        ("claim_token", "uuid"),
+        ("reconciliation_token", "uuid"),
+        ("row_version", "bigint"),
+        ("sending_started_at", "timestamptz"),
+        ("lease_expires_at", "timestamptz"),
+        ("pending_expires_at", "timestamptz"),
+        ("status", "text"),
+        ("error_code", "text"),
+        ("metadata_json", "jsonb"),
+        ("created_at", "timestamptz"),
+        ("updated_at", "timestamptz"),
+    )
+    for function_name in (
+        "claim_outbound_email_event",
+        "begin_outbound_email_event_send",
+        "reclaim_outbound_email_event_pending",
+        "complete_outbound_email_event",
+        "retry_outbound_email_event",
+        "reconcile_outbound_email_event",
+        "resolve_outbound_email_event_reconciliation",
+    ):
+        function_sql = _migration_function_sql(raw_sql, function_name)
+        assert "returns table" in function_sql.lower()
+        for column, data_type in rpc_row_columns:
+            assert re.search(
+                rf"^\s+{column}\s+{data_type}(?:,|\s*$)",
+                function_sql,
+                flags=re.IGNORECASE | re.MULTILINE,
+            ), f"{function_name} does not return {column}"
+
+    claim_sql = _migration_function_sql(raw_sql, "claim_outbound_email_event")
+    assert re.search(r"^\s+replayed\s+boolean(?:,|\s*$)", claim_sql, re.IGNORECASE | re.MULTILINE)
+    assert re.search(r"^\s+conflict_reason\s+text(?:,|\s*$)", claim_sql, re.IGNORECASE | re.MULTILINE)
