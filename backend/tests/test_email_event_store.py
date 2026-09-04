@@ -14,7 +14,7 @@ from app.email.event_store import (
     SupabaseOutboundEmailEventClient,
 )
 from app.email.provider import EmailSendRequest, EmailSendResult
-from app.email.service import EmailService
+from app.email.service import EmailService, send_welcome_email_dry_run
 
 
 def _future_iso(seconds: int = 300) -> str:
@@ -178,9 +178,11 @@ class CountingProvider:
     def __init__(self, *, error: Exception | None = None) -> None:
         self.calls = 0
         self.error = error
+        self.requests: list[EmailSendRequest] = []
 
     def send_email(self, request: EmailSendRequest) -> EmailSendResult:
         self.calls += 1
+        self.requests.append(request)
         if self.error is not None:
             raise self.error
         return EmailSendResult(
@@ -457,6 +459,37 @@ def test_email_service_claims_event_before_dry_run_send_and_completes_it() -> No
     assert result.event_id == event.id
     assert result.event_status == "sent"
     assert result.replayed is False
+
+
+def test_welcome_dry_run_uses_deterministic_event_and_replays_without_provider_call() -> None:
+    client = FakeEventClient()
+    event_service = OutboundEmailEventService(client=client)
+    provider = CountingProvider()
+    service = EmailService(provider, event_store=event_service)
+
+    first = send_welcome_email_dry_run(
+        email_service=service,
+        user_id="user-1",
+        recipient_email="mentor@example.com",
+        display_name="Mentor",
+    )
+    replay = send_welcome_email_dry_run(
+        email_service=service,
+        user_id="user-1",
+        recipient_email="mentor@example.com",
+        display_name="Different name is not persisted",
+    )
+
+    assert provider.calls == 1
+    assert provider.requests[0].email_type == "welcome"
+    assert "Welcome to intervuAI, Mentor." in provider.requests[0].text_body
+    assert first.event_id == replay.event_id
+    assert replay.replayed is True
+    event = next(iter(client.records.values()))
+    assert event.email_type == "welcome"
+    assert event.idempotency_key == "welcome:user-1"
+    assert event.metadata_json == {"template_version": "welcome_v1", "dry_run": True}
+    assert "Mentor" not in str(event.metadata_json)
 
 
 def test_email_service_replays_sent_event_without_second_provider_call() -> None:

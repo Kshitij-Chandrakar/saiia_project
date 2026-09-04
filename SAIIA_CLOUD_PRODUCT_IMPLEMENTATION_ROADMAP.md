@@ -2197,7 +2197,8 @@ Outbound email event inserts and updates are backend-only; frontend/client direc
 - C10.3C - Dry-run event-store integration - completed locally; event claims/outcomes are wired to the dry-run provider; no real sending
 - C10.3D - Remote migration apply and post-apply validation - completed; PR #32 merged, remote dev migration applied, post-apply tests passed; no real sending
 - C10.3 - Backend transactional email delivery - not complete; live provider integration and transactional triggers remain
-- C10.4 - Welcome email - not started
+- C10.4A - Welcome email template + dry-run trigger - completed locally; safe plain-text `welcome` template and deterministic event-store idempotency path are implemented without signup/profile bootstrap wiring or real delivery
+- C10.4 - Welcome email delivery - not complete; real delivery remains blocked pending a verified Resend sender/domain and intentional live-provider enablement
 - C10.5 - Session summary, transcript, and AI notes emails - not started
 - C10.6 - Marketing preferences and promotional emails later - not started
 

@@ -10,7 +10,8 @@ from app.email.provider import (
     normalize_safe_metadata,
     validate_recipient_email,
 )
-from app.email.service import EmailService, build_email_service
+from app.email.service import EmailService, build_email_service, send_welcome_email_dry_run
+from app.email.templates import EmailTemplate, render_welcome_email
 from app.email.event_store import (
     EVENT_STATUSES,
     OutboundEmailEventClaim,
@@ -36,12 +37,15 @@ __all__ = [
     "EmailService",
     "EmailSettings",
     "EmailValidationError",
+    "EmailTemplate",
     "MARKETING_EMAIL_TYPES",
     "SUPABASE_AUTH_EMAIL_TYPES",
     "build_email_service",
+    "send_welcome_email_dry_run",
     "load_email_settings",
     "normalize_safe_metadata",
     "validate_recipient_email",
+    "render_welcome_email",
     "EVENT_STATUSES",
     "OutboundEmailEventClaim",
     "OutboundEmailEventClient",

@@ -17,6 +17,7 @@ from app.email.provider import (
     mask_recipient_email,
     utc_timestamp,
 )
+from app.email.templates import WELCOME_TEMPLATE_VERSION, render_welcome_email
 
 
 _RETRYABLE_PROVIDER_ERROR_CODES: Final = frozenset(
@@ -62,6 +63,7 @@ class EmailService:
         recipient_email: str,
         subject: str,
         email_type: str,
+        text_body: str = "",
         safe_metadata: Mapping[str, object] | None = None,
         user_id: str | None = None,
         session_id: str | None = None,
@@ -72,6 +74,7 @@ class EmailService:
             recipient_email=recipient_email,
             subject=subject,
             email_type=email_type,
+            text_body=text_body,
             safe_metadata=safe_metadata or {},
         )
         has_event_context = any(
@@ -275,3 +278,35 @@ def build_email_service(
     if settings.live_delivery_requested:
         raise EmailConfigurationError("Live email delivery is not implemented in C10.3C.")
     return EmailService(DryRunEmailProvider(), event_store=event_store)
+
+
+def send_welcome_email_dry_run(
+    *,
+    email_service: EmailService,
+    user_id: str,
+    recipient_email: str,
+    display_name: str | None = None,
+    support_email: str | None = None,
+    dashboard_path: str = "/auth/dashboard",
+) -> EmailSendResult:
+    """Render and persist one deterministic, dry-run welcome event per user."""
+
+    if not user_id.strip():
+        raise OutboundEmailEventError("Welcome email user context is incomplete.")
+    template = render_welcome_email(
+        display_name=display_name,
+        support_email=support_email,
+        dashboard_path=dashboard_path,
+    )
+    return email_service.send_transactional_email(
+        recipient_email=recipient_email,
+        subject=template.subject,
+        email_type=template.email_type,
+        text_body=template.text_body,
+        safe_metadata={
+            "template_version": WELCOME_TEMPLATE_VERSION,
+            "dry_run": True,
+        },
+        user_id=user_id,
+        idempotency_key=f"welcome:{user_id}",
+    )

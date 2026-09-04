@@ -173,6 +173,18 @@ C10.3 current status:
 [ ] Not complete - Live transactional provider integration and transactional email triggers remain to be implemented. C10.3A, C10.3B, C10.3C, and C10.3D backend dry-run/event persistence/idempotency foundations are complete, but full real email delivery remains blocked until a verified Resend sender/domain is available and intentionally enabled.
 ```
 
+C10.4A current status:
+
+```text
+[x] Completed locally - The backend-only plain-text `welcome` template and `send_welcome_email_dry_run` service path use the existing `outbound_email_events` idempotency lifecycle and dry-run provider. Tests cover safe variables, deterministic replay, event-before-provider ordering, and rejection of Auth email types. No signup/profile bootstrap wiring, Resend/SMTP calls, real email delivery, or C10.5 feature emails were added.
+```
+
+C10.4 current status:
+
+```text
+[ ] Not complete - C10.4A is dry-run-only. Real welcome email delivery remains blocked by the missing verified Resend sender/domain and is not enabled.
+```
+
 C16.1 future production auth hardening release blocker:
 
 ```text
