@@ -2,7 +2,7 @@
 
 ## Status
 
-**C10.1 completed/merged.** C10.1 is documentation-only and defines the email safety contract. No email provider has been called, no SMTP has been configured, and no real email has been sent by this repository. The C10.2A runbook is complete in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.2B live delivery remains blocked pending a verified Resend sender/domain. C10.3A and C10.3B backend foundations are completed locally; full C10.3 remains incomplete.
+**C10.1 completed/merged.** C10.1 is documentation-only and defines the email safety contract. No email provider has been called, no SMTP has been configured, and no real email has been sent by this repository. The C10.2A runbook is complete in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.2B live delivery remains blocked pending a verified Resend sender/domain. C10.3A, C10.3B, and C10.3C backend foundations are completed locally; full C10.3 remains incomplete. The `outbound_email_events` migration is not applied to remote Supabase.
 
 ## 1. C10 Goal
 
@@ -139,7 +139,7 @@ Secrets are never hardcoded or committed. Real keys belong only in local environ
 
 ## 5. Database Event Log Plan
 
-The C10.3B backend-owned table is implemented as `outbound_email_events` through `supabase/migrations/20260904143000_add_outbound_email_events.sql`:
+The C10.3B backend-owned table is implemented locally as `outbound_email_events` through `supabase/migrations/20260904143000_add_outbound_email_events.sql`; the migration remains unapplied to remote Supabase. C10.3C connects this event store to the offline/dry-run email service without adding delivery:
 
 - `id`
 - `user_id`
@@ -218,7 +218,8 @@ Each future route must be authenticated, verify session ownership, require an id
 - **C10.2A - Supabase Auth emails through Resend SMTP:** runbook/setup documentation completed/merged; live C10.2B delivery is blocked pending a verified Resend sender/domain.
 - **C10.2 - Supabase Auth email delivery:** not complete until live verification/reset emails are tested.
 - **C10.3A - Backend email foundation with dry-run provider:** completed locally; backend config, provider contract, safe dry-run provider, and tests are present, with no real sending.
-- **C10.3B - Outbound email event persistence and idempotency foundation:** completed locally; backend-only event storage, NULL-safe claims, lease/state transitions, reconciliation fencing, and tests are present, with no delivery.
+- **C10.3B - Outbound email event persistence and idempotency foundation:** completed locally; backend-only event storage, NULL-safe claims, lease/state transitions, reconciliation fencing, and tests are present, with no delivery. The migration is not applied remotely.
+- **C10.3C - Dry-run event-store integration:** completed locally; the service claims events before the dry-run provider, updates outcomes with the active claim token, replays sent events safely, and covers lease/retry behavior without network delivery.
 - **C10.3 - Backend transactional email delivery:** not complete; live provider integration and transactional triggers remain deferred.
 - **C10.4 - Welcome email:** add the verified-login welcome flow; not started.
 - **C10.5 - Session summary, transcript, and AI notes emails:** add explicit authenticated user actions; not started.
@@ -237,4 +238,4 @@ The later demo should show:
 
 ## Safety Boundary
 
-C10.1, C10.3A, and C10.3B do not call Resend, configure Supabase SMTP, add real API keys, send emails, create custom verification/reset tokens, modify applied migrations, or implement promotional messaging. C9 remains merged/closed. C10.2A runbook/setup documentation is completed/merged, but C10.2B live verification/reset delivery is blocked pending a verified Resend sender/domain, so C10.2 delivery is not complete. C10.3A is completed locally with disabled/offline dry-run defaults. C10.3B adds only the backend-owned `outbound_email_events` migration and event-store boundary; full C10.3 remains incomplete because live delivery and transactional triggers are not implemented.
+C10.1, C10.3A, C10.3B, and C10.3C do not call Resend, configure Supabase SMTP, add real API keys, send emails, create custom verification/reset tokens, modify applied migrations, or implement promotional messaging. C9 remains merged/closed. C10.2A runbook/setup documentation is completed/merged, but C10.2B live verification/reset delivery is blocked pending a verified Resend sender/domain, so C10.2 delivery is not complete. C10.3A is completed locally with disabled/offline dry-run defaults. C10.3B adds only the backend-owned `outbound_email_events` migration and event-store boundary; that migration is not applied remotely. C10.3C connects the event store to the dry-run provider only. Full C10.3 remains incomplete because live delivery and transactional triggers are not implemented.

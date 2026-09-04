@@ -116,6 +116,9 @@ class EmailSendResult:
     recipient_masked: str
     email_type: str
     created_at: str
+    event_id: str | None = None
+    event_status: str | None = None
+    replayed: bool = False
 
 
 class EmailProvider(Protocol):

@@ -6,10 +6,13 @@ import pytest
 from app.email.event_store import (
     OutboundEmailEventClaim,
     OutboundEmailEventConflictError,
+    OutboundEmailEventError,
     OutboundEmailEventRecord,
     OutboundEmailEventService,
     OutboundEmailEventValidationError,
 )
+from app.email.provider import EmailSendRequest, EmailSendResult
+from app.email.service import EmailService
 
 
 def _future_iso(seconds: int = 300) -> str:
@@ -154,6 +157,40 @@ class FakeEventClient:
         return updated
 
 
+class CountingProvider:
+    def __init__(self, *, error: Exception | None = None) -> None:
+        self.calls = 0
+        self.error = error
+
+    def send_email(self, request: EmailSendRequest) -> EmailSendResult:
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return EmailSendResult(
+            status="dry_run",
+            provider="dry_run",
+            message_id="dry-run",
+            dry_run=True,
+            recipient_masked="m***@example.com",
+            email_type=request.email_type,
+            created_at="2026-09-04T00:00:00Z",
+        )
+
+
+def _event_kwargs(*, idempotency_key: str = "email-1") -> dict[str, object]:
+    return {
+        "email_type": "ai_notes_ready",
+        "user_id": "user-1",
+        "session_id": "session-1",
+        "recipient_email": "mentor@example.com",
+        "idempotency_key": idempotency_key,
+    }
+
+
+def _send_kwargs(*, idempotency_key: str = "email-1") -> dict[str, object]:
+    return {"subject": "Interview notes ready", **_event_kwargs(idempotency_key=idempotency_key)}
+
+
 def test_reserve_uses_null_safe_scope_and_keeps_session_scopes_separate() -> None:
     client = FakeEventClient()
     service = OutboundEmailEventService(client=client)
@@ -292,3 +329,117 @@ def test_event_metadata_rejects_sensitive_values_before_client_call() -> None:
             safe_metadata={"authorization": "Bearer secret"},
         )
     assert client.claim_calls == []
+
+
+def test_email_service_claims_event_before_dry_run_send_and_completes_it() -> None:
+    client = FakeEventClient()
+    event_service = OutboundEmailEventService(client=client)
+    provider = CountingProvider()
+    service = EmailService(provider, event_store=event_service)
+
+    result = service.send_transactional_email(
+        **_send_kwargs(),
+        safe_metadata={"source": "notes"},
+    )
+
+    assert provider.calls == 1
+    assert len(client.claim_calls) == 1
+    event = next(iter(client.records.values()))
+    assert event.status == "sent"
+    assert event.metadata_json == {"source": "notes", "dry_run": True}
+    assert result.event_id == event.id
+    assert result.event_status == "sent"
+    assert result.replayed is False
+
+
+def test_email_service_replays_sent_event_without_second_provider_call() -> None:
+    client = FakeEventClient()
+    event_service = OutboundEmailEventService(client=client)
+    provider = CountingProvider()
+    service = EmailService(provider, event_store=event_service)
+
+    service.send_transactional_email(**_send_kwargs())
+    replay = service.send_transactional_email(**_send_kwargs())
+
+    assert provider.calls == 1
+    assert replay.replayed is True
+    assert replay.event_status == "sent"
+    assert replay.message_id == "dry-run"
+
+
+def test_email_service_active_event_does_not_call_provider_again() -> None:
+    client = FakeEventClient()
+    event_service = OutboundEmailEventService(client=client)
+    event = event_service.reserve(**_event_kwargs()).event
+    event_service.begin_send(user_id="user-1", event_id=event.id)
+    provider = CountingProvider()
+    service = EmailService(provider, event_store=event_service)
+
+    with pytest.raises(OutboundEmailEventConflictError, match="already processing"):
+        service.send_transactional_email(**_send_kwargs())
+
+    assert provider.calls == 0
+
+
+def test_email_service_reclaims_expired_pending_event_before_send() -> None:
+    client = FakeEventClient()
+    event_service = OutboundEmailEventService(client=client)
+    event = event_service.reserve(**_event_kwargs()).event
+    key, stored = client._find(event.id)
+    client.records[key] = replace(stored, pending_expires_at=_past_iso())
+    provider = CountingProvider()
+    service = EmailService(provider, event_store=event_service)
+
+    result = service.send_transactional_email(**_send_kwargs())
+
+    assert provider.calls == 1
+    assert result.event_status == "sent"
+
+
+def test_email_service_does_not_reclaim_pending_event_without_lease() -> None:
+    client = FakeEventClient()
+    event_service = OutboundEmailEventService(client=client)
+    event = event_service.reserve(**_event_kwargs()).event
+    key, stored = client._find(event.id)
+    client.records[key] = replace(stored, pending_expires_at=None)
+    provider = CountingProvider()
+    service = EmailService(provider, event_store=event_service)
+
+    with pytest.raises(OutboundEmailEventConflictError, match="reconciliation"):
+        service.send_transactional_email(**_send_kwargs())
+
+    assert provider.calls == 0
+
+
+def test_email_service_marks_permanent_provider_failure_and_does_not_retry() -> None:
+    client = FakeEventClient()
+    event_service = OutboundEmailEventService(client=client)
+    provider = CountingProvider(error=RuntimeError("provider failed"))
+    service = EmailService(provider, event_store=event_service)
+
+    with pytest.raises(OutboundEmailEventError, match="provider failed"):
+        service.send_transactional_email(**_send_kwargs())
+
+    with pytest.raises(OutboundEmailEventConflictError, match="Permanent"):
+        service.send_transactional_email(**_send_kwargs(), retry_failed=True)
+
+    event = next(iter(client.records.values()))
+    assert event.status == "failed"
+    assert event.error_code == "provider_error"
+    assert provider.calls == 1
+
+
+def test_email_service_retries_explicitly_retryable_provider_failure() -> None:
+    client = FakeEventClient()
+    event_service = OutboundEmailEventService(client=client)
+    provider = CountingProvider(error=TimeoutError("provider timeout"))
+    service = EmailService(provider, event_store=event_service)
+
+    with pytest.raises(OutboundEmailEventError, match="provider failed"):
+        service.send_transactional_email(**_send_kwargs())
+
+    provider.error = None
+    result = service.send_transactional_email(**_send_kwargs(), retry_failed=True)
+
+    assert provider.calls == 2
+    assert result.event_status == "sent"
