@@ -36,7 +36,7 @@ This tracker is the live execution log for the production build.
 Current active execution phase:
 
 ```text
-C10.2A - Supabase Auth verification/reset email SMTP setup and safe manual validation are in progress in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.1 email planning is completed/merged, C10.2 is not complete, and real email sending, payments/admin/pricing remain not started
+C10.3 - Backend transactional email delivery remains next after C10.3A backend dry-run foundation completion; C10.1 email planning and the C10.2A runbook are completed/merged, C10.2B live Supabase Auth delivery is blocked pending a verified Resend sender/domain, C10.2 is not complete, and real email sending, payments/admin/pricing remain not started
 ```
 
 Screen Intelligence documentation:
@@ -134,13 +134,25 @@ C6.2A current status:
 C6.3 current status:
 
 ```text
-[~] Implemented locally - Durable interview session lifecycle and cloud session storage are implemented through a new Supabase `interview_sessions` lifecycle migration, authenticated FastAPI session routes, service-role-only idempotent create RPC, Electron main-process session IPC, desktop runtime `activeSessionId` handling, logout/end finalization, and a basic website dashboard session history list. C7 transcript storage is now implemented locally through a new transcript-entry Supabase migration, authenticated transcript routes, generation-time transcript writes tied to `activeSessionId`, and dashboard transcript view/download controls. C8 AI Notes is implemented locally through transcript-based notes generation/storage and dashboard notes view in `docs/C8_AI_NOTES_GENERATION.md`. C9 Ask AI is merged/closed as session-scoped follow-up memory in `docs/C9_ASK_AI_FOLLOWUP_CONTEXT_MEMORY.md`. C10.1 email planning is completed/merged in `docs/C10_EMAIL_SYSTEM_PLAN.md`; C10.2A Supabase Auth verification/reset SMTP setup and safe manual validation are in progress in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.2 is not complete.
+[~] Implemented locally - Durable interview session lifecycle and cloud session storage are implemented through a new Supabase `interview_sessions` lifecycle migration, authenticated FastAPI session routes, service-role-only idempotent create RPC, Electron main-process session IPC, desktop runtime `activeSessionId` handling, logout/end finalization, and a basic website dashboard session history list. C7 transcript storage is now implemented locally through a new transcript-entry Supabase migration, authenticated transcript routes, generation-time transcript writes tied to `activeSessionId`, and dashboard transcript view/download controls. C8 AI Notes is implemented locally through transcript-based notes generation/storage and dashboard notes view in `docs/C8_AI_NOTES_GENERATION.md`. C9 Ask AI is merged/closed as session-scoped follow-up memory in `docs/C9_ASK_AI_FOLLOWUP_CONTEXT_MEMORY.md`. C10.1 email planning is completed/merged in `docs/C10_EMAIL_SYSTEM_PLAN.md`; C10.2A runbook/documentation is completed/merged in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.2B live Supabase Auth delivery is blocked pending a verified Resend sender/domain; C10.2 is not complete.
 ```
 
 C10.2A current status:
 
 ```text
-[~] In progress - Supabase Auth verification and password reset delivery through authenticated encrypted Resend SMTP are documented in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; fixed local and HTTPS production-placeholder redirect allowlists, safe smoke tests, rollback, and evidence handling are defined. No live SMTP/provider setup or real email verification has been completed in this repository, and C10.2 remains incomplete.
+[x] Completed/merged - Supabase Auth verification and password reset delivery through authenticated encrypted Resend SMTP are documented in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; fixed local and HTTPS production-placeholder redirect allowlists, safe smoke tests, rollback, and evidence handling are defined. C10.2B live SMTP/provider setup and real email verification remain blocked pending a verified Resend sender/domain, so C10.2 remains incomplete.
+```
+
+C10.3A current status:
+
+```text
+[x] Completed/merged - Backend email settings, provider contract, safe in-memory dry-run provider, transactional service boundary, and focused no-network/safety tests are implemented locally. No real Resend/SMTP delivery, transactional email triggers, or outbound event persistence/idempotency were added in C10.3A; marketing email remains out of scope.
+```
+
+C10.3 current status:
+
+```text
+[ ] Not complete - Outbound email event persistence/idempotency, live transactional provider integration, and transactional email triggers remain to be implemented. C10.3A provides only the completed backend offline/dry-run foundation.
 ```
 
 C16.1 future production auth hardening release blocker:

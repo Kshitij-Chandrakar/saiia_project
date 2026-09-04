@@ -2,7 +2,7 @@
 
 ## Status and boundary
 
-**In progress: runbook and controlled validation preparation.** This document does not configure Supabase, call Resend, send email, add secrets, or implement custom authentication logic. Live verification/reset delivery remains pending until the setup is performed with approved credentials.
+**Completed/merged: runbook and controlled validation preparation.** This document does not configure Supabase, call Resend, send email, add secrets, or implement custom authentication logic. C10.2B live verification/reset delivery remains blocked until a verified Resend sender/domain and approved credentials are available.
 
 This phase covers only:
 
@@ -158,4 +158,4 @@ Logs and screenshots must not include full Auth URLs, token query parameters, ra
 
 ## Completion criteria
 
-C10.2A may be marked complete only after authorized manual verification proves signup verification and password reset delivery, redirect allowlist acceptance/rejection, authenticated encrypted SMTP, and safe evidence handling. Until then, keep the phase **in progress** and keep `EMAIL_ENABLED`/`EMAIL_DRY_RUN` defaults unchanged.
+C10.2A runbook/documentation work is complete. C10.2B may be marked complete only after authorized manual verification proves signup verification and password reset delivery, redirect allowlist acceptance/rejection, authenticated encrypted SMTP, and safe evidence handling. Until then, keep C10.2B blocked/incomplete and keep `EMAIL_ENABLED`/`EMAIL_DRY_RUN` defaults unchanged.

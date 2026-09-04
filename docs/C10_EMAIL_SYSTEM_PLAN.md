@@ -2,7 +2,7 @@
 
 ## Status
 
-**Completed/merged.** C10.1 is documentation-only and defines the email safety contract. No email provider has been called, no SMTP has been configured, and no real email has been sent by this repository. C10.2A setup and live validation are tracked separately in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md` and remain in progress.
+**C10.1 completed/merged.** C10.1 is documentation-only and defines the email safety contract. No email provider has been called, no SMTP has been configured, and no real email has been sent by this repository. The C10.2A runbook is complete in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.2B live delivery remains blocked pending a verified Resend sender/domain. C10.3A backend-only dry-run foundation is completed locally; full C10.3 remains incomplete.
 
 ## 1. C10 Goal
 
@@ -215,9 +215,10 @@ Each future route must be authenticated, verify session ownership, require an id
 ## 9. C10 Phase Breakdown
 
 - **C10.1 - Email plan and safety contract:** completed/merged; no sending implementation.
-- **C10.2A - Supabase Auth emails through Resend SMTP:** runbook and controlled setup/validation in progress; not complete.
+- **C10.2A - Supabase Auth emails through Resend SMTP:** runbook/setup documentation completed/merged; live C10.2B delivery is blocked pending a verified Resend sender/domain.
 - **C10.2 - Supabase Auth email delivery:** not complete until live verification/reset emails are tested.
-- **C10.3 - Backend email config and dry-run provider:** add backend provider boundary and safe local default; not started.
+- **C10.3A - Backend email foundation with dry-run provider:** completed locally; backend config, provider contract, safe dry-run provider, and tests are present, with no real sending.
+- **C10.3 - Backend transactional email delivery:** not complete; outbound event persistence/idempotency, live provider integration, and transactional triggers remain deferred.
 - **C10.4 - Welcome email:** add the verified-login welcome flow; not started.
 - **C10.5 - Session summary, transcript, and AI notes emails:** add explicit authenticated user actions; not started.
 - **C10.6 - Marketing preferences and promotional emails later:** add consent and unsubscribe controls; not started.
@@ -235,4 +236,4 @@ The later demo should show:
 
 ## Safety Boundary
 
-C10.1 does not call Resend, configure Supabase SMTP, add real API keys, send emails, create custom verification/reset tokens, modify applied migrations, or implement promotional messaging. C9 remains merged/closed. C10.2A is runbook/setup preparation only and remains in progress; C10.2 delivery is not complete.
+C10.1 and C10.3A do not call Resend, configure Supabase SMTP, add real API keys, send emails, create custom verification/reset tokens, modify applied migrations, or implement promotional messaging. C9 remains merged/closed. C10.2A runbook/setup documentation is completed/merged, but C10.2B live verification/reset delivery is blocked pending a verified Resend sender/domain, so C10.2 delivery is not complete. C10.3A is completed locally with disabled/offline dry-run defaults; no `outbound_email_events` migration or persistence/idempotency layer was added, and full C10.3 remains incomplete. Live delivery is not implemented and fails closed.
