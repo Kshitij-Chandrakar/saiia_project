@@ -6,7 +6,7 @@
 **Version:** 1.1  
 **Last updated:** 2026-09-04
 **Created:** 2026-07-10  
-**Current active phase:** C10.3 - Backend transactional email delivery remains after completion of C10.3A, C10.3B, C10.3C, and C10.3D dry-run/event foundations; PR #32 is merged and `outbound_email_events` migration `20260904143000_add_outbound_email_events.sql` is applied to remote Supabase dev with post-apply tests passed. C10.1 and the C10.2A runbook are completed/merged, C10.2B live Supabase Auth delivery is blocked pending a verified Resend sender/domain, C10.2 delivery is not complete, and real email sending/payments/admin/pricing remain not started. See `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`.
+**Current active phase:** C10.3 - Backend transactional email delivery remains after completion of C10.3A, C10.3B, C10.3C, and C10.3D dry-run/event foundations; PR #32 is merged and `outbound_email_events` migration `20260904143000_add_outbound_email_events.sql` is applied to remote Supabase dev with post-apply tests passed. C10.4A and C10.4B welcome-template/trigger dry-run work is complete locally, while C10.2B live Supabase Auth delivery remains blocked pending a verified Resend sender/domain and real C10.4 delivery is not enabled. C10.1 and the C10.2A runbook are completed/merged; C10.2 delivery is not complete, and real email sending/payments/admin/pricing remain not started. See `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`.
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -2109,7 +2109,7 @@ Create a reliable email layer for authentication, transactional messages, and co
 - Supabase Auth remains responsible for secure verification/reset link generation.
 - Resend is the planned delivery provider only; it is not called or configured in C10.1.
 - Local automated tests remain dry-run by default.
-- No real API keys, email sends, or SMTP configuration are included; C10.3A adds the backend offline/dry-run foundation, C10.3B adds backend event persistence/idempotency, C10.3C connects that store to the dry-run service, and C10.3D records the remote dev apply/post-apply validation, with no live provider implementation.
+- No real API keys, email sends, or SMTP configuration are included; C10.3A adds the backend offline/dry-run foundation, C10.3B adds backend event persistence/idempotency, C10.3C connects that store to the dry-run service, C10.3D records the remote dev apply/post-apply validation, and C10.4A/B provide a dry-run welcome template/trigger only, with no live provider implementation.
 - C9 is merged/closed. C10.1 is completed/merged. C10.2A runbook/documentation is completed/merged through `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.2B live delivery is blocked pending a verified Resend sender/domain. C10.2 implementation/delivery is not complete. C10.3A, C10.3B, C10.3C, and C10.3D are completed locally; PR #32 is merged, the `outbound_email_events` migration is applied to remote Supabase dev, post-apply tests passed, and full C10.3 remains incomplete until real delivery is intentionally enabled.
 - Payment, billing, subscription, and cancellation emails are out of scope for C10 and deferred to the future pricing/subscription/payment phases.
 - Supabase Auth template variables such as `ConfirmationURL` and `RecoveryURL` are allowed when required by Auth, but full Auth URLs must not be logged, tracked, telemetered, or stored in `outbound_email_events` metadata.
@@ -2198,7 +2198,8 @@ Outbound email event inserts and updates are backend-only; frontend/client direc
 - C10.3D - Remote migration apply and post-apply validation - completed; PR #32 merged, remote dev migration applied, post-apply tests passed; no real sending
 - C10.3 - Backend transactional email delivery - not complete; live provider integration and transactional triggers remain
 - C10.4A - Welcome email template + dry-run trigger - completed locally; safe plain-text `welcome` template and deterministic event-store idempotency path are implemented without signup/profile bootstrap wiring or real delivery
-- C10.4 - Welcome email delivery - not complete; real delivery remains blocked pending a verified Resend sender/domain and intentional live-provider enablement
+- C10.4B - Wire welcome email trigger in dry-run mode - completed locally; authenticated profile bootstrap invokes the welcome service from verified JWT identity/email, failures are non-blocking, and no real delivery is enabled
+- C10.4 - Welcome email delivery - dry-run path complete locally; real delivery remains blocked pending a verified Resend sender/domain and intentional live-provider enablement
 - C10.5 - Session summary, transcript, and AI notes emails - not started
 - C10.6 - Marketing preferences and promotional emails later - not started
 

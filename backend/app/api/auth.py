@@ -1,20 +1,25 @@
 import hashlib
+import logging
 import secrets
 import time
 
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, HTTPException, Request, status
 
-from app.auth.supabase_auth import CurrentUserDep
+from app.auth.supabase_auth import CurrentUser, CurrentUserDep
 from app.cloud.profile_bootstrap import (
     ProfileBootstrapResult,
     SupabaseProfileBootstrapError,
     bootstrap_authenticated_profile,
 )
 from app.cloud.supabase_config import SupabaseConfigurationError
+from app.email.event_store import build_outbound_email_event_service
+from app.email.provider import mask_recipient_email
+from app.email.service import build_email_service, send_welcome_email_dry_run
 
 
 router = APIRouter()
+logger = logging.getLogger("auth_api")
 
 
 DESKTOP_HANDOFF_TTL_SECONDS = 5 * 60
@@ -138,6 +143,35 @@ def _profile_bootstrap_response(result: ProfileBootstrapResult) -> ProfileBootst
     )
 
 
+def _trigger_welcome_email(current_user: CurrentUser) -> None:
+    """Best-effort dry-run welcome event after account setup succeeds."""
+
+    if not current_user.email:
+        logger.info("welcome_email_dry_run status=skipped reason=missing_email")
+        return
+    try:
+        email_service = build_email_service(
+            event_store=build_outbound_email_event_service(),
+        )
+        result = send_welcome_email_dry_run(
+            email_service=email_service,
+            user_id=current_user.user_id,
+            recipient_email=current_user.email,
+        )
+        logger.info(
+            "welcome_email_dry_run status=%s event_status=%s replayed=%s recipient=%s",
+            result.status,
+            result.event_status or "unknown",
+            result.replayed,
+            mask_recipient_email(current_user.email),
+        )
+    except Exception as error:
+        logger.warning(
+            "welcome_email_dry_run status=failed error_type=%s",
+            type(error).__name__,
+        )
+
+
 @router.get("/me", response_model=CurrentUserResponse)
 async def get_authenticated_user(current_user: CurrentUserDep) -> CurrentUserResponse:
     return CurrentUserResponse(
@@ -161,6 +195,7 @@ def bootstrap_profile(current_user: CurrentUserDep) -> ProfileBootstrapResponse:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Supabase profile bootstrap failed.",
         ) from exc
+    _trigger_welcome_email(current_user)
     return _profile_bootstrap_response(result)
 
 

@@ -176,13 +176,13 @@ C10.3 current status:
 C10.4A current status:
 
 ```text
-[x] Completed locally - The backend-only plain-text `welcome` template and `send_welcome_email_dry_run` service path use the existing `outbound_email_events` idempotency lifecycle and dry-run provider. Tests cover safe variables, deterministic replay, event-before-provider ordering, and rejection of Auth email types. No signup/profile bootstrap wiring, Resend/SMTP calls, real email delivery, or C10.5 feature emails were added.
+[x] Completed locally - The backend-only plain-text `welcome` template and `send_welcome_email_dry_run` service path use the existing `outbound_email_events` idempotency lifecycle and dry-run provider. Tests cover safe variables, deterministic replay, event-before-provider ordering, and rejection of Auth email types. C10.4B now wires this path after authenticated profile bootstrap using verified JWT identity/email, with non-blocking sanitized failure handling. No Resend/SMTP calls, real email delivery, or C10.5 feature emails were added.
 ```
 
 C10.4 current status:
 
 ```text
-[ ] Not complete - C10.4A is dry-run-only. Real welcome email delivery remains blocked by the missing verified Resend sender/domain and is not enabled.
+[x] Dry-run path completed locally - C10.4A provides the template/service and C10.4B triggers it after successful authenticated profile bootstrap. Real welcome delivery remains blocked by the missing verified Resend sender/domain and is not enabled.
 ```
 
 C16.1 future production auth hardening release blocker:
