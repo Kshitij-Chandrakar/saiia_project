@@ -10,8 +10,21 @@ from app.email.provider import (
     normalize_safe_metadata,
     validate_recipient_email,
 )
-from app.email.service import EmailService, build_email_service, send_welcome_email_dry_run
-from app.email.templates import EmailTemplate, render_welcome_email
+from app.email.service import (
+    EmailService,
+    build_email_service,
+    send_ai_notes_ready_email_dry_run,
+    send_session_summary_email_dry_run,
+    send_transcript_export_email_dry_run,
+    send_welcome_email_dry_run,
+)
+from app.email.templates import (
+    EmailTemplate,
+    render_ai_notes_ready_email,
+    render_session_summary_email,
+    render_transcript_export_email,
+    render_welcome_email,
+)
 from app.email.event_store import (
     EVENT_STATUSES,
     OutboundEmailEventClaim,
@@ -41,11 +54,17 @@ __all__ = [
     "MARKETING_EMAIL_TYPES",
     "SUPABASE_AUTH_EMAIL_TYPES",
     "build_email_service",
+    "send_ai_notes_ready_email_dry_run",
+    "send_session_summary_email_dry_run",
+    "send_transcript_export_email_dry_run",
     "send_welcome_email_dry_run",
     "load_email_settings",
     "normalize_safe_metadata",
     "validate_recipient_email",
     "render_welcome_email",
+    "render_ai_notes_ready_email",
+    "render_session_summary_email",
+    "render_transcript_export_email",
     "EVENT_STATUSES",
     "OutboundEmailEventClaim",
     "OutboundEmailEventClient",

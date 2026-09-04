@@ -185,6 +185,24 @@ C10.4 current status:
 [x] Dry-run path completed locally - C10.4A provides the template/service and C10.4B triggers it after successful authenticated profile bootstrap. Real welcome delivery remains blocked by the missing verified Resend sender/domain and is not enabled.
 ```
 
+C10.5A current status:
+
+```text
+[x] Completed locally - Safe plain-text templates and dry-run helpers for `ai_notes_ready`, `session_summary`, and `transcript_export` use deterministic session-scoped `outbound_email_events` idempotency and never include raw transcript/AI notes content. Automatic feature-email triggers, attachments, real Resend/SMTP delivery, and C10.5 feature actions were not added.
+```
+
+C10.5B current status:
+
+```text
+[ ] Not started - Authenticated feature-email actions and backend trigger wiring remain deferred; real delivery is disabled.
+```
+
+C10.5 current status:
+
+```text
+[~] Incomplete - C10.5A template/helper groundwork is complete locally, but C10.5B trigger wiring, authenticated feature-email actions, and real delivery remain deferred.
+```
+
 C16.1 future production auth hardening release blocker:
 
 ```text
