@@ -1,6 +1,7 @@
 from functools import lru_cache
 import logging
 import threading
+from collections.abc import Callable
 from typing import Annotated
 from uuid import UUID
 
@@ -8,7 +9,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.auth.supabase_auth import CurrentUserDep
+from app.auth.supabase_auth import CurrentUser, CurrentUserDep
 from app.cloud.interview_sessions import (
     CloudInterviewSessionConflictError,
     CloudInterviewSessionError,
@@ -40,10 +41,53 @@ from app.cloud.interview_transcripts import (
     InterviewTranscriptEntryListPage,
 )
 from app.cloud.supabase_config import SupabaseConfigurationError
+from app.email.event_store import build_outbound_email_event_service
+from app.email.provider import EmailSendResult, mask_recipient_email
+from app.email.service import (
+    build_email_service,
+    send_ai_notes_ready_email_dry_run,
+    send_transcript_export_email_dry_run,
+)
 
 router = APIRouter()
 logger = logging.getLogger("cloud_interview_session_api")
 _ASK_AI_CAPACITY = threading.BoundedSemaphore(8)
+
+
+def _trigger_feature_email(
+    *,
+    current_user: CurrentUser,
+    session_id: str,
+    sender: Callable[..., EmailSendResult],
+) -> None:
+    """Best-effort dry-run feature email trigger after a successful action."""
+
+    if not current_user.email:
+        logger.info("feature_email_dry_run status=skipped reason=missing_email")
+        return
+    try:
+        email_service = build_email_service(
+            event_store=build_outbound_email_event_service(),
+        )
+        result = sender(
+            email_service=email_service,
+            user_id=current_user.user_id,
+            session_id=session_id,
+            recipient_email=current_user.email,
+        )
+        logger.info(
+            "feature_email_dry_run type=%s status=%s event_status=%s replayed=%s recipient=%s",
+            result.email_type,
+            result.status,
+            result.event_status or "unknown",
+            result.replayed,
+            mask_recipient_email(current_user.email),
+        )
+    except Exception as error:
+        logger.warning(
+            "feature_email_dry_run status=failed error_type=%s",
+            type(error).__name__,
+        )
 
 
 class InterviewSessionCreateRequest(BaseModel):
@@ -475,11 +519,16 @@ def list_interview_transcript_entries(
 def download_interview_transcript(
     session_id: UUID,
     current_user: CurrentUserDep,
+    session_service: CloudInterviewSessionServiceDep,
     service: CloudInterviewTranscriptServiceDep,
     format: str = Query("txt"),
 ) -> PlainTextResponse:
     try:
         normalized_format = str(format or "").strip().lower()
+        session_service.get_session(
+            user_id=current_user.user_id,
+            session_id=str(session_id),
+        )
         content = service.export_transcript(
             user_id=current_user.user_id,
             session_id=str(session_id),
@@ -487,6 +536,11 @@ def download_interview_transcript(
         )
     except Exception as exc:
         raise _handle_cloud_error(exc) from exc
+    _trigger_feature_email(
+        current_user=current_user,
+        session_id=str(session_id),
+        sender=send_transcript_export_email_dry_run,
+    )
     media_type = "text/markdown; charset=utf-8" if normalized_format == "md" else "text/plain; charset=utf-8"
     return PlainTextResponse(
         content,
@@ -523,6 +577,11 @@ def generate_interview_session_notes(
         )
     except Exception as exc:
         raise _handle_cloud_error(exc) from exc
+    _trigger_feature_email(
+        current_user=current_user,
+        session_id=str(session_id),
+        sender=send_ai_notes_ready_email_dry_run,
+    )
     return _notes_response(record)
 
 

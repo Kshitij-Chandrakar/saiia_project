@@ -70,6 +70,9 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     get_auth_verification_config.cache_clear()
     app = FastAPI()
     app.include_router(interview_sessions_api.router, prefix="/api/interview-sessions")
+    app.dependency_overrides[interview_sessions_api.get_cloud_interview_session_service] = (
+        lambda: FakeInterviewSessionService()
+    )
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
@@ -114,6 +117,11 @@ class FakeTranscriptService:
         if format not in {"txt", "md"}:
             raise CloudInterviewSessionValidationError("format must be txt or md.")
         return "Interview Transcript\n"
+
+
+class FakeInterviewSessionService:
+    def get_session(self, *, user_id: str, session_id: str):
+        return object()
 
 
 @pytest.fixture
@@ -197,6 +205,59 @@ def test_list_and_download_transcript_routes_are_user_owned(client: TestClient, 
         {"user_id": TEST_USER_ID, "session_id": SESSION_ID, "format": "md"},
         {"user_id": TEST_USER_ID, "session_id": SESSION_ID, "format": "txt"},
     ]
+
+
+def test_transcript_export_triggers_dry_run_email_after_success(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+    fake_service: FakeTranscriptService,
+) -> None:
+    trigger_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        interview_sessions_api,
+        "_trigger_feature_email",
+        lambda **kwargs: trigger_calls.append(kwargs),
+    )
+
+    response = client.get(
+        f"/api/interview-sessions/{SESSION_ID}/transcript/download?format=md",
+        headers={"Authorization": f"Bearer {_token()}"},
+    )
+
+    assert response.status_code == 200
+    assert len(trigger_calls) == 1
+    assert trigger_calls[0]["session_id"] == SESSION_ID
+    assert trigger_calls[0]["current_user"].user_id == TEST_USER_ID  # type: ignore[union-attr]
+    assert trigger_calls[0]["current_user"].email == "user@example.com"  # type: ignore[union-attr]
+    assert trigger_calls[0]["sender"] is interview_sessions_api.send_transcript_export_email_dry_run
+
+
+def test_cross_user_transcript_export_does_not_trigger_email(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+) -> None:
+    trigger_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        interview_sessions_api,
+        "_trigger_feature_email",
+        lambda **kwargs: trigger_calls.append(kwargs),
+    )
+
+    class RaisingSessionService:
+        def get_session(self, *, user_id: str, session_id: str):
+            raise CloudInterviewSessionNotFoundError("Interview session was not found.")
+
+    client.app.dependency_overrides[interview_sessions_api.get_cloud_interview_session_service] = (
+        lambda: RaisingSessionService()
+    )
+
+    response = client.get(
+        f"/api/interview-sessions/{SESSION_ID}/transcript/download?format=txt",
+        headers={"Authorization": f"Bearer {_token(subject='another-user')}"},
+    )
+
+    assert response.status_code == 404
+    assert trigger_calls == []
 
 
 def test_cross_user_transcript_access_is_blocked(client: TestClient) -> None:

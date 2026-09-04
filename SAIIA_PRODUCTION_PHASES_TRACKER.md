@@ -194,13 +194,13 @@ C10.5A current status:
 C10.5B current status:
 
 ```text
-[ ] Not started - Authenticated feature-email actions and backend trigger wiring remain deferred; real delivery is disabled.
+[x] Completed locally for available flows - Successful AI-notes generation triggers `ai_notes_ready`, and successful transcript export preparation triggers `transcript_export`, using verified JWT identity/email, deterministic event-store idempotency, and the dry-run provider. No existing session-summary preparation flow was found, so that trigger remains deferred; real delivery is disabled.
 ```
 
 C10.5 current status:
 
 ```text
-[~] Incomplete - C10.5A template/helper groundwork is complete locally, but C10.5B trigger wiring, authenticated feature-email actions, and real delivery remain deferred.
+[~] Incomplete - C10.5A template/helper groundwork and available C10.5B dry-run triggers are complete locally, but session-summary wiring, remaining authenticated feature-email actions, and real delivery remain deferred.
 ```
 
 C16.1 future production auth hardening release blocker:
