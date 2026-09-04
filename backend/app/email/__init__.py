@@ -7,8 +7,25 @@ from app.email.provider import (
     EmailSendRequest,
     EmailSendResult,
     EmailValidationError,
+    normalize_safe_metadata,
+    validate_recipient_email,
 )
 from app.email.service import EmailService, build_email_service
+from app.email.event_store import (
+    EVENT_STATUSES,
+    OutboundEmailEventClaim,
+    OutboundEmailEventClient,
+    OutboundEmailEventConflictError,
+    OutboundEmailEventError,
+    OutboundEmailEventRecord,
+    OutboundEmailEventRequest,
+    OutboundEmailEventService,
+    OutboundEmailEventValidationError,
+    OutboundEmailEventNotFoundError,
+    RECONCILIATION_OUTCOMES,
+    SupabaseOutboundEmailEventClient,
+    build_outbound_email_event_service,
+)
 
 __all__ = [
     "BACKEND_TRANSACTIONAL_EMAIL_TYPES",
@@ -23,4 +40,19 @@ __all__ = [
     "SUPABASE_AUTH_EMAIL_TYPES",
     "build_email_service",
     "load_email_settings",
+    "normalize_safe_metadata",
+    "validate_recipient_email",
+    "EVENT_STATUSES",
+    "OutboundEmailEventClaim",
+    "OutboundEmailEventClient",
+    "OutboundEmailEventConflictError",
+    "OutboundEmailEventError",
+    "OutboundEmailEventNotFoundError",
+    "OutboundEmailEventRecord",
+    "OutboundEmailEventRequest",
+    "OutboundEmailEventService",
+    "OutboundEmailEventValidationError",
+    "RECONCILIATION_OUTCOMES",
+    "SupabaseOutboundEmailEventClient",
+    "build_outbound_email_event_service",
 ]

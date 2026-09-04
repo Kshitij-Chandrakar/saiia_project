@@ -51,7 +51,7 @@ def mask_recipient_email(recipient_email: str) -> str:
     return f"{local[:1]}***@{domain.lower()}"
 
 
-def _safe_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
+def normalize_safe_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
     if len(metadata) > MAX_METADATA_ITEMS:
         raise EmailValidationError("Email metadata has too many fields.")
     safe: dict[str, object] = {}
@@ -69,6 +69,18 @@ def _safe_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
     return safe
 
 
+def validate_recipient_email(value: str) -> str:
+    recipient = str(value or "").strip()
+    if (
+        not recipient
+        or len(recipient) > MAX_EMAIL_CHARS
+        or recipient.count("@") != 1
+        or any(ord(character) < 33 for character in recipient)
+    ):
+        raise EmailValidationError("Recipient email is invalid.")
+    return recipient
+
+
 @dataclass(frozen=True, slots=True)
 class EmailSendRequest:
     """Safe input contract for backend transactional email providers."""
@@ -81,13 +93,7 @@ class EmailSendRequest:
     def __post_init__(self) -> None:
         recipient = self.recipient_email.strip()
         subject = self.subject.strip()
-        if (
-            not recipient
-            or len(recipient) > MAX_EMAIL_CHARS
-            or recipient.count("@") != 1
-            or any(ord(character) < 33 for character in recipient)
-        ):
-            raise EmailValidationError("Recipient email is invalid.")
+        recipient = validate_recipient_email(recipient)
         if not subject or len(subject) > MAX_SUBJECT_CHARS or any(ord(character) < 32 for character in subject):
             raise EmailValidationError("Email subject is invalid.")
         if self.email_type not in BACKEND_TRANSACTIONAL_EMAIL_TYPES:
@@ -96,7 +102,7 @@ class EmailSendRequest:
             raise EmailValidationError("Email metadata is invalid.")
         object.__setattr__(self, "recipient_email", recipient)
         object.__setattr__(self, "subject", subject)
-        object.__setattr__(self, "safe_metadata", _safe_metadata(self.safe_metadata))
+        object.__setattr__(self, "safe_metadata", normalize_safe_metadata(self.safe_metadata))
 
 
 @dataclass(frozen=True, slots=True)

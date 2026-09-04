@@ -6,7 +6,7 @@
 **Version:** 1.1  
 **Last updated:** 2026-09-04
 **Created:** 2026-07-10  
-**Current active phase:** C10.3 - Backend transactional email event persistence/idempotency remains next after C10.3A completion; C10.1 and the C10.2A runbook are completed/merged, C10.2B live Supabase Auth delivery is blocked pending a verified Resend sender/domain, C10.2 delivery is not complete, and real email sending/payments/admin/pricing remain not started. See `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`.
+**Current active phase:** C10.3 - Backend transactional email delivery remains after completion of C10.3A and C10.3B foundations; C10.1 and the C10.2A runbook are completed/merged, C10.2B live Supabase Auth delivery is blocked pending a verified Resend sender/domain, C10.2 delivery is not complete, and real email sending/payments/admin/pricing remain not started. See `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`.
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -2109,8 +2109,8 @@ Create a reliable email layer for authentication, transactional messages, and co
 - Supabase Auth remains responsible for secure verification/reset link generation.
 - Resend is the planned delivery provider only; it is not called or configured in C10.1.
 - Local automated tests remain dry-run by default.
-- No real API keys, email sends, SMTP configuration, or migrations are included in the planning/runbook work; C10.3A adds only the backend offline/dry-run foundation and no live provider implementation.
-- C9 is merged/closed. C10.1 is completed/merged. C10.2A runbook/documentation is completed/merged through `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.2B live delivery is blocked pending a verified Resend sender/domain. C10.2 implementation/delivery is not complete. C10.3A backend email foundation with a safe dry-run provider is completed locally; full C10.3 remains incomplete.
+- No real API keys, email sends, or SMTP configuration are included; C10.3A adds the backend offline/dry-run foundation and C10.3B adds only backend event persistence/idempotency, with no live provider implementation.
+- C9 is merged/closed. C10.1 is completed/merged. C10.2A runbook/documentation is completed/merged through `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.2B live delivery is blocked pending a verified Resend sender/domain. C10.2 implementation/delivery is not complete. C10.3A backend email foundation with a safe dry-run provider and C10.3B event persistence/idempotency foundation are completed locally; full C10.3 remains incomplete.
 - Payment, billing, subscription, and cancellation emails are out of scope for C10 and deferred to the future pricing/subscription/payment phases.
 - Supabase Auth template variables such as `ConfirmationURL` and `RecoveryURL` are allowed when required by Auth, but full Auth URLs must not be logged, tracked, telemetered, or stored in `outbound_email_events` metadata.
 - Redirect URLs are fixed per environment: local may allow only `http://localhost:5173/auth/callback` and `http://localhost:5173/auth/reset-password`; staging/production require HTTPS approved-domain URLs. User-supplied and unapproved destinations are rejected, and C10.2 must manually test allowed and rejected URLs.
@@ -2193,7 +2193,8 @@ Outbound email event inserts and updates are backend-only; frontend/client direc
 - C10.2B - Supabase Auth email delivery - blocked pending verified Resend sender/domain; not complete
 - C10.2 - Supabase Auth email delivery - not complete until live verification/reset emails are tested
 - C10.3A - Backend email foundation with dry-run provider - completed locally; no real sending
-- C10.3 - Backend transactional email delivery - not complete; outbound event persistence/idempotency and live provider integration remain
+- C10.3B - Outbound email event persistence and idempotency foundation - completed locally; no real sending
+- C10.3 - Backend transactional email delivery - not complete; live provider integration and transactional triggers remain
 - C10.4 - Welcome email - not started
 - C10.5 - Session summary, transcript, and AI notes emails - not started
 - C10.6 - Marketing preferences and promotional emails later - not started

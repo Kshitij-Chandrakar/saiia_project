@@ -20,6 +20,7 @@ C9_IDEMPOTENCY_TRIGGER_MIGRATION = (
 )
 C9_ATOMIC_TURN_MIGRATION = MIGRATIONS_DIR / "20260902120000_add_ask_ai_atomic_turn_persistence.sql"
 C9_INDEX_CLEANUP_MIGRATION = MIGRATIONS_DIR / "20260902130000_drop_redundant_ask_ai_message_index.sql"
+C10_3B_MIGRATION = MIGRATIONS_DIR / "20260904143000_add_outbound_email_events.sql"
 
 
 def _normalized_sql() -> str:
@@ -502,3 +503,76 @@ def test_c9_ask_ai_index_cleanup_migration_drops_redundant_index() -> None:
     sql = " ".join(C9_INDEX_CLEANUP_MIGRATION.read_text(encoding="utf-8").lower().split())
 
     assert "drop index if exists public.interview_session_ask_ai_session_created_idx" in sql
+
+
+def test_c10_3b_outbound_email_events_migration_adds_backend_idempotency_contract() -> None:
+    sql = " ".join(C10_3B_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "create table if not exists public.outbound_email_events" in sql
+    for column in (
+        "user_id uuid not null references auth.users(id) on delete cascade",
+        "session_id uuid null references public.interview_sessions(id) on delete set null",
+        "email_type text not null",
+        "recipient_email text not null",
+        "provider text null",
+        "provider_message_id text null",
+        "idempotency_key text not null",
+        "claim_token uuid null",
+        "reconciliation_token uuid null",
+        "row_version bigint not null default 1",
+        "sending_started_at timestamptz null",
+        "lease_expires_at timestamptz null",
+        "pending_expires_at timestamptz null",
+        "metadata_json jsonb not null default '{}'::jsonb",
+    ):
+        assert column in sql
+    for email_type in (
+        "welcome",
+        "account_security",
+        "ai_notes_ready",
+        "session_summary",
+        "transcript_export",
+    ):
+        assert f"'{email_type}'" in sql
+    for status in (
+        "pending",
+        "sending",
+        "sent",
+        "failed",
+        "canceled",
+        "needs_reconciliation",
+        "retry_blocked",
+    ):
+        assert f"'{status}'" in sql
+
+    assert ") nulls not distinct" in sql
+    assert "outbound_email_events_pending_lease_check" in sql
+    assert "status <> 'pending' or pending_expires_at is not null" in sql
+    assert "outbound_email_events_sending_lease_check" in sql
+    assert "claim_token is not null" in sql
+    assert "sending_started_at is not null" in sql
+    assert "lease_expires_at is not null" in sql
+    assert "alter table public.outbound_email_events enable row level security" in sql
+    assert "alter table public.outbound_email_events force row level security" in sql
+    assert "revoke all on table public.outbound_email_events from authenticated" in sql
+    assert "grant select, insert, update, delete on table public.outbound_email_events to service_role" in sql
+    assert "grant insert on table public.outbound_email_events to authenticated" not in sql
+    assert "grant update on table public.outbound_email_events to authenticated" not in sql
+    assert "grant delete on table public.outbound_email_events to authenticated" not in sql
+    assert "create policy" not in sql
+    assert "create or replace function public.claim_outbound_email_event" in sql
+    assert "on conflict (user_id, email_type, recipient_email, session_id, idempotency_key) do nothing" in sql
+    assert "e.session_id is not distinct from p_session_id" in sql
+    assert "create or replace function public.begin_outbound_email_event_send" in sql
+    assert "create or replace function public.reclaim_outbound_email_event_pending" in sql
+    assert "e.pending_expires_at is not null" in sql
+    assert "e.pending_expires_at < timezone('utc', now())" in sql
+    assert "create or replace function public.complete_outbound_email_event" in sql
+    assert "and e.claim_token = p_claim_token" in sql
+    assert "create or replace function public.reconcile_outbound_email_event" in sql
+    assert "reconciliation_token = extensions.gen_random_uuid()" in sql
+    assert "create or replace function public.resolve_outbound_email_event_reconciliation" in sql
+    assert "and e.reconciliation_token = p_reconciliation_token" in sql
+    assert "row_version = e.row_version + 1" in sql
+    assert "grant execute on function public.claim_outbound_email_event" in sql
+    assert "grant execute on function public.resolve_outbound_email_event_reconciliation" in sql
