@@ -6,7 +6,7 @@
 **Version:** 1.1  
 **Last updated:** 2026-09-04
 **Created:** 2026-07-10  
-**Current active phase:** C10.3 - Backend transactional email delivery remains after local completion of C10.3A, C10.3B, and C10.3C dry-run foundations; C10.1 and the C10.2A runbook are completed/merged, C10.2B live Supabase Auth delivery is blocked pending a verified Resend sender/domain, C10.2 delivery is not complete, and real email sending/payments/admin/pricing remain not started. The `outbound_email_events` migration remains unapplied remotely. See `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`.
+**Current active phase:** C10.3 - Backend transactional email delivery remains after completion of C10.3A, C10.3B, C10.3C, and C10.3D dry-run/event foundations; PR #32 is merged and `outbound_email_events` migration `20260904143000_add_outbound_email_events.sql` is applied to remote Supabase dev with post-apply tests passed. C10.4A/B welcome-template/trigger dry-run work and C10.5A feature-template/helper work are complete locally. C10.5B dry-run trigger wiring is complete locally for AI-notes generation and transcript-export success points; no existing session-summary preparation flow was found, so that trigger remains deferred. C10.2B live Supabase Auth delivery remains blocked pending a verified Resend sender/domain and real C10.4/C10.5 delivery is not enabled. C10.1 and the C10.2A runbook are completed/merged; C10.2 delivery is not complete, C10.5 is incomplete, and real email sending/payments/admin/pricing remain not started. See `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`.
 **Primary owner:** Project developer  
 **Implementation support:** Codex / engineering assistant  
 **UI/UX responsibility:** External UI/UX designer provides Figma designs only  
@@ -2097,20 +2097,20 @@ GET  /api/interview-sessions/{session_id}/ask-ai/messages
 ## Status
 
 ```text
-[~] C10.1 Email system planning and safety contract in progress; implementation and delivery are not started
+[x] C10.1 Email system planning and safety contract completed/merged; this was a documentation-only phase, and later implementation/delivery phases remain separately tracked
 ```
 
 ## Goal
 
-Create a reliable email layer for authentication, transactional messages, and consent-based promotional communication. The C10.1 scope is planning only; the safety contract is documented in `docs/C10_EMAIL_SYSTEM_PLAN.md`.
+Define a reliable email layer for authentication, transactional messages, and consent-based promotional communication. C10.1 was planning-only and is completed/merged; implementation and delivery belong to later phases. The safety contract is documented in `docs/C10_EMAIL_SYSTEM_PLAN.md`.
 
 ## C10.1 boundary
 
 - Supabase Auth remains responsible for secure verification/reset link generation.
 - Resend is the planned delivery provider only; it is not called or configured in C10.1.
 - Local automated tests remain dry-run by default.
-- No real API keys, email sends, or SMTP configuration are included; C10.3A adds the backend offline/dry-run foundation, C10.3B adds only backend event persistence/idempotency, and C10.3C connects that store to the dry-run service, with no live provider implementation.
-- C9 is merged/closed. C10.1 is completed/merged. C10.2A runbook/documentation is completed/merged through `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.2B live delivery is blocked pending a verified Resend sender/domain. C10.2 implementation/delivery is not complete. C10.3A, C10.3B, and C10.3C are completed locally; the `outbound_email_events` migration is not applied remotely, and full C10.3 remains incomplete.
+- No real API keys, email sends, or SMTP configuration are included; C10.3A adds the backend offline/dry-run foundation, C10.3B adds backend event persistence/idempotency, C10.3C connects that store to the dry-run service, C10.3D records the remote dev apply/post-apply validation, C10.4A/B provide a dry-run welcome template/trigger only, and C10.5A/B provide feature templates/helpers plus explicit dry-run triggers for available notes-generation and transcript-export success points, with no live provider implementation or session-summary trigger.
+- C9 is merged/closed. C10.1 is completed/merged. C10.2A runbook/documentation is completed/merged through `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.2B live delivery is blocked pending a verified Resend sender/domain. C10.2 implementation/delivery is not complete. C10.3A, C10.3B, C10.3C, and C10.3D are completed locally; PR #32 is merged, the `outbound_email_events` migration is applied to remote Supabase dev, post-apply tests passed, and full C10.3 remains incomplete until real delivery is intentionally enabled.
 - Payment, billing, subscription, and cancellation emails are out of scope for C10 and deferred to the future pricing/subscription/payment phases.
 - Supabase Auth template variables such as `ConfirmationURL` and `RecoveryURL` are allowed when required by Auth, but full Auth URLs must not be logged, tracked, telemetered, or stored in `outbound_email_events` metadata.
 - Redirect URLs are fixed per environment: local may allow only `http://localhost:5173/auth/callback` and `http://localhost:5173/auth/reset-password`; staging/production require HTTPS approved-domain URLs. User-supplied and unapproved destinations are rejected, and C10.2 must manually test allowed and rejected URLs.
@@ -2125,7 +2125,7 @@ Create a reliable email layer for authentication, transactional messages, and co
 - `auth_email_change_confirmation_future` - future email-change confirmation
 - `auth_magic_link_future` - future magic link if enabled
 
-Supabase Auth owns secure link/token generation, resend/cooldown/rate-limit behavior, and auth-email duplicate control. Resend SMTP only delivers these messages. `outbound_email_events` does not claim or deduplicate them. No custom verification/reset token logic is allowed. C10.2A operational setup and safe manual checks are defined in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; the runbook is complete, while C10.2B live verification/reset delivery remains blocked pending a verified sender/domain. C10.3A provides only a backend offline/dry-run provider boundary; it does not send transactional email.
+Supabase Auth owns secure link/token generation, resend/cooldown/rate-limit behavior, and auth-email duplicate control. Resend SMTP only delivers these messages. `outbound_email_events` does not claim or deduplicate them. No custom verification/reset token logic is allowed. C10.2A operational setup and safe manual checks are defined in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; the runbook is complete, while C10.2B live verification/reset delivery remains blocked pending a verified sender/domain. C10.3A provides only a backend offline/dry-run provider boundary, C10.3B/D provide applied event persistence/idempotency foundations, and C10.3C connects the store to the dry-run service; none sends real transactional email.
 
 ### Backend transactional
 
@@ -2188,17 +2188,25 @@ Outbound email event inserts and updates are backend-only; frontend/client direc
 
 ## C10.1 phase breakdown
 
-- C10.1 - Email plan and safety contract - completed/merged
+- C10.1 - Email plan and safety contract - completed/merged documentation-only phase; later delivery work is separate
 - C10.2A - Supabase Auth emails through Resend SMTP - runbook/setup documentation completed/merged
 - C10.2B - Supabase Auth email delivery - blocked pending verified Resend sender/domain; not complete
 - C10.2 - Supabase Auth email delivery - not complete until live verification/reset emails are tested
 - C10.3A - Backend email foundation with dry-run provider - completed locally; no real sending
-- C10.3B - Outbound email event persistence and idempotency foundation - completed locally; migration not applied remotely; no real sending
+- C10.3B - Outbound email event persistence and idempotency foundation - completed locally and applied to remote Supabase dev; no real sending
 - C10.3C - Dry-run event-store integration - completed locally; event claims/outcomes are wired to the dry-run provider; no real sending
+- C10.3D - Remote migration apply and post-apply validation - completed; PR #32 merged, remote dev migration applied, post-apply tests passed; no real sending
 - C10.3 - Backend transactional email delivery - not complete; live provider integration and transactional triggers remain
-- C10.4 - Welcome email - not started
-- C10.5 - Session summary, transcript, and AI notes emails - not started
-- C10.6 - Marketing preferences and promotional emails later - not started
+- C10.4A - Welcome email template + dry-run trigger - completed locally; safe plain-text `welcome` template and deterministic event-store idempotency path are implemented without signup/profile bootstrap wiring or real delivery
+- C10.4B - Wire welcome email trigger in dry-run mode - completed locally; authenticated profile bootstrap invokes the welcome service from verified JWT identity/email, failures are non-blocking, and no real delivery is enabled
+- C10.4 - Welcome email delivery - dry-run path complete locally; real delivery remains blocked pending a verified Resend sender/domain and intentional live-provider enablement
+- C10.5A - Feature email templates in dry-run mode - completed locally; safe plain-text templates/helpers for `ai_notes_ready`, `session_summary`, and `transcript_export` use session-scoped event idempotency without automatic triggers or real delivery
+- C10.5B - Feature email trigger wiring - completed locally for `ai_notes_ready` after successful notes generation and `transcript_export` after successful export preparation; no existing session-summary preparation flow was found, so that trigger remains deferred; no real delivery
+- C10.5 - Session summary, transcript, and AI notes emails - incomplete; C10.5A template/helper groundwork and available C10.5B dry-run triggers are complete locally, while session-summary wiring, remaining authenticated actions, and production delivery remain deferred
+- C10.6A - Signup consent and marketing preference foundation - completed locally; signup (including Google signup) requires Terms and Privacy acceptance, the marketing checkbox is unchecked by default with tri-state consent (untouched means no preference update), and consent is persisted through authenticated profile bootstrap using the verified JWT user identity. The local migration `20260904170000_add_signup_consent_preferences.sql` has not been applied remotely. Rollout order is: merge/review the implementation, apply `20260904170000_add_signup_consent_preferences.sql`, apply `20260905103000_add_marketing_unsubscribe_tokens.sql`, set `VITE_CONSENT_FEATURE_ENABLED=true`, then deploy/enable consent and unsubscribe flows. The frontend consent flow is disabled by default; absent columns must fail safely rather than discard consent or claim it was persisted. `/terms` and `/privacy` are safe placeholders pending real legal pages; no marketing sends are implemented.
+- C10.6B - Marketing unsubscribe token/opt-out foundation - completed locally; backend-only hash storage, expiry/use/revocation checks, service-role-only atomic opt-out, and a marketing guard are implemented and tested. The local migration `20260905103000_add_marketing_unsubscribe_tokens.sql` requires C10.6A first and has not been applied remotely; promotional sends and real delivery are not included.
+- C10.6C - Public unsubscribe link endpoint and promotional integration - completed locally for the public `POST /api/email/unsubscribe` endpoint, safe `/unsubscribe` confirmation page, token removal from the visible URL, generic account-safe responses, and tests. Apply migrations in order before enabling consent/unsubscribe against a target database: `20260904170000_add_signup_consent_preferences.sql`, then `20260905103000_add_marketing_unsubscribe_tokens.sql`. The migrations remain local and unapplied remotely; promotional campaign delivery is not started.
+- C10.6 - Marketing preferences and promotional emails - incomplete; C10.6A consent, C10.6B hash-only opt-out, and C10.6C public unsubscribe integration are complete locally, while promotional delivery and remote migration rollout remain deferred
 
 ## Templates
 

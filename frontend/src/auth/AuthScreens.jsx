@@ -20,6 +20,7 @@ import {
   fetchReviewCandidate,
   generateInterviewSessionNotes,
   rebuildCloudResumeIndex,
+  submitMarketingUnsubscribe,
   uploadCloudResume,
 } from './authApi'
 import { supabase } from './supabaseClient'
@@ -28,10 +29,18 @@ import './auth.css'
 
 const AUTH_CALLBACK_URL = 'http://localhost:5173/auth/callback'
 const PASSWORD_RESET_URL = 'http://localhost:5173/auth/reset-password'
+const UNSUBSCRIBE_CONFIRMATION = 'You have been unsubscribed from promotional and discount emails if this link was valid.'
+const UNSUBSCRIBE_TRANSACTIONAL_NOTICE = 'You may still receive important account, security, verification, password reset, and transactional emails.'
+const UNSUBSCRIBE_MISSING_MESSAGE = 'This unsubscribe link is missing or invalid. Your preferences were not changed.'
+const UNSUBSCRIBE_FAILURE_MESSAGE = 'Unable to update your promotional email preference right now. Please try again later.'
 const DEFAULT_LOGIN_NEXT_ROUTE = '/auth/dashboard'
 const SAFE_AUTH_NEXT_ROUTES = new Set(['/auth/dashboard', '/auth/status'])
 const LOGIN_REQUIRED_MESSAGE = 'Session expired or signed out. Please log in.'
 const DESKTOP_CALLBACK_URL = 'saiia://auth/callback'
+const PENDING_SIGNUP_CONSENT_STORAGE_KEY = 'intervuai.pendingSignupConsent'
+const SIGNUP_CONSENT_VERSION = 'c10.6a-v1'
+const CONSENT_FEATURE_ENABLED = String(import.meta.env?.VITE_CONSENT_FEATURE_ENABLED || '').toLowerCase() === 'true'
+const CONSENT_SETUP_UNAVAILABLE = 'Signup is temporarily unavailable while account consent setup is prepared. Please try again later.'
 const DESKTOP_STATE_PATTERN = /^[A-Za-z0-9._~-]{16,256}$/
 const MAX_RESUME_FILE_BYTES = 5 * 1024 * 1024
 const SUPPORTED_RESUME_TYPES = new Set([
@@ -61,6 +70,59 @@ const CLOUD_PROFILE_FIELDS = [
   ['certifications', 'Certifications', 'textarea'],
   ['achievements', 'Achievements', 'textarea'],
 ]
+
+
+function buildSignupConsent(email, marketingEmailOptIn) {
+  return {
+    email: String(email || '').trim().toLowerCase(),
+    consent: {
+      terms_accepted: true,
+      privacy_accepted: true,
+      marketing_email_opt_in: marketingEmailOptIn,
+      consent_source: 'signup',
+      consent_version: SIGNUP_CONSENT_VERSION,
+    },
+  }
+}
+
+
+function rememberSignupConsent(email, marketingEmailOptIn) {
+  try {
+    window.localStorage.setItem(
+      PENDING_SIGNUP_CONSENT_STORAGE_KEY,
+      JSON.stringify(buildSignupConsent(email, marketingEmailOptIn)),
+    )
+    return true
+  } catch {
+    return false
+  }
+}
+
+
+function pendingSignupConsentForSession(session) {
+  const sessionEmail = String(session?.user?.email || '').trim().toLowerCase()
+  if (!sessionEmail) {
+    return null
+  }
+  try {
+    const record = JSON.parse(window.localStorage.getItem(PENDING_SIGNUP_CONSENT_STORAGE_KEY) || 'null')
+    if (record?.email !== sessionEmail || !record?.consent) {
+      return null
+    }
+    return record.consent
+  } catch {
+    return null
+  }
+}
+
+
+function clearPendingSignupConsent() {
+  try {
+    window.localStorage.removeItem(PENDING_SIGNUP_CONSENT_STORAGE_KEY)
+  } catch {
+    // There is no sensitive session data in this best-effort local marker.
+  }
+}
 
 
 function getSafeAuthNextRoute(value, fallback = DEFAULT_LOGIN_NEXT_ROUTE) {
@@ -183,9 +245,19 @@ function useProfileBootstrap({ backendUrl, sessionErrorMessage, disabled = false
         return
       }
 
-      const result = await bootstrapProfile(data.session.access_token, { backendUrl })
+      const pendingConsent = CONSENT_FEATURE_ENABLED
+        ? pendingSignupConsentForSession(data.session)
+        : null
+      const bootstrapOptions = { backendUrl }
+      if (pendingConsent) {
+        bootstrapOptions.consent = pendingConsent
+      }
+      const result = await bootstrapProfile(data.session.access_token, bootstrapOptions)
       if (bootstrapOperationRef.current === operationId) {
         setBootstrapResult(result)
+        if (pendingConsent) {
+          clearPendingSignupConsent()
+        }
       }
     } catch (bootstrapError) {
       if (bootstrapOperationRef.current === operationId) {
@@ -521,6 +593,8 @@ function useAuthForm() {
 
 export function AuthSignupPage({ backendUrl, desktopState = '' }) {
   const form = useAuthForm()
+  const [termsAccepted, setTermsAccepted] = useState(false)
+  const [marketingEmailOptIn, setMarketingEmailOptIn] = useState(null)
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const safeDesktopState = getSafeDesktopState(desktopState || searchParams.get('desktop_state'))
@@ -534,15 +608,26 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
     if (!supabase) {
       return
     }
+    if (!termsAccepted) {
+      form.setError('You must agree to the Terms & Conditions and Privacy Policy before signing up.')
+      return
+    }
+    if (!CONSENT_FEATURE_ENABLED) {
+      form.setError(CONSENT_SETUP_UNAVAILABLE)
+      return
+    }
 
     form.setLoading(true)
     form.setError('')
     form.setMessage('')
+    const consent = buildSignupConsent(form.email, marketingEmailOptIn)
+    rememberSignupConsent(form.email, marketingEmailOptIn)
     const { data, error } = await supabase.auth.signUp({
       email: form.email,
       password: form.password,
       options: {
         emailRedirectTo: getAuthRedirectUrl(safeDesktopState),
+        data: consent.consent,
       },
     })
 
@@ -551,12 +636,18 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
       form.setError(error.message)
       return
     }
-    if (safeDesktopState && data.session) {
+    if (data.session) {
       try {
-        await openDesktopHandoff(data.session, safeDesktopState, backendUrl)
-        form.setMessage('Login successful. You can return to intervuAI.')
-      } catch {
-        form.setError('Desktop login could not be completed. Try logging in again.')
+        await bootstrapProfile(data.session.access_token, { backendUrl, consent: consent.consent })
+        clearPendingSignupConsent()
+        if (safeDesktopState) {
+          await openDesktopHandoff(data.session, safeDesktopState, backendUrl)
+          form.setMessage('Login successful. You can return to intervuAI.')
+        } else {
+          form.setMessage('Account created. Your consent preferences were saved.')
+        }
+      } catch (signupSetupError) {
+        form.setError(signupSetupError?.message || 'Account setup could not be completed. Please sign in again.')
       } finally {
         form.setLoading(false)
       }
@@ -570,6 +661,18 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
 
   async function handleGoogleLogin() {
     form.setError('')
+    if (!termsAccepted) {
+      form.setError('You must agree to the Terms & Conditions and Privacy Policy before signing up.')
+      return
+    }
+    if (!CONSENT_FEATURE_ENABLED) {
+      form.setError(CONSENT_SETUP_UNAVAILABLE)
+      return
+    }
+    if (!rememberSignupConsent(form.email, marketingEmailOptIn)) {
+      form.setError('Unable to save signup preferences. Please try again.')
+      return
+    }
     try {
       const { error } = await startGoogleLogin(safeDesktopState)
       if (error) {
@@ -611,6 +714,25 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
             minLength={6}
             required
           />
+        </label>
+        <label className="auth-consent-row">
+          <input
+            type="checkbox"
+            checked={termsAccepted}
+            onChange={(event) => setTermsAccepted(event.target.checked)}
+            required
+          />
+          <span>
+            I agree to the <a href="/terms">Terms &amp; Conditions</a> and <a href="/privacy">Privacy Policy</a>.
+          </span>
+        </label>
+        <label className="auth-consent-row">
+          <input
+            type="checkbox"
+            checked={marketingEmailOptIn === true}
+            onChange={(event) => setMarketingEmailOptIn(event.target.checked)}
+          />
+          <span>I want to receive promotional, discount, and product emails.</span>
         </label>
         <button type="submit" disabled={!supabase || form.loading}>
           {form.loading ? 'Creating...' : 'Sign Up'}
@@ -954,6 +1076,61 @@ export function AuthCallbackPage({ backendUrl }) {
     <AuthShell title="Auth Status">
       <AuthMessage message={error} tone="error" />
       <AuthMessage message={status} tone={error ? 'error' : 'success'} />
+      <AuthLinks />
+    </AuthShell>
+  )
+}
+
+
+export function AuthUnsubscribePage({ backendUrl }) {
+  const [searchParams] = useSearchParams()
+  const token = searchParams.get('token')?.trim() || ''
+  const [state, setState] = useState(token ? 'loading' : 'missing')
+  const [message, setMessage] = useState(token ? '' : UNSUBSCRIBE_MISSING_MESSAGE)
+
+  useEffect(() => {
+    const cleanUrl = new URL(window.location.href)
+    if (cleanUrl.searchParams.has('token')) {
+      cleanUrl.searchParams.delete('token')
+      window.history.replaceState(
+        window.history.state,
+        document.title,
+        `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`,
+      )
+    }
+
+    let ignore = false
+    if (!token) {
+      return () => {
+        ignore = true
+      }
+    }
+
+    async function submit() {
+      try {
+        await submitMarketingUnsubscribe(token, { backendUrl })
+        if (!ignore) {
+          setState('success')
+          setMessage(UNSUBSCRIBE_CONFIRMATION)
+        }
+      } catch {
+        if (!ignore) {
+          setState('error')
+          setMessage(UNSUBSCRIBE_FAILURE_MESSAGE)
+        }
+      }
+    }
+
+    submit()
+    return () => {
+      ignore = true
+    }
+  }, [backendUrl, token])
+
+  return (
+    <AuthShell title="Email preferences">
+      <AuthMessage message={message} tone={state === 'error' ? 'error' : 'success'} />
+      <p className="auth-unsubscribe-copy">{UNSUBSCRIBE_TRANSACTIONAL_NOTICE}</p>
       <AuthLinks />
     </AuthShell>
   )

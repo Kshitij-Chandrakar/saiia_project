@@ -158,6 +158,35 @@ def test_generate_notes_route_uses_verified_user_and_force_flag(client: TestClie
     ]
 
 
+def test_generate_notes_triggers_dry_run_email_from_verified_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+    fake_service: FakeInterviewNotesService,
+) -> None:
+    trigger_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        interview_sessions_api,
+        "_trigger_feature_email",
+        lambda **kwargs: trigger_calls.append(kwargs),
+    )
+
+    response = client.post(
+        f"/api/interview-sessions/{SESSION_ID}/notes/generate",
+        headers={"Authorization": f"Bearer {_token()}"},
+        json={},
+    )
+
+    assert response.status_code == 200
+    assert len(trigger_calls) == 1
+    assert trigger_calls[0]["session_id"] == SESSION_ID
+    assert trigger_calls[0]["current_user"].user_id == TEST_USER_ID  # type: ignore[union-attr]
+    assert trigger_calls[0]["current_user"].email == "user@example.com"  # type: ignore[union-attr]
+    assert trigger_calls[0]["sender"] is interview_sessions_api.send_ai_notes_ready_email_dry_run
+    assert fake_service.generate_calls == [
+        {"user_id": TEST_USER_ID, "session_id": SESSION_ID, "force_regenerate": False}
+    ]
+
+
 def test_cross_user_notes_access_is_blocked(client: TestClient) -> None:
     class RaisingNotesService(FakeInterviewNotesService):
         def get_notes(self, *, user_id: str, session_id: str):

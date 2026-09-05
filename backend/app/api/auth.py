@@ -1,20 +1,27 @@
 import hashlib
+import logging
 import secrets
 import time
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from fastapi import APIRouter, HTTPException, Request, status
 
-from app.auth.supabase_auth import CurrentUserDep
+from app.auth.supabase_auth import CurrentUser, CurrentUserDep
 from app.cloud.profile_bootstrap import (
+    ProfileConsent,
     ProfileBootstrapResult,
     SupabaseProfileBootstrapError,
     bootstrap_authenticated_profile,
 )
 from app.cloud.supabase_config import SupabaseConfigurationError
+from app.email.event_store import build_outbound_email_event_service
+from app.email.provider import mask_recipient_email
+from app.email.service import build_email_service, send_welcome_email_dry_run
 
 
 router = APIRouter()
+logger = logging.getLogger("auth_api")
 
 
 DESKTOP_HANDOFF_TTL_SECONDS = 5 * 60
@@ -48,6 +55,44 @@ class ProfileBootstrapResponse(BaseModel):
     settings_exists: bool
     settings_created: bool
     next_step: str
+
+
+class ProfileBootstrapConsentRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    terms_accepted: bool | None = None
+    privacy_accepted: bool | None = None
+    marketing_email_opt_in: bool | None = None
+    consent_source: Literal["signup", "profile_bootstrap"] = "signup"
+    consent_version: str | None = Field(default=None, max_length=64)
+
+    def to_consent(self) -> ProfileConsent | None:
+        if all(
+            value is None
+            for value in (
+                self.terms_accepted,
+                self.privacy_accepted,
+                self.marketing_email_opt_in,
+                self.consent_version,
+            )
+        ):
+            return None
+        if self.terms_accepted is not True or self.privacy_accepted is not True:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Terms and Privacy acceptance are required.",
+            )
+        return ProfileConsent(
+            terms_accepted=True,
+            privacy_accepted=True,
+            marketing_email_opt_in=(
+                self.marketing_email_opt_in
+                if "marketing_email_opt_in" in self.model_fields_set
+                else None
+            ),
+            consent_source=self.consent_source,
+            consent_version=self.consent_version,
+        )
 
 
 class DesktopHandoffCreateRequest(BaseModel):
@@ -138,6 +183,35 @@ def _profile_bootstrap_response(result: ProfileBootstrapResult) -> ProfileBootst
     )
 
 
+def _trigger_welcome_email(current_user: CurrentUser) -> None:
+    """Best-effort dry-run welcome event after account setup succeeds."""
+
+    if not current_user.email:
+        logger.info("welcome_email_dry_run status=skipped reason=missing_email")
+        return
+    try:
+        email_service = build_email_service(
+            event_store=build_outbound_email_event_service(),
+        )
+        result = send_welcome_email_dry_run(
+            email_service=email_service,
+            user_id=current_user.user_id,
+            recipient_email=current_user.email,
+        )
+        logger.info(
+            "welcome_email_dry_run status=%s event_status=%s replayed=%s recipient=%s",
+            result.status,
+            result.event_status or "unknown",
+            result.replayed,
+            mask_recipient_email(current_user.email),
+        )
+    except Exception as error:
+        logger.warning(
+            "welcome_email_dry_run status=failed error_type=%s",
+            type(error).__name__,
+        )
+
+
 @router.get("/me", response_model=CurrentUserResponse)
 async def get_authenticated_user(current_user: CurrentUserDep) -> CurrentUserResponse:
     return CurrentUserResponse(
@@ -148,9 +222,16 @@ async def get_authenticated_user(current_user: CurrentUserDep) -> CurrentUserRes
 
 
 @router.post("/profile/bootstrap", response_model=ProfileBootstrapResponse)
-def bootstrap_profile(current_user: CurrentUserDep) -> ProfileBootstrapResponse:
+def bootstrap_profile(
+    current_user: CurrentUserDep,
+    payload: ProfileBootstrapConsentRequest | None = None,
+) -> ProfileBootstrapResponse:
+    consent = payload.to_consent() if payload is not None else None
     try:
-        result = bootstrap_authenticated_profile(current_user.user_id)
+        if consent is None:
+            result = bootstrap_authenticated_profile(current_user.user_id)
+        else:
+            result = bootstrap_authenticated_profile(current_user.user_id, consent=consent)
     except SupabaseConfigurationError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -161,6 +242,7 @@ def bootstrap_profile(current_user: CurrentUserDep) -> ProfileBootstrapResponse:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Supabase profile bootstrap failed.",
         ) from exc
+    _trigger_welcome_email(current_user)
     return _profile_bootstrap_response(result)
 
 

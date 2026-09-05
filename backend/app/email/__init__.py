@@ -10,7 +10,21 @@ from app.email.provider import (
     normalize_safe_metadata,
     validate_recipient_email,
 )
-from app.email.service import EmailService, build_email_service
+from app.email.service import (
+    EmailService,
+    build_email_service,
+    send_ai_notes_ready_email_dry_run,
+    send_session_summary_email_dry_run,
+    send_transcript_export_email_dry_run,
+    send_welcome_email_dry_run,
+)
+from app.email.templates import (
+    EmailTemplate,
+    render_ai_notes_ready_email,
+    render_session_summary_email,
+    render_transcript_export_email,
+    render_welcome_email,
+)
 from app.email.event_store import (
     EVENT_STATUSES,
     OutboundEmailEventClaim,
@@ -26,6 +40,18 @@ from app.email.event_store import (
     SupabaseOutboundEmailEventClient,
     build_outbound_email_event_service,
 )
+from app.email.unsubscribe import (
+    CreatedMarketingUnsubscribeToken,
+    MarketingUnsubscribeError,
+    MarketingUnsubscribeResult,
+    MarketingUnsubscribeService,
+    MarketingUnsubscribeStorageError,
+    MarketingUnsubscribeTokenClient,
+    MarketingUnsubscribeValidationError,
+    SupabaseMarketingUnsubscribeTokenClient,
+    build_marketing_unsubscribe_service,
+    hash_unsubscribe_token,
+)
 
 __all__ = [
     "BACKEND_TRANSACTIONAL_EMAIL_TYPES",
@@ -36,12 +62,21 @@ __all__ = [
     "EmailService",
     "EmailSettings",
     "EmailValidationError",
+    "EmailTemplate",
     "MARKETING_EMAIL_TYPES",
     "SUPABASE_AUTH_EMAIL_TYPES",
     "build_email_service",
+    "send_ai_notes_ready_email_dry_run",
+    "send_session_summary_email_dry_run",
+    "send_transcript_export_email_dry_run",
+    "send_welcome_email_dry_run",
     "load_email_settings",
     "normalize_safe_metadata",
     "validate_recipient_email",
+    "render_welcome_email",
+    "render_ai_notes_ready_email",
+    "render_session_summary_email",
+    "render_transcript_export_email",
     "EVENT_STATUSES",
     "OutboundEmailEventClaim",
     "OutboundEmailEventClient",
@@ -55,4 +90,14 @@ __all__ = [
     "RECONCILIATION_OUTCOMES",
     "SupabaseOutboundEmailEventClient",
     "build_outbound_email_event_service",
+    "CreatedMarketingUnsubscribeToken",
+    "MarketingUnsubscribeError",
+    "MarketingUnsubscribeResult",
+    "MarketingUnsubscribeService",
+    "MarketingUnsubscribeStorageError",
+    "MarketingUnsubscribeTokenClient",
+    "MarketingUnsubscribeValidationError",
+    "SupabaseMarketingUnsubscribeTokenClient",
+    "build_marketing_unsubscribe_service",
+    "hash_unsubscribe_token",
 ]

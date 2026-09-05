@@ -17,6 +17,17 @@ from app.email.provider import (
     mask_recipient_email,
     utc_timestamp,
 )
+from app.email.templates import (
+    AI_NOTES_READY_TEMPLATE_VERSION,
+    SESSION_SUMMARY_TEMPLATE_VERSION,
+    TRANSCRIPT_EXPORT_TEMPLATE_VERSION,
+    WELCOME_TEMPLATE_VERSION,
+    EmailTemplate,
+    render_ai_notes_ready_email,
+    render_session_summary_email,
+    render_transcript_export_email,
+    render_welcome_email,
+)
 
 
 _RETRYABLE_PROVIDER_ERROR_CODES: Final = frozenset(
@@ -62,6 +73,7 @@ class EmailService:
         recipient_email: str,
         subject: str,
         email_type: str,
+        text_body: str = "",
         safe_metadata: Mapping[str, object] | None = None,
         user_id: str | None = None,
         session_id: str | None = None,
@@ -72,6 +84,7 @@ class EmailService:
             recipient_email=recipient_email,
             subject=subject,
             email_type=email_type,
+            text_body=text_body,
             safe_metadata=safe_metadata or {},
         )
         has_event_context = any(
@@ -275,3 +288,150 @@ def build_email_service(
     if settings.live_delivery_requested:
         raise EmailConfigurationError("Live email delivery is not implemented in C10.3C.")
     return EmailService(DryRunEmailProvider(), event_store=event_store)
+
+
+def send_welcome_email_dry_run(
+    *,
+    email_service: EmailService,
+    user_id: str,
+    recipient_email: str,
+    display_name: str | None = None,
+    support_email: str | None = None,
+    dashboard_path: str = "/auth/dashboard",
+) -> EmailSendResult:
+    """Render and persist one deterministic, dry-run welcome event per user."""
+
+    if not user_id.strip():
+        raise OutboundEmailEventError("Welcome email user context is incomplete.")
+    template = render_welcome_email(
+        display_name=display_name,
+        support_email=support_email,
+        dashboard_path=dashboard_path,
+    )
+    return email_service.send_transactional_email(
+        recipient_email=recipient_email,
+        subject=template.subject,
+        email_type=template.email_type,
+        text_body=template.text_body,
+        safe_metadata={
+            "template_version": WELCOME_TEMPLATE_VERSION,
+            "dry_run": True,
+        },
+        user_id=user_id,
+        idempotency_key=f"welcome:{user_id}",
+    )
+
+
+def _send_feature_email_dry_run(
+    *,
+    email_service: EmailService,
+    user_id: str,
+    session_id: str,
+    recipient_email: str,
+    template: EmailTemplate,
+    template_version: str,
+) -> EmailSendResult:
+    if (
+        not isinstance(user_id, str)
+        or not user_id.strip()
+        or not isinstance(session_id, str)
+        or not session_id.strip()
+    ):
+        raise OutboundEmailEventError("Feature email context is incomplete.")
+    return email_service.send_transactional_email(
+        recipient_email=recipient_email,
+        subject=template.subject,
+        email_type=template.email_type,
+        text_body=template.text_body,
+        safe_metadata={
+            "template_version": template_version,
+            "dry_run": True,
+        },
+        user_id=user_id,
+        session_id=session_id,
+        idempotency_key=f"{template.email_type}:{user_id}:{session_id}",
+    )
+
+
+def send_ai_notes_ready_email_dry_run(
+    *,
+    email_service: EmailService,
+    user_id: str,
+    session_id: str,
+    recipient_email: str,
+    display_name: str | None = None,
+    session_title: str | None = None,
+    session_date: str | None = None,
+    dashboard_path: str = "/auth/dashboard",
+    support_email: str | None = None,
+) -> EmailSendResult:
+    return _send_feature_email_dry_run(
+        email_service=email_service,
+        user_id=user_id,
+        session_id=session_id,
+        recipient_email=recipient_email,
+        template=render_ai_notes_ready_email(
+            display_name=display_name,
+            session_title=session_title,
+            session_date=session_date,
+            dashboard_path=dashboard_path,
+            support_email=support_email,
+        ),
+        template_version=AI_NOTES_READY_TEMPLATE_VERSION,
+    )
+
+
+def send_session_summary_email_dry_run(
+    *,
+    email_service: EmailService,
+    user_id: str,
+    session_id: str,
+    recipient_email: str,
+    display_name: str | None = None,
+    session_title: str | None = None,
+    session_date: str | None = None,
+    dashboard_path: str = "/auth/dashboard",
+    support_email: str | None = None,
+) -> EmailSendResult:
+    return _send_feature_email_dry_run(
+        email_service=email_service,
+        user_id=user_id,
+        session_id=session_id,
+        recipient_email=recipient_email,
+        template=render_session_summary_email(
+            display_name=display_name,
+            session_title=session_title,
+            session_date=session_date,
+            dashboard_path=dashboard_path,
+            support_email=support_email,
+        ),
+        template_version=SESSION_SUMMARY_TEMPLATE_VERSION,
+    )
+
+
+def send_transcript_export_email_dry_run(
+    *,
+    email_service: EmailService,
+    user_id: str,
+    session_id: str,
+    recipient_email: str,
+    display_name: str | None = None,
+    session_title: str | None = None,
+    session_date: str | None = None,
+    dashboard_path: str = "/auth/dashboard",
+    support_email: str | None = None,
+) -> EmailSendResult:
+    return _send_feature_email_dry_run(
+        email_service=email_service,
+        user_id=user_id,
+        session_id=session_id,
+        recipient_email=recipient_email,
+        template=render_transcript_export_email(
+            display_name=display_name,
+            session_title=session_title,
+            session_date=session_date,
+            dashboard_path=dashboard_path,
+            support_email=support_email,
+        ),
+        template_version=TRANSCRIPT_EXPORT_TEMPLATE_VERSION,
+    )

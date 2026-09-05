@@ -12,13 +12,14 @@ from app.api.auth import (
     _desktop_handoff_create_timestamps,
     _desktop_handoffs,
     _hash_handoff_code,
+    _trigger_welcome_email,
     router as auth_router,
 )
 from app.auth.supabase_auth import (
     AUTH_ERROR_DETAIL,
     get_auth_verification_config,
 )
-from app.cloud.profile_bootstrap import ProfileBootstrapResult
+from app.cloud.profile_bootstrap import ProfileBootstrapResult, ProfileConsent
 from app.cloud.supabase_config import (
     CLOUD_MODE_ENV,
     SUPABASE_REQUIRED_ENV_VARS,
@@ -60,6 +61,7 @@ def client(monkeypatch) -> TestClient:
     monkeypatch.setenv("SUPABASE_EXPORT_BUCKET", "exports")
     get_supabase_settings.cache_clear()
     get_auth_verification_config.cache_clear()
+    monkeypatch.setattr("app.api.auth._trigger_welcome_email", lambda current_user: None)
 
     app = FastAPI()
     app.include_router(auth_router, prefix="/api/auth")
@@ -180,6 +182,155 @@ def test_profile_bootstrap_uses_verified_user_id(monkeypatch, client: TestClient
         "settings_created": True,
         "next_step": "profile_setup",
     }
+
+
+def test_profile_bootstrap_triggers_welcome_from_verified_identity_not_body(
+    monkeypatch,
+    client: TestClient,
+):
+    trigger_calls: list[tuple[str, str | None]] = []
+
+    def fake_trigger(current_user) -> None:
+        trigger_calls.append((current_user.user_id, current_user.email))
+
+    def fake_bootstrap(user_id: str) -> ProfileBootstrapResult:
+        return ProfileBootstrapResult(
+            user_id=user_id,
+            profile_exists=True,
+            profile_created=True,
+            settings_exists=True,
+            settings_created=True,
+            next_step="profile_setup",
+        )
+
+    monkeypatch.setattr("app.api.auth._trigger_welcome_email", fake_trigger)
+    monkeypatch.setattr("app.api.auth.bootstrap_authenticated_profile", fake_bootstrap)
+
+    response = client.post(
+        "/api/auth/profile/bootstrap",
+        headers={"Authorization": f"Bearer {_token()}"},
+        json={
+            "user_id": "11111111-1111-4111-8111-111111111111",
+            "email": "attacker@example.com",
+        },
+    )
+
+    assert response.status_code == 200
+    assert trigger_calls == [(TEST_USER_ID, "user@example.com")]
+
+
+def test_profile_bootstrap_persists_consent_for_jwt_user_not_body_identity(monkeypatch, client: TestClient):
+    calls: list[tuple[str, ProfileConsent | None]] = []
+
+    def fake_bootstrap(user_id: str, consent: ProfileConsent | None = None) -> ProfileBootstrapResult:
+        calls.append((user_id, consent))
+        return ProfileBootstrapResult(
+            user_id=user_id,
+            profile_exists=True,
+            profile_created=False,
+            settings_exists=True,
+            settings_created=False,
+            next_step="profile_setup",
+        )
+
+    monkeypatch.setattr("app.api.auth.bootstrap_authenticated_profile", fake_bootstrap)
+
+    response = client.post(
+        "/api/auth/profile/bootstrap",
+        headers={"Authorization": f"Bearer {_token()}"},
+        json={
+            "user_id": "11111111-1111-4111-8111-111111111111",
+            "email": "attacker@example.com",
+            "terms_accepted": True,
+            "privacy_accepted": True,
+            "marketing_email_opt_in": False,
+            "consent_source": "signup",
+            "consent_version": "c10.6a-v1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert calls == [
+        (
+            TEST_USER_ID,
+            ProfileConsent(True, True, False, "signup", "c10.6a-v1"),
+        )
+    ]
+
+
+def test_profile_bootstrap_omitted_marketing_preference_is_preserved(monkeypatch, client: TestClient):
+    calls: list[ProfileConsent | None] = []
+
+    def fake_bootstrap(user_id: str, consent: ProfileConsent | None = None) -> ProfileBootstrapResult:
+        calls.append(consent)
+        return ProfileBootstrapResult(
+            user_id=user_id,
+            profile_exists=True,
+            profile_created=False,
+            settings_exists=True,
+            settings_created=False,
+            next_step="profile_setup",
+        )
+
+    monkeypatch.setattr("app.api.auth.bootstrap_authenticated_profile", fake_bootstrap)
+
+    response = client.post(
+        "/api/auth/profile/bootstrap",
+        headers={"Authorization": f"Bearer {_token()}"},
+        json={"terms_accepted": True, "privacy_accepted": True},
+    )
+
+    assert response.status_code == 200
+    assert calls == [ProfileConsent(True, True, None, "signup", None)]
+
+
+def test_profile_bootstrap_rejects_incomplete_consent(monkeypatch, client: TestClient):
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "app.api.auth.bootstrap_authenticated_profile",
+        lambda user_id: calls.append(user_id),
+    )
+
+    response = client.post(
+        "/api/auth/profile/bootstrap",
+        headers={"Authorization": f"Bearer {_token()}"},
+        json={"terms_accepted": True, "privacy_accepted": False},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Terms and Privacy acceptance are required."}
+    assert calls == []
+
+
+def test_profile_bootstrap_welcome_failure_does_not_break_account_setup(monkeypatch, client: TestClient):
+    def fake_bootstrap(user_id: str) -> ProfileBootstrapResult:
+        return ProfileBootstrapResult(
+            user_id=user_id,
+            profile_exists=True,
+            profile_created=False,
+            settings_exists=True,
+            settings_created=False,
+            next_step="profile_setup",
+        )
+
+    monkeypatch.setattr("app.api.auth.bootstrap_authenticated_profile", fake_bootstrap)
+
+    def failing_event_store() -> None:
+        raise RuntimeError("provider failure")
+
+    monkeypatch.setattr(
+        "app.api.auth._trigger_welcome_email",
+        _trigger_welcome_email,
+    )
+    monkeypatch.setattr("app.api.auth.build_outbound_email_event_service", failing_event_store)
+
+    response = client.post(
+        "/api/auth/profile/bootstrap",
+        headers={"Authorization": f"Bearer {_token()}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["user_id"] == TEST_USER_ID
 
 
 def test_profile_bootstrap_response_excludes_token_service_role_and_claims(monkeypatch, client: TestClient):

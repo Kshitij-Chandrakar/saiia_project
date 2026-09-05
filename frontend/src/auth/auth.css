@@ -68,6 +68,36 @@
   outline: 3px solid rgba(47, 142, 229, 0.22);
 }
 
+.auth-form label.auth-consent-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.auth-form label.auth-consent-row input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+  padding: 0;
+}
+
+.auth-form label.auth-consent-row input[type='checkbox']:focus-visible {
+  outline: 3px solid rgba(47, 142, 229, 0.28);
+  outline-offset: 2px;
+}
+
+.auth-form label.auth-consent-row span {
+  min-width: 0;
+}
+
 .auth-form input:-webkit-autofill,
 .auth-form input:-webkit-autofill:hover,
 .auth-form input:-webkit-autofill:focus {
@@ -159,6 +189,12 @@
 .auth-message.error {
   background: #fef2f2;
   color: #991b1b;
+}
+
+.auth-unsubscribe-copy {
+  margin: 16px 0 0;
+  color: #334155;
+  line-height: 1.5;
 }
 
 .auth-links {

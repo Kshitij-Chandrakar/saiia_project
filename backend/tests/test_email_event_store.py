@@ -14,7 +14,13 @@ from app.email.event_store import (
     SupabaseOutboundEmailEventClient,
 )
 from app.email.provider import EmailSendRequest, EmailSendResult
-from app.email.service import EmailService
+from app.email.service import (
+    EmailService,
+    send_ai_notes_ready_email_dry_run,
+    send_session_summary_email_dry_run,
+    send_transcript_export_email_dry_run,
+    send_welcome_email_dry_run,
+)
 
 
 def _future_iso(seconds: int = 300) -> str:
@@ -178,9 +184,11 @@ class CountingProvider:
     def __init__(self, *, error: Exception | None = None) -> None:
         self.calls = 0
         self.error = error
+        self.requests: list[EmailSendRequest] = []
 
     def send_email(self, request: EmailSendRequest) -> EmailSendResult:
         self.calls += 1
+        self.requests.append(request)
         if self.error is not None:
             raise self.error
         return EmailSendResult(
@@ -457,6 +465,86 @@ def test_email_service_claims_event_before_dry_run_send_and_completes_it() -> No
     assert result.event_id == event.id
     assert result.event_status == "sent"
     assert result.replayed is False
+
+
+def test_welcome_dry_run_uses_deterministic_event_and_replays_without_provider_call() -> None:
+    client = FakeEventClient()
+    event_service = OutboundEmailEventService(client=client)
+    provider = CountingProvider()
+    service = EmailService(provider, event_store=event_service)
+
+    first = send_welcome_email_dry_run(
+        email_service=service,
+        user_id="user-1",
+        recipient_email="mentor@example.com",
+        display_name="Mentor",
+    )
+    replay = send_welcome_email_dry_run(
+        email_service=service,
+        user_id="user-1",
+        recipient_email="mentor@example.com",
+        display_name="Different name is not persisted",
+    )
+
+    assert provider.calls == 1
+    assert provider.requests[0].email_type == "welcome"
+    assert "Welcome to intervuAI, Mentor." in provider.requests[0].text_body
+    assert first.event_id == replay.event_id
+    assert replay.replayed is True
+    event = next(iter(client.records.values()))
+    assert event.email_type == "welcome"
+    assert event.idempotency_key == "welcome:user-1"
+    assert event.metadata_json == {"template_version": "welcome_v1", "dry_run": True}
+    assert "Mentor" not in str(event.metadata_json)
+
+
+@pytest.mark.parametrize(
+    ("helper", "email_type", "idempotency_key"),
+    [
+        (send_ai_notes_ready_email_dry_run, "ai_notes_ready", "ai_notes_ready:user-1:session-1"),
+        (send_session_summary_email_dry_run, "session_summary", "session_summary:user-1:session-1"),
+        (send_transcript_export_email_dry_run, "transcript_export", "transcript_export:user-1:session-1"),
+    ],
+)
+def test_feature_email_dry_run_helpers_use_event_idempotency_and_no_raw_content(
+    helper,
+    email_type: str,
+    idempotency_key: str,
+) -> None:
+    client = FakeEventClient()
+    event_service = OutboundEmailEventService(client=client)
+    provider = CountingProvider()
+    service = EmailService(provider, event_store=event_service)
+
+    first = helper(
+        email_service=service,
+        user_id="user-1",
+        session_id="session-1",
+        recipient_email="mentor@example.com",
+        display_name="Mentor",
+        session_title="Backend practice",
+        session_date="2026-09-04",
+    )
+    replay = helper(
+        email_service=service,
+        user_id="user-1",
+        session_id="session-1",
+        recipient_email="mentor@example.com",
+        display_name="Different name is not persisted",
+        session_title="Different title is not persisted",
+    )
+
+    assert provider.calls == 1
+    assert provider.requests[0].email_type == email_type
+    assert "Backend practice" in provider.requests[0].text_body
+    assert "Question text from the transcript" not in provider.requests[0].text_body
+    assert first.event_id == replay.event_id
+    assert replay.replayed is True
+    event = next(iter(client.records.values()))
+    assert event.email_type == email_type
+    assert event.idempotency_key == idempotency_key
+    assert event.metadata_json == {"template_version": f"{email_type}_v1", "dry_run": True}
+    assert "Backend practice" not in str(event.metadata_json)
 
 
 def test_email_service_replays_sent_event_without_second_provider_call() -> None:

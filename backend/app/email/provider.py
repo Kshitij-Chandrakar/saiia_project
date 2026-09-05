@@ -36,6 +36,12 @@ MAX_METADATA_ITEMS = 16
 MAX_METADATA_VALUE_CHARS = 200
 MAX_EMAIL_CHARS = 254
 MAX_SUBJECT_CHARS = 200
+MAX_EMAIL_BODY_CHARS = 8000
+_SENSITIVE_EMAIL_BODY_VALUE = re.compile(
+    r"(?:bearer\s+|https?://|-----BEGIN|api[_ -]?key|access[_ -]?token|"
+    r"refresh[_ -]?token|authorization)",
+    re.IGNORECASE,
+)
 
 
 class EmailValidationError(ValueError):
@@ -89,19 +95,33 @@ class EmailSendRequest:
     subject: str
     email_type: str
     safe_metadata: Mapping[str, object] = field(default_factory=dict)
+    text_body: str = ""
 
     def __post_init__(self) -> None:
         recipient = self.recipient_email.strip()
         subject = self.subject.strip()
+        if not isinstance(self.text_body, str):
+            raise EmailValidationError("Email body is invalid.")
+        text_body = self.text_body.strip()
         recipient = validate_recipient_email(recipient)
         if not subject or len(subject) > MAX_SUBJECT_CHARS or any(ord(character) < 32 for character in subject):
             raise EmailValidationError("Email subject is invalid.")
+        if (
+            len(text_body) > MAX_EMAIL_BODY_CHARS
+            or _SENSITIVE_EMAIL_BODY_VALUE.search(text_body)
+            or any(
+                ord(character) < 32 and character not in "\n\r\t"
+                for character in text_body
+            )
+        ):
+            raise EmailValidationError("Email body is unsafe.")
         if self.email_type not in BACKEND_TRANSACTIONAL_EMAIL_TYPES:
             raise EmailValidationError("Email type is not a backend transactional email.")
         if not isinstance(self.safe_metadata, Mapping):
             raise EmailValidationError("Email metadata is invalid.")
         object.__setattr__(self, "recipient_email", recipient)
         object.__setattr__(self, "subject", subject)
+        object.__setattr__(self, "text_body", text_body)
         object.__setattr__(self, "safe_metadata", normalize_safe_metadata(self.safe_metadata))
 
 

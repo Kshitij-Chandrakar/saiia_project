@@ -20,6 +20,7 @@ import {
   generateInterviewSessionNotes,
   rebuildCloudResumeIndex,
   normalizeReadableAskAIText,
+  submitMarketingUnsubscribe,
   uploadCloudResume,
 } from './authApi.js'
 import { getSupabaseAuthConfig, hasSupabaseAuthConfig } from './supabaseClient.js'
@@ -124,6 +125,87 @@ test('bootstrapProfile posts bearer token and returns safe status', async () => 
   })
   assert.equal('access_token' in result, false)
   assert.equal('private_server_value' in result, false)
+})
+
+
+test('submitMarketingUnsubscribe posts only the raw token and projects a safe result', async () => {
+  const calls = []
+  const result = await submitMarketingUnsubscribe('opaque-test-token', {
+    backendUrl: 'http://localhost:8000',
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init })
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          message: 'safe confirmation',
+          user_id: 'must-not-leak',
+        }),
+      }
+    },
+  })
+
+  assert.equal(calls[0].url, 'http://localhost:8000/api/email/unsubscribe')
+  assert.equal(calls[0].init.method, 'POST')
+  assert.deepEqual(JSON.parse(calls[0].init.body), { token: 'opaque-test-token' })
+  assert.deepEqual(result, { success: true })
+  assert.equal('Authorization' in calls[0].init.headers, false)
+})
+
+
+test('submitMarketingUnsubscribe does not leak backend error detail', async () => {
+  await assert.rejects(
+    () => submitMarketingUnsubscribe('opaque-test-token', {
+      fetchImpl: async () => ({
+        ok: false,
+        json: async () => ({ detail: 'token and service secret must not leak' }),
+      }),
+    }),
+    /Unable to update your promotional email preference right now\./,
+  )
+})
+
+
+test('bootstrapProfile sends consent without sending identity or secrets in the body', async () => {
+  const rawToken = 'unit-test-access-token'
+  const calls = []
+  await bootstrapProfile(rawToken, {
+    backendUrl: 'http://localhost:8000',
+    consent: {
+      terms_accepted: true,
+      privacy_accepted: true,
+      marketing_email_opt_in: false,
+      consent_source: 'signup',
+      consent_version: 'c10.6a-v1',
+    },
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init })
+      return {
+        ok: true,
+        json: async () => ({
+          user_id: '00000000-0000-4000-8000-000000000001',
+          profile_exists: true,
+          profile_created: false,
+          settings_exists: true,
+          settings_created: false,
+          next_step: 'profile_setup',
+        }),
+      }
+    },
+  })
+
+  assert.equal(calls[0].init.headers['Content-Type'], 'application/json')
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    terms_accepted: true,
+    privacy_accepted: true,
+    marketing_email_opt_in: false,
+    consent_source: 'signup',
+    consent_version: 'c10.6a-v1',
+  })
+  const body = JSON.parse(calls[0].init.body)
+  assert.equal(calls[0].init.body.includes(rawToken), false)
+  assert.equal(Object.hasOwn(body, 'user_id'), false)
+  assert.equal(Object.hasOwn(body, 'email'), false)
 })
 
 

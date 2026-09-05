@@ -36,7 +36,7 @@ This tracker is the live execution log for the production build.
 Current active execution phase:
 
 ```text
-C10.3 - Backend transactional email delivery remains after local completion of C10.3A, C10.3B, and C10.3C dry-run foundations; C10.1 email planning and the C10.2A runbook are completed/merged, C10.2B live Supabase Auth delivery is blocked pending a verified Resend sender/domain, C10.2 is not complete, the `outbound_email_events` migration is not applied remotely, and real email sending, payments/admin/pricing remain not started
+C10.3 - Backend transactional email delivery remains after completion of C10.3A, C10.3B, C10.3C, and C10.3D dry-run/event foundations; PR #32 is merged, `outbound_email_events` migration `20260904143000_add_outbound_email_events.sql` is applied to remote Supabase dev, post-apply tests passed, C10.1 and the C10.2A runbook are completed/merged, C10.2B live Supabase Auth delivery is blocked pending a verified Resend sender/domain, C10.2 is not complete, and real email sending, payments/admin/pricing remain not started
 ```
 
 Screen Intelligence documentation:
@@ -152,19 +152,71 @@ C10.3A current status:
 C10.3B current status:
 
 ```text
-[x] Completed/merged - Backend-owned `outbound_email_events` persistence, NULL-safe idempotency scope, pending/sending leases, claim-token fencing, reconciliation compare-and-set state, service boundary, migration assertions, and focused event-store tests are implemented locally. No real email delivery was added.
+[x] Completed/merged - Backend-owned `outbound_email_events` persistence, NULL-safe idempotency scope, pending/sending leases, claim-token fencing, reconciliation compare-and-set state, service boundary, migration assertions, and focused event-store tests are implemented locally and applied to remote Supabase dev through PR #32. No real email delivery was added.
 ```
 
 C10.3C current status:
 
 ```text
-[x] Completed locally - Backend transactional email service is connected to the backend-owned `outbound_email_events` store in dry-run mode only. Events are claimed before provider invocation, sent outcomes are completed with the active claim token, sent events replay safely, lease/reconciliation/retry behavior remains fenced, and focused service integration tests pass. No Resend/SMTP calls, real email delivery, or remote migration application were performed.
+[x] Completed locally - Backend transactional email service is connected to the backend-owned `outbound_email_events` store in dry-run mode only. Events are claimed before provider invocation, sent outcomes are completed with the active claim token, sent events replay safely, lease/reconciliation/retry behavior remains fenced, and focused service integration tests pass. No Resend/SMTP calls or real email delivery were performed.
+```
+
+C10.3D current status:
+
+```text
+[x] Completed/validated - PR #32 is merged; `supabase/migrations/20260904143000_add_outbound_email_events.sql` was applied to remote Supabase dev and post-apply tests passed. The backend remains dry-run-only with no real Resend/SMTP sending enabled.
 ```
 
 C10.3 current status:
 
 ```text
-[ ] Not complete - Live transactional provider integration and transactional email triggers remain to be implemented. C10.3A dry-run, C10.3B event persistence/idempotency, and C10.3C dry-run event-store integration are complete locally; the `outbound_email_events` migration remains unapplied remotely.
+[ ] Not complete - Live transactional provider integration and transactional email triggers remain to be implemented. C10.3A, C10.3B, C10.3C, and C10.3D backend dry-run/event persistence/idempotency foundations are complete, but full real email delivery remains blocked until a verified Resend sender/domain is available and intentionally enabled.
+```
+
+C10.4A current status:
+
+```text
+[x] Completed locally - The backend-only plain-text `welcome` template and `send_welcome_email_dry_run` service path use the existing `outbound_email_events` idempotency lifecycle and dry-run provider. Tests cover safe variables, deterministic replay, event-before-provider ordering, and rejection of Auth email types. C10.4B now wires this path after authenticated profile bootstrap using verified JWT identity/email, with non-blocking sanitized failure handling. No Resend/SMTP calls, real email delivery, or C10.5 feature emails were added.
+```
+
+C10.4 current status:
+
+```text
+[x] Dry-run path completed locally - C10.4A provides the template/service and C10.4B triggers it after successful authenticated profile bootstrap. Real welcome delivery remains blocked by the missing verified Resend sender/domain and is not enabled.
+```
+
+C10.5A current status:
+
+```text
+[x] Completed locally - Safe plain-text templates and dry-run helpers for `ai_notes_ready`, `session_summary`, and `transcript_export` use deterministic session-scoped `outbound_email_events` idempotency and never include raw transcript/AI notes content. Automatic feature-email triggers, attachments, real Resend/SMTP delivery, and C10.5 feature actions were not added.
+```
+
+C10.5B current status:
+
+```text
+[x] Completed locally for available flows - Successful AI-notes generation triggers `ai_notes_ready`, and successful transcript export preparation triggers `transcript_export`, using verified JWT identity/email, deterministic event-store idempotency, and the dry-run provider. No existing session-summary preparation flow was found, so that trigger remains deferred; real delivery is disabled.
+```
+
+C10.5 current status:
+
+```text
+[~] Incomplete - C10.5A template/helper groundwork and available C10.5B dry-run triggers are complete locally, but session-summary wiring, remaining authenticated feature-email actions, and real delivery remain deferred.
+```
+
+C10.6A current status:
+
+```text
+[x] Completed locally - Signup, including the Google signup action, requires Terms & Conditions and Privacy Policy acceptance, the marketing checkbox is unchecked by default with tri-state consent (untouched means no preference update), and the authenticated profile-bootstrap path persists consent fields using the verified JWT user identity. The local-only migration `20260904170000_add_signup_consent_preferences.sql` has not been applied remotely. Rollout order is: merge/review the implementation, apply `20260904170000_add_signup_consent_preferences.sql`, apply `20260905103000_add_marketing_unsubscribe_tokens.sql`, set `VITE_CONSENT_FEATURE_ENABLED=true`, then deploy/enable consent and unsubscribe flows. The frontend consent flow is disabled by default; absent columns must fail safely rather than discard consent or claim it was persisted. Signup `/terms` and `/privacy` links are safe placeholders pending real legal pages. C10.6B and C10.6C are completed locally, while remote rollout remains pending. No marketing/promotional sends, Resend calls, SMTP calls, or real emails were added.
+```
+
+C10.6B current status:
+
+```text
+[x] Completed locally - Backend-only marketing unsubscribe foundation generates cryptographically random opaque tokens, stores only SHA-256 token hashes, scopes tokens to the server-provided user/email and fixed marketing category, rejects invalid/expired/used/revoked tokens generically, and atomically opts the user out through a service-role RPC. The local migration `20260905103000_add_marketing_unsubscribe_tokens.sql` requires C10.6A first and has not been applied remotely. Transactional email is unaffected; no promotional sending, Resend calls, SMTP calls, or real emails were added.
+
+C10.6C current status:
+
+[x] Completed locally - Public `POST /api/email/unsubscribe` accepts only a token and consumes it through the existing hash-only unsubscribe service, returning a generic response without account disclosure. The public `/unsubscribe` page removes the token query parameter from the visible URL, never displays or persists the token, and explains that transactional emails remain unaffected. Apply migrations in order before enabling consent/unsubscribe features: `20260904170000_add_signup_consent_preferences.sql`, then `20260905103000_add_marketing_unsubscribe_tokens.sql`. Endpoint/page tests passed; both migrations remain local and unapplied remotely. Promotional campaign sending and real delivery are not started.
 ```
 
 C16.1 future production auth hardening release blocker:
@@ -1638,7 +1690,7 @@ P17 Protected commercial edition
 # Current Immediate Next Phase
 
 ```text
-C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is merged and live smoke-tested. C3.3 frontend authenticated upload/review UI is implemented under `/auth/resume`. C3.4 cloud RAG/index activation is implemented through user-owned chunk generation, backend-only activation, and ready-current resume behavior. C3.4.5 GPT-based resume extraction provider is implemented. C3.5 delete/rebuild/status closure is implemented. C4 Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing and live Supabase smoke validation passed on saiia-dev. C4.3 main website job-target UI is cancelled/re-scoped; job target selection moves to desktop startup/session setup after desktop authenticated cloud identity exists. C5.1 desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`. C5.2 desktop authenticated cloud identity is implemented locally with Electron main-process auth/session handling and focused tests. C5.3 desktop auth status/login/logout UI wiring is implemented locally through existing safe preload APIs. C5.4 desktop cloud startup context plumbing is implemented locally through existing safe preload APIs and authenticated backend summary routes. C6.1 desktop startup/session setup UI audit and plan is documented in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`. C6.2A Startup Login Screen is implemented locally with a dev/local memory-only desktop handoff store; production shared atomic TTL-backed handoff storage is deferred to C16.1 Production Auth Hardening and blocks public production release. C6.3 durable interview session lifecycle and cloud session storage are implemented locally through authenticated backend routes, a Supabase lifecycle migration, Electron main-process session ownership, and a basic dashboard history list. C7 transcript storage, transcript viewing, and transcript download are implemented locally through session-owned transcript entries, authenticated export routes, generation-time transcript writes, and dashboard transcript controls. C8 AI Notes is implemented locally through transcript-based notes generation/storage and dashboard notes view. C9 Ask AI and follow-up context memory is merged/closed as session-scoped dashboard Ask AI over transcript/notes context. C10.1 email planning is completed/merged in `docs/C10_EMAIL_SYSTEM_PLAN.md`. C10.2A Supabase Auth verification/reset SMTP runbook/documentation is completed/merged in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.2B live delivery is blocked pending a verified Resend sender/domain, so C10.2 is not complete. C10.3A, C10.3B, and C10.3C are completed locally with dry-run-only behavior; the `outbound_email_events` migration is not applied remotely and full C10.3 remains incomplete. No billing, usage, payment, licensing, admin console, or final website UI redesign work has started.
+C0 is marked done. C1 - Supabase Cloud Foundation is complete after C1.5 closure validation. C2 - Authentication and Account Lifecycle is complete through C2.5 Auth Surface Closure. C3.1 Cloud Resume/Profile Storage Planning + Audit is complete. C3.2 Backend Cloud Resume API is merged and live smoke-tested. C3.3 frontend authenticated upload/review UI is implemented under `/auth/resume`. C3.4 cloud RAG/index activation is implemented through user-owned chunk generation, backend-only activation, and ready-current resume behavior. C3.4.5 GPT-based resume extraction provider is implemented. C3.5 delete/rebuild/status closure is implemented. C4 Job Target / JD Cloud Sync is in progress with C4.1 audit/design complete and C4.2 authenticated backend plus required migration implemented locally with tests passing and live Supabase smoke validation passed on saiia-dev. C4.3 main website job-target UI is cancelled/re-scoped; job target selection moves to desktop startup/session setup after desktop authenticated cloud identity exists. C5.1 desktop authenticated cloud identity audit/design is documented in `docs/C5_DESKTOP_AUTH_CLOUD_IDENTITY_PLAN.md`. C5.2 desktop authenticated cloud identity is implemented locally with Electron main-process auth/session handling and focused tests. C5.3 desktop auth status/login/logout UI wiring is implemented locally through existing safe preload APIs. C5.4 desktop cloud startup context plumbing is implemented locally through existing safe preload APIs and authenticated backend summary routes. C6.1 desktop startup/session setup UI audit and plan is documented in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md`. C6.2A Startup Login Screen is implemented locally with a dev/local memory-only desktop handoff store; production shared atomic TTL-backed handoff storage is deferred to C16.1 Production Auth Hardening and blocks public production release. C6.3 durable interview session lifecycle and cloud session storage are implemented locally through authenticated backend routes, a Supabase lifecycle migration, Electron main-process session ownership, and a basic dashboard history list. C7 transcript storage, transcript viewing, and transcript download are implemented locally through session-owned transcript entries, authenticated export routes, generation-time transcript writes, and dashboard transcript controls. C8 AI Notes is implemented locally through transcript-based notes generation/storage and dashboard notes view. C9 Ask AI and follow-up context memory is merged/closed as session-scoped dashboard Ask AI over transcript/notes context. C10.1 email planning is completed/merged in `docs/C10_EMAIL_SYSTEM_PLAN.md`. C10.2A Supabase Auth verification/reset SMTP runbook/documentation is completed/merged in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.2B live delivery is blocked pending a verified Resend sender/domain, so C10.2 is not complete. C10.3A, C10.3B, C10.3C, and C10.3D are completed with dry-run-only behavior; PR #32 is merged, the `outbound_email_events` migration is applied to remote Supabase dev, post-apply tests passed, and full C10.3 remains incomplete until real email delivery is enabled. No billing, usage, payment, licensing, admin console, or final website UI redesign work has started.
 ```
 
 P6B/P8/P9 consolidation records are preserved as historical desktop validation notes, not as the current execution authority.

@@ -8,6 +8,7 @@ const cssSource = readFileSync(new URL('./auth.css', import.meta.url), 'utf8').r
 const appSource = readFileSync(new URL('../App.jsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const signupPageSource = source.match(/export function AuthSignupPage[\s\S]*?export function AuthLoginPage/)?.[0] || ''
 const loginPageSource = source.match(/export function AuthLoginPage[\s\S]*?export function AuthForgotPasswordPage/)?.[0] || ''
+const unsubscribePageSource = source.match(/export function AuthUnsubscribePage[\s\S]*?export function AuthStatusPage/)?.[0] || ''
 const statusPageSource = source.match(/export function AuthStatusPage[\s\S]*?function RequireAuth/)?.[0] || ''
 const dashboardPageSource = source.match(/export function AuthDashboardPage[\s\S]*?export function AuthResumePage/)?.[0] || ''
 const askAIToggleSource = dashboardPageSource.match(/async function handleAskAIToggle[\s\S]*?\n  \}\n\n  async function handleAskAILoadMore/)?.[0] || ''
@@ -21,6 +22,7 @@ const sourceWithoutDesktopHandoff = source.replace(openDesktopHandoffSource, '')
 
 assert.ok(signupPageSource, 'AuthSignupPage source slice should be found')
 assert.ok(loginPageSource, 'AuthLoginPage source slice should be found')
+assert.ok(unsubscribePageSource, 'AuthUnsubscribePage source slice should be found')
 assert.ok(statusPageSource, 'AuthStatusPage source slice should be found')
 assert.ok(dashboardPageSource, 'AuthDashboardPage source slice should be found')
 assert.ok(askAIToggleSource, 'handleAskAIToggle source slice should be found')
@@ -111,7 +113,7 @@ test('desktop mode preserves email password and Google auth without changing nor
   assert.match(signupPageSource, /const safeDesktopState = getSafeDesktopState\(desktopState \|\| searchParams\.get\('desktop_state'\)\)/)
   assert.match(signupPageSource, /const safeNextRoute = safeDesktopState[\s\S]*\? desktopLoginRoute\(safeDesktopState\)[\s\S]*: getSafeAuthNextRoute/)
   assert.match(signupPageSource, /emailRedirectTo: getAuthRedirectUrl\(safeDesktopState\)/)
-  assert.match(signupPageSource, /if \(safeDesktopState && data\.session\) \{[\s\S]*await openDesktopHandoff\(data\.session, safeDesktopState, backendUrl\)/)
+  assert.match(signupPageSource, /if \(data\.session\) \{[\s\S]*if \(safeDesktopState\) \{[\s\S]*await openDesktopHandoff\(data\.session, safeDesktopState, backendUrl\)/)
   assert.match(loginPageSource, /if \(safeDesktopState\) \{[\s\S]*await openDesktopHandoff\(data\.session, safeDesktopState, backendUrl\)/)
   assert.match(loginPageSource, /fetchCurrentUser\(data\.session\.access_token, \{ backendUrl \}\)[\s\S]*navigate\(safeNextRoute, \{ replace: true \}\)/)
   assert.match(source, /async function startGoogleLogin\(desktopState = ''\) \{[\s\S]*provider: 'google'[\s\S]*redirectTo: getAuthRedirectUrl\(desktopState\)/)
@@ -119,6 +121,27 @@ test('desktop mode preserves email password and Google auth without changing nor
   assert.match(loginPageSource, /async function handleGoogleLogin\(\) {[\s\S]*const \{ error \} = await startGoogleLogin\(safeDesktopState\)[\s\S]*form\.setError\(error\.message \|\| 'Google login could not be started\.'\)/)
   assert.match(signupPageSource, /onClick=\{handleGoogleLogin\}/)
   assert.match(loginPageSource, /onClick=\{handleGoogleLogin\}/)
+})
+
+
+test('signup requires legal consent and keeps marketing opt-in optional', () => {
+  assert.match(signupPageSource, /const \[termsAccepted, setTermsAccepted\] = useState\(false\)/)
+  assert.match(signupPageSource, /const \[marketingEmailOptIn, setMarketingEmailOptIn\] = useState\(null\)/)
+  assert.match(signupPageSource, /You must agree to the Terms & Conditions and Privacy Policy before signing up\./)
+  assert.match(signupPageSource, /<a href="\/terms">Terms &amp; Conditions<\/a>/)
+  assert.match(signupPageSource, /<a href="\/privacy">Privacy Policy<\/a>/)
+  assert.match(signupPageSource, /checked=\{termsAccepted\}[\s\S]*required/)
+  assert.match(signupPageSource, /checked=\{marketingEmailOptIn === true\}/)
+  assert.match(signupPageSource, /<label className="auth-consent-row">[\s\S]*type="checkbox"[\s\S]*<\/label>/)
+  assert.match(source, /marketing_email_opt_in: marketingEmailOptIn/)
+  assert.match(signupPageSource, /rememberSignupConsent\(form\.email, marketingEmailOptIn\)/)
+  assert.match(signupPageSource, /if \(data\.session\) \{[\s\S]*bootstrapProfile\(data\.session\.access_token, \{ backendUrl, consent: consent\.consent \}\)/)
+  assert.match(signupPageSource, /async function handleGoogleLogin\(\) \{[\s\S]*if \(!termsAccepted\) \{[\s\S]*return/)
+  assert.match(source, /const CONSENT_FEATURE_ENABLED = String\(import\.meta\.env\?\.VITE_CONSENT_FEATURE_ENABLED \|\| ''\)\.toLowerCase\(\) === 'true'/)
+  assert.match(signupPageSource, /async function handleSubmit[\s\S]*if \(!CONSENT_FEATURE_ENABLED\) \{[\s\S]*CONSENT_SETUP_UNAVAILABLE[\s\S]*return/)
+  assert.match(signupPageSource, /async function handleGoogleLogin\(\) \{[\s\S]*if \(!CONSENT_FEATURE_ENABLED\) \{[\s\S]*CONSENT_SETUP_UNAVAILABLE[\s\S]*return/)
+  assert.match(source, /function rememberSignupConsent\(email, marketingEmailOptIn\) \{[\s\S]*return true[\s\S]*catch \{[\s\S]*return false/)
+  assert.match(signupPageSource, /if \(!rememberSignupConsent\(form\.email, marketingEmailOptIn\)\) \{[\s\S]*Unable to save signup preferences\. Please try again\.[\s\S]*return/)
 })
 
 
@@ -338,6 +361,21 @@ test('desktop-local routes remain unprotected while auth dashboard is protected'
   assert.match(appSource, /<Route path="\/auth\/resume" element=\{<AuthResumePage backendUrl=\{BACKEND_URL\} \/>\} \/>/)
   assert.match(appSource, /<Route path="\/" element=\{<MainWindow \/>\} \/>/)
   assert.match(appSource, /<Route path="\/profile-setup" element=\{<ProfileSetupForm \/>\} \/>/)
+})
+
+
+test('public unsubscribe page consumes and clears token without exposing it', () => {
+  assert.match(appSource, /<Route path="\/unsubscribe" element=\{<AuthUnsubscribePage backendUrl=\{BACKEND_URL\} \/>\} \/>/)
+  assert.match(source, /submitMarketingUnsubscribe,/)
+  assert.match(unsubscribePageSource, /const token = searchParams\.get\('token'\)\?\.trim\(\) \|\| ''/)
+  assert.match(unsubscribePageSource, /submitMarketingUnsubscribe\(token, \{ backendUrl \}\)/)
+  assert.match(unsubscribePageSource, /cleanUrl\.searchParams\.delete\('token'\)/)
+  assert.match(unsubscribePageSource, /window\.history\.replaceState/)
+  assert.match(source, /const UNSUBSCRIBE_CONFIRMATION = 'You have been unsubscribed from promotional and discount emails if this link was valid\.'/)
+  assert.match(source, /const UNSUBSCRIBE_TRANSACTIONAL_NOTICE = 'You may still receive important account, security, verification, password reset, and transactional emails\.'/)
+  assert.match(source, /const UNSUBSCRIBE_MISSING_MESSAGE = 'This unsubscribe link is missing or invalid\./)
+  assert.doesNotMatch(unsubscribePageSource, /localStorage|sessionStorage|console\.log/)
+  assert.doesNotMatch(unsubscribePageSource, /\{token\}|>\s*token\s*</)
 })
 
 

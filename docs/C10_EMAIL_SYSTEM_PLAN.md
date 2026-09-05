@@ -2,7 +2,7 @@
 
 ## Status
 
-**C10.1 completed/merged.** C10.1 is documentation-only and defines the email safety contract. No email provider has been called, no SMTP has been configured, and no real email has been sent by this repository. The C10.2A runbook is complete in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.2B live delivery remains blocked pending a verified Resend sender/domain. C10.3A, C10.3B, and C10.3C backend foundations are completed locally; full C10.3 remains incomplete. The `outbound_email_events` migration is not applied to remote Supabase.
+**C10.1 completed/merged.** C10.1 is documentation-only and defines the email safety contract. No email provider has been called, no SMTP has been configured, and no real email has been sent by this repository. The C10.2A runbook is complete in `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`; C10.2B live delivery remains blocked pending a verified Resend sender/domain. C10.3A, C10.3B, C10.3C, and C10.3D backend dry-run/event foundations are complete locally; PR #32 is merged, the `outbound_email_events` migration is applied to remote Supabase dev, and post-apply tests passed. C10.4A and C10.4B welcome-template and dry-run trigger work is complete locally; C10.5A feature templates/helpers and C10.5B available dry-run triggers are complete locally, while session-summary wiring and real delivery remain deferred. Full C10.3, real C10.4 delivery, and full C10.5 remain incomplete.
 
 ## 1. C10 Goal
 
@@ -139,7 +139,7 @@ Secrets are never hardcoded or committed. Real keys belong only in local environ
 
 ## 5. Database Event Log Plan
 
-The C10.3B backend-owned table is implemented locally as `outbound_email_events` through `supabase/migrations/20260904143000_add_outbound_email_events.sql`; the migration remains unapplied to remote Supabase. C10.3C connects this event store to the offline/dry-run email service without adding delivery:
+The C10.3B backend-owned table is implemented through `supabase/migrations/20260904143000_add_outbound_email_events.sql` and is applied to remote Supabase dev after PR #32 merged; post-apply tests passed. C10.3C connects this event store to the offline/dry-run email service without adding delivery:
 
 - `id`
 - `user_id`
@@ -175,15 +175,27 @@ No migration is created in C10.1.
 
 ## 6. Email Preference Plan
 
-Future work may add `email_preferences` or `marketing_subscriptions` with:
+The C10.6A local foundation extends `user_settings` with server-recorded consent and preference fields:
 
-- `user_id`
-- `marketing_opt_in`
-- `unsubscribed_at`
-- `created_at`
-- `updated_at`
+- `terms_accepted` and `terms_accepted_at`
+- `privacy_accepted` and `privacy_accepted_at`
+- `marketing_email_opt_in` and `marketing_email_opt_in_at`
+- `marketing_email_opt_out_at` for later opt-out handling
+- `consent_source`
+- `consent_version`
 
-Marketing opt-in is required before promotional sends. It is not required for auth or security emails.
+The local-only migration is `supabase/migrations/20260904170000_add_signup_consent_preferences.sql`; it has not been applied to remote Supabase. The no-consent legacy profile bootstrap remains compatible with the pre-migration schema, but consent-bearing bootstrap is intentionally migration-dependent. Rollout order for a target environment is: (1) merge and review the implementation, (2) apply `20260904170000_add_signup_consent_preferences.sql`, (3) apply `20260905103000_add_marketing_unsubscribe_tokens.sql`, (4) set `VITE_CONSENT_FEATURE_ENABLED=true`, and (5) deploy/enable the consent and unsubscribe flows. The frontend consent flow is disabled by default until that sequence is complete. If the new columns are absent, the backend schema gate must fail before profile/settings mutation rather than drop consent fields or report persistence success. The authenticated profile-bootstrap path writes these fields using the verified JWT user identity. Signup requires Terms and Privacy acceptance, while marketing opt-in is explicit and defaults to no preference update until the checkbox is touched. The signup links currently use safe `/terms` and `/privacy` placeholders; real legal pages must be supplied before release.
+
+C10.6B adds a local-only, backend-owned unsubscribe foundation. The migration `supabase/migrations/20260905103000_add_marketing_unsubscribe_tokens.sql` must run after the C10.6A consent migration and is not applied to remote Supabase in this phase.
+
+- Secure opaque tokens are generated with the standard cryptographic random source; only a SHA-256 hash is stored.
+- Each token is scoped to its server-provided `user_id`, `recipient_email`, and the fixed `marketing` category, with `created_at`, `expires_at`, `used_at`, and `revoked_at` state.
+- Creation is service-role-only. The consume operation looks up the hash, rejects expired/used/revoked/invalid tokens without exposing account data, sets `marketing_email_opt_in` false, records `marketing_email_opt_out_at`, and marks the token used atomically.
+- The marketing guard reads only the authenticated user's preference. Opting out never blocks auth, account-security, welcome, or other transactional email.
+- Raw tokens are returned only from token creation for future link construction; they are never stored or logged. Full unsubscribe URLs, tokens, prompts, transcript/resume content, headers, and secrets are excluded from logs and metadata.
+- Frontend/client direct token-table writes are prohibited. C10.6C now adds the public unauthenticated `POST /api/email/unsubscribe` endpoint and the frontend `/unsubscribe` confirmation page locally. The endpoint accepts only a token, consumes it through the existing hash-only service/RPC, and returns a generic response for valid, invalid, reused, or expired tokens without account disclosure. The page removes the token query parameter from the visible URL, never displays or persists the token, and explains that transactional email is unaffected. The local migrations remain unapplied remotely; promotional campaign sending is not implemented.
+
+Marketing email is allowed only when `marketing_email_opt_in` is true. C10.6B token/opt-out behavior and C10.6C public link integration are complete locally, while promotional delivery remains deferred.
 
 ## 7. Future Backend Architecture
 
@@ -218,12 +230,20 @@ Each future route must be authenticated, verify session ownership, require an id
 - **C10.2A - Supabase Auth emails through Resend SMTP:** runbook/setup documentation completed/merged; live C10.2B delivery is blocked pending a verified Resend sender/domain.
 - **C10.2 - Supabase Auth email delivery:** not complete until live verification/reset emails are tested.
 - **C10.3A - Backend email foundation with dry-run provider:** completed locally; backend config, provider contract, safe dry-run provider, and tests are present, with no real sending.
-- **C10.3B - Outbound email event persistence and idempotency foundation:** completed locally; backend-only event storage, NULL-safe claims, lease/state transitions, reconciliation fencing, and tests are present, with no delivery. The migration is not applied remotely.
+- **C10.3B - Outbound email event persistence and idempotency foundation:** completed locally and applied to remote Supabase dev; backend-only event storage, NULL-safe claims, lease/state transitions, reconciliation fencing, and tests are present, with no delivery.
 - **C10.3C - Dry-run event-store integration:** completed locally; the service claims events before the dry-run provider, updates outcomes with the active claim token, replays sent events safely, and covers lease/retry behavior without network delivery.
+- **C10.3D - Remote migration apply and post-apply validation:** completed; PR #32 is merged, `20260904143000_add_outbound_email_events.sql` is applied to remote Supabase dev, and post-apply tests passed. No real email delivery was enabled.
 - **C10.3 - Backend transactional email delivery:** not complete; live provider integration and transactional triggers remain deferred.
-- **C10.4 - Welcome email:** add the verified-login welcome flow; not started.
-- **C10.5 - Session summary, transcript, and AI notes emails:** add explicit authenticated user actions; not started.
-- **C10.6 - Marketing preferences and promotional emails later:** add consent and unsubscribe controls; not started.
+- **C10.4A - Welcome email template + dry-run trigger:** completed locally; the safe plain-text `welcome` template uses the existing backend event-store idempotency path and dry-run provider. Signup/profile bootstrap wiring and real delivery are not included.
+- **C10.4B - Wire welcome email trigger in dry-run mode:** completed locally; the authenticated profile bootstrap route triggers the welcome event from verified JWT identity/email, remains non-blocking on email failure, and preserves the existing response contract. No real delivery or Auth email routing is included.
+- **C10.4 - Welcome email delivery:** dry-run path complete locally; real delivery remains blocked pending a verified Resend sender/domain and intentional live-provider enablement.
+- **C10.5A - Feature email templates in dry-run mode:** completed locally; safe plain-text `ai_notes_ready`, `session_summary`, and `transcript_export` templates/helpers use session-scoped event-store idempotency and the dry-run provider. No automatic triggers, attachments, raw transcript/notes content, or real delivery are included.
+- **C10.5B - Feature email trigger wiring:** completed locally for `ai_notes_ready` after successful notes generation and `transcript_export` after successful export preparation. No existing session-summary preparation flow was found, so that trigger remains deferred; all delivery remains dry-run-only.
+- **C10.5 - Session summary, transcript, and AI notes emails:** incomplete; C10.5A template/helper groundwork and the available C10.5B dry-run triggers are complete locally, while session-summary wiring, remaining authenticated actions, and production delivery remain deferred.
+- **C10.6A - Signup consent and marketing preference foundation:** completed locally; signup requires Terms and Privacy acceptance, marketing opt-in is unchecked by default, consent is persisted through authenticated profile bootstrap, and no marketing sends are implemented.
+- **C10.6B - Marketing unsubscribe token/opt-out foundation:** completed locally; hash-only opaque token generation, expiry/use/revocation checks, service-role-only atomic opt-out, and a marketing preference guard are implemented and tested. The local migration `20260905103000_add_marketing_unsubscribe_tokens.sql` is not applied remotely. No public unsubscribe endpoint, campaign sending, or real email delivery is included.
+- **C10.6C - Public unsubscribe link endpoint and promotional integration:** completed locally for the public `POST /api/email/unsubscribe` endpoint, safe `/unsubscribe` confirmation page, token-removal behavior, and tests. Apply `20260904170000_add_signup_consent_preferences.sql` before `20260905103000_add_marketing_unsubscribe_tokens.sql`, then enable/deploy consent and unsubscribe features. The local migrations remain unapplied remotely; promotional campaign sending and real delivery are not started.
+- **C10.6 - Marketing preferences and promotional emails:** incomplete; C10.6A consent, C10.6B token/opt-out, and C10.6C public unsubscribe integration are complete locally, while promotional delivery and remote migration rollout remain deferred.
 
 ## 10. Manual Demo Checklist
 
@@ -238,4 +258,4 @@ The later demo should show:
 
 ## Safety Boundary
 
-C10.1, C10.3A, C10.3B, and C10.3C do not call Resend, configure Supabase SMTP, add real API keys, send emails, create custom verification/reset tokens, modify applied migrations, or implement promotional messaging. C9 remains merged/closed. C10.2A runbook/setup documentation is completed/merged, but C10.2B live verification/reset delivery is blocked pending a verified Resend sender/domain, so C10.2 delivery is not complete. C10.3A is completed locally with disabled/offline dry-run defaults. C10.3B adds only the backend-owned `outbound_email_events` migration and event-store boundary; that migration is not applied remotely. C10.3C connects the event store to the dry-run provider only. Full C10.3 remains incomplete because live delivery and transactional triggers are not implemented.
+C10.1, C10.3A, C10.3B, C10.3C, C10.3D, C10.4A, C10.4B, C10.5A/B, C10.6A, C10.6B, and C10.6C do not call Resend, configure Supabase SMTP, add real API keys, send emails, create custom verification/reset tokens, modify applied migrations, or implement promotional campaign messaging. C9 remains merged/closed. C10.2A runbook/setup documentation is completed/merged, but C10.2B live verification/reset delivery is blocked pending a verified Resend sender/domain, so C10.2 delivery is not complete. C10.3A is completed locally with disabled/offline dry-run defaults. C10.3B adds the backend-owned `outbound_email_events` migration and event-store boundary, and C10.3D records its successful remote dev apply and post-apply validation. C10.3C connects the event store to the dry-run provider only. C10.4A adds the service-level welcome template and C10.4B wires it after authenticated profile bootstrap; C10.5A adds feature templates/helpers and C10.5B wires available notes-generation and transcript-export success points only. C10.6A adds signup consent/preference capture, C10.6B adds hash-only unsubscribe tokens and atomic opt-out, and C10.6C adds the public generic unsubscribe endpoint and safe confirmation page. The C10.6A/C10.6B migrations remain local and unapplied remotely. These paths remain dry-run-only and non-blocking, with no session-summary trigger because no preparation flow exists. Full C10.3/C10.5/C10.6 and real C10.4/C10.5 delivery remain incomplete because real delivery is not enabled.
