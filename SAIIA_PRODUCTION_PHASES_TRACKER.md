@@ -212,7 +212,11 @@ C10.6A current status:
 C10.6B current status:
 
 ```text
-[x] Completed locally - Backend-only marketing unsubscribe foundation generates cryptographically random opaque tokens, stores only SHA-256 token hashes, scopes tokens to the server-provided user/email and fixed marketing category, rejects invalid/expired/used/revoked tokens generically, and atomically opts the user out through a service-role RPC. The local migration `20260905103000_add_marketing_unsubscribe_tokens.sql` requires C10.6A first and has not been applied remotely. Transactional email is unaffected; no public unsubscribe endpoint, promotional sending, Resend calls, SMTP calls, or real emails were added. C10.6C public link integration remains not started.
+[x] Completed locally - Backend-only marketing unsubscribe foundation generates cryptographically random opaque tokens, stores only SHA-256 token hashes, scopes tokens to the server-provided user/email and fixed marketing category, rejects invalid/expired/used/revoked tokens generically, and atomically opts the user out through a service-role RPC. The local migration `20260905103000_add_marketing_unsubscribe_tokens.sql` requires C10.6A first and has not been applied remotely. Transactional email is unaffected; no promotional sending, Resend calls, SMTP calls, or real emails were added.
+
+C10.6C current status:
+
+[x] Completed locally - Public `POST /api/email/unsubscribe` accepts only a token and consumes it through the existing hash-only unsubscribe service, returning a generic response without account disclosure. The public `/unsubscribe` page removes the token query parameter from the visible URL, never displays or persists the token, and explains that transactional emails remain unaffected. Endpoint/page tests passed; C10.6A and C10.6B migrations remain local and unapplied remotely. Promotional campaign sending and real delivery are not started.
 ```
 
 C16.1 future production auth hardening release blocker:

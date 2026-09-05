@@ -1,4 +1,5 @@
 const DEFAULT_BACKEND_URL = 'http://localhost:8000'
+const SAFE_UNSUBSCRIBE_ERROR = 'Unable to update your promotional email preference right now.'
 
 
 async function parseJsonResponse(response, fallbackMessage) {
@@ -8,6 +9,40 @@ async function parseJsonResponse(response, fallbackMessage) {
     throw new Error(detail || fallbackMessage)
   }
   return payload
+}
+
+
+export async function submitMarketingUnsubscribe(rawToken, options = {}) {
+  const {
+    backendUrl = DEFAULT_BACKEND_URL,
+    fetchImpl = fetch,
+    signal,
+  } = options
+  const token = typeof rawToken === 'string' ? rawToken.trim() : ''
+  if (!token) {
+    return { success: false }
+  }
+
+  try {
+    const response = await fetchImpl(`${backendUrl}/api/email/unsubscribe`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ token }),
+      signal,
+    })
+    if (!response.ok) {
+      throw new Error(SAFE_UNSUBSCRIBE_ERROR)
+    }
+    const payload = await response.json().catch(() => ({}))
+    return { success: payload.success === true }
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw error
+    }
+    throw new Error(SAFE_UNSUBSCRIBE_ERROR)
+  }
 }
 
 

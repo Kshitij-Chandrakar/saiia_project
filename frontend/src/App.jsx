@@ -11,6 +11,7 @@ import {
   AuthResetPasswordPage,
   AuthSignupPage,
   AuthStatusPage,
+  AuthUnsubscribePage,
 } from './auth/AuthScreens'
 import MainDiagnosticsWindow from './components/MainDiagnosticsWindow'
 import OverlayWindowView from './components/OverlayWindow'
@@ -6191,6 +6192,7 @@ export default function App() {
       <Route path="/auth/reset-password" element={<AuthResetPasswordPage />} />
       <Route path="/auth/callback" element={<AuthCallbackPage backendUrl={BACKEND_URL} />} />
       <Route path="/auth/status" element={<AuthStatusPage backendUrl={BACKEND_URL} />} />
+      <Route path="/unsubscribe" element={<AuthUnsubscribePage backendUrl={BACKEND_URL} />} />
       <Route path="/auth/dashboard" element={<AuthDashboardPage backendUrl={BACKEND_URL} />} />
       <Route path="/auth/resume" element={<AuthResumePage backendUrl={BACKEND_URL} />} />
       <Route path="/auth/logout" element={<AuthLogoutPage />} />

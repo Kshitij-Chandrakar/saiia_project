@@ -20,6 +20,7 @@ import {
   generateInterviewSessionNotes,
   rebuildCloudResumeIndex,
   normalizeReadableAskAIText,
+  submitMarketingUnsubscribe,
   uploadCloudResume,
 } from './authApi.js'
 import { getSupabaseAuthConfig, hasSupabaseAuthConfig } from './supabaseClient.js'
@@ -124,6 +125,44 @@ test('bootstrapProfile posts bearer token and returns safe status', async () => 
   })
   assert.equal('access_token' in result, false)
   assert.equal('private_server_value' in result, false)
+})
+
+
+test('submitMarketingUnsubscribe posts only the raw token and projects a safe result', async () => {
+  const calls = []
+  const result = await submitMarketingUnsubscribe('opaque-test-token', {
+    backendUrl: 'http://localhost:8000',
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init })
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          message: 'safe confirmation',
+          user_id: 'must-not-leak',
+        }),
+      }
+    },
+  })
+
+  assert.equal(calls[0].url, 'http://localhost:8000/api/email/unsubscribe')
+  assert.equal(calls[0].init.method, 'POST')
+  assert.deepEqual(JSON.parse(calls[0].init.body), { token: 'opaque-test-token' })
+  assert.deepEqual(result, { success: true })
+  assert.equal('Authorization' in calls[0].init.headers, false)
+})
+
+
+test('submitMarketingUnsubscribe does not leak backend error detail', async () => {
+  await assert.rejects(
+    () => submitMarketingUnsubscribe('opaque-test-token', {
+      fetchImpl: async () => ({
+        ok: false,
+        json: async () => ({ detail: 'token and service secret must not leak' }),
+      }),
+    }),
+    /Unable to update your promotional email preference right now\./,
+  )
 })
 
 

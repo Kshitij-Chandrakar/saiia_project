@@ -175,6 +175,12 @@
   color: #991b1b;
 }
 
+.auth-unsubscribe-copy {
+  margin: 16px 0 0;
+  color: #334155;
+  line-height: 1.5;
+}
+
 .auth-links {
   display: flex;
   flex-wrap: wrap;

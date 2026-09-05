@@ -8,6 +8,7 @@ const cssSource = readFileSync(new URL('./auth.css', import.meta.url), 'utf8').r
 const appSource = readFileSync(new URL('../App.jsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const signupPageSource = source.match(/export function AuthSignupPage[\s\S]*?export function AuthLoginPage/)?.[0] || ''
 const loginPageSource = source.match(/export function AuthLoginPage[\s\S]*?export function AuthForgotPasswordPage/)?.[0] || ''
+const unsubscribePageSource = source.match(/export function AuthUnsubscribePage[\s\S]*?export function AuthStatusPage/)?.[0] || ''
 const statusPageSource = source.match(/export function AuthStatusPage[\s\S]*?function RequireAuth/)?.[0] || ''
 const dashboardPageSource = source.match(/export function AuthDashboardPage[\s\S]*?export function AuthResumePage/)?.[0] || ''
 const askAIToggleSource = dashboardPageSource.match(/async function handleAskAIToggle[\s\S]*?\n  \}\n\n  async function handleAskAILoadMore/)?.[0] || ''
@@ -21,6 +22,7 @@ const sourceWithoutDesktopHandoff = source.replace(openDesktopHandoffSource, '')
 
 assert.ok(signupPageSource, 'AuthSignupPage source slice should be found')
 assert.ok(loginPageSource, 'AuthLoginPage source slice should be found')
+assert.ok(unsubscribePageSource, 'AuthUnsubscribePage source slice should be found')
 assert.ok(statusPageSource, 'AuthStatusPage source slice should be found')
 assert.ok(dashboardPageSource, 'AuthDashboardPage source slice should be found')
 assert.ok(askAIToggleSource, 'handleAskAIToggle source slice should be found')
@@ -353,6 +355,21 @@ test('desktop-local routes remain unprotected while auth dashboard is protected'
   assert.match(appSource, /<Route path="\/auth\/resume" element=\{<AuthResumePage backendUrl=\{BACKEND_URL\} \/>\} \/>/)
   assert.match(appSource, /<Route path="\/" element=\{<MainWindow \/>\} \/>/)
   assert.match(appSource, /<Route path="\/profile-setup" element=\{<ProfileSetupForm \/>\} \/>/)
+})
+
+
+test('public unsubscribe page consumes and clears token without exposing it', () => {
+  assert.match(appSource, /<Route path="\/unsubscribe" element=\{<AuthUnsubscribePage backendUrl=\{BACKEND_URL\} \/>\} \/>/)
+  assert.match(source, /submitMarketingUnsubscribe,/)
+  assert.match(unsubscribePageSource, /const token = searchParams\.get\('token'\)\?\.trim\(\) \|\| ''/)
+  assert.match(unsubscribePageSource, /submitMarketingUnsubscribe\(token, \{ backendUrl \}\)/)
+  assert.match(unsubscribePageSource, /cleanUrl\.searchParams\.delete\('token'\)/)
+  assert.match(unsubscribePageSource, /window\.history\.replaceState/)
+  assert.match(source, /const UNSUBSCRIBE_CONFIRMATION = 'You have been unsubscribed from promotional and discount emails if this link was valid\.'/)
+  assert.match(source, /const UNSUBSCRIBE_TRANSACTIONAL_NOTICE = 'You may still receive important account, security, verification, password reset, and transactional emails\.'/)
+  assert.match(source, /const UNSUBSCRIBE_MISSING_MESSAGE = 'This unsubscribe link is missing or invalid\./)
+  assert.doesNotMatch(unsubscribePageSource, /localStorage|sessionStorage|console\.log/)
+  assert.doesNotMatch(unsubscribePageSource, /\{token\}|>\s*token\s*</)
 })
 
 

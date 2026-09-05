@@ -20,6 +20,7 @@ import {
   fetchReviewCandidate,
   generateInterviewSessionNotes,
   rebuildCloudResumeIndex,
+  submitMarketingUnsubscribe,
   uploadCloudResume,
 } from './authApi'
 import { supabase } from './supabaseClient'
@@ -28,6 +29,10 @@ import './auth.css'
 
 const AUTH_CALLBACK_URL = 'http://localhost:5173/auth/callback'
 const PASSWORD_RESET_URL = 'http://localhost:5173/auth/reset-password'
+const UNSUBSCRIBE_CONFIRMATION = 'You have been unsubscribed from promotional and discount emails if this link was valid.'
+const UNSUBSCRIBE_TRANSACTIONAL_NOTICE = 'You may still receive important account, security, verification, password reset, and transactional emails.'
+const UNSUBSCRIBE_MISSING_MESSAGE = 'This unsubscribe link is missing or invalid. Your preferences were not changed.'
+const UNSUBSCRIBE_FAILURE_MESSAGE = 'Unable to update your promotional email preference right now. Please try again later.'
 const DEFAULT_LOGIN_NEXT_ROUTE = '/auth/dashboard'
 const SAFE_AUTH_NEXT_ROUTES = new Set(['/auth/dashboard', '/auth/status'])
 const LOGIN_REQUIRED_MESSAGE = 'Session expired or signed out. Please log in.'
@@ -1054,6 +1059,61 @@ export function AuthCallbackPage({ backendUrl }) {
     <AuthShell title="Auth Status">
       <AuthMessage message={error} tone="error" />
       <AuthMessage message={status} tone={error ? 'error' : 'success'} />
+      <AuthLinks />
+    </AuthShell>
+  )
+}
+
+
+export function AuthUnsubscribePage({ backendUrl }) {
+  const [searchParams] = useSearchParams()
+  const token = searchParams.get('token')?.trim() || ''
+  const [state, setState] = useState(token ? 'loading' : 'missing')
+  const [message, setMessage] = useState(token ? '' : UNSUBSCRIBE_MISSING_MESSAGE)
+
+  useEffect(() => {
+    const cleanUrl = new URL(window.location.href)
+    if (cleanUrl.searchParams.has('token')) {
+      cleanUrl.searchParams.delete('token')
+      window.history.replaceState(
+        window.history.state,
+        document.title,
+        `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`,
+      )
+    }
+
+    let ignore = false
+    if (!token) {
+      return () => {
+        ignore = true
+      }
+    }
+
+    async function submit() {
+      try {
+        await submitMarketingUnsubscribe(token, { backendUrl })
+        if (!ignore) {
+          setState('success')
+          setMessage(UNSUBSCRIBE_CONFIRMATION)
+        }
+      } catch {
+        if (!ignore) {
+          setState('error')
+          setMessage(UNSUBSCRIBE_FAILURE_MESSAGE)
+        }
+      }
+    }
+
+    submit()
+    return () => {
+      ignore = true
+    }
+  }, [backendUrl, token])
+
+  return (
+    <AuthShell title="Email preferences">
+      <AuthMessage message={message} tone={state === 'error' ? 'error' : 'success'} />
+      <p className="auth-unsubscribe-copy">{UNSUBSCRIBE_TRANSACTIONAL_NOTICE}</p>
       <AuthLinks />
     </AuthShell>
   )
