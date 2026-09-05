@@ -22,6 +22,7 @@ C9_IDEMPOTENCY_TRIGGER_MIGRATION = (
 C9_ATOMIC_TURN_MIGRATION = MIGRATIONS_DIR / "20260902120000_add_ask_ai_atomic_turn_persistence.sql"
 C9_INDEX_CLEANUP_MIGRATION = MIGRATIONS_DIR / "20260902130000_drop_redundant_ask_ai_message_index.sql"
 C10_3B_MIGRATION = MIGRATIONS_DIR / "20260904143000_add_outbound_email_events.sql"
+C10_6A_MIGRATION = MIGRATIONS_DIR / "20260904170000_add_signup_consent_preferences.sql"
 
 
 def _normalized_sql() -> str:
@@ -69,6 +70,27 @@ def test_c2_3_privilege_migration_does_not_grant_anon_or_change_rls() -> None:
     assert "disable row level security" not in sql
     assert "drop policy" not in sql
     assert "create policy" not in sql
+
+
+def test_c10_6a_signup_consent_preferences_are_local_and_default_safe() -> None:
+    sql = " ".join(C10_6A_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    for column in (
+        "terms_accepted boolean not null default false",
+        "terms_accepted_at timestamptz null",
+        "privacy_accepted boolean not null default false",
+        "privacy_accepted_at timestamptz null",
+        "marketing_email_opt_in boolean not null default false",
+        "marketing_email_opt_in_at timestamptz null",
+        "marketing_email_opt_out_at timestamptz null",
+        "consent_source text not null default 'profile_bootstrap'",
+        "consent_version text null",
+    ):
+        assert f"add column if not exists {column}" in sql
+
+    assert "constraint user_settings_consent_source_check" in sql
+    assert "check (consent_source in ('signup', 'profile_bootstrap'))" in sql
+    assert "c10.6a local-only" in sql
 
 
 def test_c3_2_resume_lifecycle_migration_adds_required_state_contract() -> None:

@@ -127,6 +127,49 @@ test('bootstrapProfile posts bearer token and returns safe status', async () => 
 })
 
 
+test('bootstrapProfile sends consent without sending identity or secrets in the body', async () => {
+  const rawToken = 'unit-test-access-token'
+  const calls = []
+  await bootstrapProfile(rawToken, {
+    backendUrl: 'http://localhost:8000',
+    consent: {
+      terms_accepted: true,
+      privacy_accepted: true,
+      marketing_email_opt_in: false,
+      consent_source: 'signup',
+      consent_version: 'c10.6a-v1',
+    },
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init })
+      return {
+        ok: true,
+        json: async () => ({
+          user_id: '00000000-0000-4000-8000-000000000001',
+          profile_exists: true,
+          profile_created: false,
+          settings_exists: true,
+          settings_created: false,
+          next_step: 'profile_setup',
+        }),
+      }
+    },
+  })
+
+  assert.equal(calls[0].init.headers['Content-Type'], 'application/json')
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    terms_accepted: true,
+    privacy_accepted: true,
+    marketing_email_opt_in: false,
+    consent_source: 'signup',
+    consent_version: 'c10.6a-v1',
+  })
+  const body = JSON.parse(calls[0].init.body)
+  assert.equal(calls[0].init.body.includes(rawToken), false)
+  assert.equal(Object.hasOwn(body, 'user_id'), false)
+  assert.equal(Object.hasOwn(body, 'email'), false)
+})
+
+
 test('createDesktopHandoff posts authenticated state and refresh token to backend only', async () => {
   const rawToken = 'unit-test-access-token'
   const calls = []

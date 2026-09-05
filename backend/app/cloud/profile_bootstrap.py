@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import logging
 from typing import Any, NoReturn
 
@@ -21,6 +22,15 @@ class ProfileBootstrapResult:
     settings_exists: bool
     settings_created: bool
     next_step: str
+
+
+@dataclass(frozen=True)
+class ProfileConsent:
+    terms_accepted: bool
+    privacy_accepted: bool
+    marketing_email_opt_in: bool
+    consent_source: str = "signup"
+    consent_version: str | None = None
 
 
 class SupabaseRestClient:
@@ -103,6 +113,34 @@ class SupabaseRestClient:
             return False
         self._raise_for_response(table, "upsert", response)
 
+    def update_user_settings_consent(self, user_id: str, consent: ProfileConsent) -> None:
+        accepted_at = datetime.now(timezone.utc).isoformat()
+        payload: dict[str, Any] = {
+            "terms_accepted": consent.terms_accepted,
+            "terms_accepted_at": accepted_at,
+            "privacy_accepted": consent.privacy_accepted,
+            "privacy_accepted_at": accepted_at,
+            "marketing_email_opt_in": consent.marketing_email_opt_in,
+            "consent_source": consent.consent_source,
+        }
+        if consent.marketing_email_opt_in:
+            payload["marketing_email_opt_in_at"] = accepted_at
+            payload["marketing_email_opt_out_at"] = None
+        if consent.consent_version:
+            payload["consent_version"] = consent.consent_version
+        try:
+            response = self._session.patch(
+                f"{self._base_url}/user_settings",
+                headers={**self._headers, "Prefer": "return=minimal"},
+                params={"user_id": f"eq.{user_id}"},
+                json=payload,
+                timeout=10,
+            )
+        except requests.RequestException as exc:
+            self._raise_for_request_error("user_settings", "update_consent", exc)
+        if response.status_code not in {200, 204}:
+            self._raise_for_response("user_settings", "update_consent", response)
+
 
 def _ensure_user_row(client: Any, table: str, user_id: str) -> tuple[bool, bool]:
     if client.row_exists(table, user_id):
@@ -115,10 +153,16 @@ def _ensure_user_row(client: Any, table: str, user_id: str) -> tuple[bool, bool]
     raise SupabaseProfileBootstrapError("Supabase profile bootstrap failed.")
 
 
-def bootstrap_authenticated_profile(user_id: str, client: Any | None = None) -> ProfileBootstrapResult:
+def bootstrap_authenticated_profile(
+    user_id: str,
+    client: Any | None = None,
+    consent: ProfileConsent | None = None,
+) -> ProfileBootstrapResult:
     rest_client = client or SupabaseRestClient()
     profile_exists, profile_created = _ensure_user_row(rest_client, "profiles", user_id)
     settings_exists, settings_created = _ensure_user_row(rest_client, "user_settings", user_id)
+    if consent is not None:
+        rest_client.update_user_settings_consent(user_id, consent)
     return ProfileBootstrapResult(
         user_id=user_id,
         profile_exists=profile_exists,

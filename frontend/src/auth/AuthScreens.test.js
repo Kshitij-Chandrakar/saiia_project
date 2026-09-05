@@ -111,7 +111,7 @@ test('desktop mode preserves email password and Google auth without changing nor
   assert.match(signupPageSource, /const safeDesktopState = getSafeDesktopState\(desktopState \|\| searchParams\.get\('desktop_state'\)\)/)
   assert.match(signupPageSource, /const safeNextRoute = safeDesktopState[\s\S]*\? desktopLoginRoute\(safeDesktopState\)[\s\S]*: getSafeAuthNextRoute/)
   assert.match(signupPageSource, /emailRedirectTo: getAuthRedirectUrl\(safeDesktopState\)/)
-  assert.match(signupPageSource, /if \(safeDesktopState && data\.session\) \{[\s\S]*await openDesktopHandoff\(data\.session, safeDesktopState, backendUrl\)/)
+  assert.match(signupPageSource, /if \(data\.session\) \{[\s\S]*if \(safeDesktopState\) \{[\s\S]*await openDesktopHandoff\(data\.session, safeDesktopState, backendUrl\)/)
   assert.match(loginPageSource, /if \(safeDesktopState\) \{[\s\S]*await openDesktopHandoff\(data\.session, safeDesktopState, backendUrl\)/)
   assert.match(loginPageSource, /fetchCurrentUser\(data\.session\.access_token, \{ backendUrl \}\)[\s\S]*navigate\(safeNextRoute, \{ replace: true \}\)/)
   assert.match(source, /async function startGoogleLogin\(desktopState = ''\) \{[\s\S]*provider: 'google'[\s\S]*redirectTo: getAuthRedirectUrl\(desktopState\)/)
@@ -119,6 +119,21 @@ test('desktop mode preserves email password and Google auth without changing nor
   assert.match(loginPageSource, /async function handleGoogleLogin\(\) {[\s\S]*const \{ error \} = await startGoogleLogin\(safeDesktopState\)[\s\S]*form\.setError\(error\.message \|\| 'Google login could not be started\.'\)/)
   assert.match(signupPageSource, /onClick=\{handleGoogleLogin\}/)
   assert.match(loginPageSource, /onClick=\{handleGoogleLogin\}/)
+})
+
+
+test('signup requires legal consent and keeps marketing opt-in optional', () => {
+  assert.match(signupPageSource, /const \[termsAccepted, setTermsAccepted\] = useState\(false\)/)
+  assert.match(signupPageSource, /const \[marketingEmailOptIn, setMarketingEmailOptIn\] = useState\(false\)/)
+  assert.match(signupPageSource, /You must agree to the Terms & Conditions and Privacy Policy before signing up\./)
+  assert.match(signupPageSource, /<a href="\/terms">Terms &amp; Conditions<\/a>/)
+  assert.match(signupPageSource, /<a href="\/privacy">Privacy Policy<\/a>/)
+  assert.match(signupPageSource, /checked=\{termsAccepted\}[\s\S]*required/)
+  assert.match(signupPageSource, /checked=\{marketingEmailOptIn\}/)
+  assert.match(source, /marketing_email_opt_in: Boolean\(marketingEmailOptIn\)/)
+  assert.match(signupPageSource, /rememberSignupConsent\(form\.email, marketingEmailOptIn\)/)
+  assert.match(signupPageSource, /if \(data\.session\) \{[\s\S]*bootstrapProfile\(data\.session\.access_token, \{ backendUrl, consent: consent\.consent \}\)/)
+  assert.match(signupPageSource, /async function handleGoogleLogin\(\) \{[\s\S]*if \(!termsAccepted\) \{[\s\S]*return/)
 })
 
 

@@ -19,7 +19,7 @@ from app.auth.supabase_auth import (
     AUTH_ERROR_DETAIL,
     get_auth_verification_config,
 )
-from app.cloud.profile_bootstrap import ProfileBootstrapResult
+from app.cloud.profile_bootstrap import ProfileBootstrapResult, ProfileConsent
 from app.cloud.supabase_config import (
     CLOUD_MODE_ENV,
     SUPABASE_REQUIRED_ENV_VARS,
@@ -217,6 +217,63 @@ def test_profile_bootstrap_triggers_welcome_from_verified_identity_not_body(
 
     assert response.status_code == 200
     assert trigger_calls == [(TEST_USER_ID, "user@example.com")]
+
+
+def test_profile_bootstrap_persists_consent_for_jwt_user_not_body_identity(monkeypatch, client: TestClient):
+    calls: list[tuple[str, ProfileConsent | None]] = []
+
+    def fake_bootstrap(user_id: str, consent: ProfileConsent | None = None) -> ProfileBootstrapResult:
+        calls.append((user_id, consent))
+        return ProfileBootstrapResult(
+            user_id=user_id,
+            profile_exists=True,
+            profile_created=False,
+            settings_exists=True,
+            settings_created=False,
+            next_step="profile_setup",
+        )
+
+    monkeypatch.setattr("app.api.auth.bootstrap_authenticated_profile", fake_bootstrap)
+
+    response = client.post(
+        "/api/auth/profile/bootstrap",
+        headers={"Authorization": f"Bearer {_token()}"},
+        json={
+            "user_id": "11111111-1111-4111-8111-111111111111",
+            "email": "attacker@example.com",
+            "terms_accepted": True,
+            "privacy_accepted": True,
+            "marketing_email_opt_in": False,
+            "consent_source": "signup",
+            "consent_version": "c10.6a-v1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert calls == [
+        (
+            TEST_USER_ID,
+            ProfileConsent(True, True, False, "signup", "c10.6a-v1"),
+        )
+    ]
+
+
+def test_profile_bootstrap_rejects_incomplete_consent(monkeypatch, client: TestClient):
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "app.api.auth.bootstrap_authenticated_profile",
+        lambda user_id: calls.append(user_id),
+    )
+
+    response = client.post(
+        "/api/auth/profile/bootstrap",
+        headers={"Authorization": f"Bearer {_token()}"},
+        json={"terms_accepted": True, "privacy_accepted": False},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Terms and Privacy acceptance are required."}
+    assert calls == []
 
 
 def test_profile_bootstrap_welcome_failure_does_not_break_account_setup(monkeypatch, client: TestClient):

@@ -3,6 +3,7 @@ import logging
 import pytest
 
 from app.cloud.profile_bootstrap import (
+    ProfileConsent,
     SupabaseProfileBootstrapError,
     SupabaseRestClient,
     bootstrap_authenticated_profile,
@@ -32,6 +33,7 @@ class FakeBootstrapClient:
     def __init__(self, existing: set[str] | None = None) -> None:
         self.rows = set(existing or set())
         self.inserts: list[tuple[str, str]] = []
+        self.consent_updates: list[tuple[str, ProfileConsent]] = []
 
     def row_exists(self, table: str, user_id: str) -> bool:
         return (table, user_id) in self.rows
@@ -42,6 +44,9 @@ class FakeBootstrapClient:
             return False
         self.rows.add((table, user_id))
         return True
+
+    def update_user_settings_consent(self, user_id: str, consent: ProfileConsent) -> None:
+        self.consent_updates.append((user_id, consent))
 
 
 class ConflictThenVisibleClient:
@@ -78,8 +83,10 @@ class FakeRestSession:
     def __init__(self) -> None:
         self.get_calls: list[dict[str, object]] = []
         self.post_calls: list[dict[str, object]] = []
+        self.patch_calls: list[dict[str, object]] = []
         self.get_response = FakeResponse(200, [])
         self.post_response = FakeResponse(201, [{"id": "profile-id"}])
+        self.patch_response = FakeResponse(204, [])
 
     def get(self, url: str, **kwargs: object) -> FakeResponse:
         self.get_calls.append({"url": url, **kwargs})
@@ -88,6 +95,10 @@ class FakeRestSession:
     def post(self, url: str, **kwargs: object) -> FakeResponse:
         self.post_calls.append({"url": url, **kwargs})
         return self.post_response
+
+    def patch(self, url: str, **kwargs: object) -> FakeResponse:
+        self.patch_calls.append({"url": url, **kwargs})
+        return self.patch_response
 
 
 def _rest_client(session: FakeRestSession, service_role_key: str = "service-role-unit-test-value") -> SupabaseRestClient:
@@ -154,6 +165,21 @@ def test_bootstrap_reuses_existing_profile_and_settings() -> None:
     assert client.inserts == []
 
 
+def test_bootstrap_persists_consent_for_verified_user_only() -> None:
+    client = FakeBootstrapClient()
+    consent = ProfileConsent(
+        terms_accepted=True,
+        privacy_accepted=True,
+        marketing_email_opt_in=True,
+        consent_source="signup",
+        consent_version="c10.6a-v1",
+    )
+
+    bootstrap_authenticated_profile(TEST_USER_ID, client=client, consent=consent)
+
+    assert client.consent_updates == [(TEST_USER_ID, consent)]
+
+
 def test_bootstrap_re_reads_after_conflict_and_accepts_visible_row() -> None:
     client = ConflictThenVisibleClient()
 
@@ -194,6 +220,24 @@ def test_supabase_rest_insert_headers_and_payload_match_schema() -> None:
     assert headers["Authorization"] == "Bearer service-role-unit-test-value"
     assert headers["Content-Type"] == "application/json"
     assert headers["Prefer"] == "resolution=ignore-duplicates,return=representation"
+
+
+def test_supabase_rest_consent_update_uses_verified_user_id_and_safe_fields() -> None:
+    session = FakeRestSession()
+    client = _rest_client(session)
+    consent = ProfileConsent(True, True, True, "signup", "c10.6a-v1")
+
+    client.update_user_settings_consent(TEST_USER_ID, consent)
+
+    call = session.patch_calls[0]
+    assert call["params"] == {"user_id": f"eq.{TEST_USER_ID}"}
+    assert call["json"]["terms_accepted"] is True
+    assert call["json"]["privacy_accepted"] is True
+    assert call["json"]["marketing_email_opt_in"] is True
+    assert call["json"]["consent_source"] == "signup"
+    assert call["json"]["consent_version"] == "c10.6a-v1"
+    assert "user_id" not in call["json"]
+    assert "email" not in call["json"]
 
 
 def test_supabase_rest_client_rejects_anon_key_reused_as_service_role(

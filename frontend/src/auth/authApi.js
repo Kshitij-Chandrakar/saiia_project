@@ -226,13 +226,23 @@ export async function bootstrapProfile(accessToken, options = {}) {
   const {
     backendUrl = DEFAULT_BACKEND_URL,
     fetchImpl = fetch,
+    consent = null,
   } = options
 
-  const response = await fetchImpl(`${backendUrl}/api/auth/profile/bootstrap`, {
+  const headers = {
+    Authorization: `Bearer ${token}`,
+  }
+  const request = {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers,
+  }
+  if (consent && typeof consent === 'object') {
+    headers['Content-Type'] = 'application/json'
+    request.body = JSON.stringify(consent)
+  }
+
+  const response = await fetchImpl(`${backendUrl}/api/auth/profile/bootstrap`, {
+    ...request,
   })
 
   const payload = await parseJsonResponse(response, 'Unable to bootstrap the profile.')

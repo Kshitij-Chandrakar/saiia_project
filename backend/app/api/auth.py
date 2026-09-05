@@ -2,12 +2,14 @@ import hashlib
 import logging
 import secrets
 import time
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from fastapi import APIRouter, HTTPException, Request, status
 
 from app.auth.supabase_auth import CurrentUser, CurrentUserDep
 from app.cloud.profile_bootstrap import (
+    ProfileConsent,
     ProfileBootstrapResult,
     SupabaseProfileBootstrapError,
     bootstrap_authenticated_profile,
@@ -53,6 +55,40 @@ class ProfileBootstrapResponse(BaseModel):
     settings_exists: bool
     settings_created: bool
     next_step: str
+
+
+class ProfileBootstrapConsentRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    terms_accepted: bool | None = None
+    privacy_accepted: bool | None = None
+    marketing_email_opt_in: bool | None = None
+    consent_source: Literal["signup", "profile_bootstrap"] = "signup"
+    consent_version: str | None = Field(default=None, max_length=64)
+
+    def to_consent(self) -> ProfileConsent | None:
+        if all(
+            value is None
+            for value in (
+                self.terms_accepted,
+                self.privacy_accepted,
+                self.marketing_email_opt_in,
+                self.consent_version,
+            )
+        ):
+            return None
+        if self.terms_accepted is not True or self.privacy_accepted is not True:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Terms and Privacy acceptance are required.",
+            )
+        return ProfileConsent(
+            terms_accepted=True,
+            privacy_accepted=True,
+            marketing_email_opt_in=bool(self.marketing_email_opt_in),
+            consent_source=self.consent_source,
+            consent_version=self.consent_version,
+        )
 
 
 class DesktopHandoffCreateRequest(BaseModel):
@@ -182,9 +218,16 @@ async def get_authenticated_user(current_user: CurrentUserDep) -> CurrentUserRes
 
 
 @router.post("/profile/bootstrap", response_model=ProfileBootstrapResponse)
-def bootstrap_profile(current_user: CurrentUserDep) -> ProfileBootstrapResponse:
+def bootstrap_profile(
+    current_user: CurrentUserDep,
+    payload: ProfileBootstrapConsentRequest | None = None,
+) -> ProfileBootstrapResponse:
+    consent = payload.to_consent() if payload is not None else None
     try:
-        result = bootstrap_authenticated_profile(current_user.user_id)
+        if consent is None:
+            result = bootstrap_authenticated_profile(current_user.user_id)
+        else:
+            result = bootstrap_authenticated_profile(current_user.user_id, consent=consent)
     except SupabaseConfigurationError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

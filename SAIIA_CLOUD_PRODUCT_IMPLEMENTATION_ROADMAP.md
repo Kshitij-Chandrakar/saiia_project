@@ -2203,7 +2203,9 @@ Outbound email event inserts and updates are backend-only; frontend/client direc
 - C10.5A - Feature email templates in dry-run mode - completed locally; safe plain-text templates/helpers for `ai_notes_ready`, `session_summary`, and `transcript_export` use session-scoped event idempotency without automatic triggers or real delivery
 - C10.5B - Feature email trigger wiring - completed locally for `ai_notes_ready` after successful notes generation and `transcript_export` after successful export preparation; no existing session-summary preparation flow was found, so that trigger remains deferred; no real delivery
 - C10.5 - Session summary, transcript, and AI notes emails - incomplete; C10.5A template/helper groundwork and available C10.5B dry-run triggers are complete locally, while session-summary wiring, remaining authenticated actions, and production delivery remain deferred
-- C10.6 - Marketing preferences and promotional emails later - not started
+- C10.6A - Signup consent and marketing preference foundation - completed locally; signup (including Google signup) requires Terms and Privacy acceptance, marketing opt-in defaults false, and consent is persisted through authenticated profile bootstrap using the verified JWT user identity. The local migration `20260904170000_add_signup_consent_preferences.sql` has not been applied remotely. Legacy no-consent bootstrap remains compatible before the migration, but consent-bearing bootstrap requires the migration on the target database before running C10.6A code against remote Supabase; absent columns must fail safely rather than discard consent or claim it was persisted. `/terms` and `/privacy` are safe placeholders pending real legal pages; no marketing sends are implemented.
+- C10.6B - Marketing unsubscribe and promotional email delivery - not started; promotional sends remain deferred until opt-in, unsubscribe, and provider safeguards are implemented
+- C10.6 - Marketing preferences and promotional emails - incomplete; C10.6A foundation is complete locally, while C10.6B remains deferred
 
 ## Templates
 

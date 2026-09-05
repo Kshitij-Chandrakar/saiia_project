@@ -32,6 +32,8 @@ const DEFAULT_LOGIN_NEXT_ROUTE = '/auth/dashboard'
 const SAFE_AUTH_NEXT_ROUTES = new Set(['/auth/dashboard', '/auth/status'])
 const LOGIN_REQUIRED_MESSAGE = 'Session expired or signed out. Please log in.'
 const DESKTOP_CALLBACK_URL = 'saiia://auth/callback'
+const PENDING_SIGNUP_CONSENT_STORAGE_KEY = 'intervuai.pendingSignupConsent'
+const SIGNUP_CONSENT_VERSION = 'c10.6a-v1'
 const DESKTOP_STATE_PATTERN = /^[A-Za-z0-9._~-]{16,256}$/
 const MAX_RESUME_FILE_BYTES = 5 * 1024 * 1024
 const SUPPORTED_RESUME_TYPES = new Set([
@@ -61,6 +63,58 @@ const CLOUD_PROFILE_FIELDS = [
   ['certifications', 'Certifications', 'textarea'],
   ['achievements', 'Achievements', 'textarea'],
 ]
+
+
+function buildSignupConsent(email, marketingEmailOptIn) {
+  return {
+    email: String(email || '').trim().toLowerCase(),
+    consent: {
+      terms_accepted: true,
+      privacy_accepted: true,
+      marketing_email_opt_in: Boolean(marketingEmailOptIn),
+      consent_source: 'signup',
+      consent_version: SIGNUP_CONSENT_VERSION,
+    },
+  }
+}
+
+
+function rememberSignupConsent(email, marketingEmailOptIn) {
+  try {
+    window.localStorage.setItem(
+      PENDING_SIGNUP_CONSENT_STORAGE_KEY,
+      JSON.stringify(buildSignupConsent(email, marketingEmailOptIn)),
+    )
+  } catch {
+    // Consent is retried on the next authenticated bootstrap when storage is unavailable.
+  }
+}
+
+
+function pendingSignupConsentForSession(session) {
+  const sessionEmail = String(session?.user?.email || '').trim().toLowerCase()
+  if (!sessionEmail) {
+    return null
+  }
+  try {
+    const record = JSON.parse(window.localStorage.getItem(PENDING_SIGNUP_CONSENT_STORAGE_KEY) || 'null')
+    if (record?.email !== sessionEmail || !record?.consent) {
+      return null
+    }
+    return record.consent
+  } catch {
+    return null
+  }
+}
+
+
+function clearPendingSignupConsent() {
+  try {
+    window.localStorage.removeItem(PENDING_SIGNUP_CONSENT_STORAGE_KEY)
+  } catch {
+    // There is no sensitive session data in this best-effort local marker.
+  }
+}
 
 
 function getSafeAuthNextRoute(value, fallback = DEFAULT_LOGIN_NEXT_ROUTE) {
@@ -183,9 +237,17 @@ function useProfileBootstrap({ backendUrl, sessionErrorMessage, disabled = false
         return
       }
 
-      const result = await bootstrapProfile(data.session.access_token, { backendUrl })
+      const pendingConsent = pendingSignupConsentForSession(data.session)
+      const bootstrapOptions = { backendUrl }
+      if (pendingConsent) {
+        bootstrapOptions.consent = pendingConsent
+      }
+      const result = await bootstrapProfile(data.session.access_token, bootstrapOptions)
       if (bootstrapOperationRef.current === operationId) {
         setBootstrapResult(result)
+        if (pendingConsent) {
+          clearPendingSignupConsent()
+        }
       }
     } catch (bootstrapError) {
       if (bootstrapOperationRef.current === operationId) {
@@ -521,6 +583,8 @@ function useAuthForm() {
 
 export function AuthSignupPage({ backendUrl, desktopState = '' }) {
   const form = useAuthForm()
+  const [termsAccepted, setTermsAccepted] = useState(false)
+  const [marketingEmailOptIn, setMarketingEmailOptIn] = useState(false)
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const safeDesktopState = getSafeDesktopState(desktopState || searchParams.get('desktop_state'))
@@ -534,15 +598,22 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
     if (!supabase) {
       return
     }
+    if (!termsAccepted) {
+      form.setError('You must agree to the Terms & Conditions and Privacy Policy before signing up.')
+      return
+    }
 
     form.setLoading(true)
     form.setError('')
     form.setMessage('')
+    const consent = buildSignupConsent(form.email, marketingEmailOptIn)
+    rememberSignupConsent(form.email, marketingEmailOptIn)
     const { data, error } = await supabase.auth.signUp({
       email: form.email,
       password: form.password,
       options: {
         emailRedirectTo: getAuthRedirectUrl(safeDesktopState),
+        data: consent.consent,
       },
     })
 
@@ -551,12 +622,18 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
       form.setError(error.message)
       return
     }
-    if (safeDesktopState && data.session) {
+    if (data.session) {
       try {
-        await openDesktopHandoff(data.session, safeDesktopState, backendUrl)
-        form.setMessage('Login successful. You can return to intervuAI.')
-      } catch {
-        form.setError('Desktop login could not be completed. Try logging in again.')
+        await bootstrapProfile(data.session.access_token, { backendUrl, consent: consent.consent })
+        clearPendingSignupConsent()
+        if (safeDesktopState) {
+          await openDesktopHandoff(data.session, safeDesktopState, backendUrl)
+          form.setMessage('Login successful. You can return to intervuAI.')
+        } else {
+          form.setMessage('Account created. Your consent preferences were saved.')
+        }
+      } catch (signupSetupError) {
+        form.setError(signupSetupError?.message || 'Account setup could not be completed. Please sign in again.')
       } finally {
         form.setLoading(false)
       }
@@ -570,6 +647,10 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
 
   async function handleGoogleLogin() {
     form.setError('')
+    if (!termsAccepted) {
+      form.setError('You must agree to the Terms & Conditions and Privacy Policy before signing up.')
+      return
+    }
     try {
       const { error } = await startGoogleLogin(safeDesktopState)
       if (error) {
@@ -611,6 +692,25 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
             minLength={6}
             required
           />
+        </label>
+        <label className="auth-consent">
+          <input
+            type="checkbox"
+            checked={termsAccepted}
+            onChange={(event) => setTermsAccepted(event.target.checked)}
+            required
+          />
+          <span>
+            I agree to the <a href="/terms">Terms &amp; Conditions</a> and <a href="/privacy">Privacy Policy</a>.
+          </span>
+        </label>
+        <label className="auth-consent">
+          <input
+            type="checkbox"
+            checked={marketingEmailOptIn}
+            onChange={(event) => setMarketingEmailOptIn(event.target.checked)}
+          />
+          <span>I want to receive promotional, discount, and product emails.</span>
         </label>
         <button type="submit" disabled={!supabase || form.loading}>
           {form.loading ? 'Creating...' : 'Sign Up'}
