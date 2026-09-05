@@ -8,7 +8,7 @@ create table if not exists public.marketing_unsubscribe_tokens (
   recipient_email text not null,
   token_hash text not null,
   email_category text not null default 'marketing',
-  created_at timestamptz not null default timezone('utc', now()),
+  created_at timestamptz not null default now(),
   expires_at timestamptz not null,
   used_at timestamptz null,
   revoked_at timestamptz null,
@@ -51,7 +51,7 @@ as $$
 declare
   v_token_id uuid;
   v_user_id uuid;
-  v_opted_out_at timestamptz := timezone('utc', now());
+  v_opted_out_at timestamptz := now();
 begin
   if p_token_hash is null or p_token_hash !~ '^[a-f0-9]{64}$' then
     return query select false;
@@ -64,7 +64,7 @@ begin
   where t.token_hash = p_token_hash
     and t.used_at is null
     and t.revoked_at is null
-    and t.expires_at > timezone('utc', now())
+    and t.expires_at > now()
   for update;
 
   if v_token_id is null then
@@ -93,7 +93,7 @@ begin
   end if;
 
   update public.marketing_unsubscribe_tokens as t
-  set used_at = timezone('utc', now())
+  set used_at = now()
   where t.id = v_token_id
     and t.used_at is null
     and t.revoked_at is null;

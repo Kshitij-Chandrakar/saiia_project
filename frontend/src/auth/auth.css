@@ -68,18 +68,34 @@
   outline: 3px solid rgba(47, 142, 229, 0.22);
 }
 
-.auth-consent {
+.auth-form label.auth-consent-row {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
+  width: 100%;
   color: #334155;
   font-size: 13px;
+  font-weight: 400;
   line-height: 1.45;
+  text-align: left;
 }
 
-.auth-consent input[type='checkbox'] {
-  width: auto;
+.auth-form label.auth-consent-row input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  flex: 0 0 auto;
   margin-top: 2px;
+  padding: 0;
+}
+
+.auth-form label.auth-consent-row input[type='checkbox']:focus-visible {
+  outline: 3px solid rgba(47, 142, 229, 0.28);
+  outline-offset: 2px;
+}
+
+.auth-form label.auth-consent-row span {
+  min-width: 0;
 }
 
 .auth-form input:-webkit-autofill,

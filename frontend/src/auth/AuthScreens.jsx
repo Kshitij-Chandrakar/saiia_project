@@ -39,6 +39,8 @@ const LOGIN_REQUIRED_MESSAGE = 'Session expired or signed out. Please log in.'
 const DESKTOP_CALLBACK_URL = 'saiia://auth/callback'
 const PENDING_SIGNUP_CONSENT_STORAGE_KEY = 'intervuai.pendingSignupConsent'
 const SIGNUP_CONSENT_VERSION = 'c10.6a-v1'
+const CONSENT_FEATURE_ENABLED = String(import.meta.env?.VITE_CONSENT_FEATURE_ENABLED || '').toLowerCase() === 'true'
+const CONSENT_SETUP_UNAVAILABLE = 'Signup is temporarily unavailable while account consent setup is prepared. Please try again later.'
 const DESKTOP_STATE_PATTERN = /^[A-Za-z0-9._~-]{16,256}$/
 const MAX_RESUME_FILE_BYTES = 5 * 1024 * 1024
 const SUPPORTED_RESUME_TYPES = new Set([
@@ -76,7 +78,7 @@ function buildSignupConsent(email, marketingEmailOptIn) {
     consent: {
       terms_accepted: true,
       privacy_accepted: true,
-      marketing_email_opt_in: Boolean(marketingEmailOptIn),
+      marketing_email_opt_in: marketingEmailOptIn,
       consent_source: 'signup',
       consent_version: SIGNUP_CONSENT_VERSION,
     },
@@ -243,7 +245,9 @@ function useProfileBootstrap({ backendUrl, sessionErrorMessage, disabled = false
         return
       }
 
-      const pendingConsent = pendingSignupConsentForSession(data.session)
+      const pendingConsent = CONSENT_FEATURE_ENABLED
+        ? pendingSignupConsentForSession(data.session)
+        : null
       const bootstrapOptions = { backendUrl }
       if (pendingConsent) {
         bootstrapOptions.consent = pendingConsent
@@ -590,7 +594,7 @@ function useAuthForm() {
 export function AuthSignupPage({ backendUrl, desktopState = '' }) {
   const form = useAuthForm()
   const [termsAccepted, setTermsAccepted] = useState(false)
-  const [marketingEmailOptIn, setMarketingEmailOptIn] = useState(false)
+  const [marketingEmailOptIn, setMarketingEmailOptIn] = useState(null)
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const safeDesktopState = getSafeDesktopState(desktopState || searchParams.get('desktop_state'))
@@ -606,6 +610,10 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
     }
     if (!termsAccepted) {
       form.setError('You must agree to the Terms & Conditions and Privacy Policy before signing up.')
+      return
+    }
+    if (!CONSENT_FEATURE_ENABLED) {
+      form.setError(CONSENT_SETUP_UNAVAILABLE)
       return
     }
 
@@ -657,6 +665,10 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
       form.setError('You must agree to the Terms & Conditions and Privacy Policy before signing up.')
       return
     }
+    if (!CONSENT_FEATURE_ENABLED) {
+      form.setError(CONSENT_SETUP_UNAVAILABLE)
+      return
+    }
     if (!rememberSignupConsent(form.email, marketingEmailOptIn)) {
       form.setError('Unable to save signup preferences. Please try again.')
       return
@@ -703,7 +715,7 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
             required
           />
         </label>
-        <label className="auth-consent">
+        <label className="auth-consent-row">
           <input
             type="checkbox"
             checked={termsAccepted}
@@ -714,10 +726,10 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
             I agree to the <a href="/terms">Terms &amp; Conditions</a> and <a href="/privacy">Privacy Policy</a>.
           </span>
         </label>
-        <label className="auth-consent">
+        <label className="auth-consent-row">
           <input
             type="checkbox"
-            checked={marketingEmailOptIn}
+            checked={marketingEmailOptIn === true}
             onChange={(event) => setMarketingEmailOptIn(event.target.checked)}
           />
           <span>I want to receive promotional, discount, and product emails.</span>

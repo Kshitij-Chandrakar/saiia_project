@@ -122,6 +122,11 @@ def test_c10_6b_marketing_unsubscribe_tokens_are_hash_only_and_backend_owned() -
     assert "marketing_email_opt_in_at = null" in sql
     assert "v_opted_out_at timestamptz" in sql
     assert "marketing_email_opt_out_at = v_opted_out_at" in sql
+    assert "created_at timestamptz not null default now()" in sql
+    assert "v_opted_out_at timestamptz := now()" in sql
+    assert "t.expires_at > now()" in sql
+    assert "set used_at = now()" in sql
+    assert "timezone('utc', now())" not in sql
     assert "insert into public.user_settings" in sql
     assert "on conflict (user_id) do update" in sql
     assert "grant execute on function public.consume_marketing_unsubscribe_token(text) to service_role" in sql
