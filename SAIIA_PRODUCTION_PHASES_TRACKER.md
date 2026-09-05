@@ -216,7 +216,7 @@ C10.6B current status:
 
 C10.6C current status:
 
-[x] Completed locally - Public `POST /api/email/unsubscribe` accepts only a token and consumes it through the existing hash-only unsubscribe service, returning a generic response without account disclosure. The public `/unsubscribe` page removes the token query parameter from the visible URL, never displays or persists the token, and explains that transactional emails remain unaffected. Endpoint/page tests passed; C10.6A and C10.6B migrations remain local and unapplied remotely. Promotional campaign sending and real delivery are not started.
+[x] Completed locally - Public `POST /api/email/unsubscribe` accepts only a token and consumes it through the existing hash-only unsubscribe service, returning a generic response without account disclosure. The public `/unsubscribe` page removes the token query parameter from the visible URL, never displays or persists the token, and explains that transactional emails remain unaffected. Apply migrations in order before enabling consent/unsubscribe features: `20260904170000_add_signup_consent_preferences.sql`, then `20260905103000_add_marketing_unsubscribe_tokens.sql`. Endpoint/page tests passed; both migrations remain local and unapplied remotely. Promotional campaign sending and real delivery are not started.
 ```
 
 C16.1 future production auth hardening release blocker:

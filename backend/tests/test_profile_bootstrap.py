@@ -34,6 +34,10 @@ class FakeBootstrapClient:
         self.rows = set(existing or set())
         self.inserts: list[tuple[str, str]] = []
         self.consent_updates: list[tuple[str, ProfileConsent]] = []
+        self.consent_schema_checks = 0
+
+    def ensure_consent_schema(self) -> None:
+        self.consent_schema_checks += 1
 
     def row_exists(self, table: str, user_id: str) -> bool:
         return (table, user_id) in self.rows
@@ -178,6 +182,25 @@ def test_bootstrap_persists_consent_for_verified_user_only() -> None:
     bootstrap_authenticated_profile(TEST_USER_ID, client=client, consent=consent)
 
     assert client.consent_updates == [(TEST_USER_ID, consent)]
+    assert client.consent_schema_checks == 1
+
+
+def test_consent_bootstrap_fails_before_partial_mutation_when_schema_is_missing() -> None:
+    class MissingConsentSchemaClient(FakeBootstrapClient):
+        def ensure_consent_schema(self) -> None:
+            raise SupabaseProfileBootstrapError("consent columns are missing")
+
+    client = MissingConsentSchemaClient()
+
+    with pytest.raises(SupabaseProfileBootstrapError):
+        bootstrap_authenticated_profile(
+            TEST_USER_ID,
+            client=client,
+            consent=ProfileConsent(True, True, None),
+        )
+
+    assert client.inserts == []
+    assert client.consent_updates == []
 
 
 def test_bootstrap_re_reads_after_conflict_and_accepts_visible_row() -> None:
@@ -234,10 +257,53 @@ def test_supabase_rest_consent_update_uses_verified_user_id_and_safe_fields() ->
     assert call["json"]["terms_accepted"] is True
     assert call["json"]["privacy_accepted"] is True
     assert call["json"]["marketing_email_opt_in"] is True
+    assert call["json"]["marketing_email_opt_in_at"]
+    assert call["json"]["marketing_email_opt_out_at"] is None
     assert call["json"]["consent_source"] == "signup"
     assert call["json"]["consent_version"] == "c10.6a-v1"
     assert "user_id" not in call["json"]
     assert "email" not in call["json"]
+
+
+def test_supabase_rest_consent_update_records_opt_out_and_clears_opt_in_timestamp() -> None:
+    session = FakeRestSession()
+    client = _rest_client(session)
+
+    client.update_user_settings_consent(TEST_USER_ID, ProfileConsent(True, True, False))
+
+    payload = session.patch_calls[0]["json"]
+    assert payload["marketing_email_opt_in"] is False
+    assert payload["marketing_email_opt_in_at"] is None
+    assert payload["marketing_email_opt_out_at"]
+
+
+def test_supabase_rest_consent_update_omits_marketing_fields_when_not_supplied() -> None:
+    session = FakeRestSession()
+    client = _rest_client(session)
+
+    client.update_user_settings_consent(TEST_USER_ID, ProfileConsent(True, True, None))
+
+    payload = session.patch_calls[0]["json"]
+    assert "marketing_email_opt_in" not in payload
+    assert "marketing_email_opt_in_at" not in payload
+    assert "marketing_email_opt_out_at" not in payload
+
+
+def test_consent_schema_check_precedes_profile_and_settings_mutations() -> None:
+    session = FakeRestSession()
+    session.get_response = FakeResponse(400, {"message": "missing consent column"})
+    client = _rest_client(session)
+
+    with pytest.raises(SupabaseProfileBootstrapError):
+        bootstrap_authenticated_profile(
+            TEST_USER_ID,
+            client=client,
+            consent=ProfileConsent(True, True, False),
+        )
+
+    assert session.post_calls == []
+    assert session.patch_calls == []
+    assert session.get_calls[0]["params"]["limit"] == "0"
 
 
 def test_supabase_rest_client_rejects_anon_key_reused_as_service_role(

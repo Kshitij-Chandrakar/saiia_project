@@ -160,6 +160,7 @@ class SupabaseMarketingUnsubscribeTokenClient:
                     "expires_at": expires_at,
                 },
                 timeout=SUPABASE_MUTATION_TIMEOUT,
+                allow_redirects=False,
             )
         except requests.RequestException as exc:
             self._raise_request("insert_token", exc)
@@ -173,6 +174,7 @@ class SupabaseMarketingUnsubscribeTokenClient:
                 headers={**self._headers, "Prefer": "return=representation"},
                 json=payload,
                 timeout=SUPABASE_MUTATION_TIMEOUT,
+                allow_redirects=False,
             )
         except requests.RequestException as exc:
             self._raise_request(function, exc)
@@ -206,6 +208,7 @@ class SupabaseMarketingUnsubscribeTokenClient:
                     "limit": "1",
                 },
                 timeout=SUPABASE_MUTATION_TIMEOUT,
+                allow_redirects=False,
             )
         except requests.RequestException as exc:
             self._raise_request("read_marketing_opt_in", exc)

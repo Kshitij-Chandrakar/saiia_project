@@ -10,6 +10,7 @@ from app.email.dry_run_provider import DryRunEmailProvider
 from app.email.unsubscribe import (
     MarketingUnsubscribeService,
     MarketingUnsubscribeValidationError,
+    SupabaseMarketingUnsubscribeTokenClient,
 )
 
 
@@ -112,6 +113,20 @@ def test_valid_token_opts_out_only_marketing_and_used_token_is_rejected() -> Non
     assert service.unsubscribe(raw_token=created.raw_token).unsubscribed is False
 
 
+def test_valid_token_creates_opt_out_state_when_preference_row_is_missing() -> None:
+    service, client = _service()
+    user_id = "00000000-0000-4000-8000-000000000002"
+    created = service.create_token(
+        user_id=user_id,
+        recipient_email="new-user@example.com",
+    )
+
+    assert user_id not in client.marketing_opt_in
+    assert service.unsubscribe(raw_token=created.raw_token).unsubscribed is True
+    assert service.is_marketing_allowed(user_id=user_id) is False
+    assert client.tokens[0]["used"] is True
+
+
 def test_expired_and_revoked_tokens_are_rejected() -> None:
     service, client = _service()
     expired = service.create_token(
@@ -181,3 +196,49 @@ def test_unsubscribe_foundation_never_requires_network(monkeypatch: pytest.Monke
     )
 
     assert service.unsubscribe(raw_token=created.raw_token).unsubscribed is True
+
+
+class FakeHttpResponse:
+    def __init__(self, status_code: int, payload: object) -> None:
+        self.status_code = status_code
+        self._payload = payload
+        self.text = ""
+
+    def json(self) -> object:
+        return self._payload
+
+
+class FakeHttpSession:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def post(self, url: str, **kwargs: object) -> FakeHttpResponse:
+        self.calls.append({"method": "POST", "url": url, **kwargs})
+        if "/rpc/" in url:
+            return FakeHttpResponse(200, [{"unsubscribed": True}])
+        return FakeHttpResponse(201, [])
+
+    def get(self, url: str, **kwargs: object) -> FakeHttpResponse:
+        self.calls.append({"method": "GET", "url": url, **kwargs})
+        return FakeHttpResponse(200, [{"marketing_email_opt_in": True}])
+
+
+def test_supabase_unsubscribe_requests_disable_redirects() -> None:
+    session = FakeHttpSession()
+    client = SupabaseMarketingUnsubscribeTokenClient.__new__(SupabaseMarketingUnsubscribeTokenClient)
+    client._rest_url = "https://project-ref.supabase.co/rest/v1"
+    client._session = session
+    client._headers = {"apikey": "service-role-test", "Authorization": "Bearer service-role-test"}
+
+    client.insert_token(
+        user_id=TEST_USER_ID,
+        recipient_email="user@example.com",
+        token_hash="a" * 64,
+        email_category="marketing",
+        expires_at="2026-10-01T00:00:00Z",
+    )
+    client.consume_token(token_hash="a" * 64)
+    client.get_marketing_opt_in(user_id=TEST_USER_ID)
+
+    assert len(session.calls) == 3
+    assert all(call["allow_redirects"] is False for call in session.calls)

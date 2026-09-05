@@ -90,8 +90,9 @@ function rememberSignupConsent(email, marketingEmailOptIn) {
       PENDING_SIGNUP_CONSENT_STORAGE_KEY,
       JSON.stringify(buildSignupConsent(email, marketingEmailOptIn)),
     )
+    return true
   } catch {
-    // Consent is retried on the next authenticated bootstrap when storage is unavailable.
+    return false
   }
 }
 
@@ -654,6 +655,10 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
     form.setError('')
     if (!termsAccepted) {
       form.setError('You must agree to the Terms & Conditions and Privacy Policy before signing up.')
+      return
+    }
+    if (!rememberSignupConsent(form.email, marketingEmailOptIn)) {
+      form.setError('Unable to save signup preferences. Please try again.')
       return
     }
     try {

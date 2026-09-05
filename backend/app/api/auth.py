@@ -85,7 +85,11 @@ class ProfileBootstrapConsentRequest(BaseModel):
         return ProfileConsent(
             terms_accepted=True,
             privacy_accepted=True,
-            marketing_email_opt_in=bool(self.marketing_email_opt_in),
+            marketing_email_opt_in=(
+                self.marketing_email_opt_in
+                if "marketing_email_opt_in" in self.model_fields_set
+                else None
+            ),
             consent_source=self.consent_source,
             consent_version=self.consent_version,
         )

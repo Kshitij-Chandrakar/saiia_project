@@ -2097,12 +2097,12 @@ GET  /api/interview-sessions/{session_id}/ask-ai/messages
 ## Status
 
 ```text
-[~] C10.1 Email system planning and safety contract in progress; implementation and delivery are not started
+[x] C10.1 Email system planning and safety contract completed/merged; this was a documentation-only phase, and later implementation/delivery phases remain separately tracked
 ```
 
 ## Goal
 
-Create a reliable email layer for authentication, transactional messages, and consent-based promotional communication. The C10.1 scope is planning only; the safety contract is documented in `docs/C10_EMAIL_SYSTEM_PLAN.md`.
+Define a reliable email layer for authentication, transactional messages, and consent-based promotional communication. C10.1 was planning-only and is completed/merged; implementation and delivery belong to later phases. The safety contract is documented in `docs/C10_EMAIL_SYSTEM_PLAN.md`.
 
 ## C10.1 boundary
 
@@ -2188,7 +2188,7 @@ Outbound email event inserts and updates are backend-only; frontend/client direc
 
 ## C10.1 phase breakdown
 
-- C10.1 - Email plan and safety contract - completed/merged
+- C10.1 - Email plan and safety contract - completed/merged documentation-only phase; later delivery work is separate
 - C10.2A - Supabase Auth emails through Resend SMTP - runbook/setup documentation completed/merged
 - C10.2B - Supabase Auth email delivery - blocked pending verified Resend sender/domain; not complete
 - C10.2 - Supabase Auth email delivery - not complete until live verification/reset emails are tested
@@ -2205,7 +2205,7 @@ Outbound email event inserts and updates are backend-only; frontend/client direc
 - C10.5 - Session summary, transcript, and AI notes emails - incomplete; C10.5A template/helper groundwork and available C10.5B dry-run triggers are complete locally, while session-summary wiring, remaining authenticated actions, and production delivery remain deferred
 - C10.6A - Signup consent and marketing preference foundation - completed locally; signup (including Google signup) requires Terms and Privacy acceptance, marketing opt-in defaults false, and consent is persisted through authenticated profile bootstrap using the verified JWT user identity. The local migration `20260904170000_add_signup_consent_preferences.sql` has not been applied remotely. Legacy no-consent bootstrap remains compatible before the migration, but consent-bearing bootstrap requires the migration on the target database before running C10.6A code against remote Supabase; absent columns must fail safely rather than discard consent or claim it was persisted. `/terms` and `/privacy` are safe placeholders pending real legal pages; no marketing sends are implemented.
 - C10.6B - Marketing unsubscribe token/opt-out foundation - completed locally; backend-only hash storage, expiry/use/revocation checks, service-role-only atomic opt-out, and a marketing guard are implemented and tested. The local migration `20260905103000_add_marketing_unsubscribe_tokens.sql` requires C10.6A first and has not been applied remotely; promotional sends and real delivery are not included.
-- C10.6C - Public unsubscribe link endpoint and promotional integration - completed locally for the public `POST /api/email/unsubscribe` endpoint, safe `/unsubscribe` confirmation page, token removal from the visible URL, generic account-safe responses, and tests. The C10.6A/C10.6B migrations remain local and unapplied remotely; promotional campaign delivery is not started.
+- C10.6C - Public unsubscribe link endpoint and promotional integration - completed locally for the public `POST /api/email/unsubscribe` endpoint, safe `/unsubscribe` confirmation page, token removal from the visible URL, generic account-safe responses, and tests. Apply migrations in order before enabling consent/unsubscribe against a target database: `20260904170000_add_signup_consent_preferences.sql`, then `20260905103000_add_marketing_unsubscribe_tokens.sql`. The migrations remain local and unapplied remotely; promotional campaign delivery is not started.
 - C10.6 - Marketing preferences and promotional emails - incomplete; C10.6A consent, C10.6B hash-only opt-out, and C10.6C public unsubscribe integration are complete locally, while promotional delivery and remote migration rollout remain deferred
 
 ## Templates

@@ -51,6 +51,7 @@ as $$
 declare
   v_token_id uuid;
   v_user_id uuid;
+  v_opted_out_at timestamptz := timezone('utc', now());
 begin
   if p_token_hash is null or p_token_hash !~ '^[a-f0-9]{64}$' then
     return query select false;
@@ -73,12 +74,22 @@ begin
 
   update public.user_settings as s
   set marketing_email_opt_in = false,
-      marketing_email_opt_out_at = timezone('utc', now())
+      marketing_email_opt_in_at = null,
+      marketing_email_opt_out_at = v_opted_out_at
   where s.user_id = v_user_id;
 
   if not found then
-    return query select false;
-    return;
+    insert into public.user_settings (
+      user_id,
+      marketing_email_opt_in,
+      marketing_email_opt_in_at,
+      marketing_email_opt_out_at
+    )
+    values (v_user_id, false, null, v_opted_out_at)
+    on conflict (user_id) do update
+      set marketing_email_opt_in = false,
+          marketing_email_opt_in_at = null,
+          marketing_email_opt_out_at = excluded.marketing_email_opt_out_at;
   end if;
 
   update public.marketing_unsubscribe_tokens as t

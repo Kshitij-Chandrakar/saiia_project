@@ -119,7 +119,11 @@ def test_c10_6b_marketing_unsubscribe_tokens_are_hash_only_and_backend_owned() -
     assert "p_token_hash text" in sql
     assert "t.token_hash = p_token_hash" in sql
     assert "marketing_email_opt_in = false" in sql
-    assert "marketing_email_opt_out_at = timezone('utc', now())" in sql
+    assert "marketing_email_opt_in_at = null" in sql
+    assert "v_opted_out_at timestamptz" in sql
+    assert "marketing_email_opt_out_at = v_opted_out_at" in sql
+    assert "insert into public.user_settings" in sql
+    assert "on conflict (user_id) do update" in sql
     assert "grant execute on function public.consume_marketing_unsubscribe_token(text) to service_role" in sql
     assert "grant execute on function public.consume_marketing_unsubscribe_token(text) to authenticated" not in sql
     assert "c10.6b local-only" in sql

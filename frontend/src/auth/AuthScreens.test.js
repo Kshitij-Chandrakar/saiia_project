@@ -136,6 +136,8 @@ test('signup requires legal consent and keeps marketing opt-in optional', () => 
   assert.match(signupPageSource, /rememberSignupConsent\(form\.email, marketingEmailOptIn\)/)
   assert.match(signupPageSource, /if \(data\.session\) \{[\s\S]*bootstrapProfile\(data\.session\.access_token, \{ backendUrl, consent: consent\.consent \}\)/)
   assert.match(signupPageSource, /async function handleGoogleLogin\(\) \{[\s\S]*if \(!termsAccepted\) \{[\s\S]*return/)
+  assert.match(source, /function rememberSignupConsent\(email, marketingEmailOptIn\) \{[\s\S]*return true[\s\S]*catch \{[\s\S]*return false/)
+  assert.match(signupPageSource, /if \(!rememberSignupConsent\(form\.email, marketingEmailOptIn\)\) \{[\s\S]*Unable to save signup preferences\. Please try again\.[\s\S]*return/)
 })
 
 

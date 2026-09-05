@@ -258,6 +258,32 @@ def test_profile_bootstrap_persists_consent_for_jwt_user_not_body_identity(monke
     ]
 
 
+def test_profile_bootstrap_omitted_marketing_preference_is_preserved(monkeypatch, client: TestClient):
+    calls: list[ProfileConsent | None] = []
+
+    def fake_bootstrap(user_id: str, consent: ProfileConsent | None = None) -> ProfileBootstrapResult:
+        calls.append(consent)
+        return ProfileBootstrapResult(
+            user_id=user_id,
+            profile_exists=True,
+            profile_created=False,
+            settings_exists=True,
+            settings_created=False,
+            next_step="profile_setup",
+        )
+
+    monkeypatch.setattr("app.api.auth.bootstrap_authenticated_profile", fake_bootstrap)
+
+    response = client.post(
+        "/api/auth/profile/bootstrap",
+        headers={"Authorization": f"Bearer {_token()}"},
+        json={"terms_accepted": True, "privacy_accepted": True},
+    )
+
+    assert response.status_code == 200
+    assert calls == [ProfileConsent(True, True, None, "signup", None)]
+
+
 def test_profile_bootstrap_rejects_incomplete_consent(monkeypatch, client: TestClient):
     calls: list[str] = []
     monkeypatch.setattr(
