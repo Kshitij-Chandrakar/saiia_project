@@ -209,6 +209,12 @@ C10.6A current status:
 [x] Completed locally - Signup, including the Google signup action, requires Terms & Conditions and Privacy Policy acceptance, marketing email opt-in is unchecked by default, and the authenticated profile-bootstrap path persists consent fields using the verified JWT user identity. The local-only migration `20260904170000_add_signup_consent_preferences.sql` has not been applied remotely. Legacy no-consent bootstrap remains compatible before the migration, but consent-bearing bootstrap requires the migration on the target database before running C10.6A code against remote Supabase; absent columns must fail safely rather than discard consent or claim it was persisted. Signup `/terms` and `/privacy` links are safe placeholders pending real legal pages. No marketing/promotional sends, unsubscribe flow, Resend calls, SMTP calls, or real emails were added; C10.6B unsubscribe and marketing delivery are not started.
 ```
 
+C10.6B current status:
+
+```text
+[x] Completed locally - Backend-only marketing unsubscribe foundation generates cryptographically random opaque tokens, stores only SHA-256 token hashes, scopes tokens to the server-provided user/email and fixed marketing category, rejects invalid/expired/used/revoked tokens generically, and atomically opts the user out through a service-role RPC. The local migration `20260905103000_add_marketing_unsubscribe_tokens.sql` requires C10.6A first and has not been applied remotely. Transactional email is unaffected; no public unsubscribe endpoint, promotional sending, Resend calls, SMTP calls, or real emails were added. C10.6C public link integration remains not started.
+```
+
 C16.1 future production auth hardening release blocker:
 
 ```text

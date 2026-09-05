@@ -40,6 +40,18 @@ from app.email.event_store import (
     SupabaseOutboundEmailEventClient,
     build_outbound_email_event_service,
 )
+from app.email.unsubscribe import (
+    CreatedMarketingUnsubscribeToken,
+    MarketingUnsubscribeError,
+    MarketingUnsubscribeResult,
+    MarketingUnsubscribeService,
+    MarketingUnsubscribeStorageError,
+    MarketingUnsubscribeTokenClient,
+    MarketingUnsubscribeValidationError,
+    SupabaseMarketingUnsubscribeTokenClient,
+    build_marketing_unsubscribe_service,
+    hash_unsubscribe_token,
+)
 
 __all__ = [
     "BACKEND_TRANSACTIONAL_EMAIL_TYPES",
@@ -78,4 +90,14 @@ __all__ = [
     "RECONCILIATION_OUTCOMES",
     "SupabaseOutboundEmailEventClient",
     "build_outbound_email_event_service",
+    "CreatedMarketingUnsubscribeToken",
+    "MarketingUnsubscribeError",
+    "MarketingUnsubscribeResult",
+    "MarketingUnsubscribeService",
+    "MarketingUnsubscribeStorageError",
+    "MarketingUnsubscribeTokenClient",
+    "MarketingUnsubscribeValidationError",
+    "SupabaseMarketingUnsubscribeTokenClient",
+    "build_marketing_unsubscribe_service",
+    "hash_unsubscribe_token",
 ]

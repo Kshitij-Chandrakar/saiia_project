@@ -186,15 +186,16 @@ The C10.6A local foundation extends `user_settings` with server-recorded consent
 
 The local-only migration is `supabase/migrations/20260904170000_add_signup_consent_preferences.sql`; it has not been applied to remote Supabase. The no-consent legacy profile bootstrap remains compatible with the pre-migration schema, but consent-bearing bootstrap is intentionally migration-dependent: apply this migration to the target database before running C10.6A signup/bootstrap code against any remote Supabase project. If the new columns are absent, the consent write must fail safely rather than drop consent fields or report persistence success. The authenticated profile-bootstrap path writes these fields using the verified JWT user identity. Signup requires Terms and Privacy acceptance, while marketing opt-in is explicit and defaults to false. The signup links currently use safe `/terms` and `/privacy` placeholders; real legal pages must be supplied before release.
 
-Future unsubscribe controls may add `email_preferences` or `marketing_subscriptions` with:
+C10.6B adds a local-only, backend-owned unsubscribe foundation. The migration `supabase/migrations/20260905103000_add_marketing_unsubscribe_tokens.sql` must run after the C10.6A consent migration and is not applied to remote Supabase in this phase.
 
-- `user_id`
-- `marketing_opt_in`
-- `unsubscribed_at`
-- `created_at`
-- `updated_at`
+- Secure opaque tokens are generated with the standard cryptographic random source; only a SHA-256 hash is stored.
+- Each token is scoped to its server-provided `user_id`, `recipient_email`, and the fixed `marketing` category, with `created_at`, `expires_at`, `used_at`, and `revoked_at` state.
+- Creation is service-role-only. The consume operation looks up the hash, rejects expired/used/revoked/invalid tokens without exposing account data, sets `marketing_email_opt_in` false, records `marketing_email_opt_out_at`, and marks the token used atomically.
+- The marketing guard reads only the authenticated user's preference. Opting out never blocks auth, account-security, welcome, or other transactional email.
+- Raw tokens are returned only from token creation for future link construction; they are never stored or logged. Full unsubscribe URLs, tokens, prompts, transcript/resume content, headers, and secrets are excluded from logs and metadata.
+- Frontend/client direct token-table writes are prohibited. A public unauthenticated unsubscribe endpoint and link construction are deferred to a later C10.6C subphase; promotional sending is not implemented.
 
-Marketing email is allowed only when `marketing_email_opt_in` is true. Opting out never blocks auth, account-security, welcome, or other transactional email. Promotional sending and unsubscribe behavior remain deferred to C10.6B.
+Marketing email is allowed only when `marketing_email_opt_in` is true. C10.6B token/opt-out behavior is complete locally, while public link integration and promotional delivery remain deferred.
 
 ## 7. Future Backend Architecture
 
@@ -240,8 +241,9 @@ Each future route must be authenticated, verify session ownership, require an id
 - **C10.5B - Feature email trigger wiring:** completed locally for `ai_notes_ready` after successful notes generation and `transcript_export` after successful export preparation. No existing session-summary preparation flow was found, so that trigger remains deferred; all delivery remains dry-run-only.
 - **C10.5 - Session summary, transcript, and AI notes emails:** incomplete; C10.5A template/helper groundwork and the available C10.5B dry-run triggers are complete locally, while session-summary wiring, remaining authenticated actions, and production delivery remain deferred.
 - **C10.6A - Signup consent and marketing preference foundation:** completed locally; signup requires Terms and Privacy acceptance, marketing opt-in is unchecked by default, consent is persisted through authenticated profile bootstrap, and no marketing sends are implemented.
-- **C10.6B - Marketing unsubscribe and promotional email delivery:** not started; real marketing delivery remains deferred until opt-in, unsubscribe, and provider safeguards are implemented.
-- **C10.6 - Marketing preferences and promotional emails:** incomplete; C10.6A consent foundation is complete locally, while unsubscribe and promotional delivery remain deferred.
+- **C10.6B - Marketing unsubscribe token/opt-out foundation:** completed locally; hash-only opaque token generation, expiry/use/revocation checks, service-role-only atomic opt-out, and a marketing preference guard are implemented and tested. The local migration `20260905103000_add_marketing_unsubscribe_tokens.sql` is not applied remotely. No public unsubscribe endpoint, campaign sending, or real email delivery is included.
+- **C10.6C - Public unsubscribe link endpoint and promotional integration:** not started; public token-link handling and promotional delivery remain deferred.
+- **C10.6 - Marketing preferences and promotional emails:** incomplete; C10.6A and the C10.6B opt-out foundation are complete locally, while public link integration, unsubscribe endpoint work, and promotional delivery remain deferred.
 
 ## 10. Manual Demo Checklist
 

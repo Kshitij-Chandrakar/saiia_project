@@ -23,6 +23,7 @@ C9_ATOMIC_TURN_MIGRATION = MIGRATIONS_DIR / "20260902120000_add_ask_ai_atomic_tu
 C9_INDEX_CLEANUP_MIGRATION = MIGRATIONS_DIR / "20260902130000_drop_redundant_ask_ai_message_index.sql"
 C10_3B_MIGRATION = MIGRATIONS_DIR / "20260904143000_add_outbound_email_events.sql"
 C10_6A_MIGRATION = MIGRATIONS_DIR / "20260904170000_add_signup_consent_preferences.sql"
+C10_6B_MIGRATION = MIGRATIONS_DIR / "20260905103000_add_marketing_unsubscribe_tokens.sql"
 
 
 def _normalized_sql() -> str:
@@ -91,6 +92,37 @@ def test_c10_6a_signup_consent_preferences_are_local_and_default_safe() -> None:
     assert "constraint user_settings_consent_source_check" in sql
     assert "check (consent_source in ('signup', 'profile_bootstrap'))" in sql
     assert "c10.6a local-only" in sql
+
+
+def test_c10_6b_marketing_unsubscribe_tokens_are_hash_only_and_backend_owned() -> None:
+    sql = " ".join(C10_6B_MIGRATION.read_text(encoding="utf-8").lower().split())
+
+    assert "create table if not exists public.marketing_unsubscribe_tokens" in sql
+    for column in (
+        "user_id uuid not null references auth.users(id) on delete cascade",
+        "recipient_email text not null",
+        "token_hash text not null",
+        "email_category text not null default 'marketing'",
+        "created_at timestamptz not null",
+        "expires_at timestamptz not null",
+        "used_at timestamptz null",
+        "revoked_at timestamptz null",
+    ):
+        assert column in sql
+    assert "token_hash ~ '^[a-f0-9]{64}$'" in sql
+    assert "email_category = 'marketing'" in sql
+    assert "alter table public.marketing_unsubscribe_tokens enable row level security" in sql
+    assert "alter table public.marketing_unsubscribe_tokens force row level security" in sql
+    assert "revoke all on table public.marketing_unsubscribe_tokens from authenticated" in sql
+    assert "grant select, insert, update, delete on table public.marketing_unsubscribe_tokens to service_role" in sql
+    assert "create or replace function public.consume_marketing_unsubscribe_token" in sql
+    assert "p_token_hash text" in sql
+    assert "t.token_hash = p_token_hash" in sql
+    assert "marketing_email_opt_in = false" in sql
+    assert "marketing_email_opt_out_at = timezone('utc', now())" in sql
+    assert "grant execute on function public.consume_marketing_unsubscribe_token(text) to service_role" in sql
+    assert "grant execute on function public.consume_marketing_unsubscribe_token(text) to authenticated" not in sql
+    assert "c10.6b local-only" in sql
 
 
 def test_c3_2_resume_lifecycle_migration_adds_required_state_contract() -> None:
