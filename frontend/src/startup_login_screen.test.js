@@ -65,7 +65,7 @@ test('startup login screen uses the exported Figma assets in header and center p
 })
 
 test('startup login shows the Figma opening-browser state while auth is pending', () => {
-  assert.match(startupSource, /const isOpeningBrowser = loginPending \|\| authState\.status === DESKTOP_AUTH_STATUSES\.SIGNING_IN/)
+  assert.match(startupSource, /const isOpeningBrowser = !startupPollFailed && \(loginPending \|\| authState\.status === DESKTOP_AUTH_STATUSES\.SIGNING_IN\)/)
   assert.match(startupSource, /isOpeningBrowser \? \(/)
   assert.match(startupSource, /Opening Your Browser/)
   assert.match(startupSource, /We’re securely connecting you to Intervu AI Sign In\./)
@@ -80,13 +80,24 @@ test('startup login shows the Figma opening-browser state while auth is pending'
   assert.match(figmaLoginCssSource, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.startup-login-opening-dot\s*\{[\s\S]*?animation: none;/)
 })
 
+test('startup login exposes recoverable poll failures without overwriting newer auth attempts', () => {
+  assert.match(startupSource, /const \[startupPollFailed, setStartupPollFailed\] = useState\(false\)/)
+  assert.match(startupSource, /const loadStartupContext = saiiaApi\?\.getCloudStartupContext \|\| saiiaApi\?\.getAuthState/)
+  assert.match(startupSource, /if \(active && requestId === requestIdRef\.current\) \{\s*setStartupPollFailed\(true\)/)
+  assert.match(startupSource, /if \(\(loginPending && !startupPollFailed\) \|\| typeof saiiaApi\?\.startAuthLogin !== 'function'\)/)
+  assert.match(startupSource, /disabled=\{!startupPollFailed && \(loginPending \|\| authState\.loginDisabled\)\}/)
+  assert.match(startupSource, /setStartupPollFailed\(false\)\s*\n\s*setAuthState\(getDesktopAuthViewModel\(\{ status: DESKTOP_AUTH_STATUSES\.SIGNING_IN \}\)\)/)
+  assert.match(startupSource, /let active = true[\s\S]*?if \(active\) \{\s*applyAuthState\(state, requestId\)/)
+  assert.match(startupSource, /active = false[\s\S]*?window\.clearInterval\(pollId\)/)
+})
+
 test('startup login button uses safe preload auth login method and guards duplicate clicks', () => {
   assert.match(startupSource, /saiiaApi\?\.startAuthLogin/)
   assert.match(startupSource, /await saiiaApi\.startAuthLogin\(\)/)
   assert.match(startupSource, /saiiaApi\?\.getCloudStartupContext/)
   assert.match(startupSource, /window\.setInterval/)
-  assert.match(startupSource, /if \(loginPending \|\| typeof saiiaApi\?\.startAuthLogin !== 'function'\)/)
-  assert.match(startupSource, /disabled={loginPending \|\| authState\.loginDisabled}/)
+  assert.match(startupSource, /if \(\(loginPending && !startupPollFailed\) \|\| typeof saiiaApi\?\.startAuthLogin !== 'function'\)/)
+  assert.match(startupSource, /disabled=\{!startupPollFailed && \(loginPending \|\| authState\.loginDisabled\)\}/)
   assert.doesNotMatch(startupSource, /completeStartup\?\.\(\)/)
   assert.doesNotMatch(startupSource, /supabase/i)
   assert.doesNotMatch(startupSource, /fetch\(/)
@@ -105,7 +116,7 @@ test('startup login reports desktop auth configuration failures safely', () => {
   assert.equal(model.detail, configError)
   assert.equal(model.email, null)
   assert.equal(getDesktopStartupErrorView(model).message, 'Desktop auth is not configured.')
-  assert.match(startupSource, /const errorView = getDesktopStartupErrorView\(authState\)/)
+  assert.match(startupSource, /const errorView = startupPollFailed[\s\S]*?getDesktopStartupErrorView\(authState\)/)
   assert.match(startupSource, /const subtitle = 'Sign in to continue to your Intervu AI workspace\.'/)
 })
 
@@ -425,7 +436,7 @@ test('startup session setup screen collects local setup and routes back or into 
 })
 
 test('startup login keeps long configuration errors in a bounded message area', () => {
-  assert.match(startupSource, /const errorView = getDesktopStartupErrorView\(authState\)/)
+  assert.match(startupSource, /const errorView = startupPollFailed[\s\S]*?getDesktopStartupErrorView\(authState\)/)
   assert.match(startupSource, /const errorText = errorView\.message/)
   assert.match(startupSource, /className={`startup-login-main\$\{errorText \? ' startup-login-main--error' : ''\}\$\{isOpeningBrowser \? ' startup-login-main--opening' : ''\}`}/)
   assert.match(startupSource, /<div className="startup-login-action-area">[\s\S]*<p className="startup-login-error" role="alert">/)

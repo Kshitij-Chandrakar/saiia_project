@@ -29,6 +29,7 @@ export function shouldShowStartupLogin(authState) {
 export default function StartupLoginScreen({ onAuthenticated }) {
   const [authState, setAuthState] = useState(() => getDesktopAuthViewModel())
   const [loginPending, setLoginPending] = useState(false)
+  const [startupPollFailed, setStartupPollFailed] = useState(false)
   const requestIdRef = useRef(0)
   const saiiaApi = typeof window !== 'undefined' ? window.saiia : null
   const electronApi = typeof window !== 'undefined' ? window.electronAPI : null
@@ -43,6 +44,7 @@ export default function StartupLoginScreen({ onAuthenticated }) {
       return
     }
     const nextState = getDesktopAuthViewModel(payload)
+    setStartupPollFailed(false)
     setAuthState(nextState)
     if (!shouldShowStartupLogin(nextState)) {
       onAuthenticated?.(nextState)
@@ -78,24 +80,37 @@ export default function StartupLoginScreen({ onAuthenticated }) {
     if (authState.status !== DESKTOP_AUTH_STATUSES.SIGNING_IN) {
       return undefined
     }
+    let active = true
     const pollId = window.setInterval(() => {
       const requestId = requestIdRef.current + 1
       requestIdRef.current = requestId
       const loadStartupContext = saiiaApi?.getCloudStartupContext || saiiaApi?.getAuthState
       loadStartupContext?.()
-        .then((state) => applyAuthState(state, requestId))
-        .catch(() => {})
+        .then((state) => {
+          if (active) {
+            applyAuthState(state, requestId)
+          }
+        })
+        .catch(() => {
+          if (active && requestId === requestIdRef.current) {
+            setStartupPollFailed(true)
+          }
+        })
     }, 1000)
-    return () => window.clearInterval(pollId)
+    return () => {
+      active = false
+      window.clearInterval(pollId)
+    }
   }, [authState.status, saiiaApi])
 
   const handleLogin = async () => {
-    if (loginPending || typeof saiiaApi?.startAuthLogin !== 'function') {
+    if ((loginPending && !startupPollFailed) || typeof saiiaApi?.startAuthLogin !== 'function') {
       return
     }
     const requestId = requestIdRef.current + 1
     requestIdRef.current = requestId
     setLoginPending(true)
+    setStartupPollFailed(false)
     setAuthState(getDesktopAuthViewModel({ status: DESKTOP_AUTH_STATUSES.SIGNING_IN }))
     try {
       applyAuthState(await saiiaApi.startAuthLogin(), requestId)
@@ -112,12 +127,14 @@ export default function StartupLoginScreen({ onAuthenticated }) {
     }
   }
 
-  const errorView = getDesktopStartupErrorView(authState)
-  const buttonText = loginPending || authState.status === DESKTOP_AUTH_STATUSES.SIGNING_IN
+  const errorView = startupPollFailed
+    ? getDesktopStartupErrorView({ error_code: DESKTOP_AUTH_ERROR_CODES.SERVICE_UNAVAILABLE })
+    : getDesktopStartupErrorView(authState)
+  const isOpeningBrowser = !startupPollFailed && (loginPending || authState.status === DESKTOP_AUTH_STATUSES.SIGNING_IN)
+  const buttonText = isOpeningBrowser
     ? 'Opening login...'
     : errorView.actionLabel
   const errorText = errorView.message
-  const isOpeningBrowser = loginPending || authState.status === DESKTOP_AUTH_STATUSES.SIGNING_IN
   const subtitle = 'Sign in to continue to your Intervu AI workspace.'
 
   return (
@@ -211,7 +228,7 @@ export default function StartupLoginScreen({ onAuthenticated }) {
                 <button
                   className="startup-login-button"
                   type="button"
-                  disabled={loginPending || authState.loginDisabled}
+                  disabled={!startupPollFailed && (loginPending || authState.loginDisabled)}
                   onClick={handleLogin}
                 >
                   <span>{buttonText}</span>
