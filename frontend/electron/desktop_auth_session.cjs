@@ -13,6 +13,18 @@ const AUTH_STATUSES = Object.freeze({
   BACKEND_UNAVAILABLE: 'backend-unavailable',
 })
 
+const AUTH_ERROR_CODES = Object.freeze({
+  CONFIGURATION: 'configuration',
+  BROWSER_LAUNCH_FAILED: 'browser-launch-failed',
+  LOGIN_TIMEOUT: 'login-timeout',
+  SESSION_EXPIRED: 'session-expired',
+  SERVICE_UNAVAILABLE: 'service-unavailable',
+  CANCELED: 'canceled',
+  UNKNOWN: 'unknown',
+})
+
+const SUPPORTED_AUTH_ERROR_CODES = new Set(Object.values(AUTH_ERROR_CODES))
+
 const CALLBACK_URL = 'saiia://auth/callback'
 const DEFAULT_BACKEND_URL = 'http://localhost:8000'
 const DEFAULT_WEB_AUTH_URL = 'http://localhost:5173/auth/desktop-login'
@@ -52,6 +64,10 @@ function safeUser(user = null) {
 function safeErrorMessage(value, fallback = '') {
   const text = String(value || fallback || '').trim()
   return text ? text.slice(0, 160) : ''
+}
+
+function safeErrorCode(value, fallback = '') {
+  return SUPPORTED_AUTH_ERROR_CODES.has(value) ? value : fallback
 }
 
 function validPositiveNumber(value, fallback) {
@@ -210,6 +226,7 @@ class DesktopAuthSessionManager {
 
     this.status = AUTH_STATUSES.SIGNED_OUT
     this.error = ''
+    this.errorCode = ''
     this.session = null
     this.user = null
     this.pendingLogin = null
@@ -235,12 +252,14 @@ class DesktopAuthSessionManager {
   }
 
   getSafeState() {
+    this._expirePendingLoginIfNeeded()
     const user = this.status === AUTH_STATUSES.SIGNED_OUT ? safeUser(null) : safeUser(this.user)
     return {
       status: this.status,
       user_id: user.user_id,
       email: user.email,
       error: this.error,
+      error_code: this.errorCode,
       safeStorageAvailable: this._canPersist(),
       activeInterviewSessionId: this.activeInterviewSession?.id || null,
     }
@@ -274,7 +293,7 @@ class DesktopAuthSessionManager {
     try {
       this._requireAuthConfig()
     } catch (error) {
-      return this._restoreAfterLoginLaunchFailure(previous, error.message)
+      return this._restoreAfterLoginLaunchFailure(previous, error.message, AUTH_ERROR_CODES.CONFIGURATION)
     }
     if (this._pendingLoginIsActive()) {
       return this.getSafeState()
@@ -296,6 +315,7 @@ class DesktopAuthSessionManager {
     }
     this.status = AUTH_STATUSES.SIGNING_IN
     this.error = ''
+    this.errorCode = ''
     try {
       const authUrl = this._buildAuthUrl(this.pendingLogin)
       this._logWebsiteHandoffUrlDebug(authUrl, this.pendingLogin)
@@ -308,7 +328,11 @@ class DesktopAuthSessionManager {
       ) {
         return this.getSafeState()
       }
-      return this._restoreAfterLoginLaunchFailure(previous, 'Could not open browser for login.')
+      return this._restoreAfterLoginLaunchFailure(
+        previous,
+        'Could not open browser for login.',
+        AUTH_ERROR_CODES.BROWSER_LAUNCH_FAILED,
+      )
     }
     return this.getSafeState()
   }
@@ -340,9 +364,16 @@ class DesktopAuthSessionManager {
     try {
       parsed = new URL(String(rawUrl || ''))
     } catch {
+      if (this._pendingLoginIsActive()) {
+        return this.getSafeState()
+      }
       return this._authFailure('Invalid authentication callback.')
     }
     if (`${parsed.protocol}//${parsed.host}${parsed.pathname}` !== this.redirectUri) {
+      const callbackState = parsed.searchParams.get(DESKTOP_STATE_PARAM) || parsed.searchParams.get('state') || ''
+      if (this._pendingLoginIsActive() && callbackState && callbackState !== this.pendingLogin.state) {
+        return this.getSafeState()
+      }
       if (
         (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') &&
         parsed.searchParams.has('code')
@@ -361,6 +392,9 @@ class DesktopAuthSessionManager {
       return this._failPendingAuth('Authentication state was rejected. Start login again.')
     }
     if (!state && !code && !handoffCode) {
+      if (this._pendingLoginIsActive()) {
+        return this.getSafeState()
+      }
       return this._authFailure('Invalid authentication callback.')
     }
 
@@ -371,7 +405,9 @@ class DesktopAuthSessionManager {
     const record = this._consumePendingLogin(state)
     if (!record) {
       if (this._pendingLoginIsActive()) {
-        this.error = 'Invalid or expired authentication attempt.'
+        return this.getSafeState()
+      }
+      if (this.errorCode === AUTH_ERROR_CODES.LOGIN_TIMEOUT) {
         return this.getSafeState()
       }
       return this._authFailure('Invalid or expired authentication attempt.')
@@ -381,9 +417,10 @@ class DesktopAuthSessionManager {
       if (this.session && this.user) {
         this.status = AUTH_STATUSES.CONNECTED
         this.error = 'Authentication was cancelled.'
+        this.errorCode = AUTH_ERROR_CODES.CANCELED
         return this.getSafeState()
       }
-      this._clearLocalSession(AUTH_STATUSES.SIGNED_OUT, 'Authentication was cancelled.')
+      this._clearLocalSession(AUTH_STATUSES.SIGNED_OUT, 'Authentication was cancelled.', AUTH_ERROR_CODES.CANCELED)
       return this.getSafeState()
     }
     if (handoffCode) {
@@ -391,7 +428,7 @@ class DesktopAuthSessionManager {
       try {
         session = await this._exchangeHandoffCode(handoffCode, record)
       } catch {
-        return this._authFailure('Authentication exchange failed.')
+        return this._authFailure('Authentication exchange failed.', { errorCode: AUTH_ERROR_CODES.SERVICE_UNAVAILABLE })
       }
       return this._installExchangedSession(session, record)
     }
@@ -404,7 +441,7 @@ class DesktopAuthSessionManager {
     try {
       session = await this._exchangeCode(code, record)
     } catch {
-      return this._authFailure('Authentication exchange failed.')
+      return this._authFailure('Authentication exchange failed.', { errorCode: AUTH_ERROR_CODES.SERVICE_UNAVAILABLE })
     }
     return this._installExchangedSession(session, record)
   }
@@ -423,6 +460,7 @@ class DesktopAuthSessionManager {
   }
 
   _pendingLoginIsActive() {
+    this._expirePendingLoginIfNeeded()
     const record = this.pendingLogin
     return Boolean(
       record &&
@@ -432,11 +470,30 @@ class DesktopAuthSessionManager {
     )
   }
 
+  _expirePendingLoginIfNeeded() {
+    const record = this.pendingLogin
+    if (!record || record.consumed || record.expires_at > this.now()) {
+      return false
+    }
+    this.pendingLogin = null
+    if (this.session && this.user) {
+      this.status = AUTH_STATUSES.CONNECTED
+    } else {
+      this.status = AUTH_STATUSES.SIGNED_OUT
+      this.session = null
+      this.user = null
+    }
+    this.error = 'Sign-in timed out. Please try signing in again.'
+    this.errorCode = AUTH_ERROR_CODES.LOGIN_TIMEOUT
+    return true
+  }
+
   _failPendingAuth(message) {
     this.pendingLogin = null
     if (this.session && this.user) {
       this.status = AUTH_STATUSES.CONNECTED
       this.error = safeErrorMessage(message, 'Authentication failed.')
+      this.errorCode = AUTH_ERROR_CODES.UNKNOWN
       return this.getSafeState()
     }
     this._clearLocalSession(AUTH_STATUSES.SIGNED_OUT, message)
@@ -531,17 +588,19 @@ class DesktopAuthSessionManager {
         return this.getSafeState()
       }
       if ([400, 401, 403].includes(response.status)) {
-        this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
+        this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.', AUTH_ERROR_CODES.SESSION_EXPIRED)
         return this.getSafeState()
       }
       if (response.status === 503) {
         this.status = AUTH_STATUSES.BACKEND_UNAVAILABLE
         this.error = 'Cloud authentication is temporarily unavailable.'
+        this.errorCode = AUTH_ERROR_CODES.SERVICE_UNAVAILABLE
         return this.getSafeState()
       }
       if (!response.ok) {
         this.status = AUTH_STATUSES.OFFLINE
         this.error = 'Cloud authentication is temporarily unavailable.'
+        this.errorCode = AUTH_ERROR_CODES.SERVICE_UNAVAILABLE
         return this.getSafeState()
       }
       const session = validateAuthSession(await response.json())
@@ -558,6 +617,7 @@ class DesktopAuthSessionManager {
       }
       this.status = AUTH_STATUSES.OFFLINE
       this.error = 'Cloud authentication is temporarily unavailable.'
+      this.errorCode = AUTH_ERROR_CODES.SERVICE_UNAVAILABLE
       return this.getSafeState()
     }
   }
@@ -570,25 +630,27 @@ class DesktopAuthSessionManager {
       return this.getSafeState()
     }
     if (verified.status === 401) {
-      this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
+      this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.', AUTH_ERROR_CODES.SESSION_EXPIRED)
       return this.getSafeState()
     }
     if (verified.status === 503 || verified.status === 0) {
       this._clearVerificationCache()
       this.status = verified.status === 503 ? AUTH_STATUSES.BACKEND_UNAVAILABLE : AUTH_STATUSES.OFFLINE
       this.error = 'Backend is temporarily unavailable.'
+      this.errorCode = AUTH_ERROR_CODES.SERVICE_UNAVAILABLE
       return this.getSafeState()
     }
     if (!verified.ok) {
       this._clearVerificationCache()
       this.status = AUTH_STATUSES.BACKEND_UNAVAILABLE
       this.error = 'Backend authentication failed.'
+      this.errorCode = AUTH_ERROR_CODES.SERVICE_UNAVAILABLE
       return this.getSafeState()
     }
 
     const nextUser = safeUser(verified.payload)
     if (!isNonEmptyString(nextUser.user_id)) {
-      this._clearLocalSession(AUTH_STATUSES.SIGNED_OUT, 'Backend authentication failed.')
+      this._clearLocalSession(AUTH_STATUSES.SIGNED_OUT, 'Backend authentication failed.', AUTH_ERROR_CODES.SERVICE_UNAVAILABLE)
       return this.getSafeState()
     }
     if (this.user?.user_id && nextUser.user_id && this.user.user_id !== nextUser.user_id) {
@@ -611,16 +673,18 @@ class DesktopAuthSessionManager {
       this._clearVerificationCache()
       this.status = AUTH_STATUSES.BOOTSTRAP_FAILED
       this.error = 'Profile setup could not be completed.'
+      this.errorCode = AUTH_ERROR_CODES.SERVICE_UNAVAILABLE
       return this.getSafeState()
     }
     if (bootstrapped.status === 401) {
-      this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
+      this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.', AUTH_ERROR_CODES.SESSION_EXPIRED)
       return this.getSafeState()
     }
     if (bootstrapped.status === 503 || bootstrapped.status === 0) {
       this._clearVerificationCache()
       this.status = bootstrapped.status === 503 ? AUTH_STATUSES.BACKEND_UNAVAILABLE : AUTH_STATUSES.OFFLINE
       this.error = 'Backend is temporarily unavailable.'
+      this.errorCode = AUTH_ERROR_CODES.SERVICE_UNAVAILABLE
       return this.getSafeState()
     }
 
@@ -628,11 +692,13 @@ class DesktopAuthSessionManager {
       this._clearVerificationCache()
       this.status = AUTH_STATUSES.BACKEND_UNAVAILABLE
       this.error = 'Profile setup could not be completed.'
+      this.errorCode = AUTH_ERROR_CODES.SERVICE_UNAVAILABLE
       return this.getSafeState()
     }
 
     this.status = AUTH_STATUSES.CONNECTED
     this.error = ''
+    this.errorCode = ''
     this._storeVerificationCache(session, nextUser.user_id)
     return this.getSafeState()
   }
@@ -1122,7 +1188,7 @@ class DesktopAuthSessionManager {
     }
   }
 
-  _clearLocalSession(status, message = '') {
+  _clearLocalSession(status, message = '', errorCode = '') {
     this.loginAttemptGeneration += 1
     this.sessionGeneration += 1
     this.pendingLogin = null
@@ -1130,6 +1196,9 @@ class DesktopAuthSessionManager {
     this.user = null
     this.status = status
     this.error = safeErrorMessage(message)
+    this.errorCode = safeErrorCode(
+      errorCode || (status === AUTH_STATUSES.TOKEN_EXPIRED ? AUTH_ERROR_CODES.SESSION_EXPIRED : ''),
+    )
     this._clearVerificationCache()
     this._clearCloudCache()
     this.activeInterviewSession = null
@@ -1210,16 +1279,18 @@ class DesktopAuthSessionManager {
     if (this.session && this.user) {
       this.status = AUTH_STATUSES.CONNECTED
       this.error = safeErrorMessage(message, 'Authentication failed.')
+      this.errorCode = safeErrorCode(options.errorCode, AUTH_ERROR_CODES.UNKNOWN)
       return this.getSafeState()
     }
     this.session = null
     this.user = null
     this.status = AUTH_STATUSES.SIGNED_OUT
     this.error = safeErrorMessage(message, 'Authentication failed.')
+    this.errorCode = safeErrorCode(options.errorCode, AUTH_ERROR_CODES.UNKNOWN)
     return this.getSafeState()
   }
 
-  _restoreAfterLoginLaunchFailure(previous, message) {
+  _restoreAfterLoginLaunchFailure(previous, message, errorCode = AUTH_ERROR_CODES.UNKNOWN) {
     this.pendingLogin = null
     this.session = previous.session || null
     this.user = previous.session && previous.user ? previous.user : null
@@ -1229,6 +1300,7 @@ class DesktopAuthSessionManager {
       this.user = null
     }
     this.error = safeErrorMessage(message, 'Authentication failed.')
+    this.errorCode = safeErrorCode(errorCode, AUTH_ERROR_CODES.UNKNOWN)
     return this.getSafeState()
   }
 
@@ -1244,6 +1316,7 @@ class DesktopAuthSessionManager {
 }
 
 module.exports = {
+  AUTH_ERROR_CODES,
   AUTH_STATUSES,
   CALLBACK_URL,
   DesktopAuthSessionManager,

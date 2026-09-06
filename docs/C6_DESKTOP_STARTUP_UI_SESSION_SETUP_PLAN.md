@@ -219,6 +219,23 @@ Avoid a large account dashboard, billing panel, session history view, or resume/
 - Startup UI and preload tests must prove that token, session, and Authorization header values are not exposed. Token-shaped fixture keys and sentinel values are allowed in negative tests.
 - Keyboard and aria-live behavior are covered.
 
+## C6.2A implementation record
+
+As of 2026-09-06, the first signed-out/token-expired desktop startup login screen is implemented against the Figma `Login - Version B` frame at node `78:451` in file `AjlJbD9X8xHbGUtRcUdXrf`.
+
+- The existing `StartupLoginScreen` auth state, browser-login action, polling, error/retry, close action, and narrow preload boundary were preserved.
+- The local exported assets are `login-mascot.png`, `login-logo.svg`, `login-arrow.svg`, `login-security.svg`, `login-close.svg`, `login-bg-ellipse-left.svg`, `login-bg-ellipse-right.svg`, `login-bg-group-left.svg`, and `login-bg-group-right.svg` under `frontend/src/assets/startup-login/`.
+- The login presentation uses the Figma `430 x 460` card, header/content spacing, typography, colors, button, security note, support link, and decorative layers. The existing waiting, session-choice, session-setup, runtime, diagnostics, and Electron IPC flows were not redesigned.
+- The close control remains a semantic, keyboard-accessible button using the existing validated `startup:close` IPC path; its header stacking context was raised above the full-card main layer so the icon and padded button area are clickable without changing the Figma geometry.
+- Focused startup tests, all frontend tests, and the Vite production build passed. A real Electron smoke check verified icon-area and padded-area mouse clicks plus focused `Enter` and `Space` activation close the startup window. Screenshot comparison, browser authentication, Windows display-scaling checks, and packaged-app verification remain manual follow-ups.
+
+The same `StartupLoginScreen` now renders the pending browser-handoff state from Figma node `70:1051` in file `AjlJbD9X8xHbGUtRcUdXrf` as soon as the existing login operation enters `SIGNING_IN`/`loginPending`.
+
+- The state uses the existing 430 x 460 shell and local shared mascot, logo, close, and decorative assets, plus the exact exported `login-open-browser.svg` asset under `frontend/src/assets/startup-login/`.
+- The visible copy is `Opening Your Browser`, `We’re securely connecting you to Intervu AI Sign In.`, and `Your browser will open automatically.`; three 12px dots use scoped CSS-only 1.2-second staggered rise/color animation and become static under `prefers-reduced-motion`.
+- The existing browser launch, polling, success transition, failure/retry behavior, close IPC, and renderer security boundary were preserved. The pending state does not launch authentication on mount or add a duplicate request path.
+- Focused and all frontend tests plus the Vite build passed. Real Electron smoke verification covered screen 1 pointer transition into the pending state, pending-state text/dot computed styles, reduced-motion output, and close while pending. Browser authentication completion, screenshot comparison, Windows scaling, and packaged-app checks remain manual.
+
 ## Risks and Open Gaps
 
 - C6.2A website-login desktop handoff currently uses a dev/local process-memory store. Production shared atomic TTL-backed handoff storage is deferred to C16.1 Production Auth Hardening and must block public production release until implemented.

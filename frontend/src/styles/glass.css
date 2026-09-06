@@ -3755,3 +3755,614 @@ textarea::placeholder {
     scroll-behavior: auto !important;
   }
 }
+
+/* Figma Login - Version B (78:451). Keep this override scoped to the first startup screen. */
+.startup-login-window {
+  position: fixed;
+  inset: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  height: auto;
+  padding: 0;
+  overflow: hidden;
+  pointer-events: auto;
+  background: transparent;
+  color: #091426;
+  font-family: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.startup-login-card {
+  position: relative;
+  box-sizing: border-box;
+  width: 430px;
+  height: 460px;
+  display: block;
+  overflow: hidden;
+  border-radius: 20px;
+  background: #ffffff;
+  color: #091426;
+}
+
+.startup-login-card::before,
+.startup-login-card::after {
+  content: none;
+}
+
+.startup-login-decorations {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.startup-login-decoration {
+  position: absolute;
+  display: block;
+  max-width: none;
+  pointer-events: none;
+}
+
+.startup-login-decoration--ellipse-left {
+  left: -241px;
+  top: -5px;
+  width: 503.847px;
+  height: 594.968px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.startup-login-decoration--ellipse-left > div {
+  flex: none;
+  transform: rotate(23deg);
+}
+
+.startup-login-decoration--ellipse-right {
+  left: 207px;
+  top: -12px;
+  width: 479.27px;
+  height: 585.901px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.startup-login-decoration--ellipse-right > div {
+  flex: none;
+  transform: rotate(161deg) scaleY(-1);
+}
+
+.startup-login-decoration--ellipse-left > div > div,
+.startup-login-decoration--ellipse-right > div > div {
+  position: relative;
+  width: 333px;
+  height: 505px;
+}
+
+.startup-login-decoration--ellipse-left img,
+.startup-login-decoration--ellipse-right img {
+  position: absolute;
+  inset: -29.47% -44.68%;
+  width: 630.6px;
+  height: 802.6px;
+  max-width: none;
+}
+
+.startup-login-decoration--group-left {
+  left: -125px;
+  top: 152px;
+  width: 278.693px;
+  height: 387.876px;
+}
+
+.startup-login-decoration--group-right {
+  left: 162.55px;
+  top: 33.29px;
+  width: 486.908px;
+  height: 537.282px;
+}
+
+.startup-login-header {
+  position: relative;
+  z-index: 2;
+  box-sizing: border-box;
+  width: 430px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 17px 18px 11px;
+  border-bottom: 1px solid rgba(197, 198, 205, 0.2);
+  -webkit-app-region: drag;
+}
+
+.startup-login-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  height: 24px;
+}
+
+.startup-login-brand__logo {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #2170e4;
+}
+
+.startup-login-brand__logo img {
+  display: block;
+  width: 12.8333px;
+  height: 11.0833px;
+}
+
+.startup-login-brand h1 {
+  width: auto;
+  height: 24px;
+  margin: 0;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 24px;
+  letter-spacing: -0.4px;
+  color: #111827;
+}
+
+.startup-login-close {
+  -webkit-app-region: no-drag;
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  margin: 0;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(213, 65, 87, 0.18);
+  color: #e43f55;
+  cursor: pointer;
+}
+
+.startup-login-close img {
+  display: block;
+  width: 10.5px;
+  height: 10.5px;
+}
+
+.startup-login-main {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  box-sizing: border-box;
+  width: 430px;
+  height: 460px;
+  display: block;
+  margin: 0;
+}
+
+.startup-login-hero {
+  position: absolute;
+  inset: 0;
+  width: 430px;
+  height: 460px;
+  display: block;
+}
+
+.startup-login-mascot-stack {
+  position: absolute;
+  left: 122.5px;
+  top: 56px;
+  width: 185px;
+  height: 124px;
+  display: block;
+}
+
+.startup-login-mascot-frame {
+  display: block;
+  width: 185px;
+  height: 124px;
+  overflow: hidden;
+}
+
+.startup-login-mascot {
+  display: block;
+  width: 185px;
+  height: 124px;
+  object-fit: cover;
+}
+
+.startup-login-copy {
+  position: absolute;
+  left: 0;
+  top: 202px;
+  width: 430px;
+  height: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0;
+}
+
+.startup-login-copy h2 {
+  width: 430px;
+  height: 40px;
+  margin: 0;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 40px;
+  text-align: center;
+  letter-spacing: -0.5px;
+  color: #091426;
+}
+
+.startup-login-copy p {
+  width: 430px;
+  height: 24px;
+  margin: 0;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 24px;
+  text-align: center;
+  color: #667085;
+}
+
+.startup-login-action-area {
+  position: absolute;
+  left: 55px;
+  top: 281px;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.startup-login-error {
+  position: static;
+  width: 320px;
+  min-height: 36px;
+  margin: 0;
+  overflow: visible;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 18px;
+  text-align: center;
+  color: #b42318;
+}
+
+.startup-login-button {
+  position: absolute;
+  left: 55px;
+  top: 281px;
+  box-sizing: border-box;
+  width: 320px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: #0058be;
+  box-shadow: none;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+  letter-spacing: 0.5px;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.startup-login-action-area .startup-login-button {
+  position: static;
+  flex: 0 0 54px;
+}
+
+.startup-login-button img {
+  display: block;
+  width: 13.3333px;
+  height: 13.3333px;
+}
+
+.startup-login-button:hover {
+  background: #004a9f;
+  color: #ffffff;
+}
+
+.startup-login-button:active {
+  background: #003f88;
+  color: #ffffff;
+  transform: none;
+}
+
+.startup-login-button:disabled,
+.startup-login-button:disabled:hover {
+  background: #6b9ad0;
+  color: #ffffff;
+  cursor: not-allowed;
+  opacity: 0.78;
+}
+
+.startup-login-info {
+  position: absolute;
+  left: 50px;
+  top: 355px;
+  width: 330px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: #667085;
+}
+
+.startup-login-info__icon {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: #e5eeff;
+}
+
+.startup-login-info__icon img {
+  display: block;
+  width: 10.6667px;
+  height: 14px;
+}
+
+.startup-login-info p {
+  width: 280px;
+  margin: 0;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+  color: #667085;
+}
+
+.startup-login-help {
+  position: absolute;
+  left: 55px;
+  top: 414px;
+  width: 320px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 20px;
+  color: #667085;
+}
+
+.startup-login-help a {
+  color: #0058be;
+  text-decoration: underline;
+}
+
+.startup-login-button:focus-visible,
+.startup-login-close:focus-visible,
+.startup-login-help a:focus-visible {
+  outline: 2px solid #0058be;
+  outline-offset: 2px;
+}
+
+.startup-login-main--error .startup-login-info {
+  top: 393px;
+}
+
+.startup-login-main--error .startup-login-help {
+  top: 428px;
+}
+
+/* Figma Login - Opening Your Browser (70:1051). Keep this state scoped to the startup login screen. */
+.startup-login-opening-content {
+  position: absolute;
+  top: 56px;
+  left: 45.5px;
+  box-sizing: border-box;
+  width: 339px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: #091426;
+}
+
+.startup-login-opening-mascot {
+  width: 234px;
+  height: 156px;
+  flex: 0 0 156px;
+  margin: 0 0 25px;
+  overflow: hidden;
+}
+
+.startup-login-opening-mascot__image {
+  display: block;
+  width: 234px;
+  height: 156px;
+  object-fit: cover;
+}
+
+.startup-login-opening-status-block {
+  width: 339px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.startup-login-opening-copy {
+  box-sizing: border-box;
+  width: 339px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 0 15px;
+}
+
+.startup-login-opening-copy h2 {
+  width: 339px;
+  height: 40px;
+  margin: 0;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 40px;
+  text-align: center;
+  letter-spacing: -0.5px;
+  color: #091426;
+  white-space: nowrap;
+}
+
+.startup-login-opening-copy p {
+  width: 339px;
+  height: 24px;
+  margin: 0;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 24px;
+  text-align: center;
+  color: #667085;
+  white-space: nowrap;
+}
+
+.startup-login-opening-loading {
+  box-sizing: border-box;
+  width: 339px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 15px 0 24px;
+}
+
+.startup-login-opening-dots {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 52px;
+  height: 12px;
+}
+
+.startup-login-opening-dot {
+  display: block;
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border-radius: 9999px;
+  background: #9dbde2;
+  animation: startup-login-opening-dot-bounce 1.2s ease-in-out infinite;
+  transform: translateY(0);
+}
+
+.startup-login-opening-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.startup-login-opening-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes startup-login-opening-dot-bounce {
+  0%,
+  100% {
+    background: #9dbde2;
+    transform: translateY(0);
+  }
+
+  16%,
+  32% {
+    background: #0058be;
+    transform: translateY(-4px);
+  }
+
+  48% {
+    background: #9dbde2;
+    transform: translateY(0);
+  }
+}
+
+.startup-login-opening-hint {
+  box-sizing: border-box;
+  width: 339px;
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.startup-login-opening-hint__icon {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 3px;
+  box-sizing: border-box;
+  border-radius: 9999px;
+  background: #e5eeff;
+}
+
+.startup-login-opening-hint__icon img {
+  display: block;
+  width: 10.5px;
+  height: 10.5px;
+}
+
+.startup-login-opening-hint p {
+  margin: 0;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 20px;
+  text-align: center;
+  color: #667085;
+  white-space: nowrap;
+}
+
+.startup-login-opening-announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .startup-login-opening-dot {
+    animation: none;
+    background: #9dbde2;
+    transform: translateY(0);
+  }
+
+  .startup-login-opening-dot:nth-child(2) {
+    background: #0058be;
+  }
+}

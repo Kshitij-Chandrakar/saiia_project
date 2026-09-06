@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { DESKTOP_AUTH_STATUSES, getDesktopAuthViewModel } from './desktop_auth_ui.js'
+import {
+  DESKTOP_AUTH_ERROR_CODES,
+  DESKTOP_AUTH_STATUSES,
+  getDesktopAuthViewModel,
+  getDesktopStartupErrorView,
+} from './desktop_auth_ui.js'
 
 const startupSource = readFileSync(new URL('./components/StartupLoginScreen.jsx', import.meta.url), 'utf8')
 const startupChoiceSource = readFileSync(new URL('./components/StartupSessionChoiceScreen.jsx', import.meta.url), 'utf8')
@@ -12,6 +17,7 @@ const cssSource = readFileSync(new URL('./styles/glass.css', import.meta.url), '
 const mainSource = readFileSync(new URL('../electron/main.cjs', import.meta.url), 'utf8')
 const preloadSource = readFileSync(new URL('../electron/preload.cjs', import.meta.url), 'utf8')
 const sessionSource = readFileSync(new URL('../electron/desktop_auth_session.cjs', import.meta.url), 'utf8')
+const figmaLoginCssSource = cssSource.slice(cssSource.indexOf('/* Figma Login - Version B'))
 const sensitivePattern = new RegExp([
   ['access', 'token'].join('_'),
   ['refresh', 'token'].join('_'),
@@ -36,14 +42,42 @@ test('startup login screen renders for signed-out and token-expired states', () 
   assert.match(startupSource, /if \(!shouldShowStartupLogin\(nextState\)\)/)
 })
 
-test('startup login screen uses mascot asset in header and center positions', () => {
-  assert.match(startupSource, /import mascotUrl from '\.\.\/assets\/intervu-mascot\.svg'/)
-  assert.match(startupSource, /startup-login-brand__mascot-frame/)
+test('startup login screen uses the exported Figma assets in header and center positions', () => {
+  assert.match(startupSource, /import loginMascotUrl from '\.\.\/assets\/startup-login\/login-mascot\.png'/)
+  assert.match(startupSource, /import loginLogoUrl from '\.\.\/assets\/startup-login\/login-logo\.svg'/)
+  assert.match(startupSource, /import loginArrowUrl from '\.\.\/assets\/startup-login\/login-arrow\.svg'/)
+  assert.match(startupSource, /import loginOpenBrowserUrl from '\.\.\/assets\/startup-login\/login-open-browser\.svg'/)
+  assert.match(startupSource, /import loginSecurityUrl from '\.\.\/assets\/startup-login\/login-security\.svg'/)
+  assert.match(startupSource, /import loginCloseUrl from '\.\.\/assets\/startup-login\/login-close\.svg'/)
+  assert.match(startupSource, /import loginBackgroundEllipseLeftUrl from '\.\.\/assets\/startup-login\/login-bg-ellipse-left\.svg'/)
+  assert.match(startupSource, /import loginBackgroundEllipseRightUrl from '\.\.\/assets\/startup-login\/login-bg-ellipse-right\.svg'/)
+  assert.match(startupSource, /import loginBackgroundGroupLeftUrl from '\.\.\/assets\/startup-login\/login-bg-group-left\.svg'/)
+  assert.match(startupSource, /import loginBackgroundGroupRightUrl from '\.\.\/assets\/startup-login\/login-bg-group-right\.svg'/)
+  assert.match(startupSource, /startup-login-brand__logo/)
   assert.match(startupSource, /startup-login-mascot"/)
-  assert.match(cssSource, /\.startup-login-brand__mascot-frame,[\s\S]*?\.startup-login-mascot-frame\s*{[\s\S]*?overflow: hidden;/)
-  assert.match(cssSource, /\.startup-login-brand__mascot-frame\s*{[\s\S]*?width: 24px;[\s\S]*?height: 24px;/)
-  assert.match(cssSource, /\.startup-login-mascot-frame\s*{[\s\S]*?width: 150px;[\s\S]*?height: 100px;/)
-  assert.match(cssSource, /\.startup-login-mascot\s*{[\s\S]*?width: 150px;[\s\S]*?height: 100px;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-brand__logo\s*{[\s\S]*?width: 24px;[\s\S]*?height: 24px;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-mascot-frame\s*{[\s\S]*?width: 185px;[\s\S]*?height: 124px;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-mascot\s*{[\s\S]*?width: 185px;[\s\S]*?height: 124px;/)
+  assert.match(startupSource, /Welcome to Intervu AI/)
+  assert.match(startupSource, /Login with Intervu AI/)
+  assert.match(startupSource, /Authentication is securely completed in your browser\./)
+  assert.doesNotMatch(startupSource, /<svg|<path/)
+})
+
+test('startup login shows the Figma opening-browser state while auth is pending', () => {
+  assert.match(startupSource, /const isOpeningBrowser = loginPending \|\| authState\.status === DESKTOP_AUTH_STATUSES\.SIGNING_IN/)
+  assert.match(startupSource, /isOpeningBrowser \? \(/)
+  assert.match(startupSource, /Opening Your Browser/)
+  assert.match(startupSource, /We’re securely connecting you to Intervu AI Sign In\./)
+  assert.match(startupSource, /Your browser will open automatically\./)
+  assert.match(startupSource, /className="startup-login-opening-loading" aria-hidden="true"/)
+  assert.match(startupSource, /className="startup-login-opening-dots"/)
+  assert.match(startupSource, /className="startup-login-opening-announcement" role="status" aria-live="polite"/)
+  assert.match(figmaLoginCssSource, /\.startup-login-opening-mascot\s*\{[\s\S]*?width: 234px;[\s\S]*?height: 156px;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-opening-dots\s*\{[\s\S]*?gap: 8px;[\s\S]*?width: 52px;[\s\S]*?height: 12px;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-opening-dot\s*\{[\s\S]*?background: #9dbde2;[\s\S]*?animation: startup-login-opening-dot-bounce 1\.2s/)
+  assert.match(figmaLoginCssSource, /@keyframes startup-login-opening-dot-bounce[\s\S]*?transform: translateY\(-4px\)/)
+  assert.match(figmaLoginCssSource, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.startup-login-opening-dot\s*\{[\s\S]*?animation: none;/)
 })
 
 test('startup login button uses safe preload auth login method and guards duplicate clicks', () => {
@@ -70,10 +104,38 @@ test('startup login reports desktop auth configuration failures safely', () => {
   assert.equal(model.status, DESKTOP_AUTH_STATUSES.SIGNED_OUT)
   assert.equal(model.detail, configError)
   assert.equal(model.email, null)
-  assert.match(startupSource, /const errorDetail = authState\.error \|\| ''/)
-  assert.match(startupSource, /const errorText = getStartupErrorMessage\(errorDetail\)/)
-  assert.match(startupSource, /return 'Desktop auth is not configured\.'/)
+  assert.equal(getDesktopStartupErrorView(model).message, 'Desktop auth is not configured.')
+  assert.match(startupSource, /const errorView = getDesktopStartupErrorView\(authState\)/)
   assert.match(startupSource, /const subtitle = 'Sign in to continue to your Intervu AI workspace\.'/)
+})
+
+test('startup login maps safe auth failures to actionable copy', () => {
+  const cases = [
+    [
+      { status: DESKTOP_AUTH_STATUSES.TOKEN_EXPIRED },
+      'Your session has expired. Please sign in again to continue.',
+      'Sign in again',
+    ],
+    [
+      { status: DESKTOP_AUTH_STATUSES.SIGNED_OUT, error_code: DESKTOP_AUTH_ERROR_CODES.LOGIN_TIMEOUT },
+      'Sign-in timed out. Please try signing in again.',
+      'Try again',
+    ],
+    [
+      { status: DESKTOP_AUTH_STATUSES.SIGNED_OUT, error_code: DESKTOP_AUTH_ERROR_CODES.BROWSER_LAUNCH_FAILED },
+      'We couldn\'t open your browser. Please try again.',
+      'Try again',
+    ],
+    [
+      { status: DESKTOP_AUTH_STATUSES.BACKEND_UNAVAILABLE },
+      'We couldn\'t connect to the sign-in service. Please check your connection and try again.',
+      'Try again',
+    ],
+  ]
+
+  for (const [state, message, actionLabel] of cases) {
+    assert.deepEqual(getDesktopStartupErrorView(state), { message, actionLabel })
+  }
 })
 
 test('desktop auth config requires Supabase URL, anon key, and website handoff URL in Electron main env', () => {
@@ -205,19 +267,25 @@ test('startup login source and styles do not expose token or session values', ()
 })
 
 test('startup login CSS keeps Figma dimensions and visual values', () => {
-  assert.match(cssSource, /\.startup-login-card\s*{[\s\S]*?width: 426px;[\s\S]*?height: 420px;/)
-  assert.match(cssSource, /\.startup-login-window,[\s\S]*?\.startup-choice-window\s*{[\s\S]*?width: 504px;[\s\S]*?height: 462px;/)
-  assert.match(cssSource, /\.startup-login-window\s*{[\s\S]*?align-items: center;[\s\S]*?justify-content: center;/)
-  assert.match(cssSource, /\.startup-login-window\s*{[\s\S]*?box-sizing: border-box;/)
-  assert.match(cssSource, /\.startup-login-card\s*{[\s\S]*?box-sizing: border-box;/)
-  assert.match(cssSource, /\.startup-login-header\s*{[\s\S]*?width: 426px;[\s\S]*?height: 48px;[\s\S]*?border-bottom: 1px solid rgba\(197, 198, 205, 0\.2\);/)
-  assert.match(cssSource, /\.startup-login-main\s*{[\s\S]*?width: 360px;[\s\S]*?gap: 18px;/)
-  assert.match(cssSource, /\.startup-login-button\s*{[\s\S]*?width: 320px;[\s\S]*?height: 54px;[\s\S]*?background: #0058be;/)
-  assert.match(cssSource, /font-family: Inter/)
-  assert.match(cssSource, /#0058be/i)
-  assert.match(cssSource, /#667085/i)
-  assert.match(cssSource, /#091426/i)
-  assert.match(cssSource, /\.startup-login-close path\s*{[\s\S]*?stroke: currentcolor;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-card\s*{[\s\S]*?width: 430px;[\s\S]*?height: 460px;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-window\s*{[\s\S]*?align-items: center;[\s\S]*?justify-content: center;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-window\s*{[\s\S]*?box-sizing: border-box;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-card\s*{[\s\S]*?box-sizing: border-box;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-header\s*{[\s\S]*?width: 430px;[\s\S]*?height: 52px;[\s\S]*?border-bottom: 1px solid rgba\(197, 198, 205, 0\.2\);/)
+  assert.match(figmaLoginCssSource, /\.startup-login-header\s*{[\s\S]*?z-index: 2;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-main\s*{[\s\S]*?z-index: 1;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-main\s*{[\s\S]*?width: 430px;[\s\S]*?height: 460px;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-button\s*{[\s\S]*?width: 320px;[\s\S]*?height: 54px;[\s\S]*?background: #0058be;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-button:hover\s*{[\s\S]*?background: #004a9f;[\s\S]*?color: #ffffff;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-button:active\s*{[\s\S]*?background: #003f88;[\s\S]*?transform: none;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-button:disabled,[\s\S]*?\.startup-login-button:disabled:hover\s*{[\s\S]*?background: #6b9ad0;[\s\S]*?color: #ffffff;[\s\S]*?opacity: 0\.78;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-decoration--group-left\s*{[\s\S]*?left: -125px;[\s\S]*?top: 152px;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-button:focus-visible,[\s\S]*?\.startup-login-close:focus-visible/)
+  assert.match(figmaLoginCssSource, /font-family: Inter/)
+  assert.match(figmaLoginCssSource, /#0058be/i)
+  assert.match(figmaLoginCssSource, /#667085/i)
+  assert.match(figmaLoginCssSource, /#091426/i)
+  assert.match(figmaLoginCssSource, /\.startup-login-close img\s*{[\s\S]*?width: 10\.5px;[\s\S]*?height: 10\.5px;/)
 })
 
 test('startup session choice screen matches Figma shell and safe placeholder behavior', () => {
@@ -357,11 +425,12 @@ test('startup session setup screen collects local setup and routes back or into 
 })
 
 test('startup login keeps long configuration errors in a bounded message area', () => {
-  assert.match(startupSource, /const errorDetail = authState\.error \|\| ''/)
-  assert.match(startupSource, /const errorText = getStartupErrorMessage\(errorDetail\)/)
-  assert.match(startupSource, /className={`startup-login-main\$\{errorText \? ' startup-login-main--error' : ''\}`}/)
-  assert.match(startupSource, /<p className="startup-login-error" aria-live="polite" title={errorDetail}>/)
-  assert.match(startupSource, /return 'Desktop auth is not configured\.'/)
-  assert.match(cssSource, /\.startup-login-error\s*{[\s\S]*?position: absolute;[\s\S]*?top: 160px;[\s\S]*?height: 14px;[\s\S]*?overflow: hidden;[\s\S]*?font-size: 10px;/)
-  assert.doesNotMatch(cssSource, /\.startup-login-main--error \.startup-login-features\s*{[\s\S]*?height: 54px;/)
+  assert.match(startupSource, /const errorView = getDesktopStartupErrorView\(authState\)/)
+  assert.match(startupSource, /const errorText = errorView\.message/)
+  assert.match(startupSource, /className={`startup-login-main\$\{errorText \? ' startup-login-main--error' : ''\}\$\{isOpeningBrowser \? ' startup-login-main--opening' : ''\}`}/)
+  assert.match(startupSource, /<div className="startup-login-action-area">[\s\S]*<p className="startup-login-error" role="alert">/)
+  assert.match(figmaLoginCssSource, /\.startup-login-action-area\s*{[\s\S]*?top: 281px;[\s\S]*?display: flex;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-error\s*{[\s\S]*?position: static;[\s\S]*?min-height: 36px;[\s\S]*?overflow: visible;/)
+  assert.match(figmaLoginCssSource, /\.startup-login-action-area \.startup-login-button\s*{[\s\S]*?position: static;/)
+  assert.doesNotMatch(figmaLoginCssSource, /\.startup-login-error\s*{[^}]*position: absolute;/)
 })
