@@ -246,6 +246,12 @@ test('main process starts compact and keeps overlay hidden before startup comple
   assert.match(mainSource, /function completeStartupFlow\(\)[\s\S]*?mainWindow\.setSize\(620, 860\)[\s\S]*?syncOverlayVisibility\(true\)/)
 })
 
+test('startup view validation and completion clear stale presentation state safely', () => {
+  assert.match(mainSource, /function resizeStartupWindow\(view\)\s*\{[\s\S]*?typeof view !== 'string'[\s\S]*?hasOwnProperty\.call\(STARTUP_WINDOW_LAYOUTS, view\)/)
+  assert.match(mainSource, /function completeStartupFlow\(\)\s*\{\s*startupWindowController\.reset\(\)\s*startupFlowComplete = true[\s\S]*?mainWindow\.setSize\(620, 860\)/)
+  assert.match(mainSource, /ipcMain\.handle\('startup:restore', \(event\) => \{[\s\S]*?startupFlowComplete[\s\S]*?reason: 'startup-complete'[\s\S]*?return restoreStartupWindow\(\)/)
+})
+
 test('main process logout resets startup flow and hides overlay before login', () => {
   assert.match(mainSource, /function resetStartupFlow\(\)[\s\S]*?startupFlowComplete = false[\s\S]*?syncOverlayVisibility\(false\)/)
   assert.match(mainSource, /function resetStartupFlow\(\)[\s\S]*?resizeStartupWindow\('auth'\)[\s\S]*?mainWindow\.show\(\)/)
@@ -297,6 +303,11 @@ test('startup login CSS keeps Figma dimensions and visual values', () => {
   assert.match(figmaLoginCssSource, /#667085/i)
   assert.match(figmaLoginCssSource, /#091426/i)
   assert.match(figmaLoginCssSource, /\.startup-login-close img\s*{[\s\S]*?width: 10\.5px;[\s\S]*?height: 10\.5px;/)
+})
+
+test('startup resize IPC rejects safely and account menu stays outside drag regions', () => {
+  assert.match(diagnosticsSource, /const resizeStartupWindow = \(view\) => \{[\s\S]*?try \{[\s\S]*?resizeStartupWindow\?\.\(view\)[\s\S]*?Promise\.resolve\(resizeResult\)\.catch\(\(\) => \{\}\)/)
+  assert.match(cssSource, /\.startup-choice-account-menu\s*\{[\s\S]*?-webkit-app-region: no-drag;/)
 })
 
 test('authenticated home account menu uses the safe email and existing dashboard/logout APIs', () => {

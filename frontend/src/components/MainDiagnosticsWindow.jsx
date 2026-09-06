@@ -595,7 +595,12 @@ export default function MainDiagnosticsWindow(props) {
     await window.electronAPI?.triggerToolbarAction?.('analyze-screen-extension')
   }
   const resizeStartupWindow = (view) => {
-    window.electronAPI?.resizeStartupWindow?.(view)
+    try {
+      const resizeResult = window.electronAPI?.resizeStartupWindow?.(view)
+      void Promise.resolve(resizeResult).catch(() => {})
+    } catch {
+      // Sizing is non-critical; keep the existing screen available if IPC is unavailable.
+    }
   }
 
   if (!startupAuthenticated && shouldShowStartupLogin()) {

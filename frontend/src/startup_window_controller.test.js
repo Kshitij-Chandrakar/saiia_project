@@ -95,3 +95,18 @@ test('failed native collapse does not enter mascot state or lose the expanded wi
   window.setBounds = originalSetBounds
   assert.deepEqual(controller.collapse(window), { ok: true, collapsed: true })
 })
+
+test('reset clears collapsed presentation state and saved bounds without native mutation', () => {
+  const screen = createFakeScreen()
+  const controller = createStartupWindowController({ screen, mascotLayout })
+  const window = createFakeWindow()
+
+  assert.deepEqual(controller.collapse(window), { ok: true, collapsed: true })
+  const callsAfterCollapse = window.calls.length
+
+  controller.reset()
+
+  assert.equal(controller.isCollapsed(), false)
+  assert.deepEqual(controller.restore(window), { ok: true, collapsed: false })
+  assert.equal(window.calls.length, callsAfterCollapse)
+})

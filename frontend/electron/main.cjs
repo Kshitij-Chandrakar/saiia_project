@@ -1047,6 +1047,7 @@ function syncOverlayVisibility(visible) {
 }
 
 function completeStartupFlow() {
+  startupWindowController.reset()
   startupFlowComplete = true
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.setMinimumSize(420, 260)
@@ -1066,10 +1067,10 @@ function restoreStartupWindow() {
 }
 
 function resizeStartupWindow(view) {
-  const layout = STARTUP_WINDOW_LAYOUTS[view]
-  if (!layout) {
+  if (typeof view !== 'string' || !Object.prototype.hasOwnProperty.call(STARTUP_WINDOW_LAYOUTS, view)) {
     return { ok: false, reason: 'invalid-startup-view' }
   }
+  const layout = STARTUP_WINDOW_LAYOUTS[view]
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (startupWindowController.isCollapsed()) {
       const restoreResult = restoreStartupWindow()
@@ -1811,6 +1812,9 @@ ipcMain.handle('startup:collapse', (event) => {
 
 ipcMain.handle('startup:restore', (event) => {
   validateAuthIpc(event)
+  if (startupFlowComplete) {
+    return { ok: false, reason: 'startup-complete' }
+  }
   return restoreStartupWindow()
 })
 

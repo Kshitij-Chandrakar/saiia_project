@@ -476,6 +476,9 @@ class DesktopAuthSessionManager {
       return false
     }
     this.pendingLogin = null
+    if (this.status !== AUTH_STATUSES.SIGNING_IN) {
+      return true
+    }
     if (this.session && this.user) {
       this.status = AUTH_STATUSES.CONNECTED
     } else {

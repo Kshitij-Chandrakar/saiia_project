@@ -2120,6 +2120,7 @@ textarea::placeholder {
   position: absolute;
   top: 55px;
   right: 8px;
+  -webkit-app-region: no-drag;
   z-index: 1;
   box-sizing: border-box;
   display: flex;
