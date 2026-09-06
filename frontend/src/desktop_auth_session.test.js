@@ -9,6 +9,7 @@ import vm from 'node:vm'
 
 const require = createRequire(import.meta.url)
 const {
+  AUTH_ERROR_CODES,
   AUTH_STATUSES,
   CALLBACK_URL,
   DesktopAuthSessionManager,
@@ -266,6 +267,7 @@ test('startLogin requires website handoff config and fails safely when browser l
     const state = await browserFailure.manager.startLogin()
     assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
     assert.equal(state.error, 'Could not open browser for login.')
+    assert.equal(state.error_code, AUTH_ERROR_CODES.BROWSER_LAUNCH_FAILED)
     assert.equal(browserFailure.manager.pendingLogin, null)
   } finally {
     browserFailure.cleanup()
@@ -392,7 +394,7 @@ test('handoff callback requires matching desktop state before exchange', async (
       callbackUrlFor(ctx.manager, { handoff_code: 'handoff-code', state: 'wrong-state' }),
     )
     assert.equal(result.status, AUTH_STATUSES.SIGNING_IN)
-    assert.equal(result.error, 'Invalid or expired authentication attempt.')
+    assert.equal(result.error, '')
     assert.equal(ctx.calls.some((call) => call.url.endsWith('/api/auth/desktop-handoff/exchange')), false)
   } finally {
     ctx.cleanup()
@@ -471,28 +473,29 @@ test('callback rejects missing code, mismatched state, expired attempt, and reus
 
     await ctx.manager.startLogin()
     result = await ctx.manager.handleAuthCallback(callbackUrlFor(ctx.manager))
-    assert.equal(result.status, AUTH_STATUSES.SIGNED_OUT)
-    assert.equal(result.error, 'Invalid authentication callback.')
+    assert.equal(result.status, AUTH_STATUSES.SIGNING_IN)
+    assert.equal(result.error, '')
 
     await ctx.manager.startLogin()
     const activePending = ctx.manager.pendingLogin
     result = await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?code=auth-code`)
     assert.equal(result.status, AUTH_STATUSES.SIGNING_IN)
-    assert.equal(result.error, 'Invalid or expired authentication attempt.')
+    assert.equal(result.error, '')
     assert.equal(ctx.manager.pendingLogin, activePending)
     assert.equal(ctx.calls.some((call) => call.url.includes('grant_type=pkce')), false)
 
     await ctx.manager.startLogin()
     result = await ctx.manager.handleAuthCallback(`${CALLBACK_URL}?code=auth-code&desktop_state=wrong`)
     assert.equal(result.status, AUTH_STATUSES.SIGNING_IN)
-    assert.equal(result.error, 'Invalid or expired authentication attempt.')
+    assert.equal(result.error, '')
 
     ctx.manager.now = () => 2000
     await ctx.manager.startLogin()
     ctx.manager.pendingLogin.expires_at = 1500
     result = await ctx.manager.handleAuthCallback(callbackUrlFor(ctx.manager, { code: 'auth-code' }))
     assert.equal(result.status, AUTH_STATUSES.SIGNED_OUT)
-    assert.equal(result.error, 'Invalid or expired authentication attempt.')
+    assert.equal(result.error, 'Sign-in timed out. Please try signing in again.')
+    assert.equal(result.error_code, AUTH_ERROR_CODES.LOGIN_TIMEOUT)
 
     ctx.manager.now = () => 1000
     await ctx.manager.startLogin()
@@ -504,6 +507,67 @@ test('callback rejects missing code, mismatched state, expired attempt, and reus
     assert.equal(result.status, AUTH_STATUSES.CONNECTED)
     assert.equal(result.error, 'Invalid or expired authentication attempt.')
     assert.equal(exchangeCountAfterFirst(), firstExchangeCount)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('expired pending login is surfaced through safe-state polling without leaking session data', async () => {
+  let now = 1000
+  const ctx = createManager({ now: () => now, loginTtlMs: 100 })
+  try {
+    await ctx.manager.startLogin()
+    assert.equal(ctx.manager.getSafeState().status, AUTH_STATUSES.SIGNING_IN)
+
+    now = 1100
+    const state = ctx.manager.getSafeState()
+
+    assert.equal(state.status, AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(state.error, 'Sign-in timed out. Please try signing in again.')
+    assert.equal(state.error_code, AUTH_ERROR_CODES.LOGIN_TIMEOUT)
+    assert.equal(ctx.manager.pendingLogin, null)
+    assert.equal('access_token' in state, false)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
+test('expired pending records only produce timeout state for an active signing-in attempt', () => {
+  const ctx = createManager({ now: () => 2000 })
+  try {
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    ctx.manager.session = { access_token: 'connected-access', refresh_token: 'connected-refresh' }
+    ctx.manager.user = { user_id: 'user-1', email: 'user@example.com' }
+    ctx.manager.error = 'Existing service warning.'
+    ctx.manager.errorCode = AUTH_ERROR_CODES.SERVICE_UNAVAILABLE
+    ctx.manager.pendingLogin = { expires_at: 1000, consumed: false }
+
+    const connected = ctx.manager.getSafeState()
+    assert.equal(connected.status, AUTH_STATUSES.CONNECTED)
+    assert.equal(connected.email, 'user@example.com')
+    assert.equal(connected.error, 'Existing service warning.')
+    assert.equal(connected.error_code, AUTH_ERROR_CODES.SERVICE_UNAVAILABLE)
+    assert.equal(ctx.manager.pendingLogin, null)
+
+    for (const status of [
+      AUTH_STATUSES.SIGNED_OUT,
+      AUTH_STATUSES.TOKEN_EXPIRED,
+      AUTH_STATUSES.OFFLINE,
+      AUTH_STATUSES.BACKEND_UNAVAILABLE,
+      AUTH_STATUSES.BOOTSTRAP_FAILED,
+    ]) {
+      const existingError = `Existing ${status} state.`
+      ctx.manager.status = status
+      ctx.manager.error = existingError
+      ctx.manager.errorCode = AUTH_ERROR_CODES.SERVICE_UNAVAILABLE
+      ctx.manager.pendingLogin = { expires_at: 1000, consumed: false }
+
+      const state = ctx.manager.getSafeState()
+      assert.equal(state.status, status)
+      assert.equal(state.error, existingError)
+      assert.equal(state.error_code, AUTH_ERROR_CODES.SERVICE_UNAVAILABLE)
+      assert.equal(ctx.manager.pendingLogin, null)
+    }
   } finally {
     ctx.cleanup()
   }
@@ -1794,6 +1858,11 @@ test('desktop auth manager creates lists and ends interview sessions without exp
     assert.equal(listed.items[0].id, 'session-1')
     assert.equal(listed.items[0].status, 'ended')
 
+    const listedPast = await ctx.manager.listInterviewSessions({ limit: 3, page: 1, status: 'ended,abandoned' })
+    assert.equal(listedPast.items[0].company_name, 'Acme')
+    const pastListCall = ctx.calls.filter((call) => call.url.includes('/api/interview-sessions?')).at(-1)
+    assert.match(pastListCall.url, /limit=3&.*page=1&.*status=ended%2Cabandoned/)
+
     const ended = await ctx.manager.endInterviewSession('session-1')
     assert.equal(ended.session.status, 'ended')
     assert.equal(ctx.manager.activeInterviewSession, null)
@@ -2010,6 +2079,7 @@ test('preload exposes exact narrow auth methods without raw tokens or generic fe
     'captureActiveWindow',
     'captureActiveWindowSequence',
     'captureScreen',
+    'collapseStartupWindow',
     'closeStartupWindow',
     'createInterviewSession',
     'endInterviewSession',
@@ -2022,6 +2092,7 @@ test('preload exposes exact narrow auth methods without raw tokens or generic fe
     'logoutAuth',
     'openDashboard',
     'refreshCloudStartupContext',
+    'restoreStartupWindow',
     'startAuthLogin',
   ].sort())
   assert.equal('access_token' in exposed.saiia, false)

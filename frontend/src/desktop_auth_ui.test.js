@@ -277,7 +277,8 @@ test('runtime logout returns renderer to startup login gate without stale identi
   assert.match(source, /function DesktopAuthStatus\(\{ onSignedOut \}\)/)
   assert.match(source, /const nextState = getDesktopAuthViewModel\(payload\)[\s\S]*?setAuthState\(nextState\)[\s\S]*?if \(shouldShowStartupLogin\(nextState\)\) {[\s\S]*?onSignedOut\?\.\(nextState\)/)
   assert.match(diagnosticsSource, /onDesktopSignedOut,\s*\} = props/)
-  assert.match(diagnosticsSource, /<DesktopAuthStatus onSignedOut=\{\(\) => {[\s\S]*?onDesktopSignedOut\?\.\(\)[\s\S]*?setStartupAuthenticated\(false\)/)
+  assert.match(diagnosticsSource, /const resetStartupAuthentication = \(\) => {[\s\S]*?onDesktopSignedOut\?\.\(\)[\s\S]*?setStartupAuthenticated\(false\)/)
+  assert.match(diagnosticsSource, /<DesktopAuthStatus onSignedOut=\{resetStartupAuthentication\} \/>/)
   assert.match(diagnosticsSource, /if \(!startupAuthenticated && shouldShowStartupLogin\(\)\) {[\s\S]*?<StartupLoginScreen/)
   assert.match(resetLogoutBody, /stopSystemAudioRecordingForLogout\(\)/)
   assert.match(resetLogoutBody, /stopActiveOperation\(\)/)
@@ -325,7 +326,7 @@ test('desktop logout stops server-side system audio without applying late stop r
 })
 
 test('desktop auth wiring leaves local no-auth controls available', () => {
-  assert.match(diagnosticsSource, /<DesktopAuthStatus onSignedOut=\{\(\) => {[\s\S]*?setStartupAuthenticated\(false\)/)
+  assert.match(diagnosticsSource, /<DesktopAuthStatus onSignedOut=\{resetStartupAuthentication\} \/>/)
   assert.match(diagnosticsSource, /Setup Profile/)
   assert.match(diagnosticsSource, /Start Recording \(Fallback\)/)
   assert.match(diagnosticsSource, /Analyze Active Window/)

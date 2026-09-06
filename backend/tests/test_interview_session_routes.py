@@ -96,9 +96,11 @@ class FakeInterviewSessionService:
         self.user_ids: list[str] = []
         self.idempotency_keys: list[str | None] = []
         self.last_create_payload: dict | None = None
+        self.status_filters: list[tuple[str, ...] | None] = []
 
-    def list_sessions(self, *, user_id: str, limit: int, page: int):
+    def list_sessions(self, *, user_id: str, limit: int, page: int, statuses: tuple[str, ...] | None = None):
         self.user_ids.append(user_id)
+        self.status_filters.append(statuses)
         return InterviewSessionListPage(items=[_record(user_id=user_id)], limit=limit, page=page)
 
     def create_session(self, *, user_id: str, payload: dict, idempotency_key: str | None):
@@ -179,6 +181,21 @@ def test_list_detail_and_end_are_user_owned(client: TestClient, fake_service: Fa
     assert ended.json()["status"] == "ended"
     assert ended.json()["ended_at"] == "2026-08-28T00:15:00Z"
     assert fake_service.user_ids == [TEST_USER_ID, TEST_USER_ID, TEST_USER_ID]
+
+
+def test_list_past_sessions_uses_owner_scoped_status_filter_and_limit(
+    client: TestClient,
+    fake_service: FakeInterviewSessionService,
+) -> None:
+    response = client.get(
+        "/api/interview-sessions?limit=3&page=1&status=ended,abandoned",
+        headers={"Authorization": f"Bearer {_token()}"},
+    )
+
+    assert response.status_code == 200
+    assert fake_service.user_ids == [TEST_USER_ID]
+    assert fake_service.status_filters == [("ended", "abandoned")]
+    assert response.json()["limit"] == 3
 
 
 def test_list_returns_503_when_supabase_cloud_config_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -18,6 +18,7 @@ const {
   DesktopAuthSessionManager,
   createIpcSenderValidator,
 } = require('./desktop_auth_session.cjs')
+const { createStartupWindowController } = require('./startup_window_controller.cjs')
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) {
@@ -58,6 +59,15 @@ let validateOverlayWindowIpcSender = null
 let bufferedDesktopAuthCallbacks = []
 let quittingAfterSessionFinalize = false
 let finalizeInterviewSessionPromise = null
+
+const STARTUP_WINDOW_LAYOUTS = Object.freeze({
+  auth: Object.freeze({ width: 504, height: 462, minWidth: 426, minHeight: 384 }),
+  home: Object.freeze({ width: 428, height: 462, minWidth: 428, minHeight: 384 }),
+  history: Object.freeze({ width: 428, height: 514, minWidth: 428, minHeight: 384 }),
+  setup: Object.freeze({ width: 504, height: 462, minWidth: 426, minHeight: 384 }),
+})
+const STARTUP_MASCOT_LAYOUT = Object.freeze({ width: 144, height: 144, minWidth: 144, minHeight: 144 })
+const startupWindowController = createStartupWindowController({ screen, mascotLayout: STARTUP_MASCOT_LAYOUT })
 
 const overlayState = {
   answer: '',
@@ -1037,6 +1047,7 @@ function syncOverlayVisibility(visible) {
 }
 
 function completeStartupFlow() {
+  startupWindowController.reset()
   startupFlowComplete = true
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.setMinimumSize(420, 260)
@@ -1047,13 +1058,38 @@ function completeStartupFlow() {
   return { ok: true }
 }
 
+function collapseStartupWindow() {
+  return startupWindowController.collapse(mainWindow)
+}
+
+function restoreStartupWindow() {
+  return startupWindowController.restore(mainWindow)
+}
+
+function resizeStartupWindow(view) {
+  if (typeof view !== 'string' || !Object.prototype.hasOwnProperty.call(STARTUP_WINDOW_LAYOUTS, view)) {
+    return { ok: false, reason: 'invalid-startup-view' }
+  }
+  const layout = STARTUP_WINDOW_LAYOUTS[view]
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (startupWindowController.isCollapsed()) {
+      const restoreResult = restoreStartupWindow()
+      if (!restoreResult.ok) {
+        return restoreResult
+      }
+    }
+    mainWindow.setMinimumSize(layout.minWidth, layout.minHeight)
+    mainWindow.setSize(layout.width, layout.height)
+    mainWindow.center()
+  }
+  return { ok: true, view }
+}
+
 function resetStartupFlow() {
   startupFlowComplete = false
   syncOverlayVisibility(false)
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.setMinimumSize(426, 384)
-    mainWindow.setSize(504, 462)
-    mainWindow.center()
+    resizeStartupWindow('auth')
     mainWindow.show()
     mainWindow.focus()
   }
@@ -1493,6 +1529,7 @@ function createMainWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+    startupWindowController.reset()
   })
 }
 
@@ -1752,6 +1789,33 @@ ipcMain.handle('startup:complete', (event) => {
     return { ok: false, reason: 'auth-required' }
   }
   return completeStartupFlow()
+})
+
+ipcMain.handle('startup:resize', (event, view) => {
+  validateAuthIpc(event)
+  if (startupFlowComplete) {
+    return { ok: false, reason: 'startup-complete' }
+  }
+  return resizeStartupWindow(view)
+})
+
+ipcMain.handle('startup:collapse', (event) => {
+  validateAuthIpc(event)
+  if (startupFlowComplete) {
+    return { ok: false, reason: 'startup-complete' }
+  }
+  if (desktopAuthSessionManager?.getSafeState?.().status !== 'connected') {
+    return { ok: false, reason: 'auth-required' }
+  }
+  return collapseStartupWindow()
+})
+
+ipcMain.handle('startup:restore', (event) => {
+  validateAuthIpc(event)
+  if (startupFlowComplete) {
+    return { ok: false, reason: 'startup-complete' }
+  }
+  return restoreStartupWindow()
 })
 
 ipcMain.handle('startup:close', (event) => {

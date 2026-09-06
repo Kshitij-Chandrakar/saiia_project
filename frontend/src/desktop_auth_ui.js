@@ -8,7 +8,18 @@ export const DESKTOP_AUTH_STATUSES = Object.freeze({
   BACKEND_UNAVAILABLE: 'backend-unavailable',
 })
 
+export const DESKTOP_AUTH_ERROR_CODES = Object.freeze({
+  CONFIGURATION: 'configuration',
+  BROWSER_LAUNCH_FAILED: 'browser-launch-failed',
+  LOGIN_TIMEOUT: 'login-timeout',
+  SESSION_EXPIRED: 'session-expired',
+  SERVICE_UNAVAILABLE: 'service-unavailable',
+  CANCELED: 'canceled',
+  UNKNOWN: 'unknown',
+})
+
 const SUPPORTED_DESKTOP_AUTH_STATUSES = new Set(Object.values(DESKTOP_AUTH_STATUSES))
+const SUPPORTED_DESKTOP_AUTH_ERROR_CODES = new Set(Object.values(DESKTOP_AUTH_ERROR_CODES))
 
 export function normalizeDesktopAuthState(value = {}) {
   const candidateStatus = String(value?.status || DESKTOP_AUTH_STATUSES.SIGNED_OUT)
@@ -21,6 +32,59 @@ export function normalizeDesktopAuthState(value = {}) {
     user_id: connected && typeof value?.user_id === 'string' ? value.user_id : null,
     email: connected && typeof value?.email === 'string' ? value.email : null,
     error: typeof value?.error === 'string' ? value.error : '',
+    error_code: SUPPORTED_DESKTOP_AUTH_ERROR_CODES.has(value?.error_code) ? value.error_code : '',
+  }
+}
+
+export function getDesktopStartupErrorView(value = {}) {
+  const state = normalizeDesktopAuthState(value?.auth || value)
+  const isServiceUnavailable = [
+    DESKTOP_AUTH_STATUSES.OFFLINE,
+    DESKTOP_AUTH_STATUSES.BACKEND_UNAVAILABLE,
+  ].includes(state.status) || state.error_code === DESKTOP_AUTH_ERROR_CODES.SERVICE_UNAVAILABLE
+
+  if (state.status === DESKTOP_AUTH_STATUSES.TOKEN_EXPIRED || state.error_code === DESKTOP_AUTH_ERROR_CODES.SESSION_EXPIRED) {
+    return {
+      message: 'Your session has expired. Please sign in again to continue.',
+      actionLabel: 'Sign in again',
+    }
+  }
+  if (state.error_code === DESKTOP_AUTH_ERROR_CODES.LOGIN_TIMEOUT) {
+    return {
+      message: 'Sign-in timed out. Please try signing in again.',
+      actionLabel: 'Try again',
+    }
+  }
+  if (state.error_code === DESKTOP_AUTH_ERROR_CODES.BROWSER_LAUNCH_FAILED) {
+    return {
+      message: 'We couldn\'t open your browser. Please try again.',
+      actionLabel: 'Try again',
+    }
+  }
+  if (isServiceUnavailable) {
+    return {
+      message: 'We couldn\'t connect to the sign-in service. Please check your connection and try again.',
+      actionLabel: 'Try again',
+    }
+  }
+  if (state.error_code === DESKTOP_AUTH_ERROR_CODES.CONFIGURATION || /Desktop cloud auth is not configured/i.test(state.error)) {
+    return {
+      message: 'Desktop auth is not configured.',
+      actionLabel: 'Try again',
+    }
+  }
+  if (state.error_code === DESKTOP_AUTH_ERROR_CODES.CANCELED || /Authentication was cancelled/i.test(state.error)) {
+    return {
+      message: 'Sign-in was cancelled. Please try again.',
+      actionLabel: 'Try again',
+    }
+  }
+  if (!state.error) {
+    return { message: '', actionLabel: 'Login with Intervu AI \u2192' }
+  }
+  return {
+    message: 'We couldn\'t complete sign-in. Please try again.',
+    actionLabel: 'Try again',
   }
 }
 
