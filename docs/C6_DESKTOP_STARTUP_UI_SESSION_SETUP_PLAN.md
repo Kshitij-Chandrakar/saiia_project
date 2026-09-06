@@ -236,6 +236,44 @@ The same `StartupLoginScreen` now renders the pending browser-handoff state from
 - The existing browser launch, polling, success transition, failure/retry behavior, close IPC, and renderer security boundary were preserved. The pending state does not launch authentication on mount or add a duplicate request path.
 - Focused and all frontend tests plus the Vite build passed. Real Electron smoke verification covered screen 1 pointer transition into the pending state, pending-state text/dot computed styles, reduced-motion output, and close while pending. Browser authentication completion, screenshot comparison, Windows scaling, and packaged-app checks remain manual.
 
+## C6.2B authenticated home/session-choice presentation record
+
+As of 2026-09-06, the authenticated desktop home/Create state is corrected against the Figma `Main/Home State - Create / History` frame at node `60:816` in file `AjlJbD9X8xHbGUtRcUdXrf`.
+
+- The target logical frame is `428 x 462` with a `428 x 65` header, `380px` content columns, `24px` content padding, `16px` card gap, and straight card action separators. The Electron startup home layout now uses those dimensions directly; it does not use CSS scaling or a global zoom change. Auth/session-setup remain on their existing `504 x 462` layout and runtime sizing is unchanged.
+- Exact local Figma exports are used from `frontend/src/assets/startup-choice/`: `choice-brand.svg`, `choice-clock.svg`, `choice-menu.svg`, `choice-collapse.svg`, `choice-close.svg`, `choice-stars.svg`, `choice-history.svg`, `choice-free-stars.svg`, `choice-wallet.svg`, `choice-card-arrow.svg`, `choice-shield.svg`, and `choice-arrow.svg`. The shield uses the matching exported vector from the Figma asset bundle because the separately returned shield URL was unavailable.
+- Existing authenticated gating, Create/Past Sessions handlers, Start Session transition, close behavior, and narrow preload boundary were preserved. No authoritative balance source is currently exposed to this screen, so unknown availability is rendered as `-- / -- min` and `Time availability unavailable` rather than the Figma example balance.
+- Focused startup tests, all frontend tests (`210` passed), the Vite build, and Electron syntax checks passed. A real Electron smoke check at device scale `1.25` measured the rendered home root at `428 x 462` and verified local asset dimensions, single-line time layout, and straight separators. Pointer/keyboard close and pending-auth checks remain covered by the existing smoke path; browser authentication completion, screenshot-equivalence review, Windows 100%/125%/150% scaling, packaged-app behavior, and unavailable placeholder controls remain manual follow-ups.
+
+## C6.2C authenticated Past Sessions presentation record
+
+As of 2026-09-06, the authenticated desktop Past Sessions tab is implemented against the Figma `Past Sessions` frame at node `71:1207` in file `AjlJbD9X8xHbGUtRcUdXrf`.
+
+- The history frame uses a `428 x 514` logical Electron layout with a `428 x 65` header, `24px` content padding, `380px` columns, `64px` session rows, `15px` row gaps, `40px` company avatars, and a `380 x 38` View All Sessions control. Create remains on the existing `428 x 462` layout; setup and runtime sizing are unchanged.
+- Past rows come from the authenticated `/api/interview-sessions` route through the narrow Electron main/preload APIs with `limit=3`, `page=1`, and the server-side `ended,abandoned` status filter. The backend derives ownership from the verified JWT, orders by `started_at.desc,id.desc`, and the renderer applies safe missing-field fallbacks without loading transcripts, notes, resumes, or raw job descriptions.
+- Exact Past-frame exports are used locally for the Past create sparkle, selected history icon, and View All arrow: `choice-past-stars.svg`, `choice-past-history.svg`, and `choice-past-view-all-arrow.svg` under `frontend/src/assets/startup-choice/`; the shared header/window assets are reused only where their exported bytes match.
+- Loading, empty, retryable error, and token-expired recovery states are explicit. History requests are bounded and stale responses are ignored on unmount; View All Sessions reuses the existing trusted dashboard opener without putting credentials in the URL.
+- Focused backend session, route, Electron manager, and startup source tests passed during implementation. Live authenticated history rendering, screenshot comparison, Windows 100%/125%/150% scaling, and packaged-app verification remain manual follow-ups.
+
+## C6.2D authenticated home collapse-to-mascot presentation record
+
+As of 2026-09-06, the authenticated desktop home window has a collapse-to-mascot presentation using the existing upper-arrow control.
+
+- The transparent, frameless main BrowserWindow stays mounted so the Create/Past Sessions tab, account-scoped data, and authentication state are preserved. Main-process validated `startup:collapse` and `startup:restore` IPC own the transition; no second window, persistence, new hotkey, or generic IPC bridge was added.
+- On collapse, the current expanded logical bounds and minimum size are saved once. The window moves to a clamped `144 x 144` mascot presentation near the prior upper-right position, with the existing transparent `frontend/src/assets/startup-login/login-mascot.png` rendered at `120 x 120` inside a tight no-drag, keyboard-accessible restore button. Restore returns the saved logical bounds and focus, clamping only if the display work area changed.
+- Authenticated collapse is rejected unless the main-process auth state is connected. Auth reset/expiry sizing expands the compact window before showing the existing login recovery screen, so collapse does not preserve stale identity or trap the user in mascot mode.
+- The dependency-free transition controller has focused saved-bounds/idempotence, display-clamping, and native-failure rollback tests. Live Electron mascot transparency, ten-cycle/rapid-click behavior, Windows scaling, multi-display recovery, and auth-expiry-while-collapsed checks remain manual follow-ups.
+
+## C6.2E authenticated home account dropdown presentation record
+
+As of 2026-09-06, the shared authenticated home header has an account dropdown opened by the existing three-dot control.
+
+- The compact dark menu shows the safe authenticated email from the existing startup auth summary, plus Dashboard and Log out actions. Account text is informational only, long emails are safely truncated for layout with the full value available to assistive technology, and actions are disabled until the safe identity is ready.
+- Dashboard reuses the existing validated `dashboard:open` main-process route derived from trusted configuration. It does not accept renderer URLs or append credentials; launch failures stay in the menu as a retryable safe message.
+- Log out reuses the existing validated `auth:logout` lifecycle. The main process clears local credentials/session state and resets the startup flow; the renderer clears the account email and menu state without deleting cloud history or signing out unrelated browser devices.
+- The menu is scoped to the home component, uses existing `lucide-react` account/dashboard/logout icons, supports outside-click/Escape/arrow-key navigation, has no-drag interaction regions, and closes on tab changes, collapse, logout, and identity changes. No new window, route, persistence, migration, or generic IPC bridge was added.
+- Focused source and full frontend tests plus the production build passed. An authenticated live menu check requires a legitimate local sign-in; the available Electron session was signed out/token-expired, so Dashboard provider/account matching and real logout were not claimed as live-verified.
+
 ## Risks and Open Gaps
 
 - C6.2A website-login desktop handoff currently uses a dev/local process-memory store. Production shared atomic TTL-backed handoff storage is deferred to C16.1 Production Auth Hardening and must block public production release until implemented.

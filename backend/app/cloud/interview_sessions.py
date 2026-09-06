@@ -25,6 +25,17 @@ IDEMPOTENCY_KEY_RE = re.compile(r"^[A-Za-z0-9._:-]{1,80}$")
 SUPABASE_HTTP_POOL_SIZE = 20
 SUPABASE_SELECT_TIMEOUT = 5
 SUPABASE_MUTATION_TIMEOUT = 8
+SESSION_STATUS_VALUES = frozenset({'active', 'ended', 'abandoned'})
+
+
+def normalize_session_statuses(value: str | tuple[str, ...] | None) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    raw_values = value.split(',') if isinstance(value, str) else value
+    normalized = tuple(dict.fromkeys(str(item).strip().lower() for item in raw_values if str(item).strip()))
+    if not normalized or any(item not in SESSION_STATUS_VALUES for item in normalized):
+        raise CloudInterviewSessionValidationError('Session status filter is invalid.')
+    return normalized
 
 
 class CloudInterviewSessionError(RuntimeError):
@@ -236,17 +247,25 @@ class SupabaseInterviewSessionClient:
             {"select": "id", "id": f"eq.{job_context_id}", "user_id": f"eq.{user_id}", "limit": "1"},
         )
 
-    def list_sessions(self, *, user_id: str, limit: int, page: int) -> list[CloudInterviewSessionRecord]:
+    def list_sessions(
+        self,
+        *,
+        user_id: str,
+        limit: int,
+        page: int,
+        statuses: tuple[str, ...] | None = None,
+    ) -> list[CloudInterviewSessionRecord]:
         offset = (page - 1) * limit
-        return self._select_sessions(
-            {
-                "select": "*",
-                "user_id": f"eq.{user_id}",
-                "order": "started_at.desc,id.desc",
-                "limit": str(limit),
-                "offset": str(offset),
-            }
-        )
+        params = {
+            "select": "*",
+            "user_id": f"eq.{user_id}",
+            "order": "started_at.desc,id.desc",
+            "limit": str(limit),
+            "offset": str(offset),
+        }
+        if statuses:
+            params["status"] = f"in.({','.join(statuses)})"
+        return self._select_sessions(params)
 
     def get_session(self, *, user_id: str, session_id: str) -> CloudInterviewSessionRecord:
         rows = self._select_sessions(
@@ -380,13 +399,24 @@ class CloudInterviewSessionService:
     def __init__(self, *, client: Any | None = None) -> None:
         self._client = client or SupabaseInterviewSessionClient()
 
-    def list_sessions(self, *, user_id: str, limit: int, page: int) -> InterviewSessionListPage:
+    def list_sessions(
+        self,
+        *,
+        user_id: str,
+        limit: int,
+        page: int,
+        statuses: tuple[str, ...] | None = None,
+    ) -> InterviewSessionListPage:
         if limit < 1 or limit > 50:
             raise CloudInterviewSessionValidationError("Limit must be between 1 and 50.")
         if page < 1 or page > 1000:
             raise CloudInterviewSessionValidationError("Page must be between 1 and 1000.")
+        normalized_statuses = normalize_session_statuses(statuses)
+        client_kwargs = {"user_id": user_id, "limit": limit, "page": page}
+        if normalized_statuses is not None:
+            client_kwargs["statuses"] = normalized_statuses
         return InterviewSessionListPage(
-            items=self._client.list_sessions(user_id=user_id, limit=limit, page=page),
+            items=self._client.list_sessions(**client_kwargs),
             limit=limit,
             page=page,
         )

@@ -19,6 +19,7 @@ from app.cloud.interview_sessions import (
     CloudInterviewSessionValidationError,
     CreateInterviewSessionResult,
     InterviewSessionListPage,
+    normalize_session_statuses,
 )
 from app.cloud.interview_notes import (
     CloudInterviewNotesRecord,
@@ -412,9 +413,14 @@ def list_interview_sessions(
     service: CloudInterviewSessionServiceDep,
     limit: int = 20,
     page: int = 1,
+    status_filter: str | None = Query(None, alias="status"),
 ) -> InterviewSessionListResponse:
     try:
-        result: InterviewSessionListPage = service.list_sessions(user_id=current_user.user_id, limit=limit, page=page)
+        statuses = normalize_session_statuses(status_filter)
+        list_kwargs = {"user_id": current_user.user_id, "limit": limit, "page": page}
+        if statuses is not None:
+            list_kwargs["statuses"] = statuses
+        result: InterviewSessionListPage = service.list_sessions(**list_kwargs)
     except Exception as exc:
         raise _handle_cloud_error(exc) from exc
     return InterviewSessionListResponse(

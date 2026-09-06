@@ -1817,6 +1817,11 @@ test('desktop auth manager creates lists and ends interview sessions without exp
     assert.equal(listed.items[0].id, 'session-1')
     assert.equal(listed.items[0].status, 'ended')
 
+    const listedPast = await ctx.manager.listInterviewSessions({ limit: 3, page: 1, status: 'ended,abandoned' })
+    assert.equal(listedPast.items[0].company_name, 'Acme')
+    const pastListCall = ctx.calls.filter((call) => call.url.includes('/api/interview-sessions?')).at(-1)
+    assert.match(pastListCall.url, /limit=3&.*page=1&.*status=ended%2Cabandoned/)
+
     const ended = await ctx.manager.endInterviewSession('session-1')
     assert.equal(ended.session.status, 'ended')
     assert.equal(ctx.manager.activeInterviewSession, null)
@@ -2033,6 +2038,7 @@ test('preload exposes exact narrow auth methods without raw tokens or generic fe
     'captureActiveWindow',
     'captureActiveWindowSequence',
     'captureScreen',
+    'collapseStartupWindow',
     'closeStartupWindow',
     'createInterviewSession',
     'endInterviewSession',
@@ -2045,6 +2051,7 @@ test('preload exposes exact narrow auth methods without raw tokens or generic fe
     'logoutAuth',
     'openDashboard',
     'refreshCloudStartupContext',
+    'restoreStartupWindow',
     'startAuthLogin',
   ].sort())
   assert.equal('access_token' in exposed.saiia, false)

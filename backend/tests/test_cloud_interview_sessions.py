@@ -19,6 +19,7 @@ from app.cloud.interview_sessions import (
 class FakeClient:
     def __init__(self) -> None:
         self.create_calls: list[dict] = []
+        self.list_calls: list[dict] = []
         self.resume_owned = True
         self.job_context_owned = True
 
@@ -55,7 +56,8 @@ class FakeClient:
 
         return Result()
 
-    def list_sessions(self, *, user_id: str, limit: int, page: int):
+    def list_sessions(self, *, user_id: str, limit: int, page: int, statuses: tuple[str, ...] | None = None):
+        self.list_calls.append({"user_id": user_id, "limit": limit, "page": page, "statuses": statuses})
         return []
 
     def get_session(self, *, user_id: str, session_id: str):
@@ -162,6 +164,22 @@ def test_list_limit_and_page_are_bounded() -> None:
         service.list_sessions(user_id="user-1", limit=20, page=0)
 
 
+def test_service_validates_and_forwards_past_session_status_filter() -> None:
+    client = FakeClient()
+    service = CloudInterviewSessionService(client=client)
+
+    service.list_sessions(user_id="user-1", limit=3, page=1, statuses=("ended", "abandoned"))
+
+    assert client.list_calls == [{
+        "user_id": "user-1",
+        "limit": 3,
+        "page": 1,
+        "statuses": ("ended", "abandoned"),
+    }]
+    with pytest.raises(CloudInterviewSessionValidationError):
+        service.list_sessions(user_id="user-1", limit=3, page=1, statuses=("active", "invalid"))
+
+
 class FakeResponse:
     def __init__(self, status_code: int, payload: object) -> None:
         self.status_code = status_code
@@ -260,6 +278,22 @@ def test_supabase_create_session_posts_prefixed_rpc_args_and_accepts_replayed_re
         "p_target_role": "Frontend Engineer",
         "p_company_name": "Acme",
         "p_job_description_preview": "Preview only",
+    }
+
+
+def test_supabase_list_sessions_uses_allowlisted_status_filter_and_stable_order() -> None:
+    session = FakeRestSession()
+    client = _supabase_client_with_session(session)
+
+    client.list_sessions(user_id="user-1", limit=3, page=1, statuses=("ended", "abandoned"))
+
+    assert session.get_calls[0]["params"] == {
+        "select": "*",
+        "user_id": "eq.user-1",
+        "order": "started_at.desc,id.desc",
+        "limit": "3",
+        "offset": "0",
+        "status": "in.(ended,abandoned)",
     }
 
 

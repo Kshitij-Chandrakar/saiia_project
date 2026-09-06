@@ -131,6 +131,24 @@ C6.2A current status:
 [~] Implemented locally - The signed-out/token-expired desktop Startup Login Screen matches Figma `Login - Version B` node `78:451`, and its pending browser-handoff state now matches Figma node `70:1051` in file `AjlJbD9X8xHbGUtRcUdXrf`, using local exported/reused startup assets under `frontend/src/assets/startup-login/`; the existing safe preload auth login, browser launch, polling, actual success transition, error/retry, close behavior, and later startup/runtime screens are preserved. The pending state uses the exact local browser-launch icon and scoped 12px CSS dot animation with reduced-motion fallback. A real Electron smoke check verified screen 1 pointer transition into the pending state, pending computed styles/reduced-motion behavior, and close while authentication is pending; focused/all frontend tests and Vite build passed. Browser authentication completion, screenshot comparison, Windows scaling, and packaged-app checks remain manual. C6.2A uses a dev/local memory-only desktop handoff store, and production shared atomic TTL-backed handoff storage is deferred to C16.1 Production Auth Hardening; broader startup shell, resume/job-target selection UI, backend session routes, Supabase migrations, C4.4 generation integration, cloud sync engine, billing/admin features, and local/cloud data migration are not implemented
 ```
 
+C6.2C current status:
+
+```text
+[~] Implemented locally - Authenticated desktop Past Sessions is implemented against Figma node `71:1207` in `docs/C6_DESKTOP_STARTUP_UI_SESSION_SETUP_PLAN.md` using the narrow owner-scoped session-history path with server-side `limit=3`, `page=1`, and `ended,abandoned` filtering. The Past frame uses a state-specific `428 x 514` window, exact local Past-tab/history/arrow assets, safe company/role/date fallbacks, loading/empty/error/auth-expired recovery, and the existing trusted View All Sessions dashboard opener. Focused backend, Electron, and frontend source tests passed; live authenticated history rendering, screenshot comparison, Windows scaling, and packaged-app checks remain manual.
+```
+
+C6.2D current status:
+
+```text
+[~] Implemented locally - Authenticated desktop home collapse-to-mascot is implemented through the existing upper-arrow control and narrow validated `startup:collapse`/`startup:restore` IPC. The transparent frameless main window remains mounted, preserves the selected Create/Past Sessions tab and account state, saves/restores expanded logical bounds with display-work-area clamping, and renders only the reused `frontend/src/assets/startup-login/login-mascot.png` asset at `144 x 144` native presentation / `120 x 120` artwork. Focused transition-controller tests cover save-once/idempotence, display recovery, and native failure rollback; live Electron mascot-only transparency, repeated-cycle, scaling, multi-display, and collapsed auth-expiry checks remain manual.
+```
+
+C6.2E current status:
+
+```text
+[~] Implemented locally - Authenticated desktop home now has a scoped three-dot account dropdown showing the safe current email, trusted Dashboard action, and real main-process logout action. Outside-click, Escape, keyboard menu navigation, retryable Dashboard failures, identity-change cleanup, no-drag regions, and narrow IPC reuse are covered in focused/full frontend checks; authenticated live menu/account matching and logout verification remain manual because the available local Electron session is signed out/token-expired.
+```
+
 C6.3 current status:
 
 ```text

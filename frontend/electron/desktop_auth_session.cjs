@@ -903,9 +903,11 @@ class DesktopAuthSessionManager {
 
     const limit = Number.isFinite(Number(options?.limit)) ? Math.max(1, Math.min(50, Number(options.limit))) : 20
     const page = Number.isFinite(Number(options?.page)) ? Math.max(1, Math.min(1000, Number(options.page))) : 1
+    const statusFilter = typeof options?.status === 'string' ? options.status.trim() : ''
+    const statusQuery = statusFilter ? `&status=${encodeURIComponent(statusFilter)}` : ''
     const captured = this.captureCloudRequestContext()
     const response = await this._backendJson(
-      `/api/interview-sessions?limit=${encodeURIComponent(String(limit))}&page=${encodeURIComponent(String(page))}`,
+      `/api/interview-sessions?limit=${encodeURIComponent(String(limit))}&page=${encodeURIComponent(String(page))}${statusQuery}`,
       'GET',
       this.session.access_token,
     )

@@ -535,8 +535,19 @@ export default function MainDiagnosticsWindow(props) {
     onDesktopSignedOut,
   } = props
   const [startupAuthenticated, setStartupAuthenticated] = useState(false)
+  const [startupAuthenticatedEmail, setStartupAuthenticatedEmail] = useState('')
   const [startupScreen, setStartupScreen] = useState('login')
   const [startupSessionConfig, setStartupSessionConfig] = useState(null)
+
+  const resetStartupAuthentication = () => {
+    resizeStartupWindow('auth')
+    onDesktopSignedOut?.()
+    setStartupAuthenticated(false)
+    setStartupAuthenticatedEmail('')
+    setStartupScreen('login')
+    setStartupSessionConfig(null)
+    onStartupSessionConfigChange?.(null)
+  }
 
   const fallbackScreenAnswerText =
     !screenAnswerText && screenAnswerGenerated ? String(answer || '').trim() : ''
@@ -583,11 +594,16 @@ export default function MainDiagnosticsWindow(props) {
   const handleUseExtension = async () => {
     await window.electronAPI?.triggerToolbarAction?.('analyze-screen-extension')
   }
+  const resizeStartupWindow = (view) => {
+    window.electronAPI?.resizeStartupWindow?.(view)
+  }
 
   if (!startupAuthenticated && shouldShowStartupLogin()) {
     return (
       <StartupLoginScreen
-        onAuthenticated={() => {
+        onAuthenticated={(nextState) => {
+          resizeStartupWindow('home')
+          setStartupAuthenticatedEmail(nextState?.email || '')
           setStartupAuthenticated(true)
           setStartupScreen('session-choice')
         }}
@@ -599,10 +615,16 @@ export default function MainDiagnosticsWindow(props) {
     return (
       <StartupSessionChoiceScreen
         onCreateSession={() => {
+          resizeStartupWindow('setup')
           setStartupSessionConfig(null)
           onStartupSessionConfigChange?.(null)
           setStartupScreen('session-setup')
         }}
+        onShowCreate={() => resizeStartupWindow('home')}
+        onShowPastSessions={() => resizeStartupWindow('history')}
+        onSessionExpired={resetStartupAuthentication}
+        onSignedOut={resetStartupAuthentication}
+        authenticatedEmail={startupAuthenticatedEmail}
       />
     )
   }
@@ -611,7 +633,10 @@ export default function MainDiagnosticsWindow(props) {
     return (
       <StartupSessionSetupScreen
         initialConfig={startupSessionConfig}
-        onBack={() => setStartupScreen('session-choice')}
+        onBack={() => {
+          resizeStartupWindow('home')
+          setStartupScreen('session-choice')
+        }}
         onStartSession={(nextConfig) => {
           setStartupSessionConfig(nextConfig)
           onStartupSessionConfigChange?.(nextConfig)
@@ -726,13 +751,7 @@ export default function MainDiagnosticsWindow(props) {
               display.
             </p>
 
-            <DesktopAuthStatus onSignedOut={() => {
-              onDesktopSignedOut?.()
-              setStartupAuthenticated(false)
-              setStartupScreen('login')
-              setStartupSessionConfig(null)
-              onStartupSessionConfigChange?.(null)
-            }} />
+            <DesktopAuthStatus onSignedOut={resetStartupAuthentication} />
 
             <div className={`glass-card runtime-guide runtime-guide--${runtimeGuidance.tone}`}>
               <div className="runtime-guide__header">
