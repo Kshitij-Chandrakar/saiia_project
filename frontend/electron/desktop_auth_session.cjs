@@ -1020,6 +1020,7 @@ class DesktopAuthSessionManager {
       this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
       return { items: [], error: 'Session expired. Please log in again.' }
     }
+    if (response.status === 0 || response.status === 503) return { items: [], error: 'Cloud temporarily unavailable. Please try again.' }
     if (!response.ok) return { items: [], error: safeErrorMessage(response.payload?.detail, 'Unable to load My Answers.') }
     return safeMyAnswerList(response.payload)
   }
@@ -1046,6 +1047,7 @@ class DesktopAuthSessionManager {
       this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
       return { answer: null, error: 'Session expired. Please log in again.' }
     }
+    if (response.status === 0 || response.status === 503) return { answer: null, error: 'Cloud temporarily unavailable. Please try again.' }
     if (!response.ok) return { answer: null, error: safeErrorMessage(response.payload?.detail, 'Unable to save My Answer.') }
     return { answer: safeMyAnswer(response.payload), error: '' }
   }
@@ -1141,6 +1143,7 @@ class DesktopAuthSessionManager {
         return { ok: false, status: 502, reason: 'stream-unavailable' }
       }
 
+      tracked.finishRequest()
       handedOff = true
       return {
         ok: true,
@@ -1161,7 +1164,8 @@ class DesktopAuthSessionManager {
   _trackAnswerStream(signal) {
     const controller = new AbortController()
     const abort = () => controller.abort()
-    const abortSignals = [signal, this._requestSignal()].filter(
+    const requestSignal = this._requestSignal()
+    const abortSignals = [signal, requestSignal].filter(
       (source, index, sources) => source?.addEventListener && sources.indexOf(source) === index,
     )
     if (abortSignals.some((source) => source.aborted)) {
@@ -1174,6 +1178,9 @@ class DesktopAuthSessionManager {
     let released = false
     return {
       controller,
+      finishRequest: () => {
+        if (requestSignal !== signal) requestSignal?.removeEventListener?.('abort', abort)
+      },
       release: () => {
         if (released) {
           return

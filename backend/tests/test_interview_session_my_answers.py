@@ -83,7 +83,7 @@ class FakeMyAnswersService:
             id=f"answer-{len(self.items) + 1}",
             user_id=user_id,
             session_id=session_id,
-            body=body,
+            body=body.strip(),
             position=len(self.items) + 1,
             created_at="2026-09-15T00:00:00Z",
         )
@@ -129,7 +129,7 @@ def test_my_answers_require_auth_and_are_session_scoped(setup_client) -> None:
     assert client.get(path).status_code == 401
     saved = client.post(path, headers={"Authorization": f"Bearer {token()}"}, json={"body": " My answer "})
     assert saved.status_code == 201
-    assert saved.json()["body"] == " My answer "
+    assert saved.json()["body"] == "My answer"
     listed = client.get(path, headers={"Authorization": f"Bearer {token()}"})
     assert listed.status_code == 200
     assert listed.json()["items"][0]["position"] == 1

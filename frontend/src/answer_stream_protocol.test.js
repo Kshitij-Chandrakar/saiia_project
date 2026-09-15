@@ -18,9 +18,11 @@ test('desktop stream parser handles split UTF-8 and multiple events', async () =
   const encoded = new TextEncoder().encode(
     '{"type":"start","request_id":"r1"}\n{"type":"delta","request_id":"r1","text":"caf\u00e9"}\n{"type":"done","request_id":"r1"}\n'
   )
+  const split = encoded.indexOf(0xc3) + 1
+  assert.equal(encoded[split], 0xa9)
   const events = []
   const result = await readNdjsonStream(
-    { body: streamFromByteChunks([encoded.slice(0, 55), encoded.slice(55, 57), encoded.slice(57)]) },
+    { body: streamFromByteChunks([encoded.slice(0, split), encoded.slice(split)]) },
     { onEvent: (event) => events.push(event) }
   )
 

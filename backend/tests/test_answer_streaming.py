@@ -525,7 +525,7 @@ async def test_generate_stream_primary_success_with_session_id_stores_transcript
             category="technical",
             source="chat",
             session_id=_session_record()["id"],
-            request_id="stream-1",
+            request_id=" stream-1 ",
         ),
         request=object(),
     )
@@ -535,6 +535,7 @@ async def test_generate_stream_primary_success_with_session_id_stores_transcript
 
     assert metadata["transcript_entry_stored"] is True
     assert metadata["transcript_store_error"] is None
+    assert transcript_calls[0]["payload"]["request_id"] == events[0]["request_id"]
     assert transcript_calls[0]["payload"]["source"] == "chat"
     assert transcript_calls[0]["payload"]["question_text"] == "What is streaming?"
     assert transcript_calls[0]["payload"]["answer_text"] == "Streaming answer"
@@ -958,3 +959,86 @@ async def test_generate_stream_rejects_cross_user_session_id_before_generator(
 
     assert generator_called["value"] is False
     assert transcript_calls == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_closes_blocked_provider_and_worker_exits():
+    from app.nlp.answer_generator import StreamCancellation
+    entered, closed, exited = threading.Event(), threading.Event(), threading.Event()
+    cancellation = StreamCancellation()
+
+    class BlockingStream:
+        def close(self):
+            closed.set()
+
+    def stream():
+        cancellation.attach(BlockingStream())
+        try:
+            entered.set()
+            assert closed.wait(2), "Cancellation did not close the provider read"
+            yield {"type": "delta", "text": "must not be delivered"}
+        finally:
+            exited.set()
+
+    async def consume():
+        async for _ in generate_api._iterate_sync_stream(stream, cancellation=cancellation):
+            pytest.fail("Delivered text after cancellation")
+
+    task = asyncio.create_task(consume())
+    assert await asyncio.to_thread(entered.wait, 2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert await asyncio.to_thread(exited.wait, 2)
+    assert closed.is_set()
+
+
+@pytest.mark.parametrize("value", [None, " padded-id ", "x" * 120, "x" * 121])
+@pytest.mark.asyncio
+async def test_stream_normalizes_id_on_request_and_reports_early_failure(monkeypatch, value):
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(generate_api, "_authorize_generation_session", lambda *_: None)
+    monkeypatch.setattr(generate_api, "_resolve_request_followup",
+                        lambda *a, **kw: (_ for _ in ()).throw(HTTPException(503, "unavailable")))
+    req = generate_api.GenerateRequest(question="Explain caching", category="technical", request_id=value)
+    response = await generate_api.generate_answer_stream(req)
+    events = await _collect_stream_events(response)
+    assert [e["type"] for e in events] == ["error", "done"]
+    assert all(e["request_id"] == req.request_id for e in events)
+    assert len(req.request_id) <= 120
+    assert req.request_id == req.request_id.strip()
+    assert [e["sequence"] for e in events] == [0, 1]
+
+
+@pytest.mark.parametrize("source", ["Chat", " chat ", "chat"])
+@pytest.mark.asyncio
+async def test_stream_normalizes_chat_before_buffered_guard(monkeypatch, source):
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(generate_api, "_authorize_generation_session", lambda *_: None)
+    monkeypatch.setattr(generate_api, "_selected_resume_strict_mode", lambda *_: True)
+    req = generate_api.GenerateRequest(question="Implement sorting", category="technical",
+                                       source=source, coding_answer_mode=True)
+    with pytest.raises(HTTPException) as exc:
+        await generate_api.generate_answer_stream(req)
+    assert exc.value.status_code == 501
+    assert req.source == "chat"
+
+
+@pytest.mark.asyncio
+async def test_strict_clarification_retrieval_failure_emits_terminal_protocol(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(generate_api.settings, "ENABLE_FOLLOWUP_INTENT_COMPILER", False)
+    monkeypatch.setattr(generate_api, "_authorize_generation_session", lambda *_: None)
+    monkeypatch.setattr(generate_api, "_selected_resume_strict_mode", lambda *_: True)
+    monkeypatch.setattr(generate_api.generator, "_select_primary_provider", lambda *_: "openai")
+    monkeypatch.setattr(generate_api, "_resolve_request_followup", lambda *a, **kw:
+                        SimpleNamespace(resolved_question="Explain it", resolution_status="needs_clarification"))
+    monkeypatch.setattr(generate_api, "_retrieve_resume_context", lambda **kw:
+                        (_ for _ in ()).throw(HTTPException(503, "unavailable")))
+    response = await generate_api.generate_answer_stream(generate_api.GenerateRequest(
+        question="Explain it", category="technical", source="chat"))
+    events = await _collect_stream_events(response)
+    assert [e["type"] for e in events] == ["error", "done"]
+    assert events[0]["status_code"] == 503
+    assert events[-1]["incomplete"]

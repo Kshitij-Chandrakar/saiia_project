@@ -2,7 +2,7 @@
 
 Run with --serve --output tmp/manual-chat-backend.jsonl. Use an already
 authenticated desktop session. No login/session/resume is created by this tool.
-Only /generate/ is traced; this is not renderer paint instrumentation.
+Both /generate/ and /generate/stream are traced; this is not renderer paint instrumentation.
 """
 import argparse
 from contextvars import ContextVar
@@ -89,26 +89,51 @@ def build_app(output):
         provider.client._client.event_hooks["request"].append(dispatched)
         provider.client._client.event_hooks["response"].append(headers)
 
-    for route in app.routes:
-        if getattr(route, "path", None) == "/generate/":
-            original_endpoint = route.dependant.call
+    original_stream = provider.stream_generate
 
-            @wraps(original_endpoint)
-            async def endpoint(req, request=None):
-                current = trace.get()
+    def provider_stream(**kwargs):
+        current = trace.get()
+        if current is None:
+            yield from original_stream(**kwargs)
+            return
+        current["call_id"] += 1
+        call_id = current["call_id"]
+        current["attempt"] = 0
+        mark("provider_stream.start", call_id=call_id)
+        iterator = original_stream(**kwargs)
+        first = True
+        try:
+            for text in iterator:
+                if first and text:
+                    mark("provider_stream.first_text", call_id=call_id)
+                    first = False
+                yield text
+        finally:
+            iterator.close()
+            mark("provider_stream.end", call_id=call_id)
+    provider.stream_generate = provider_stream
+
+    def wrap_endpoint(original_endpoint):
+        @wraps(original_endpoint)
+        async def endpoint(req, request=None):
+            current = trace.get()
+            mark("endpoint.entry")
+            try:
+                return await original_endpoint(req=req, request=request)
+            finally:
                 request_id = str(req.request_id or "")
                 if current is not None and re.fullmatch(r"[A-Za-z0-9._:-]{1,120}", request_id):
                     current["request_id"] = request_id
-                mark("endpoint.entry")
-                try:
-                    return await original_endpoint(req=req, request=request)
-                finally:
-                    mark("endpoint.exit")
-            route.dependant.call = endpoint
+                mark("endpoint.exit")
+        return endpoint
+
+    for route in app.routes:
+        if getattr(route, "path", None) in {"/generate/", "/generate/stream"}:
+            route.dependant.call = wrap_endpoint(route.dependant.call)
 
     class AuditASGI:
         async def __call__(self, scope, receive, send):
-            if scope["type"] != "http" or scope.get("path") != "/generate/":
+            if scope["type"] != "http" or scope.get("path") not in {"/generate/", "/generate/stream"}:
                 return await app(scope, receive, send)
             current = {"request_id": "audit-" + uuid.uuid4().hex, "start": time.perf_counter(),
                        "call_id": 0, "attempt": 0, "events": []}

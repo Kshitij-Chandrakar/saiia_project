@@ -35,7 +35,7 @@ from app.nlp.classifier import (
     looks_like_coding_implementation_request,
     personal_question_allows_professional_context,
 )
-from app.nlp.answer_generator import AnswerGenerator, ProviderError
+from app.nlp.answer_generator import AnswerGenerator, ProviderError, StreamCancellation
 from app.nlp.answer_planner import build_answer_plan
 from app.nlp.followup_resolver import FollowUpResolution, resolve_live_followup
 from app.nlp.followup_intent_compiler import FollowUpIntentPlan, compile_followup_intent
@@ -858,7 +858,7 @@ def _stream_event(payload: Dict[str, Any]) -> str:
 
 def _stream_request_id(value: Any) -> str:
     candidate = str(value or "").strip()
-    if re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", candidate):
+    if re.fullmatch(r"[A-Za-z0-9._:-]{1,120}", candidate):
         return candidate
     return uuid.uuid4().hex
 
@@ -868,7 +868,7 @@ class _SyncStreamFailure:
         self.error = error
 
 
-async def _iterate_sync_stream(stream_factory, *, max_buffer_size: int = 8):
+async def _iterate_sync_stream(stream_factory, *, max_buffer_size: int = 8, cancellation=None):
     """Run a synchronous provider iterator without blocking the ASGI loop."""
     send_stream, receive_stream = anyio.create_memory_object_stream(max_buffer_size)
     stream_error = None
@@ -878,6 +878,8 @@ async def _iterate_sync_stream(stream_factory, *, max_buffer_size: int = 8):
         try:
             iterator = iter(stream_factory())
             for item in iterator:
+                if cancellation and cancellation.stopped.is_set():
+                    break
                 anyio.from_thread.run(send_stream.send, item)
         except BaseException as exc:
             try:
@@ -907,6 +909,10 @@ async def _iterate_sync_stream(stream_factory, *, max_buffer_size: int = 8):
                     yield item
             task_group.cancel_scope.cancel()
     finally:
+        if cancellation:
+            cancellation.stopped.set()
+            with anyio.CancelScope(shield=True):
+                await anyio.to_thread.run_sync(cancellation.cancel)
         await send_stream.aclose()
     if stream_error is not None:
         raise stream_error
@@ -1231,7 +1237,8 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
         raise HTTPException(status_code=400, detail="`question` field cannot be empty.")
     if not req.category or not req.category.strip():
         raise HTTPException(status_code=400, detail="`category` field cannot be empty.")
-    request_id = _stream_request_id(req.request_id)
+    request_id = req.request_id = _stream_request_id(req.request_id)
+    req.source = str(req.source or "").strip().lower()
     request_started = time.perf_counter()
     await run_in_threadpool(_authorize_generation_session, req, request)
     authorization_ms = round((time.perf_counter() - request_started) * 1000, 2)
@@ -1410,6 +1417,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
             )
             context_load_ms = round((time.perf_counter() - context_started) * 1000, 2)
 
+            cancellation = StreamCancellation()
             async for stream_item in _iterate_sync_stream(
                 lambda: generator.stream_openai_primary_answer(
                     question=generation_question,
@@ -1424,7 +1432,9 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                     profile_context_enabled=generation_profile_context_enabled,
                     editor_text=generation_editor_text,
                     answer_plan=answer_plan,
-                )
+                    cancellation=cancellation,
+                ),
+                cancellation=cancellation,
             ):
                 if provider_first_delta_ms is None and stream_item.get("type") == "delta":
                     provider_first_delta_ms = round((time.perf_counter() - request_started) * 1000, 2)
@@ -1672,11 +1682,19 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
 
     async def sequenced_events():
         sequence = 0
-        async for line in events():
-            event = json.loads(line)
-            event["sequence"] = sequence
-            sequence += 1
-            yield _stream_event(event)
+        try:
+            async for line in events():
+                event = json.loads(line)
+                event["sequence"] = sequence
+                sequence += 1
+                yield _stream_event(event)
+        except Exception as exc:
+            yield _stream_event({"type": "error", "request_id": request_id,
+                                 "sequence": sequence, "error": "stream_generation_failed",
+                                 "status_code": exc.status_code if isinstance(exc, HTTPException) else 500})
+            yield _stream_event({"type": "done", "request_id": request_id,
+                                 "sequence": sequence + 1, "incomplete": True})
+
 
     return StreamingResponse(
         sequenced_events(),

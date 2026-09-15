@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import time
+import threading
 from typing import Any, Dict, Optional
 
 import requests
@@ -373,6 +374,27 @@ class SemanticValidationResult(BaseModel):
     issues: list[SemanticValidationIssue] = Field(default_factory=list)
 
 
+class StreamCancellation:
+    """Per-request cancellation; closing the SDK stream interrupts active reads."""
+    def __init__(self):
+        self.stopped = threading.Event()
+        self.lock = threading.Lock()
+        self.stream = None
+
+    def attach(self, stream):
+        with self.lock:
+            self.stream = stream
+        if self.stopped.is_set():
+            stream.close()
+
+    def cancel(self):
+        self.stopped.set()
+        with self.lock:
+            stream = self.stream
+        if stream is not None:
+            stream.close()
+
+
 class OpenAIResponsesProvider:
     def __init__(self) -> None:
         self.name = "openai"
@@ -497,7 +519,10 @@ class OpenAIResponsesProvider:
         max_output_tokens: int,
         phase: str = "primary_generation_stream",
         timeout: Optional[float] = None,
+        cancellation=None,
     ):
+        if cancellation and cancellation.stopped.is_set():
+            return
         if not self.api_key or not self.client:
             raise ProviderError(
                 "OpenAI API key is missing. Set OPENAI_API_KEY to enable OpenAI answer generation.",
@@ -522,7 +547,11 @@ class OpenAIResponsesProvider:
                 timeout=timeout,
                 stream=True,
             )
+            if cancellation:
+                cancellation.attach(stream)
             for event in stream:
+                if cancellation and cancellation.stopped.is_set():
+                    return
                 event_type = str(getattr(event, "type", "") or "")
                 if event_type == "response.completed":
                     completed = True
@@ -2184,6 +2213,7 @@ class AnswerGenerator:
         profile_context_enabled: bool = True,
         editor_text: Optional[str] = None,
         answer_plan: Optional[AnswerPlan] = None,
+        cancellation=None,
     ):
         context_qt = str(question_context_type or screen_question_type or "").strip().lower()
         plan = answer_plan or build_answer_plan(
@@ -2282,6 +2312,7 @@ class AnswerGenerator:
             max_output_tokens=max_output_tokens,
             timeout=settings.OPENAI_PRIMARY_TIMEOUT_SECONDS,
             phase="primary_generation_stream",
+            cancellation=cancellation,
         ):
             chunks.append(delta)
             yield {"type": "delta", "text": delta}

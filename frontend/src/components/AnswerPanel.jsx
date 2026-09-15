@@ -61,6 +61,13 @@ async function copyToClipboard(text) {
 
 function MyAnswersSection({ sessionId, visible = true, onUnsavedChange, onBackToChat }) {
   const [savedAnswers, setSavedAnswers] = useState([])
+  const pendingSavedAnswerId = useRef(null)
+  useEffect(() => {
+    if (pendingSavedAnswerId.current) {
+      setActiveIndex(savedAnswers.findIndex((answer) => answer.id === pendingSavedAnswerId.current))
+      pendingSavedAnswerId.current = null
+    }
+  }, [savedAnswers])
   const [activeIndex, setActiveIndex] = useState(null)
   const [draftText, setDraftText] = useState('')
   const [loading, setLoading] = useState(false)
@@ -170,8 +177,8 @@ function MyAnswersSection({ sessionId, visible = true, onUnsavedChange, onBackTo
         setError(String(result?.error || 'Unable to save My Answer.'))
         return
       }
+      pendingSavedAnswerId.current = result.answer.id
       setSavedAnswers((current) => [...current, result.answer])
-      setActiveIndex(savedAnswers.length)
       setDraftText(String(result.answer.body || body))
     } catch {
       setError('Unable to save My Answer.')

@@ -360,7 +360,7 @@ const overlayState = {
   lastDetectedQuestion: '',
   autoRejectedReason: '',
   cooldownRemainingMs: 0,
-  screenShareProtectionEnabled: true,
+  screenShareProtectionEnabled: false,
   overlayOpacity: 1,
   sessionStartedAt: Date.now(),
   activeSessionId: '',

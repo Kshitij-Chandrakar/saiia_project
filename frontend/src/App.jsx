@@ -1044,7 +1044,7 @@ function OverlayWindow() {
     lastDetectedQuestion: '',
     autoRejectedReason: '',
     cooldownRemainingMs: 0,
-    screenShareProtectionEnabled: true,
+    screenShareProtectionEnabled: false,
     overlayOpacity: 1,
     sessionStartedAt: Date.now(),
     activeSessionId: '',
@@ -1177,7 +1177,7 @@ function MainWindow() {
   const [autoStreamingConnected, setAutoStreamingConnected] = useState(false)
   const [partialAutoTranscript, setPartialAutoTranscript] = useState('')
   const [streamingError, setStreamingError] = useState('')
-  const [screenShareProtectionEnabled] = useState(true)
+  const [screenShareProtectionEnabled] = useState(false)
   const [overlayOpacity, setOverlayOpacity] = useState(1)
   const [ocrText, setOcrText] = useState('')
   const [ocrConfidence, setOcrConfidence] = useState(null)
@@ -5531,7 +5531,7 @@ function MainWindow() {
         logicalRequestId: manualRequestId,
       })
     } catch (err) {
-      if (manualChatRequestIdRef.current !== manualRequestId) return
+      if (manualChatRequestIdRef.current !== manualRequestId || err?.name === 'AbortError') return
       console.error('Manual chat generation error', err)
       const message = normalizePipelineError(err, 'Could not generate an answer right now.')
       if (!err.streamIncomplete) clearProgressiveAnswer()

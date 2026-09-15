@@ -1390,6 +1390,7 @@ test('openAnswerStream uses the authenticated stream endpoint without exposing c
     })
 
     const streamCall = ctx.calls.find((call) => call.url.endsWith('/generate/stream'))
+    assert.deepEqual(Object.keys(opened).sort(), ['isCurrent', 'ok', 'release', 'response', 'status'])
     assert.equal(opened.ok, true)
     assert.equal(streamCall.init.headers.Authorization, 'Bearer access-token')
     assert.equal(streamCall.init.headers.Accept, 'application/x-ndjson')
@@ -2231,3 +2232,43 @@ test('main process exits second instances before protocol registration and buffe
   assert.equal(initializeAwait < bufferedDrain, true)
   assert.equal(bufferedDrain < argvCallback, true)
 })
+
+
+test('stream handoff detaches request timeout but keeps caller cancellation', async () => {
+  const timeout = new AbortController()
+  const caller = new AbortController()
+  const ctx = createManager({ requestSignalFactory: () => timeout.signal })
+  try {
+    ctx.manager.session = { access_token: 'access-token' }
+    ctx.manager.user = { user_id: 'user-1' }
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    ctx.manager._hasFreshVerification = () => true
+    let streamSignal
+    ctx.manager.fetchImpl = async (_url, init) => {
+      streamSignal = init.signal
+      return { ok: true, status: 200, body: new ReadableStream() }
+    }
+    const opened = await ctx.manager.openAnswerStream({}, { signal: caller.signal })
+    assert.equal(opened.ok, true)
+    timeout.abort()
+    assert.equal(streamSignal.aborted, false)
+    caller.abort()
+    assert.equal(streamSignal.aborted, true)
+    opened.release()
+  } finally { ctx.cleanup() }
+})
+
+for (const status of [0, 503]) {
+  test(`My Answers reports temporary cloud failure for ${status}`, async () => {
+    const ctx = createManager()
+    try {
+      ctx.manager.session = { access_token: 'access-token' }
+      ctx.manager.user = { user_id: 'user-1' }
+      ctx.manager.status = AUTH_STATUSES.CONNECTED
+      ctx.manager._hasFreshVerification = () => true
+      ctx.manager._backendJson = async () => ({ ok: false, status })
+      assert.match((await ctx.manager.listMyAnswers('session-1')).error, /Cloud temporarily unavailable/)
+      assert.match((await ctx.manager.saveMyAnswer('session-1', 'answer')).error, /Cloud temporarily unavailable/)
+    } finally { ctx.cleanup() }
+  })
+}
