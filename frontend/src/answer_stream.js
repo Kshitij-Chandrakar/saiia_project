@@ -1,3 +1,15 @@
+export const MAX_NDJSON_LINE_CHARS = 1024 * 1024
+
+// Opt-in local Performance marks: IDs/stage names only, never answer content.
+export function markChatTiming(requestId, stage) {
+  if (import.meta.env?.VITE_MANUAL_CHAT_LATENCY_AUDIT !== 'true' || !requestId) return
+  const name = `intervu-chat:${requestId}:${stage}`
+  if (performance.getEntriesByName(name).length) return
+  performance.mark(name)
+  const marks = performance.getEntriesByType('mark').filter((entry) => entry.name.startsWith('intervu-chat:'))
+  for (const entry of marks.slice(0, Math.max(0, marks.length - 500))) performance.clearMarks(entry.name)
+}
+
 export function createNdjsonEventParser(onEvent) {
   let buffer = ''
 
@@ -6,11 +18,17 @@ export function createNdjsonEventParser(onEvent) {
     const lines = buffer.split('\n')
     buffer = lines.pop() ?? ''
     for (const line of lines) {
+      if (line.length > MAX_NDJSON_LINE_CHARS) {
+        throw new Error('Answer stream event is too large.')
+      }
       const trimmed = line.trim()
       if (!trimmed) {
         continue
       }
       onEvent(JSON.parse(trimmed))
+    }
+    if (buffer.length > MAX_NDJSON_LINE_CHARS) {
+      throw new Error('Answer stream event is too large.')
     }
   }
 
@@ -36,7 +54,14 @@ export async function readNdjsonStream(response, { onEvent, signal } = {}) {
   }
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
-  const parser = createNdjsonEventParser(onEvent || (() => {}))
+  let sawDone = false
+  const handleEvent = typeof onEvent === 'function' ? onEvent : () => {}
+  const parser = createNdjsonEventParser((event) => {
+    if (event?.type === 'done') {
+      sawDone = true
+    }
+    handleEvent(event)
+  })
 
   while (true) {
     if (signal?.aborted) {
@@ -45,7 +70,7 @@ export async function readNdjsonStream(response, { onEvent, signal } = {}) {
       } catch {
         // Ignore cancellation cleanup failures.
       }
-      return
+      return { sawDone: false, aborted: true }
     }
     const { value, done } = await reader.read()
     if (done) {
@@ -55,4 +80,5 @@ export async function readNdjsonStream(response, { onEvent, signal } = {}) {
   }
   parser.push(decoder.decode())
   parser.flush()
+  return { sawDone, aborted: false }
 }

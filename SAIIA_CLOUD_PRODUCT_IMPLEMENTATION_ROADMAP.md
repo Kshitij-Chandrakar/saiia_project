@@ -354,6 +354,9 @@ Required behavior:
 - selecting a panel tab must not start generation by itself
 - Chat answers must not appear in Answer; Screen answers must not appear in Answer or Chat
 - preferred live path uses `/generate/stream` and forwards OpenAI Responses API text deltas as NDJSON
+- selected-resume desktop manual Chat now reaches that stream through a request-scoped authenticated main/preload bridge; the existing buffered `/generate/` path remains the safe compatibility rollback when streaming is unavailable
+- stream completion preserves the existing persistence contract: `done` follows transcript persistence, partial/interrupted output is not committed as a successful answer, and no second generation is started after visible deltas
+- post-audit measurements distinguish provider iterator first delta, backend first sanitized delta, renderer answer-state update, and final completion; painted-frame timing remains unavailable until live renderer tracing is captured
 - rollback `/generate/` path may still return the full answer at once
 - simulated frontend word/line timers must not be used in the true-streaming path
 - outer Electron window must not resize on every reveal step

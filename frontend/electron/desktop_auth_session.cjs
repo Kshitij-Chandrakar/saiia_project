@@ -147,6 +147,29 @@ function safeInterviewSessionList(payload = {}) {
   }
 }
 
+function safeMyAnswer(value = null) {
+  if (!value || typeof value !== 'object') return null
+  const id = typeof value.id === 'string' ? value.id : ''
+  const sessionId = typeof value.session_id === 'string' ? value.session_id : ''
+  const body = typeof value.body === 'string' ? value.body : ''
+  const position = Number.isInteger(value.position) ? value.position : 0
+  if (!id || !sessionId || !body || position < 1) return null
+  return {
+    id,
+    session_id: sessionId,
+    body,
+    position,
+    created_at: typeof value.created_at === 'string' ? value.created_at : null,
+  }
+}
+
+function safeMyAnswerList(payload = {}) {
+  const items = Array.isArray(payload?.items)
+    ? payload.items.map(safeMyAnswer).filter(Boolean)
+    : []
+  return { items, error: typeof payload?.error === 'string' ? safeErrorMessage(payload.error) : '' }
+}
+
 function normalizeOrigin(url) {
   try {
     return new URL(String(url || '')).origin
@@ -239,6 +262,7 @@ class DesktopAuthSessionManager {
     this.activeInterviewSession = null
     this.interviewSessionCreatePromise = null
     this.interviewSessionCreateKey = ''
+    this.activeAnswerStreamControllers = new Set()
   }
 
   _emptyCloudCache() {
@@ -550,6 +574,7 @@ class DesktopAuthSessionManager {
     if (record.attempt_generation !== this.loginAttemptGeneration) {
       return this.getSafeState()
     }
+    this._abortActiveAnswerStreams()
     this.session = session
     this.sessionGeneration += 1
     this.user = null
@@ -976,6 +1001,55 @@ class DesktopAuthSessionManager {
     return this.endInterviewSession(this.activeInterviewSession.id)
   }
 
+  async listMyAnswers(sessionId) {
+    const normalizedSessionId = String(sessionId || '').trim()
+    if (!normalizedSessionId) return { items: [], error: 'Interview session id is required.' }
+    if (!this.session?.access_token) return { items: [], error: 'Log in to load My Answers.' }
+    if (!this._hasFreshVerification(this.session)) await this._verifyAndBootstrap(this.session)
+    if (this.status !== AUTH_STATUSES.CONNECTED || !this.session?.access_token || !this.user?.user_id) {
+      return { items: [], error: safeErrorMessage(this.error, 'Log in again and retry.') }
+    }
+    const captured = this.captureCloudRequestContext()
+    const response = await this._backendJson(
+      `/api/interview-sessions/${encodeURIComponent(normalizedSessionId)}/my-answers`,
+      'GET',
+      this.session.access_token,
+    )
+    if (!this._cloudRequestStillCurrent(captured)) return { items: [], error: '' }
+    if (response.status === 401) {
+      this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
+      return { items: [], error: 'Session expired. Please log in again.' }
+    }
+    if (!response.ok) return { items: [], error: safeErrorMessage(response.payload?.detail, 'Unable to load My Answers.') }
+    return safeMyAnswerList(response.payload)
+  }
+
+  async saveMyAnswer(sessionId, body) {
+    const normalizedSessionId = String(sessionId || '').trim()
+    const normalizedBody = typeof body === 'string' ? body.trim() : ''
+    if (!normalizedSessionId) return { answer: null, error: 'Interview session id is required.' }
+    if (!normalizedBody) return { answer: null, error: 'Answer body is required.' }
+    if (!this.session?.access_token) return { answer: null, error: 'Log in to save My Answers.' }
+    if (!this._hasFreshVerification(this.session)) await this._verifyAndBootstrap(this.session)
+    if (this.status !== AUTH_STATUSES.CONNECTED || !this.session?.access_token || !this.user?.user_id) {
+      return { answer: null, error: safeErrorMessage(this.error, 'Log in again and retry.') }
+    }
+    const captured = this.captureCloudRequestContext()
+    const response = await this._backendJson(
+      `/api/interview-sessions/${encodeURIComponent(normalizedSessionId)}/my-answers`,
+      'POST',
+      this.session.access_token,
+      { body: normalizedBody },
+    )
+    if (!this._cloudRequestStillCurrent(captured)) return { answer: null, error: '' }
+    if (response.status === 401) {
+      this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
+      return { answer: null, error: 'Session expired. Please log in again.' }
+    }
+    if (!response.ok) return { answer: null, error: safeErrorMessage(response.payload?.detail, 'Unable to save My Answer.') }
+    return { answer: safeMyAnswer(response.payload), error: '' }
+  }
+
   async generateAnswer(body) {
     if (!this.session?.access_token) {
       return { ok: false, status: 401, payload: { detail: 'Log in to generate answers with a cloud resume.' } }
@@ -996,6 +1070,128 @@ class DesktopAuthSessionManager {
       this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
     }
     return response
+  }
+
+  async openAnswerStream(body, options = {}) {
+    const tracked = this._trackAnswerStream(options.signal)
+    let handedOff = false
+    try {
+      if (tracked.controller.signal.aborted) {
+        return { ok: false, status: 499, reason: 'canceled' }
+      }
+      if (!this.session?.access_token) {
+        return {
+          ok: false,
+          status: 401,
+          reason: 'auth-required',
+          payload: { detail: 'Log in to generate answers with a cloud resume.' },
+        }
+      }
+      if (!this._hasFreshVerification(this.session)) {
+        await this._verifyAndBootstrap(this.session)
+      }
+      if (tracked.controller.signal.aborted) {
+        return { ok: false, status: 499, reason: 'canceled' }
+      }
+      if (this.status !== AUTH_STATUSES.CONNECTED || !this.session?.access_token || !this.user?.user_id) {
+        return {
+          ok: false,
+          status: 401,
+          reason: this.status === AUTH_STATUSES.TOKEN_EXPIRED ? 'auth-expired' : 'auth-required',
+          payload: { detail: safeErrorMessage(this.error, 'Log in again and retry.') },
+        }
+      }
+
+      const captured = this.captureCloudRequestContext()
+      let response
+      try {
+        response = await this.fetchImpl(`${this.backendUrl}/generate/stream`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${this.session.access_token}`,
+            'Content-Type': 'application/json',
+            Accept: 'application/x-ndjson',
+          },
+          body: JSON.stringify(body || {}),
+          signal: tracked.controller.signal,
+        })
+      } catch {
+        return { ok: false, status: 0, reason: 'service-unavailable' }
+      }
+
+      if (!this._cloudRequestStillCurrent(captured)) {
+        return { ok: false, status: 409, reason: 'session-changed' }
+      }
+      if (response.status === 401) {
+        this._clearLocalSession(
+          AUTH_STATUSES.TOKEN_EXPIRED,
+          'Session expired. Please log in again.',
+          AUTH_ERROR_CODES.SESSION_EXPIRED,
+        )
+        return { ok: false, status: 401, reason: 'auth-expired' }
+      }
+      if (!response.ok) {
+        return {
+          ok: false,
+          status: response.status || 502,
+          reason: response.status === 404 || response.status === 501 ? 'stream-unavailable' : 'generation-failed',
+        }
+      }
+      if (!response.body?.getReader) {
+        return { ok: false, status: 502, reason: 'stream-unavailable' }
+      }
+
+      handedOff = true
+      return {
+        ok: true,
+        status: response.status,
+        response,
+        isCurrent: () => this._cloudRequestStillCurrent(captured),
+        release: tracked.release,
+      }
+    } catch {
+      return { ok: false, status: 0, reason: 'service-unavailable' }
+    } finally {
+      if (!handedOff) {
+        tracked.release()
+      }
+    }
+  }
+
+  _trackAnswerStream(signal) {
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    const abortSignals = [signal, this._requestSignal()].filter(
+      (source, index, sources) => source?.addEventListener && sources.indexOf(source) === index,
+    )
+    if (abortSignals.some((source) => source.aborted)) {
+      controller.abort()
+    }
+    for (const source of abortSignals) {
+      source.addEventListener('abort', abort, { once: true })
+    }
+    this.activeAnswerStreamControllers.add(controller)
+    let released = false
+    return {
+      controller,
+      release: () => {
+        if (released) {
+          return
+        }
+        released = true
+        this.activeAnswerStreamControllers.delete(controller)
+        for (const source of abortSignals) {
+          source.removeEventListener?.('abort', abort)
+        }
+      },
+    }
+  }
+
+  _abortActiveAnswerStreams() {
+    for (const controller of this.activeAnswerStreamControllers) {
+      controller.abort()
+    }
+    this.activeAnswerStreamControllers.clear()
   }
 
   async _refreshStartupContextOnce() {
@@ -1194,6 +1390,7 @@ class DesktopAuthSessionManager {
   }
 
   _clearLocalSession(status, message = '', errorCode = '') {
+    this._abortActiveAnswerStreams()
     this.loginAttemptGeneration += 1
     this.sessionGeneration += 1
     this.pendingLogin = null

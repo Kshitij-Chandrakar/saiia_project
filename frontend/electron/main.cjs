@@ -11,6 +11,7 @@ const {
   systemPreferences,
 } = require('electron')
 const { execFile } = require('child_process')
+const { randomUUID } = require('crypto')
 const fs = require('fs')
 const path = require('path')
 const {
@@ -19,6 +20,7 @@ const {
   createIpcSenderValidator,
 } = require('./desktop_auth_session.cjs')
 const { createStartupWindowController } = require('./startup_window_controller.cjs')
+const { readNdjsonStream } = require('./answer_stream_protocol.cjs')
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) {
@@ -59,6 +61,230 @@ let validateOverlayWindowIpcSender = null
 let bufferedDesktopAuthCallbacks = []
 let quittingAfterSessionFinalize = false
 let finalizeInterviewSessionPromise = null
+const activeAnswerStreams = new Map()
+
+const SAFE_STREAM_METADATA_EXCLUSIONS = new Set([
+  'coding_runtime_audit',
+  'raw_prompt',
+  'raw_resume_text',
+  'resume_chunks',
+  'transcript_payload',
+])
+const SAFE_STREAM_STRING_FIELDS = new Set([
+  'answer', 'provider', 'model', 'primary_provider', 'primary_model', 'refinement_provider',
+  'refinement_model', 'refinement_status', 'displayed_answer_source', 'answer_type',
+  'profile_context_policy', 'job_context_policy', 'general_knowledge_policy',
+  'validation_status', 'reasoning_effort', 'semantic_validation_status', 'correction_status',
+  'generate_source', 'generate_category', 'generate_question_type', 'transcript_store_error',
+  'resume_context_source', 'final_context_priority', 'follow_up_resolution_status',
+])
+
+function safeStreamString(value, maxLength = 512) {
+  return typeof value === 'string' ? value.slice(0, maxLength) : ''
+}
+
+function safeAnswerStreamMetadata(metadata) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return {}
+  }
+  const safe = {}
+  for (const [key, value] of Object.entries(metadata)) {
+    if (SAFE_STREAM_METADATA_EXCLUSIONS.has(key)) {
+      continue
+    }
+    if (typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) {
+      safe[key] = value
+    } else if (typeof value === 'string' && SAFE_STREAM_STRING_FIELDS.has(key)) {
+      if (key === 'answer' && value.length > 512 * 1024) throw new Error('Answer too large.')
+      safe[key] = value.slice(0, key === 'answer' ? 512 * 1024 : 512)
+    } else if (key === 'coding_answer' && value && typeof value === 'object' && !Array.isArray(value)) {
+      safe[key] = {
+        approach: safeStreamString(value.approach, 4000),
+        code: safeStreamString(value.code, 128 * 1024),
+        language: safeStreamString(value.language, 64),
+        time_complexity: safeStreamString(value.time_complexity, 1000),
+        space_complexity: safeStreamString(value.space_complexity, 1000),
+      }
+    }
+  }
+  return safe
+}
+
+function safeAnswerStreamEvent(event) {
+  if (!event || typeof event !== 'object' || Array.isArray(event) || typeof event.type !== 'string') {
+    return null
+  }
+  const requestId = safeStreamString(event.request_id, 128)
+  if (!requestId) {
+    return null
+  }
+  if (event.type === 'start') {
+    return {
+      type: 'start',
+      request_id: requestId,
+      provider: safeStreamString(event.provider, 64),
+      model: safeStreamString(event.model, 128),
+    }
+  }
+  if (event.type === 'delta') {
+    return { type: 'delta', request_id: requestId, text: safeStreamString(event.text, 128 * 1024) }
+  }
+  if (event.type === 'replace') {
+    return { type: 'replace', request_id: requestId, answer: safeStreamString(event.answer, 512 * 1024) }
+  }
+  if (event.type === 'metadata') {
+    return { type: 'metadata', request_id: requestId, metadata: safeAnswerStreamMetadata(event.metadata) }
+  }
+  if (event.type === 'error') {
+    const safeErrors = new Set([
+      'provider_error',
+      'empty_response',
+      'http_error',
+      'stream_generation_failed',
+      'stream_interrupted',
+      'stream_incomplete',
+    ])
+    return {
+      type: 'error',
+      request_id: requestId,
+      error: safeErrors.has(event.error) ? event.error : 'stream_error',
+      status_code: Number.isInteger(event.status_code) ? event.status_code : undefined,
+      partial: Boolean(event.partial),
+    }
+  }
+  if (event.type === 'done') {
+    return {
+      type: 'done',
+      request_id: requestId,
+      incomplete: Boolean(event.incomplete),
+    }
+  }
+  return null
+}
+
+function sendAnswerStreamEvent(streamId, entry, event) {
+  if (entry.controller.signal.aborted || activeAnswerStreams.get(streamId) !== entry || entry.sender?.isDestroyed?.()) {
+    return false
+  }
+  if (typeof entry.isCurrent === 'function' && !entry.isCurrent()) {
+    entry.controller.abort()
+    return false
+  }
+  const safeEvent = safeAnswerStreamEvent(event)
+  if (!safeEvent) {
+    return null
+  }
+  try {
+    entry.sender.send('generate:answer:stream:event', {
+      stream_id: streamId,
+      client_request_id: entry.clientRequestId,
+      event: safeEvent,
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function sendAnswerStreamControlEvent(streamId, entry, event) {
+  if (activeAnswerStreams.get(streamId) !== entry || entry.sender?.isDestroyed?.()) {
+    return false
+  }
+  const safeEvent = safeAnswerStreamEvent(event)
+  if (!safeEvent || !['error', 'done'].includes(safeEvent.type)) {
+    return false
+  }
+  try {
+    entry.sender.send('generate:answer:stream:event', {
+      stream_id: streamId,
+      client_request_id: entry.clientRequestId,
+      event: safeEvent,
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function consumeAnswerStream(streamId, entry, response) {
+  let sawDone = false
+  let sawCanonical = false
+  let sequence = -1
+  try {
+    const result = await readNdjsonStream(response, {
+      signal: entry.controller.signal,
+      onEvent: (event) => {
+        if (event.request_id !== entry.clientRequestId) throw new Error('Wrong stream request.')
+        if (!Number.isInteger(event.sequence) || event.sequence < 0) throw new Error('Missing stream sequence.')
+        if (event.sequence <= sequence) return
+        if (event.sequence !== sequence + 1) throw new Error('Stream event missing.')
+        sequence = event.sequence
+        if (sequence === 0 && event.type !== 'start') throw new Error('Missing stream start.')
+        if (event.type === 'metadata') sawCanonical = Boolean(event.metadata?.answer?.trim())
+        if (event.type === 'done' && !event.incomplete && !sawCanonical) throw new Error('Missing canonical answer.')
+        if (event?.type === 'start' && typeof event.request_id === 'string') {
+          entry.backendRequestId = event.request_id.slice(0, 128)
+        }
+        const sent = sendAnswerStreamEvent(streamId, entry, event)
+        if (event?.type === 'done') {
+          sawDone = true
+        }
+        if (sent === false && activeAnswerStreams.get(streamId) === entry) {
+          entry.controller.abort()
+        }
+      },
+    })
+    if (!result?.sawDone && !entry.controller.signal.aborted) {
+      sendAnswerStreamControlEvent(streamId, entry, {
+        type: 'error',
+        request_id: entry.backendRequestId || entry.clientRequestId,
+        error: 'stream_interrupted',
+        partial: true,
+      })
+      sendAnswerStreamControlEvent(streamId, entry, {
+        type: 'done',
+        request_id: entry.backendRequestId || entry.clientRequestId,
+        incomplete: true,
+      })
+    }
+  } catch {
+    if (!entry.controller.signal.aborted) {
+      sendAnswerStreamControlEvent(streamId, entry, {
+        type: 'error',
+        request_id: entry.backendRequestId || entry.clientRequestId,
+        error: 'stream_interrupted',
+        partial: true,
+      })
+      if (!sawDone) {
+        sendAnswerStreamControlEvent(streamId, entry, {
+          type: 'done',
+          request_id: entry.backendRequestId || entry.clientRequestId,
+          incomplete: true,
+        })
+      }
+    }
+  } finally {
+    entry.sender.removeListener?.('destroyed', entry.onDestroyed)
+    entry.release?.()
+    if (activeAnswerStreams.get(streamId) === entry) {
+      activeAnswerStreams.delete(streamId)
+    }
+  }
+}
+
+function cancelAnswerStreamsForSender(sender) {
+  for (const entry of activeAnswerStreams.values()) {
+    if (entry.sender === sender) {
+      entry.controller.abort()
+    }
+  }
+}
+
+function cancelAllAnswerStreams() {
+  for (const entry of activeAnswerStreams.values()) {
+    entry.controller.abort()
+  }
+}
 
 const STARTUP_WINDOW_LAYOUTS = Object.freeze({
   auth: Object.freeze({ width: 504, height: 462, minWidth: 426, minHeight: 384 }),
@@ -137,6 +363,7 @@ const overlayState = {
   screenShareProtectionEnabled: true,
   overlayOpacity: 1,
   sessionStartedAt: Date.now(),
+  activeSessionId: '',
   privacyMessage:
     'Visibility during screen sharing depends on OS, meeting app, and whether the user shares full screen, window, or tab.',
 }
@@ -1565,7 +1792,7 @@ function createOverlayWindow() {
 
   overlayWindow.setAlwaysOnTop(true, 'screen-saver')
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-
+  // overlayWindow.setContentProtection(true)
   overlayWindow.setOpacity(overlayOpacity)
   queueOverlayBoundsSave(initialBounds)
   loadWindow(overlayWindow, 'overlay')
@@ -1778,9 +2005,91 @@ ipcMain.handle('cloud:end-interview-session', async (event, sessionId) => {
   return desktopAuthSessionManager.endInterviewSession(sessionId)
 })
 
+ipcMain.handle('cloud:list-my-answers', async (event, sessionId) => {
+  validateTrustedRendererIpc(event)
+  return desktopAuthSessionManager.listMyAnswers(sessionId)
+})
+
+ipcMain.handle('cloud:save-my-answer', async (event, sessionId, body) => {
+  validateTrustedRendererIpc(event)
+  return desktopAuthSessionManager.saveMyAnswer(sessionId, body)
+})
+
 ipcMain.handle('generate:answer', async (event, body) => {
   validateAuthIpc(event)
   return desktopAuthSessionManager.generateAnswer(body)
+})
+
+ipcMain.handle('generate:answer:stream:start', async (event, body) => {
+  validateAuthIpc(event)
+  const clientRequestId = typeof body?.request_id === 'string' ? body.request_id.trim() : ''
+  if (!/^[A-Za-z0-9._:-]{1,120}$/.test(clientRequestId) || JSON.stringify(body).length > 256 * 1024) {
+    return { ok: false, status: 400, reason: 'invalid-request' }
+  }
+  for (const active of activeAnswerStreams.values()) {
+    if (active.sender === event.sender && active.clientRequestId === clientRequestId) {
+      return { ok: false, status: 409, reason: 'duplicate-request' }
+    }
+  }
+  cancelAnswerStreamsForSender(event.sender)
+
+  const streamId = randomUUID()
+  const entry = {
+    sender: event.sender,
+    clientRequestId,
+    backendRequestId: '',
+    controller: new AbortController(),
+    release: null,
+    isCurrent: null,
+  }
+  entry.onDestroyed = () => entry.controller.abort()
+  entry.sender.once('destroyed', entry.onDestroyed)
+  activeAnswerStreams.set(streamId, entry)
+
+  try {
+    const opened = await desktopAuthSessionManager.openAnswerStream(body, {
+      signal: entry.controller.signal,
+    })
+    if (!opened?.ok) {
+      entry.sender.removeListener('destroyed', entry.onDestroyed)
+      if (activeAnswerStreams.get(streamId) === entry) {
+        activeAnswerStreams.delete(streamId)
+      }
+      return {
+        ok: false,
+        status: Number.isInteger(opened?.status) ? opened.status : 502,
+        reason: opened?.reason || 'generation-failed',
+      }
+    }
+    if (entry.controller.signal.aborted || activeAnswerStreams.get(streamId) !== entry) {
+      opened.release?.()
+      return { ok: false, status: 499, reason: 'canceled' }
+    }
+    entry.release = opened.release
+    entry.isCurrent = opened.isCurrent
+    void consumeAnswerStream(streamId, entry, opened.response)
+    return { ok: true, stream_id: streamId }
+  } catch {
+    entry.sender.removeListener('destroyed', entry.onDestroyed)
+    entry.release?.()
+    if (activeAnswerStreams.get(streamId) === entry) {
+      activeAnswerStreams.delete(streamId)
+    }
+    return { ok: false, status: 502, reason: 'generation-failed' }
+  }
+})
+
+ipcMain.handle('generate:answer:stream:cancel', (event, streamId) => {
+  validateAuthIpc(event)
+  const normalizedStreamId = typeof streamId === 'string' ? streamId.trim().slice(0, 128) : ''
+  const entry = activeAnswerStreams.get(normalizedStreamId) || [...activeAnswerStreams.values()].find(
+    (candidate) => candidate.sender === event.sender && candidate.clientRequestId === normalizedStreamId
+  )
+  if (!entry || entry.sender !== event.sender) {
+    return { ok: false, reason: 'stream-not-found' }
+  }
+  entry.controller.abort()
+  return { ok: true }
 })
 
 ipcMain.handle('startup:complete', (event) => {
@@ -1911,6 +2220,7 @@ ipcMain.handle('screen:capture-active-window', async () => captureActiveWindowSo
 ipcMain.handle('screen:capture-active-window-sequence', async () => captureActiveWindowSequence())
 
 app.on('will-quit', () => {
+  cancelAllAnswerStreams()
   stopForegroundWindowTracking()
   if (overlayBoundsSaveTimer) {
     clearTimeout(overlayBoundsSaveTimer)

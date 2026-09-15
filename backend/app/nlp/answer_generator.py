@@ -510,6 +510,8 @@ class OpenAIResponsesProvider:
         if effort not in {"none", "low", "medium"}:
             effort = "low"
         reasoning = None if effort == "none" else {"effort": effort}
+        stream = None
+        completed = False
         try:
             stream = self.client.responses.create(
                 model=self.model,
@@ -522,10 +524,20 @@ class OpenAIResponsesProvider:
             )
             for event in stream:
                 event_type = str(getattr(event, "type", "") or "")
+                if event_type == "response.completed":
+                    completed = True
+                elif event_type in {"response.failed", "response.incomplete", "error"}:
+                    raise ProviderError("Answer stream interrupted.", provider=self.name,
+                                        model=self.model, phase=phase, error_type="stream_incomplete")
                 if event_type == "response.output_text.delta":
                     delta = str(getattr(event, "delta", "") or "")
                     if delta:
                         yield delta
+            if not completed:
+                raise ProviderError("Answer stream ended without completion.", provider=self.name,
+                                    model=self.model, phase=phase, error_type="stream_incomplete")
+        except ProviderError:
+            raise
         except (
             APIConnectionError,
             APIError,
@@ -538,6 +550,10 @@ class OpenAIResponsesProvider:
             self._raise_provider_error(exc, phase=phase)
         except Exception as exc:
             self._raise_provider_error(exc, phase=phase)
+        finally:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                close()
 
 
 class GroqProvider(OpenAICompatibleProvider):
@@ -2228,7 +2244,7 @@ class AnswerGenerator:
             job_context=job_context,
             profile_context_enabled=profile_context_enabled,
             history=self.variation_history,
-            enabled=settings.ENABLE_CONTROLLED_ANSWER_VARIATION,
+            enabled=settings.ENABLE_CONTROLLED_ANSWER_VARIATION and not bool((profile or {}).get("selected_resume_authoritative")),
             rewrite_enabled=settings.ENABLE_VARIATION_REWRITE,
             ttl_seconds=settings.VARIATION_CACHE_TTL_SECONDS,
             history_limit=settings.VARIATION_HISTORY_LIMIT,

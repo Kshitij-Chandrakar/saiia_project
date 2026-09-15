@@ -1,12 +1,16 @@
 from pathlib import Path
+import asyncio
 import json
 import sys
+import threading
+import time
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.api import generate as generate_api
+from app.nlp.answer_generator import OpenAIResponsesProvider, ProviderError
 from fastapi import HTTPException
 
 
@@ -88,6 +92,61 @@ async def test_generate_stream_forwards_deltas_before_done(monkeypatch: pytest.M
     metadata = next(event["metadata"] for event in events if event["type"] == "metadata")
     assert metadata["model"] == "gpt-5.4-mini-2026-03-17"
     assert metadata["profile_context_policy"] == "FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_does_not_block_event_loop_on_sync_provider_iterator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(
+        generate_api.resume_index_service,
+        "retrieve",
+        lambda **_kwargs: {"retrieval_used": False, "retrieved_chunks": [], "retrieval_ms": 0.0},
+    )
+    monkeypatch.setattr(generate_api.job_context_service, "get_context", lambda: {"saved": False})
+    provider_started = threading.Event()
+    release_provider = threading.Event()
+
+    def fake_stream_openai_primary_answer(**_kwargs):
+        provider_started.set()
+        yield {"type": "delta", "text": "Progressive "}
+        release_provider.wait(timeout=1)
+        yield {"type": "delta", "text": "answer"}
+        yield {
+            "type": "primary_result",
+            "result": {
+                "answer": "Progressive answer",
+                "provider": "openai",
+                "model": "gpt-5.4-mini-2026-03-17",
+                "fallback_used": False,
+                "error": None,
+                "generation_ms": 200.0,
+            },
+        }
+
+    monkeypatch.setattr(generate_api.generator, "stream_openai_primary_answer", fake_stream_openai_primary_answer)
+    monkeypatch.setattr(
+        generate_api.generator,
+        "generate_answer",
+        lambda **kwargs: dict(kwargs["primary_result_override"]),
+    )
+
+    response = await generate_api.generate_answer_stream(
+        generate_api.GenerateRequest(question="What is progressive streaming?", category="technical")
+    )
+    release_timer = threading.Timer(0.2, release_provider.set)
+    release_timer.start()
+    started_at = time.perf_counter()
+    collection = asyncio.create_task(_collect_stream_events(response))
+    assert await asyncio.to_thread(provider_started.wait, 1)
+    await asyncio.wait_for(asyncio.sleep(0.05), timeout=0.5)
+    assert time.perf_counter() - started_at < 0.18
+    events = await asyncio.wait_for(collection, timeout=1.5)
+    release_timer.cancel()
+
+    assert [event["type"] for event in events[:3]] == ["start", "delta", "delta"]
+    assert events[-1]["type"] == "done"
 
 
 @pytest.mark.asyncio
@@ -387,6 +446,7 @@ async def test_generate_stream_preserves_selected_resume_http_conflict(monkeypat
         "status_code": 409,
         "detail": "Selected resume is not ready for generation.",
         "partial": False,
+        "sequence": 1,
     }
     assert events[-1]["type"] == "done"
     assert events[-1]["incomplete"] is False
@@ -470,6 +530,7 @@ async def test_generate_stream_primary_success_with_session_id_stores_transcript
         request=object(),
     )
     events = await _collect_stream_events(response)
+    assert events[0]["request_id"] == "stream-1"
     metadata = next(event["metadata"] for event in events if event["type"] == "metadata")
 
     assert metadata["transcript_entry_stored"] is True
@@ -554,8 +615,9 @@ async def test_generate_stream_primary_success_offloads_transcript_storage(
     metadata = next(event["metadata"] for event in events if event["type"] == "metadata")
 
     assert metadata["transcript_entry_stored"] is True
-    assert len(offload_calls) == 1
-    assert offload_calls[0]["func"] is generate_api._store_transcript_for_stream_result
+    assert any(call["func"] is generate_api._store_transcript_for_stream_result for call in offload_calls)
+    assert any(call["func"] is generate_api._retrieve_resume_context for call in offload_calls)
+    assert any(call["func"] is generate_api.generator.generate_answer for call in offload_calls)
 
 
 @pytest.mark.asyncio
@@ -756,6 +818,49 @@ async def test_generate_stream_incomplete_failure_does_not_store_transcript(
     assert events[-1]["type"] == "done"
     assert events[-1]["incomplete"] is True
     assert transcript_calls == []
+
+
+def test_provider_stream_only_exposes_answer_deltas_after_completion() -> None:
+    class Event:
+        def __init__(self, event_type: str, delta: str = "") -> None:
+            self.type = event_type
+            self.delta = delta
+
+    class FakeResponses:
+        @staticmethod
+        def create(**_kwargs):
+            return iter([
+                Event("response.reasoning.delta", "private"),
+                Event("response.output_text.delta", "safe "),
+                Event("response.output_text.delta", "answer"),
+                Event("response.completed"),
+            ])
+
+    provider = OpenAIResponsesProvider()
+    provider.api_key = "test"
+    provider.client = type("Client", (), {"responses": FakeResponses()})()
+    assert list(provider.stream_generate(
+        instructions="ignored", input_text="ignored", reasoning_effort="low", max_output_tokens=10,
+    )) == ["safe ", "answer"]
+
+
+def test_provider_stream_rejects_a_transport_without_completion() -> None:
+    class Event:
+        type = "response.output_text.delta"
+        delta = "partial"
+
+    class FakeResponses:
+        @staticmethod
+        def create(**_kwargs):
+            return iter([Event()])
+
+    provider = OpenAIResponsesProvider()
+    provider.api_key = "test"
+    provider.client = type("Client", (), {"responses": FakeResponses()})()
+    with pytest.raises(ProviderError, match="without completion"):
+        list(provider.stream_generate(
+            instructions="ignored", input_text="ignored", reasoning_effort="low", max_output_tokens=10,
+        ))
 
 
 @pytest.mark.asyncio

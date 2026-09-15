@@ -15,7 +15,7 @@ import {
 } from './auth/AuthScreens'
 import MainDiagnosticsWindow from './components/MainDiagnosticsWindow'
 import OverlayWindowView from './components/OverlayWindow'
-import { readNdjsonStream, stripInternalControlMarkers } from './answer_stream'
+import { markChatTiming, readNdjsonStream, stripInternalControlMarkers } from './answer_stream'
 import { isCurrentRequest } from './request_state'
 import { normalizeScreenResponse } from './screen_intelligence_contract'
 import {
@@ -405,6 +405,11 @@ function createEmptyPipelineTimings() {
     refinement_generation_ms: null,
     groq_generation_ms: null,
     answer_received_ms: null,
+    backend_first_delta_ms: null,
+    provider_first_delta_ms: null,
+    frontend_first_delta_ms: null,
+    stream_dispatch_to_first_delta_ms: null,
+    backend_stream_duration_ms: null,
     overlay_commit_ms: null,
     bar_reset_ms: null,
     frontend_update_ms: null,
@@ -1042,6 +1047,7 @@ function OverlayWindow() {
     screenShareProtectionEnabled: true,
     overlayOpacity: 1,
     sessionStartedAt: Date.now(),
+    activeSessionId: '',
     selectedResumeIdExists: false,
     selectedResumeName: '',
     privacyMessage: OVERLAY_PRIVACY_MESSAGE,
@@ -1286,6 +1292,8 @@ function MainWindow() {
   const fullAnswerRef = useRef('')
   const questionHistoryRef = useRef(questionHistory)
   const activeGenerateAbortControllerRef = useRef(null)
+  const desktopAnswerStreamHandlersRef = useRef(new Map())
+  const manualChatRequestIdRef = useRef(null)
   const audioSourcesRef = useRef({ system: false, microphone: false })
   const audioPipelineStatusRef = useRef('idle')
   const activeAudioSourceRef = useRef('none')
@@ -1460,6 +1468,7 @@ function MainWindow() {
     displayMode = 'answer',
     historyMode = '',
     historyEntryId = '',
+    pipelineStarted = null,
   }) => {
     activeGenerateAbortControllerRef.current?.abort()
     const controller = new AbortController()
@@ -1469,7 +1478,107 @@ function MainWindow() {
     let streamRequestId = ''
     let receivedAnyDelta = false
     let firstDeltaMs = null
+    let streamDispatchToFirstDeltaMs = null
+    let streamCompleted = false
+    let streamIncomplete = false
     const streamStartedAt = performance.now()
+    const pipelineStartedAt = pipelineStarted != null && Number.isFinite(Number(pipelineStarted))
+      ? Number(pipelineStarted)
+      : streamStartedAt
+
+    const abortError = () => {
+      const error = new Error('Answer generation was cancelled.')
+      error.name = 'AbortError'
+      return error
+    }
+
+    let pendingFrame = null
+    let firstStateMs = null
+    let canonicalReceivedMs = null
+    const publishAnswer = (text) => {
+      if (controller.signal.aborted || !isCurrentRequest(latestGenerationRequestIdRef.current, requestId)) return
+      if (pendingFrame != null) cancelAnimationFrame(pendingFrame)
+      pendingFrame = null
+      if (historyMode && historyEntryId) {
+        setQuestionHistoryState((current) => updateQuestionHistoryEntry(
+          current, historyMode, historyEntryId,
+          { displayedAnswer: text, fullAnswer: text, status: 'generating' }, { requestId }
+        ))
+      }
+      if (!historyMode || isSelectedHistoryEntry(historyMode, historyEntryId)) {
+        fullAnswerRef.current = text
+        setFullAnswer(text)
+        setAnswer(text)
+        if (text && firstStateMs == null) firstStateMs = performance.now() - pipelineStartedAt
+        markChatTiming(requestId, 'answer_state_update')
+      }
+    }
+
+    const applyStreamEvent = (event) => {
+      if (controller.signal.aborted || !isCurrentRequest(latestGenerationRequestIdRef.current, requestId)) {
+        controller.abort()
+        return
+      }
+      if (!event || typeof event !== 'object') {
+        return
+      }
+      if (event.type === 'start') {
+        streamRequestId = event.request_id || ''
+        return
+      }
+      if (streamRequestId && event.request_id && event.request_id !== streamRequestId) {
+        return
+      }
+      if (event.type === 'delta') {
+        const text = stripInternalControlMarkers(event.text || '')
+        if (!text) {
+          return
+        }
+        receivedAnyDelta = true
+        if (firstDeltaMs == null) {
+          const firstDeltaAt = performance.now()
+          markChatTiming(requestId, 'first_answer_text_received')
+          firstDeltaMs = Number((firstDeltaAt - pipelineStartedAt).toFixed(2))
+          streamDispatchToFirstDeltaMs = Number((firstDeltaAt - streamStartedAt).toFixed(2))
+        }
+        accumulatedAnswer += text
+        if (accumulatedAnswer.length > 512 * 1024) throw new Error('Answer stream exceeds size limit.')
+        if (pendingFrame == null) pendingFrame = requestAnimationFrame(() => publishAnswer(accumulatedAnswer))
+        return
+      }
+      if (event.type === 'replace') {
+        const replacement = stripInternalControlMarkers(event.answer || '')
+        accumulatedAnswer = replacement
+        canonicalReceivedMs = performance.now() - pipelineStartedAt
+        markChatTiming(requestId, 'canonical_received')
+        publishAnswer(replacement)
+        return
+      }
+      if (event.type === 'metadata') {
+        finalPayload = { ...(event.metadata || {}) }
+        if (finalPayload.answer) {
+          applyStreamEvent({ type: 'replace', request_id: event.request_id, answer: finalPayload.answer })
+        }
+        return
+      }
+      if (event.type === 'error') {
+        if (!receivedAnyDelta) {
+          throw new Error('Could not generate an answer right now.')
+        }
+        finalPayload = {
+          ...(finalPayload || {}),
+          answer: accumulatedAnswer,
+          error: 'stream_incomplete',
+          stream_incomplete: true,
+        }
+        streamIncomplete = true
+        return
+      }
+      if (event.type === 'done') {
+        streamCompleted = true
+        streamIncomplete = streamIncomplete || Boolean(event.incomplete) || !finalPayload?.answer
+      }
+    }
 
     if (!historyMode || isSelectedHistoryEntry(historyMode, historyEntryId)) {
       setAnswerDisplayMode(displayMode)
@@ -1490,10 +1599,16 @@ function MainWindow() {
         ...(activeSessionId ? { session_id: activeSessionId } : {}),
       }
       const desktopGenerateAnswer = window.saiia?.generateAnswer
-      if (selectedResumeId && typeof desktopGenerateAnswer === 'function') {
+      const applyBufferedAnswer = async () => {
+        if (typeof desktopGenerateAnswer !== 'function') {
+          throw new Error('Could not generate an answer right now.')
+        }
         const result = await desktopGenerateAnswer(requestBody)
+        if (controller.signal.aborted || !isCurrentRequest(latestGenerationRequestIdRef.current, requestId)) {
+          throw abortError()
+        }
         if (!result?.ok) {
-          throw new Error(result?.payload?.detail || 'Could not generate an answer right now.')
+          throw new Error('Could not generate an answer right now.')
         }
         finalPayload = result.payload || {}
         const finalAnswer = stripInternalControlMarkers(finalPayload.answer || '')
@@ -1521,6 +1636,100 @@ function MainWindow() {
         return finalPayload
       }
 
+      if (selectedResumeId && typeof desktopGenerateAnswer === 'function') {
+        const desktopStartAnswerStream = window.saiia?.startAnswerStream
+        const desktopCancelAnswerStream = window.saiia?.cancelAnswerStream
+        const desktopStreamEvents = window.saiia?.onAnswerStreamEvent
+        let desktopHandlerKey = ''
+        let desktopStreamId = String(requestId)
+        let desktopStreamPromise = null
+        let removeDesktopAbortListener = () => {}
+        let unsubscribeDesktop = () => {}
+
+        if (
+          displayMode === 'chat' &&
+          typeof desktopStartAnswerStream === 'function' &&
+          typeof desktopStreamEvents === 'function'
+        ) {
+          desktopHandlerKey = String(requestId)
+          desktopStreamPromise = new Promise((resolve, reject) => {
+            let settled = false
+            const settle = (callback, value) => {
+              if (settled) {
+                return
+              }
+              settled = true
+              callback(value)
+            }
+            desktopAnswerStreamHandlersRef.current.set(desktopHandlerKey, (event) => {
+              try {
+                applyStreamEvent(event)
+                if (streamCompleted) {
+                  settle(resolve)
+                }
+              } catch (error) {
+                settle(reject, error)
+              }
+            })
+            const handleAbort = () => settle(reject, abortError())
+            controller.signal.addEventListener('abort', handleAbort, { once: true })
+            removeDesktopAbortListener = () => controller.signal.removeEventListener('abort', handleAbort)
+          })
+          desktopStreamPromise.catch(() => {})
+          unsubscribeDesktop = desktopStreamEvents(desktopHandlerKey, (payload) => {
+            desktopAnswerStreamHandlersRef.current.get(desktopHandlerKey)?.(payload.event)
+          })
+
+          const handleDesktopAbort = () => {
+            if (desktopStreamId && typeof desktopCancelAnswerStream === 'function') {
+              desktopCancelAnswerStream(desktopStreamId).catch(() => {})
+            }
+          }
+          controller.signal.addEventListener('abort', handleDesktopAbort, { once: true })
+          const removeDesktopCancelListener = () => controller.signal.removeEventListener('abort', handleDesktopAbort)
+
+          try {
+            const started = await desktopStartAnswerStream(requestBody)
+            if (started?.ok) {
+              desktopStreamId = String(started.stream_id || '')
+              if (!desktopStreamId) {
+                throw new Error('Could not start answer streaming.')
+              }
+              if (controller.signal.aborted) {
+                throw abortError()
+              }
+              await desktopStreamPromise
+            } else if (started?.reason === 'stream-unavailable') {
+              desktopAnswerStreamHandlersRef.current.delete(desktopHandlerKey)
+              await applyBufferedAnswer()
+              return finalPayload
+            } else if (started?.reason === 'canceled') {
+              throw abortError()
+            } else {
+              throw new Error('Could not generate an answer right now.')
+            }
+          } finally {
+            if (
+              desktopStreamId &&
+              !streamCompleted &&
+              typeof desktopCancelAnswerStream === 'function'
+            ) {
+              desktopCancelAnswerStream(desktopStreamId).catch(() => {})
+            }
+            unsubscribeDesktop()
+            removeDesktopAbortListener()
+            removeDesktopCancelListener()
+            if (desktopHandlerKey) {
+              desktopAnswerStreamHandlersRef.current.delete(desktopHandlerKey)
+            }
+          }
+        } else {
+          return applyBufferedAnswer()
+        }
+      }
+
+      // The desktop bridge already consumed its stream. Never dispatch twice.
+      if (!(selectedResumeId && typeof desktopGenerateAnswer === 'function')) {
       const response = await fetch(`${BACKEND_URL}/generate/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1537,99 +1746,34 @@ function MainWindow() {
         return parseJsonResponse(fallbackResponse, 'Could not generate an answer right now.')
       }
 
-      await readNdjsonStream(response, {
+      const streamResult = await readNdjsonStream(response, {
         signal: controller.signal,
-        onEvent: (event) => {
-          if (!isCurrentRequest(latestGenerationRequestIdRef.current, requestId)) {
-            controller.abort()
-            return
-          }
-          if (event.type === 'start') {
-            streamRequestId = event.request_id || ''
-            return
-          }
-          if (streamRequestId && event.request_id && event.request_id !== streamRequestId) {
-            return
-          }
-          if (event.type === 'delta') {
-            const text = stripInternalControlMarkers(event.text || '')
-            if (!text) {
-              return
-            }
-          receivedAnyDelta = true
-          if (firstDeltaMs == null) {
-            firstDeltaMs = Number((performance.now() - streamStartedAt).toFixed(2))
-          }
-          accumulatedAnswer += text
-            if (historyMode && historyEntryId) {
-              setQuestionHistoryState((current) =>
-                updateQuestionHistoryEntry(
-                  current,
-                  historyMode,
-                  historyEntryId,
-                  {
-                    displayedAnswer: accumulatedAnswer,
-                    fullAnswer: accumulatedAnswer,
-                    status: 'generating',
-                  },
-                  { requestId }
-                )
-              )
-            }
-            if (!historyMode || isSelectedHistoryEntry(historyMode, historyEntryId)) {
-              fullAnswerRef.current = accumulatedAnswer
-              setFullAnswer(accumulatedAnswer)
-              setAnswer(accumulatedAnswer)
-            }
-            return
-          }
-          if (event.type === 'replace') {
-            const replacement = stripInternalControlMarkers(event.answer || '')
-            accumulatedAnswer = replacement
-            if (historyMode && historyEntryId) {
-              setQuestionHistoryState((current) =>
-                updateQuestionHistoryEntry(
-                  current,
-                  historyMode,
-                  historyEntryId,
-                  {
-                    displayedAnswer: replacement,
-                    fullAnswer: replacement,
-                    status: 'generating',
-                  },
-                  { requestId }
-                )
-              )
-            }
-            if (!historyMode || isSelectedHistoryEntry(historyMode, historyEntryId)) {
-              fullAnswerRef.current = replacement
-              setFullAnswer(replacement)
-              setAnswer(replacement)
-            }
-            return
-          }
-          if (event.type === 'metadata') {
-            finalPayload = { ...(event.metadata || {}) }
-            return
-          }
-          if (event.type === 'error') {
-            if (!receivedAnyDelta) {
-              throw new Error(event.error || 'Could not generate an answer right now.')
-            }
-            finalPayload = {
-              ...(finalPayload || {}),
-              answer: accumulatedAnswer,
-              error: event.error || 'stream_incomplete',
-              stream_incomplete: true,
-            }
-          }
-        },
+        onEvent: applyStreamEvent,
       })
+      if (!streamResult?.sawDone || !streamCompleted) {
+        throw new Error('Answer stream ended before completion.')
+      }
+      }
+      if (streamIncomplete || !finalPayload?.answer) {
+        throw new Error('Answer incomplete. Generation or saving was interrupted.')
+      }
+    } catch (error) {
+      publishAnswer(accumulatedAnswer)
+      error.streamIncomplete = Boolean(accumulatedAnswer)
+      if (historyMode && historyEntryId) {
+        const partial = accumulatedAnswer
+        setQuestionHistoryState((current) => updateQuestionHistoryEntry(
+          current, historyMode, historyEntryId,
+          { displayedAnswer: partial, fullAnswer: partial, status: 'error' }, { requestId }
+        ))
+      }
+      throw error
     } finally {
+      if (pendingFrame != null) cancelAnimationFrame(pendingFrame)
       if (activeGenerateAbortControllerRef.current === controller) {
         activeGenerateAbortControllerRef.current = null
       }
-      if (!historyMode || isSelectedHistoryEntry(historyMode, historyEntryId)) {
+      if (isCurrentRequest(latestGenerationRequestIdRef.current, requestId) && (!historyMode || isSelectedHistoryEntry(historyMode, historyEntryId))) {
         setAnswerRevealActive(false)
       }
     }
@@ -1642,6 +1786,12 @@ function MainWindow() {
       model: finalPayload?.model || '',
       fallback_used: Boolean(finalPayload?.fallback_used),
       frontend_first_delta_ms: firstDeltaMs,
+      frontend_first_state_ms: firstStateMs,
+      frontend_canonical_received_ms: canonicalReceivedMs,
+      frontend_completion_ms: performance.now() - pipelineStartedAt,
+      stream_dispatch_to_first_delta_ms: streamDispatchToFirstDeltaMs,
+      backend_stream_duration_ms: finalPayload?.stream_duration_ms ?? null,
+      stream_incomplete: streamIncomplete || Boolean(finalPayload?.stream_incomplete),
     }
   }
 
@@ -1776,6 +1926,7 @@ function MainWindow() {
     codingAnswer,
     answerRevealActive,
     answerFullAvailable: Boolean(fullAnswer),
+    chatRequestId: manualChatRequestIdRef.current,
     answerDisplayMode,
     questionHistory,
     questionHistoryNavigationCount,
@@ -1887,6 +2038,7 @@ function MainWindow() {
     screenShareProtectionEnabled,
     overlayOpacity,
     sessionStartedAt,
+    activeSessionId: String(startupSessionConfig?.activeSessionId || ''),
     selectedResumeIdExists: Boolean(String(startupSessionConfig?.selectedResumeId || '').trim()),
     selectedResumeName: String(startupSessionConfig?.selectedResumeName || '').trim(),
   })
@@ -2770,9 +2922,11 @@ function MainWindow() {
     screenQuestionType = 'none',
     forceTechnical = false,
     suppressProfileContext = false,
+    logicalRequestId = null,
   }) => {
-    const requestId = Date.now() + Math.random()
+    const requestId = logicalRequestId || Date.now() + Math.random()
     latestGenerationRequestIdRef.current = requestId
+    markChatTiming(requestId, 'app_submit')
     const displayMode = mode === 'screen' ? 'screen' : mode === 'chat' ? 'chat' : 'answer'
     const historyMode = normalizeQuestionHistoryMode(displayMode)
     const requestSource = getSafeGenerationSource(mode, source)
@@ -2848,6 +3002,7 @@ function MainWindow() {
       nextCategory = 'technical'
       classificationMs = 0
     } else {
+      markChatTiming(requestId, 'classification_dispatch')
       const classificationStarted = performance.now()
       const classifyResponse = await fetch(`${BACKEND_URL}/classify/`, {
         method: 'POST',
@@ -2858,6 +3013,7 @@ function MainWindow() {
         classifyResponse,
         'Could not classify the question.'
       )
+      markChatTiming(requestId, 'classification_body_received')
       nextCategory = classifyPayload.category
       classificationMs =
         classifyPayload.classification_ms ??
@@ -2884,6 +3040,7 @@ function MainWindow() {
     let fromCache = true
 
     if (!suppressProfileContext) {
+      markChatTiming(requestId, 'profile_start')
       const loadedProfile = await loadProfileForLiveAnswer()
       profile = loadedProfile.profile
       profileFetchMs = loadedProfile.profileFetchMs
@@ -2900,6 +3057,8 @@ function MainWindow() {
       }
     }
 
+    if (!isCurrentRequest(latestGenerationRequestIdRef.current, requestId)) return
+    markChatTiming(requestId, 'profile_complete')
     const liveProfile = suppressProfileContext ? {} : buildLiveProfileContext(profile)
 
     const committedQuestionBeforeStream = String(displayQuestion || text || '').trim()
@@ -2996,14 +3155,19 @@ function MainWindow() {
     setGenerationMs(null)
     setTotalPipelineMs(null)
     setStatus('Streaming answer...')
+    markChatTiming(requestId, 'generation_dispatch')
     const generatePayload = await streamGenerateAnswer({
       body: generateRequestBody,
       requestId,
       displayMode,
       historyMode,
       historyEntryId,
+      pipelineStarted,
     })
 
+    if (generatePayload.stream_incomplete) {
+      throw new Error('Answer generation was interrupted. Please try again.')
+    }
     if (!generatePayload.answer || !generatePayload.answer.trim()) {
       throw new Error('Generation finished without a usable answer. Please try again.')
     }
@@ -3053,10 +3217,15 @@ function MainWindow() {
       refinement_generation_ms: generatePayload.refinement_generation_ms ?? null,
       groq_generation_ms: generatePayload.groq_generation_ms ?? generatePayload.generation_ms ?? null,
       answer_received_ms: answerReceivedMs,
-      time_to_first_visible_text_ms:
-        generatePayload.time_to_first_visible_text_ms ??
-        generatePayload.frontend_first_delta_ms ??
-        null,
+      backend_first_delta_ms: generatePayload.time_to_first_visible_text_ms ?? null,
+      provider_first_delta_ms: generatePayload.provider_first_delta_ms ?? null,
+      time_to_first_visible_text_ms: null,
+      frontend_first_delta_ms: generatePayload.frontend_first_delta_ms ?? null,
+      frontend_first_state_ms: generatePayload.frontend_first_state_ms ?? null,
+      frontend_canonical_received_ms: generatePayload.frontend_canonical_received_ms ?? null,
+      frontend_completion_ms: generatePayload.frontend_completion_ms ?? null,
+      stream_dispatch_to_first_delta_ms: generatePayload.stream_dispatch_to_first_delta_ms ?? null,
+      backend_stream_duration_ms: generatePayload.stream_duration_ms ?? null,
       overlay_commit_ms: overlayCommitMs,
       bar_reset_ms: barResetMs,
       frontend_update_ms: frontendUpdateMs,
@@ -3227,10 +3396,15 @@ function MainWindow() {
       refinement_generation_ms: generatePayload.refinement_generation_ms ?? null,
       groq_generation_ms: generatePayload.groq_generation_ms ?? generatePayload.generation_ms,
       answer_received_ms: answerReceivedMs,
-      time_to_first_visible_text_ms:
-        generatePayload.time_to_first_visible_text_ms ??
-        generatePayload.frontend_first_delta_ms ??
-        null,
+      backend_first_delta_ms: generatePayload.time_to_first_visible_text_ms ?? null,
+      provider_first_delta_ms: generatePayload.provider_first_delta_ms ?? null,
+      time_to_first_visible_text_ms: null,
+      frontend_first_delta_ms: generatePayload.frontend_first_delta_ms ?? null,
+      frontend_first_state_ms: generatePayload.frontend_first_state_ms ?? null,
+      frontend_canonical_received_ms: generatePayload.frontend_canonical_received_ms ?? null,
+      frontend_completion_ms: generatePayload.frontend_completion_ms ?? null,
+      stream_dispatch_to_first_delta_ms: generatePayload.stream_dispatch_to_first_delta_ms ?? null,
+      backend_stream_duration_ms: generatePayload.stream_duration_ms ?? null,
       overlay_commit_ms: overlayCommitMs,
       bar_reset_ms: barResetMs,
       frontend_update_ms: frontendUpdateMs,
@@ -3278,6 +3452,9 @@ function MainWindow() {
       selectedResumeChunkCount: generatePayload.selected_resume_chunk_count ?? 0,
     }
     } catch (err) {
+      if (!isCurrentRequest(latestGenerationRequestIdRef.current, requestId)) {
+        return
+      }
       setGenerationStarted(false)
       setGenerationBlockedReason(err?.message || 'generation_failed')
       setAnswerPipelineState('idle')
@@ -5311,7 +5488,7 @@ function MainWindow() {
     }
   }
 
-  const handleManualQuestionSubmit = async (nextText) => {
+  const handleManualQuestionSubmit = async (nextText, submitId = null) => {
     const text = String(nextText || '').trim()
     if (!text) {
       setManualQuestionError('Please type a question first.')
@@ -5325,12 +5502,12 @@ function MainWindow() {
       autoMode ||
       autoProcessing ||
       ocrProcessing ||
-      manualProcessing ||
-      isManualGenerating
+      manualProcessing
     ) {
       return
     }
 
+    if (submitId && submitId === manualChatRequestIdRef.current) return
     setManualQuestionError('')
     setError('')
     setAnswerDisplayMode('chat')
@@ -5338,6 +5515,8 @@ function MainWindow() {
     resetAnswerMeta()
     setTranscript(text)
     setIsManualGenerating(true)
+    const manualRequestId = submitId || crypto.randomUUID()
+    manualChatRequestIdRef.current = manualRequestId
 
     try {
       await classifyAndGenerate({
@@ -5349,17 +5528,19 @@ function MainWindow() {
         pipelineStarted: performance.now(),
         mode: 'chat',
         source: 'chat',
+        logicalRequestId: manualRequestId,
       })
     } catch (err) {
+      if (manualChatRequestIdRef.current !== manualRequestId) return
       console.error('Manual chat generation error', err)
       const message = normalizePipelineError(err, 'Could not generate an answer right now.')
-      clearProgressiveAnswer()
+      if (!err.streamIncomplete) clearProgressiveAnswer()
       resetAnswerMeta()
-      setManualQuestionError(message)
+      setManualQuestionError(err.streamIncomplete ? 'Answer incomplete. Generation or saving was interrupted.' : message)
       setError(message)
       setStatus('Request failed.')
     } finally {
-      setIsManualGenerating(false)
+      if (manualChatRequestIdRef.current === manualRequestId) setIsManualGenerating(false)
     }
   }
 
@@ -5769,12 +5950,13 @@ function MainWindow() {
         }
 
         if (action === 'submit-manual-question') {
-          await handleManualQuestionSubmit(payload?.payload?.text ?? payload?.text ?? '')
+          await handleManualQuestionSubmit(payload?.payload?.text ?? payload?.text ?? '', payload?.payload?.request_id)
           return
         }
 
         if (action === 'reset-manual-chat') {
-          setManualQuestionError('')
+          activeGenerateAbortControllerRef.current?.abort()
+          setManualQuestionError('Answer incomplete. Generation cancelled.')
           return
         }
 

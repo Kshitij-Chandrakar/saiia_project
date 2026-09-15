@@ -118,6 +118,27 @@ function createManager(options = {}) {
           company_name: 'Acme',
         })
       }
+      if (url.includes('/api/interview-sessions/') && url.endsWith('/my-answers')) {
+        if (init.method === 'POST') {
+          const body = JSON.parse(init.body)
+          return jsonResponse(201, {
+            id: 'answer-1',
+            session_id: 'session-1',
+            body: body.body,
+            position: 1,
+            created_at: '2026-09-15T00:00:00Z',
+          })
+        }
+        return jsonResponse(200, {
+          items: [{
+            id: 'answer-1',
+            session_id: 'session-1',
+            body: 'My saved answer',
+            position: 1,
+            created_at: '2026-09-15T00:00:00Z',
+          }],
+        })
+      }
       if (url.includes('/auth/v1/token?grant_type=refresh_token')) {
         return jsonResponse(options.refreshStatus || 200, {
           access_token: 'refreshed-access-token',
@@ -1332,6 +1353,55 @@ test('generateAnswer proxies selected resume requests with main-process bearer a
   }
 })
 
+test('openAnswerStream uses the authenticated stream endpoint without exposing credentials', async () => {
+  const ctx = createManager({
+    fetchImpl: async (url, init = {}) => {
+      ctx.calls.push({ url, init })
+      if (url.endsWith('/api/auth/me')) {
+        return jsonResponse(200, { user_id: 'user-1', email: 'user@example.com' })
+      }
+      if (url.endsWith('/api/auth/profile/bootstrap')) {
+        return jsonResponse(200, { ok: true })
+      }
+      if (url.endsWith('/generate/stream')) {
+        return {
+          ok: true,
+          status: 200,
+          body: new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"type":"start","request_id":"backend-1"}\n'))
+              controller.close()
+            },
+          }),
+        }
+      }
+      return jsonResponse(500, {})
+    },
+  })
+  try {
+    ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+
+    const opened = await ctx.manager.openAnswerStream({
+      request_id: 'turn-1',
+      question: 'What is streaming?',
+      category: 'technical',
+      session_id: 'session-1',
+      selected_resume_id: 'resume-1',
+    })
+
+    const streamCall = ctx.calls.find((call) => call.url.endsWith('/generate/stream'))
+    assert.equal(opened.ok, true)
+    assert.equal(streamCall.init.headers.Authorization, 'Bearer access-token')
+    assert.equal(streamCall.init.headers.Accept, 'application/x-ndjson')
+    assert.equal(JSON.parse(streamCall.init.body).selected_resume_id, 'resume-1')
+    assert.doesNotMatch(JSON.stringify(opened), /access-token|refresh-token|Authorization/)
+    opened.release()
+    assert.equal(ctx.manager.activeAnswerStreamControllers.size, 0)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
 test('refreshStartupContext verifies again when verification freshness expires', async () => {
   let now = 1000
   const ctx = createManager({
@@ -1877,6 +1947,28 @@ test('desktop auth manager creates lists and ends interview sessions without exp
   }
 })
 
+test('desktop auth manager exposes only session-scoped My Answers methods', async () => {
+  const ctx = createManager()
+  try {
+    ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+    ctx.manager.user = { user_id: 'user-1', email: 'user@example.com' }
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    ctx.manager.sessionGeneration = 1
+
+    const listed = await ctx.manager.listMyAnswers('session-1')
+    const saved = await ctx.manager.saveMyAnswer('session-1', 'A prepared answer')
+    assert.equal(listed.items[0].body, 'My saved answer')
+    assert.equal(saved.answer.body, 'A prepared answer')
+    const calls = ctx.calls.filter((call) => call.url.includes('/my-answers'))
+    assert.equal(calls.length, 2)
+    assert.equal(calls[0].init.headers.Authorization, 'Bearer access-token')
+    assert.equal(JSON.stringify(calls[0].init.headers).includes('refresh-token'), false)
+    assert.equal(JSON.stringify(calls[0].init).includes('access_token'), false)
+  } finally {
+    ctx.cleanup()
+  }
+})
+
 test('logout attempts to finalize the active interview session before clearing local state', async () => {
   const ctx = createManager()
   try {
@@ -2079,6 +2171,7 @@ test('preload exposes exact narrow auth methods without raw tokens or generic fe
     'captureActiveWindow',
     'captureActiveWindowSequence',
     'captureScreen',
+    'cancelAnswerStream',
     'collapseStartupWindow',
     'closeStartupWindow',
     'createInterviewSession',
@@ -2088,12 +2181,16 @@ test('preload exposes exact narrow auth methods without raw tokens or generic fe
     'getCloudStartupContext',
     'listInterviewSessions',
     'listCloudResumes',
+    'listMyAnswers',
     'listScreenSources',
     'logoutAuth',
     'openDashboard',
+    'onAnswerStreamEvent',
     'refreshCloudStartupContext',
     'restoreStartupWindow',
+    'saveMyAnswer',
     'startAuthLogin',
+    'startAnswerStream',
   ].sort())
   assert.equal('access_token' in exposed.saiia, false)
   assert.equal('refresh_token' in exposed.saiia, false)

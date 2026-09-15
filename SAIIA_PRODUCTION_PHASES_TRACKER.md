@@ -1812,6 +1812,9 @@ P6B/P8/P9 consolidation records are preserved as historical desktop validation n
 - Validation: focused frontend tests, Vite build, and Electron syntax checks passed. Manual Electron mode-switch sequences still need user-side verification.
 
 - True streaming update: added `/generate/stream` using NDJSON events (`start`, `delta`, optional `replace`, `metadata`, `done`, `error`) so OpenAI Responses API text deltas can reach the overlay before full generation finishes.
+- 2026-09-08 manual Chat follow-up: the selected-resume desktop Chat branch now uses the authenticated narrow `startAnswerStream` preload/main bridge and receives answer deltas in the existing Chat panel before terminal completion. The existing final validation, transcript persistence, owner checks, cancellation guards, and buffered rollback remain in place.
+- The bridge parses fragmented NDJSON in the main process, emits only bounded answer/control metadata, and binds events to the originating renderer request and authenticated account. No prompts, resume content, credentials, or provider reasoning are forwarded as stream metadata.
+- Focused post-audit validation: backend answer-stream tests `15 passed`; frontend Node tests `226 passed`; Vite build passed. Live authenticated desktop first-text/paint/completion measurements remain pending and no two-second target is claimed.
 - Streaming model/provider: unchanged `ANSWER_PROVIDER=openai` with `OPENAI_MODEL=gpt-5.4-mini-2026-03-17`; no second GPT model or provider was added.
 - Validation compatibility: backend accumulates the streamed primary answer, then runs the existing deterministic validation, conditional correction, and controlled variation path; accepted post-processing changes are sent once as `replace`.
 - Fallback policy: Groq fallback can emit a complete compatible answer only when OpenAI fails before visible text; after partial OpenAI text, the partial answer is preserved with a controlled error event.

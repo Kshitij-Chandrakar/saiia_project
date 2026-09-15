@@ -1596,8 +1596,32 @@ export default function MainDiagnosticsWindow(props) {
                     value={pipelineTimings?.answer_received_ms != null ? `${pipelineTimings.answer_received_ms} ms` : 'n/a'}
                   />
                   <MetaRow
-                    label="First visible text"
-                    value={pipelineTimings?.time_to_first_visible_text_ms != null ? `${pipelineTimings.time_to_first_visible_text_ms} ms` : 'n/a'}
+                    label="First answer state update"
+                    value={pipelineTimings?.frontend_first_state_ms != null ? `${pipelineTimings.frontend_first_state_ms} ms` : 'n/a'}
+                  />
+                  <MetaRow
+                    label="Provider first delta"
+                    value={pipelineTimings?.provider_first_delta_ms != null ? `${pipelineTimings.provider_first_delta_ms} ms` : 'n/a'}
+                  />
+                  <MetaRow
+                    label="Backend first answer delta"
+                    value={pipelineTimings?.backend_first_delta_ms != null ? `${pipelineTimings.backend_first_delta_ms} ms` : 'n/a'}
+                  />
+                  <MetaRow
+                    label="Stream dispatch to first delta"
+                    value={pipelineTimings?.stream_dispatch_to_first_delta_ms != null ? `${pipelineTimings.stream_dispatch_to_first_delta_ms} ms` : 'n/a'}
+                  />
+                  <MetaRow
+                    label="Backend stream duration"
+                    value={pipelineTimings?.backend_stream_duration_ms != null ? `${pipelineTimings.backend_stream_duration_ms} ms` : 'n/a'}
+                  />
+                  <MetaRow
+                    label="Canonical answer received"
+                    value={pipelineTimings?.frontend_canonical_received_ms != null ? `${pipelineTimings.frontend_canonical_received_ms} ms` : 'n/a'}
+                  />
+                  <MetaRow
+                    label="Final UI completion"
+                    value={pipelineTimings?.frontend_completion_ms != null ? `${pipelineTimings.frontend_completion_ms} ms` : 'n/a'}
                   />
                   <MetaRow
                     label="Overlay commit"
