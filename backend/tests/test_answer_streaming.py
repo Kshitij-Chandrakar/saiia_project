@@ -1,12 +1,16 @@
 from pathlib import Path
+import asyncio
 import json
 import sys
+import threading
+import time
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.api import generate as generate_api
+from app.nlp.answer_generator import OpenAIResponsesProvider, ProviderError
 from fastapi import HTTPException
 
 
@@ -88,6 +92,61 @@ async def test_generate_stream_forwards_deltas_before_done(monkeypatch: pytest.M
     metadata = next(event["metadata"] for event in events if event["type"] == "metadata")
     assert metadata["model"] == "gpt-5.4-mini-2026-03-17"
     assert metadata["profile_context_policy"] == "FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_does_not_block_event_loop_on_sync_provider_iterator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(
+        generate_api.resume_index_service,
+        "retrieve",
+        lambda **_kwargs: {"retrieval_used": False, "retrieved_chunks": [], "retrieval_ms": 0.0},
+    )
+    monkeypatch.setattr(generate_api.job_context_service, "get_context", lambda: {"saved": False})
+    provider_started = threading.Event()
+    release_provider = threading.Event()
+
+    def fake_stream_openai_primary_answer(**_kwargs):
+        provider_started.set()
+        yield {"type": "delta", "text": "Progressive "}
+        release_provider.wait(timeout=1)
+        yield {"type": "delta", "text": "answer"}
+        yield {
+            "type": "primary_result",
+            "result": {
+                "answer": "Progressive answer",
+                "provider": "openai",
+                "model": "gpt-5.4-mini-2026-03-17",
+                "fallback_used": False,
+                "error": None,
+                "generation_ms": 200.0,
+            },
+        }
+
+    monkeypatch.setattr(generate_api.generator, "stream_openai_primary_answer", fake_stream_openai_primary_answer)
+    monkeypatch.setattr(
+        generate_api.generator,
+        "generate_answer",
+        lambda **kwargs: dict(kwargs["primary_result_override"]),
+    )
+
+    response = await generate_api.generate_answer_stream(
+        generate_api.GenerateRequest(question="What is progressive streaming?", category="technical")
+    )
+    release_timer = threading.Timer(0.2, release_provider.set)
+    release_timer.start()
+    started_at = time.perf_counter()
+    collection = asyncio.create_task(_collect_stream_events(response))
+    assert await asyncio.to_thread(provider_started.wait, 1)
+    await asyncio.wait_for(asyncio.sleep(0.05), timeout=0.5)
+    assert time.perf_counter() - started_at < 0.18
+    events = await asyncio.wait_for(collection, timeout=1.5)
+    release_timer.cancel()
+
+    assert [event["type"] for event in events[:3]] == ["start", "delta", "delta"]
+    assert events[-1]["type"] == "done"
 
 
 @pytest.mark.asyncio
@@ -387,6 +446,7 @@ async def test_generate_stream_preserves_selected_resume_http_conflict(monkeypat
         "status_code": 409,
         "detail": "Selected resume is not ready for generation.",
         "partial": False,
+        "sequence": 1,
     }
     assert events[-1]["type"] == "done"
     assert events[-1]["incomplete"] is False
@@ -465,15 +525,17 @@ async def test_generate_stream_primary_success_with_session_id_stores_transcript
             category="technical",
             source="chat",
             session_id=_session_record()["id"],
-            request_id="stream-1",
+            request_id=" stream-1 ",
         ),
         request=object(),
     )
     events = await _collect_stream_events(response)
+    assert events[0]["request_id"] == "stream-1"
     metadata = next(event["metadata"] for event in events if event["type"] == "metadata")
 
     assert metadata["transcript_entry_stored"] is True
     assert metadata["transcript_store_error"] is None
+    assert transcript_calls[0]["payload"]["request_id"] == events[0]["request_id"]
     assert transcript_calls[0]["payload"]["source"] == "chat"
     assert transcript_calls[0]["payload"]["question_text"] == "What is streaming?"
     assert transcript_calls[0]["payload"]["answer_text"] == "Streaming answer"
@@ -554,8 +616,9 @@ async def test_generate_stream_primary_success_offloads_transcript_storage(
     metadata = next(event["metadata"] for event in events if event["type"] == "metadata")
 
     assert metadata["transcript_entry_stored"] is True
-    assert len(offload_calls) == 1
-    assert offload_calls[0]["func"] is generate_api._store_transcript_for_stream_result
+    assert any(call["func"] is generate_api._store_transcript_for_stream_result for call in offload_calls)
+    assert any(call["func"] is generate_api._retrieve_resume_context for call in offload_calls)
+    assert any(call["func"] is generate_api.generator.generate_answer for call in offload_calls)
 
 
 @pytest.mark.asyncio
@@ -758,6 +821,49 @@ async def test_generate_stream_incomplete_failure_does_not_store_transcript(
     assert transcript_calls == []
 
 
+def test_provider_stream_only_exposes_answer_deltas_after_completion() -> None:
+    class Event:
+        def __init__(self, event_type: str, delta: str = "") -> None:
+            self.type = event_type
+            self.delta = delta
+
+    class FakeResponses:
+        @staticmethod
+        def create(**_kwargs):
+            return iter([
+                Event("response.reasoning.delta", "private"),
+                Event("response.output_text.delta", "safe "),
+                Event("response.output_text.delta", "answer"),
+                Event("response.completed"),
+            ])
+
+    provider = OpenAIResponsesProvider()
+    provider.api_key = "test"
+    provider.client = type("Client", (), {"responses": FakeResponses()})()
+    assert list(provider.stream_generate(
+        instructions="ignored", input_text="ignored", reasoning_effort="low", max_output_tokens=10,
+    )) == ["safe ", "answer"]
+
+
+def test_provider_stream_rejects_a_transport_without_completion() -> None:
+    class Event:
+        type = "response.output_text.delta"
+        delta = "partial"
+
+    class FakeResponses:
+        @staticmethod
+        def create(**_kwargs):
+            return iter([Event()])
+
+    provider = OpenAIResponsesProvider()
+    provider.api_key = "test"
+    provider.client = type("Client", (), {"responses": FakeResponses()})()
+    with pytest.raises(ProviderError, match="without completion"):
+        list(provider.stream_generate(
+            instructions="ignored", input_text="ignored", reasoning_effort="low", max_output_tokens=10,
+        ))
+
+
 @pytest.mark.asyncio
 async def test_generate_stream_rejects_malformed_session_id_before_generator(
     monkeypatch: pytest.MonkeyPatch,
@@ -853,3 +959,86 @@ async def test_generate_stream_rejects_cross_user_session_id_before_generator(
 
     assert generator_called["value"] is False
     assert transcript_calls == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_closes_blocked_provider_and_worker_exits():
+    from app.nlp.answer_generator import StreamCancellation
+    entered, closed, exited = threading.Event(), threading.Event(), threading.Event()
+    cancellation = StreamCancellation()
+
+    class BlockingStream:
+        def close(self):
+            closed.set()
+
+    def stream():
+        cancellation.attach(BlockingStream())
+        try:
+            entered.set()
+            assert closed.wait(2), "Cancellation did not close the provider read"
+            yield {"type": "delta", "text": "must not be delivered"}
+        finally:
+            exited.set()
+
+    async def consume():
+        async for _ in generate_api._iterate_sync_stream(stream, cancellation=cancellation):
+            pytest.fail("Delivered text after cancellation")
+
+    task = asyncio.create_task(consume())
+    assert await asyncio.to_thread(entered.wait, 2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert await asyncio.to_thread(exited.wait, 2)
+    assert closed.is_set()
+
+
+@pytest.mark.parametrize("value", [None, " padded-id ", "x" * 120, "x" * 121])
+@pytest.mark.asyncio
+async def test_stream_normalizes_id_on_request_and_reports_early_failure(monkeypatch, value):
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(generate_api, "_authorize_generation_session", lambda *_: None)
+    monkeypatch.setattr(generate_api, "_resolve_request_followup",
+                        lambda *a, **kw: (_ for _ in ()).throw(HTTPException(503, "unavailable")))
+    req = generate_api.GenerateRequest(question="Explain caching", category="technical", request_id=value)
+    response = await generate_api.generate_answer_stream(req)
+    events = await _collect_stream_events(response)
+    assert [e["type"] for e in events] == ["error", "done"]
+    assert all(e["request_id"] == req.request_id for e in events)
+    assert len(req.request_id) <= 120
+    assert req.request_id == req.request_id.strip()
+    assert [e["sequence"] for e in events] == [0, 1]
+
+
+@pytest.mark.parametrize("source", ["Chat", " chat ", "chat"])
+@pytest.mark.asyncio
+async def test_stream_normalizes_chat_before_buffered_guard(monkeypatch, source):
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(generate_api, "_authorize_generation_session", lambda *_: None)
+    monkeypatch.setattr(generate_api, "_selected_resume_strict_mode", lambda *_: True)
+    req = generate_api.GenerateRequest(question="Implement sorting", category="technical",
+                                       source=source, coding_answer_mode=True)
+    with pytest.raises(HTTPException) as exc:
+        await generate_api.generate_answer_stream(req)
+    assert exc.value.status_code == 501
+    assert req.source == "chat"
+
+
+@pytest.mark.asyncio
+async def test_strict_clarification_retrieval_failure_emits_terminal_protocol(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(generate_api.settings, "ENABLE_FOLLOWUP_INTENT_COMPILER", False)
+    monkeypatch.setattr(generate_api, "_authorize_generation_session", lambda *_: None)
+    monkeypatch.setattr(generate_api, "_selected_resume_strict_mode", lambda *_: True)
+    monkeypatch.setattr(generate_api.generator, "_select_primary_provider", lambda *_: "openai")
+    monkeypatch.setattr(generate_api, "_resolve_request_followup", lambda *a, **kw:
+                        SimpleNamespace(resolved_question="Explain it", resolution_status="needs_clarification"))
+    monkeypatch.setattr(generate_api, "_retrieve_resume_context", lambda **kw:
+                        (_ for _ in ()).throw(HTTPException(503, "unavailable")))
+    response = await generate_api.generate_answer_stream(generate_api.GenerateRequest(
+        question="Explain it", category="technical", source="chat"))
+    events = await _collect_stream_events(response)
+    assert [e["type"] for e in events] == ["error", "done"]
+    assert events[0]["status_code"] == 503
+    assert events[-1]["incomplete"]

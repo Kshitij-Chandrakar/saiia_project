@@ -105,6 +105,7 @@ function ToolbarButton({
 
 export default function OverlayWindow({ overlayState }) {
   const [activeTab, setActiveTab] = useState(null)
+  const [chatOpenVersion, setChatOpenVersion] = useState(0)
   const [time, setTime] = useState(() =>
     formatElapsedTime(overlayState.sessionStartedAt || Date.now())
   )
@@ -311,6 +312,7 @@ export default function OverlayWindow({ overlayState }) {
   }
 
   const handleChat = () => {
+    setChatOpenVersion((version) => version + 1)
     setActiveTab('chat')
     setCollapsed(false)
     setMenuOpen(false)
@@ -867,6 +869,7 @@ export default function OverlayWindow({ overlayState }) {
           <AnswerPanel
             mode={panelMode}
             overlayState={panelOverlayState}
+            chatOpenVersion={chatOpenVersion}
             maxViewportHeight={panelViewportHeight}
             maxViewportWidth={panelViewportWidth}
             onCancelChat={() => setActiveTab(null)}

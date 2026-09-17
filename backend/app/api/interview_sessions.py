@@ -41,6 +41,11 @@ from app.cloud.interview_transcripts import (
     CreateInterviewTranscriptEntryResult,
     InterviewTranscriptEntryListPage,
 )
+from app.cloud.interview_session_my_answers import (
+    CloudInterviewMyAnswerRecord,
+    CloudInterviewMyAnswersService,
+    MIGRATION_FAILURE_MESSAGE as MY_ANSWERS_MIGRATION_FAILURE_MESSAGE,
+)
 from app.cloud.supabase_config import SupabaseConfigurationError
 from app.email.event_store import build_outbound_email_event_service
 from app.email.provider import EmailSendResult, mask_recipient_email
@@ -160,6 +165,24 @@ class InterviewTranscriptEntryListResponse(BaseModel):
     page: int
 
 
+class InterviewMyAnswerCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    body: str
+
+
+class InterviewMyAnswerResponse(BaseModel):
+    id: str
+    session_id: str
+    body: str
+    position: int
+    created_at: str | None = None
+
+
+class InterviewMyAnswerListResponse(BaseModel):
+    items: list[InterviewMyAnswerResponse]
+
+
 class InterviewSessionNotesGenerateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -276,10 +299,23 @@ def get_cloud_interview_ask_ai_service() -> CloudInterviewAskAIService:
         raise _handle_cloud_error(exc) from exc
 
 
+@lru_cache(maxsize=1)
+def _cached_cloud_interview_my_answers_service() -> CloudInterviewMyAnswersService:
+    return CloudInterviewMyAnswersService()
+
+
+def get_cloud_interview_my_answers_service() -> CloudInterviewMyAnswersService:
+    try:
+        return _cached_cloud_interview_my_answers_service()
+    except SupabaseConfigurationError as exc:
+        raise _handle_cloud_error(exc) from exc
+
+
 CloudInterviewSessionServiceDep = Annotated[CloudInterviewSessionService, Depends(get_cloud_interview_session_service)]
 CloudInterviewTranscriptServiceDep = Annotated[CloudInterviewTranscriptService, Depends(get_cloud_interview_transcript_service)]
 CloudInterviewNotesServiceDep = Annotated[CloudInterviewNotesService, Depends(get_cloud_interview_notes_service)]
 CloudInterviewAskAIServiceDep = Annotated[CloudInterviewAskAIService, Depends(get_cloud_interview_ask_ai_service)]
+CloudInterviewMyAnswersServiceDep = Annotated[CloudInterviewMyAnswersService, Depends(get_cloud_interview_my_answers_service)]
 
 
 def _session_response(record: CloudInterviewSessionRecord) -> InterviewSessionResponse:
@@ -309,6 +345,16 @@ def _transcript_entry_response(record: CloudInterviewTranscriptEntryRecord) -> I
         provider=record.provider,
         model=record.model,
         generation_ms=record.generation_ms,
+        created_at=record.created_at,
+    )
+
+
+def _my_answer_response(record: CloudInterviewMyAnswerRecord) -> InterviewMyAnswerResponse:
+    return InterviewMyAnswerResponse(
+        id=record.id,
+        session_id=record.session_id,
+        body=record.body,
+        position=record.position,
         created_at=record.created_at,
     )
 
@@ -368,6 +414,11 @@ def _transcript_filename(format: str) -> str:
 
 
 def _handle_cloud_error(exc: Exception) -> HTTPException:
+    if str(exc) == MY_ANSWERS_MIGRATION_FAILURE_MESSAGE:
+        return HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=MY_ANSWERS_MIGRATION_FAILURE_MESSAGE,
+        )
     if str(exc) == NOTES_GENERATION_FAILURE_MESSAGE:
         return HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -477,6 +528,48 @@ def end_interview_session(
     except Exception as exc:
         raise _handle_cloud_error(exc) from exc
     return _session_response(record)
+
+
+def _require_active_owned_session(
+    *,
+    session_id: UUID,
+    current_user: CurrentUser,
+    service: CloudInterviewSessionService,
+) -> None:
+    record = service.get_session(user_id=current_user.user_id, session_id=str(session_id))
+    if record.status != "active":
+        raise CloudInterviewSessionConflictError("Interview session is closed.")
+
+
+@router.post("/{session_id}/my-answers", response_model=InterviewMyAnswerResponse, status_code=status.HTTP_201_CREATED)
+def create_interview_session_my_answer(
+    session_id: UUID,
+    payload: InterviewMyAnswerCreateRequest,
+    current_user: CurrentUserDep,
+    session_service: CloudInterviewSessionServiceDep,
+    service: CloudInterviewMyAnswersServiceDep,
+) -> InterviewMyAnswerResponse:
+    try:
+        _require_active_owned_session(session_id=session_id, current_user=current_user, service=session_service)
+        record = service.create_answer(user_id=current_user.user_id, session_id=str(session_id), body=payload.body)
+    except Exception as exc:
+        raise _handle_cloud_error(exc) from exc
+    return _my_answer_response(record)
+
+
+@router.get("/{session_id}/my-answers", response_model=InterviewMyAnswerListResponse)
+def list_interview_session_my_answers(
+    session_id: UUID,
+    current_user: CurrentUserDep,
+    session_service: CloudInterviewSessionServiceDep,
+    service: CloudInterviewMyAnswersServiceDep,
+) -> InterviewMyAnswerListResponse:
+    try:
+        _require_active_owned_session(session_id=session_id, current_user=current_user, service=session_service)
+        records = service.list_answers(user_id=current_user.user_id, session_id=str(session_id))
+    except Exception as exc:
+        raise _handle_cloud_error(exc) from exc
+    return InterviewMyAnswerListResponse(items=[_my_answer_response(record) for record in records])
 
 
 @router.post("/{session_id}/transcript-entries", response_model=InterviewTranscriptEntryResponse, status_code=status.HTTP_201_CREATED)

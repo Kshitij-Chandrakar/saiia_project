@@ -1,15 +1,17 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
   LoaderCircle,
   Maximize2,
+  Plus,
   RotateCcw,
   Trash2,
   X,
 } from 'lucide-react'
 import { groupConceptualAnswer, parseConceptualAnswer } from '../answer_format.js'
+import { markChatTiming } from '../answer_stream.js'
 import { getQuestionHistorySummary } from '../question_history.js'
 import {
   extractCopyableCode,
@@ -55,6 +57,192 @@ async function copyToClipboard(text) {
   textarea.select()
   document.execCommand('copy')
   document.body.removeChild(textarea)
+}
+
+function MyAnswersSection({ sessionId, visible = true, onUnsavedChange, onBackToChat }) {
+  const [savedAnswers, setSavedAnswers] = useState([])
+  const pendingSavedAnswerId = useRef(null)
+  useEffect(() => {
+    if (pendingSavedAnswerId.current) {
+      setActiveIndex(savedAnswers.findIndex((answer) => answer.id === pendingSavedAnswerId.current))
+      pendingSavedAnswerId.current = null
+    }
+  }, [savedAnswers])
+  const [activeIndex, setActiveIndex] = useState(null)
+  const [draftText, setDraftText] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [sessionIdFromAuth, setSessionIdFromAuth] = useState('')
+  const providedSessionId = String(sessionId || '').trim()
+  const effectiveSessionId = providedSessionId || sessionIdFromAuth
+  const sessionRevision = useRef(0)
+
+  useLayoutEffect(() => {
+    sessionRevision.current += 1
+    pendingSavedAnswerId.current = null
+    return () => {
+      sessionRevision.current += 1
+      pendingSavedAnswerId.current = null
+    }
+  }, [providedSessionId, effectiveSessionId])
+
+  useEffect(() => {
+    let active = true
+    setSavedAnswers([])
+    setActiveIndex(null)
+    setDraftText('')
+    setError('')
+    setLoading(false)
+    setSaving(false)
+    setSessionIdFromAuth('')
+    if (typeof window.saiia?.listMyAnswers !== 'function') {
+      setError('My Answers is unavailable in this desktop build.')
+      return () => { active = false }
+    }
+
+    const loadAnswers = async () => {
+      let resolvedSessionId = providedSessionId
+      if (!resolvedSessionId && typeof window.saiia?.getAuthState === 'function') {
+        try {
+          const authState = await window.saiia.getAuthState()
+          resolvedSessionId = String(authState?.activeInterviewSessionId || '').trim()
+        } catch {
+          resolvedSessionId = ''
+        }
+      }
+      if (!active) return
+      setSessionIdFromAuth(providedSessionId ? '' : resolvedSessionId)
+      if (!resolvedSessionId) {
+        setError('Start an interview session to save My Answers.')
+        return
+      }
+
+      setLoading(true)
+      const result = await window.saiia.listMyAnswers(resolvedSessionId)
+      if (!active) return
+      const items = Array.isArray(result?.items) ? result.items : []
+      setSavedAnswers(items)
+      setActiveIndex(items.length ? 0 : null)
+      setDraftText(items.length ? String(items[0].body || '') : '')
+      setError(String(result?.error || ''))
+      setLoading(false)
+    }
+
+    loadAnswers().catch(() => {
+      if (active) {
+        setError('Unable to load My Answers.')
+        setLoading(false)
+      }
+    })
+    return () => { active = false }
+  }, [providedSessionId])
+
+  const hasUnsavedDraft = activeIndex === null && draftText.trim().length > 0
+
+  useEffect(() => {
+    onUnsavedChange?.(hasUnsavedDraft)
+  }, [hasUnsavedDraft, onUnsavedChange])
+
+  const confirmDiscard = () => !hasUnsavedDraft || window.confirm('Discard this unsaved answer?')
+  const selectIndex = (nextIndex) => {
+    if (!confirmDiscard() || !savedAnswers.length) return
+    setActiveIndex(nextIndex)
+    setDraftText(String(savedAnswers[nextIndex]?.body || ''))
+    setError('')
+  }
+  const handlePrevious = () => {
+    if (activeIndex === null) return selectIndex(savedAnswers.length - 1)
+    if (activeIndex > 0) selectIndex(activeIndex - 1)
+  }
+  const handleNext = () => {
+    if (activeIndex === null) return selectIndex(0)
+    if (activeIndex < savedAnswers.length - 1) selectIndex(activeIndex + 1)
+  }
+  const handleNew = () => {
+    if (!confirmDiscard()) return
+    setActiveIndex(null)
+    setDraftText('')
+    setError('')
+  }
+  const handleSave = async () => {
+    const body = draftText.trim()
+    if (!effectiveSessionId) {
+      setError('Start an interview session to save My Answers.')
+      return
+    }
+    if (!body) {
+      setError('Please write an answer first.')
+      return
+    }
+    if (typeof window.saiia?.saveMyAnswer !== 'function') {
+      setError('My Answers is unavailable in this desktop build.')
+      return
+    }
+    const saveRevision = sessionRevision.current
+    setSaving(true)
+    setError('')
+    try {
+      const result = await window.saiia.saveMyAnswer(effectiveSessionId, body)
+      if (saveRevision !== sessionRevision.current) return
+      if (!result?.answer) {
+        setError(String(result?.error || 'Unable to save My Answer.'))
+        return
+      }
+      pendingSavedAnswerId.current = result.answer.id
+      setSavedAnswers((current) => [...current, result.answer])
+      setDraftText(String(result.answer.body || body))
+    } catch {
+      if (saveRevision === sessionRevision.current) setError('Unable to save My Answer.')
+    } finally {
+      if (saveRevision === sessionRevision.current) setSaving(false)
+    }
+  }
+
+  return (
+    <section className="topbar-my-answers" aria-label="My Answers" hidden={!visible}>
+      <div className="topbar-my-answers__toolbar">
+        <button
+          type="button"
+          className="topbar-screen-panel__button topbar-screen-panel__button--ghost"
+          onClick={onBackToChat}
+        >
+          Chat
+        </button>
+        <div className="topbar-my-answers__controls">
+          <button type="button" className="topbar-answer-panel__history-button" onClick={handlePrevious} disabled={loading || !savedAnswers.length || (activeIndex !== null && activeIndex === 0)} aria-label="Previous saved answer">
+            <ChevronLeft size={13} />
+          </button>
+          <button type="button" className="topbar-answer-panel__history-button" onClick={handleNext} disabled={loading || !savedAnswers.length || (activeIndex !== null && activeIndex === savedAnswers.length - 1)} aria-label="Next saved answer">
+            <ChevronRight size={13} />
+          </button>
+          <button type="button" className="topbar-answer-panel__history-button" onClick={handleNew} disabled={loading || saving} aria-label="New My Answer">
+            <Plus size={13} />
+          </button>
+        </div>
+      </div>
+      <div className="topbar-my-answers__header">
+        <span className="topbar-answer-panel__label">My Answers</span>
+      </div>
+      <textarea
+        className="topbar-my-answers__textarea"
+        value={draftText}
+        onChange={(event) => setDraftText(event.target.value)}
+        readOnly={activeIndex !== null}
+        maxLength={24000}
+        placeholder="Write your own answer..."
+        aria-label="My Answer text"
+      />
+      <div className="topbar-my-answers__save-row">
+        {error ? <p className="topbar-my-answers__message">{error}</p> : <span aria-hidden="true" />}
+        {activeIndex === null ? (
+          <button type="button" className="topbar-screen-panel__button topbar-my-answers__save" onClick={handleSave} disabled={loading || saving || !effectiveSessionId || typeof window.saiia?.saveMyAnswer !== 'function'}>
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+        ) : null}
+      </div>
+    </section>
+  )
 }
 
 function extractCodeBlock(text) {
@@ -361,6 +549,7 @@ export default function AnswerPanel({
   overlayState,
   maxViewportHeight = 520,
   maxViewportWidth = 620,
+  chatOpenVersion = 0,
   onCancelChat,
   onClose,
 }) {
@@ -370,6 +559,8 @@ export default function AnswerPanel({
   const [chatEditing, setChatEditing] = useState(false)
   const [chatError, setChatError] = useState('')
   const [chatAwaitingResult, setChatAwaitingResult] = useState(false)
+  const [chatPanelView, setChatPanelView] = useState('chat')
+  const [myAnswersUnsaved, setMyAnswersUnsaved] = useState(false)
   const bodyRef = useRef(null)
   const chatInputRef = useRef(null)
   const resizeFrameRef = useRef(0)
@@ -386,6 +577,21 @@ export default function AnswerPanel({
     [content.title, overlayState.ocrText, overlayState.transcript]
   )
   const visibleBody = content.body
+  useEffect(() => {
+    if (mode !== 'chat' || !overlayState.answer?.trim()) return
+    const id = overlayState.chatRequestId
+    markChatTiming(id, 'chat_dom_nonempty')
+    let secondFrame
+    const frame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        markChatTiming(id, 'chat_frame_opportunity_approx')
+        if (!overlayState.isManualGenerating && !overlayState.manualQuestionError) {
+          markChatTiming(id, 'chat_complete_frame_opportunity_approx')
+        }
+      })
+    })
+    return () => { cancelAnimationFrame(frame); cancelAnimationFrame(secondFrame) }
+  }, [mode, overlayState.chatRequestId, overlayState.answer, overlayState.isManualGenerating, overlayState.manualQuestionError])
   const revealInProgress = Boolean(overlayState.answerRevealActive && overlayState.answerFullAvailable)
   const structuredCodingAnswer =
     !revealInProgress && overlayState.codingAnswer && String(overlayState.codingAnswer.code || '').trim()
@@ -433,6 +639,13 @@ export default function AnswerPanel({
   const maxPanelHeight = Math.max(minPanelHeight, maxViewportHeight)
   const panelWidth = Math.max(320, maxViewportWidth)
   const panelHeight = maxPanelHeight
+
+  useEffect(() => {
+    if (mode === 'chat') {
+      setChatPanelView('chat')
+      setMyAnswersUnsaved(false)
+    }
+  }, [chatOpenVersion, mode])
 
   useEffect(() => {
     if (mode !== 'chat') {
@@ -492,6 +705,7 @@ export default function AnswerPanel({
   }, [
     visibleBody,
     chatDraft,
+    chatPanelView,
     chatEditing,
     collapsed,
     maxViewportHeight,
@@ -604,10 +818,6 @@ export default function AnswerPanel({
   }
 
   const handleManualSubmit = async () => {
-    if (overlayState.isManualGenerating) {
-      return
-    }
-
     const text = chatDraft.trim()
     if (!text) {
       setChatError('Please type a question first.')
@@ -616,8 +826,11 @@ export default function AnswerPanel({
 
     setChatError('')
     setChatAwaitingResult(true)
+    const requestId = crypto.randomUUID()
+    markChatTiming(requestId, 'submit')
     await window.electronAPI?.triggerToolbarAction?.('submit-manual-question', {
       text,
+      request_id: requestId,
     })
   }
 
@@ -661,6 +874,17 @@ export default function AnswerPanel({
     await window.electronAPI?.triggerToolbarAction?.('history-next', {
       mode: historyMode,
     })
+  }
+
+  const handleMyAnswersUnsavedChange = useCallback((hasDraft) => {
+    setMyAnswersUnsaved(Boolean(hasDraft))
+  }, [])
+
+  const handleReturnToChat = () => {
+    if (myAnswersUnsaved && !window.confirm('Discard this unsaved answer?')) {
+      return
+    }
+    setChatPanelView('chat')
   }
 
   if (collapsed) {
@@ -709,7 +933,8 @@ export default function AnswerPanel({
         ...panelShellStyle,
       }}
     >
-      <div className="topbar-answer-panel__header">
+      {!(mode === 'chat' && chatPanelView === 'myAnswers') ? (
+        <div className="topbar-answer-panel__header">
         <div className={`topbar-answer-panel__question-row${mode === 'chat' ? ' topbar-answer-panel__question-row--chat' : ''}`}>
           {mode === 'chat' && chatEditing ? null : (
             <span className="topbar-answer-panel__label">Question:</span>
@@ -729,15 +954,26 @@ export default function AnswerPanel({
                 onKeyDown={handleChatKeyDown}
                 placeholder="Ask or paste a question..."
                 rows={1}
-                disabled={overlayState.isManualGenerating}
+                aria-busy={overlayState.isManualGenerating}
               />
-              {chatError ? (
-                <p className="topbar-chat-panel__error">{chatError}</p>
-              ) : (
-                <p className="topbar-chat-panel__hint">
-                  Enter to submit. Shift+Enter adds a line. Esc cancels.
-                </p>
-              )}
+              <div className="topbar-chat-panel__helper-row">
+                {chatError ? (
+                  <p className="topbar-chat-panel__error">{chatError}</p>
+                ) : (
+                  <p className="topbar-chat-panel__hint">
+                    Enter to submit. Shift+Enter adds a line. Esc cancels.
+                  </p>
+                )}
+                {mode === 'chat' && chatPanelView === 'chat' ? (
+                  <button
+                    type="button"
+                    className="topbar-screen-panel__button topbar-screen-panel__button--ghost topbar-chat-panel__view-button"
+                    onClick={() => setChatPanelView('myAnswers')}
+                  >
+                    My Answers
+                  </button>
+                ) : null}
+              </div>
             </div>
           ) : (
             <p className="topbar-answer-panel__question">
@@ -773,11 +1009,12 @@ export default function AnswerPanel({
             </div>
           ) : null}
         </div>
-      </div>
+        </div>
+      ) : null}
 
       <div
         ref={bodyRef}
-        className="topbar-answer-panel__body"
+        className={`topbar-answer-panel__body${mode === 'chat' && chatPanelView === 'myAnswers' ? ' topbar-answer-panel__body--my-answers' : ''}`}
       >
         {mode === 'analyzeScreen' ? (
           <div className="topbar-screen-panel">
@@ -953,6 +1190,8 @@ export default function AnswerPanel({
           </div>
         ) : (
           <>
+            {mode === 'chat' && chatPanelView === 'myAnswers' ? null : (
+              <>
             <div className="topbar-answer-panel__answer-row">
               <span className="topbar-answer-panel__label">Answer:</span>
             </div>
@@ -1060,6 +1299,17 @@ export default function AnswerPanel({
                 </p>
               )
             }) : null}
+
+              </>
+            )}
+            {mode === 'chat' ? (
+              <MyAnswersSection
+                sessionId={overlayState.activeSessionId}
+                visible={chatPanelView === 'myAnswers'}
+                onUnsavedChange={handleMyAnswersUnsavedChange}
+                onBackToChat={handleReturnToChat}
+              />
+            ) : null}
           </>
         )}
       </div>
