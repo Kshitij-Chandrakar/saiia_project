@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronLeft,
   ChevronRight,
@@ -76,6 +76,16 @@ function MyAnswersSection({ sessionId, visible = true, onUnsavedChange, onBackTo
   const [sessionIdFromAuth, setSessionIdFromAuth] = useState('')
   const providedSessionId = String(sessionId || '').trim()
   const effectiveSessionId = providedSessionId || sessionIdFromAuth
+  const sessionRevision = useRef(0)
+
+  useLayoutEffect(() => {
+    sessionRevision.current += 1
+    pendingSavedAnswerId.current = null
+    return () => {
+      sessionRevision.current += 1
+      pendingSavedAnswerId.current = null
+    }
+  }, [providedSessionId, effectiveSessionId])
 
   useEffect(() => {
     let active = true
@@ -169,10 +179,12 @@ function MyAnswersSection({ sessionId, visible = true, onUnsavedChange, onBackTo
       setError('My Answers is unavailable in this desktop build.')
       return
     }
+    const saveRevision = sessionRevision.current
     setSaving(true)
     setError('')
     try {
       const result = await window.saiia.saveMyAnswer(effectiveSessionId, body)
+      if (saveRevision !== sessionRevision.current) return
       if (!result?.answer) {
         setError(String(result?.error || 'Unable to save My Answer.'))
         return
@@ -181,9 +193,9 @@ function MyAnswersSection({ sessionId, visible = true, onUnsavedChange, onBackTo
       setSavedAnswers((current) => [...current, result.answer])
       setDraftText(String(result.answer.body || body))
     } catch {
-      setError('Unable to save My Answer.')
+      if (saveRevision === sessionRevision.current) setError('Unable to save My Answer.')
     } finally {
-      setSaving(false)
+      if (saveRevision === sessionRevision.current) setSaving(false)
     }
   }
 

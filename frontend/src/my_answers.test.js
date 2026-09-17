@@ -92,3 +92,153 @@ describe('My Answers Chat section', () => {
     assert.doesNotMatch(notesSource, /transcript.*my-answers|notes.*my-answers/i)
   })
 })
+
+// Execute the component's pre-JSX logic with deterministic hook scheduling.
+// This exercises pending promises and session effects without adding a DOM dependency.
+function mountMyAnswers(saiia, initialSession = 'A', confirm = () => true) {
+  const slots = []
+  let cursor = 0
+  let dirty = true
+  let sessionId = initialSession
+  let state
+  let effects = []
+  let layouts = []
+  const useState = (initial) => {
+    const index = cursor++
+    if (!(index in slots)) slots[index] = initial
+    return [slots[index], (next) => {
+      const value = typeof next === 'function' ? next(slots[index]) : next
+      if (!Object.is(value, slots[index])) { slots[index] = value; dirty = true }
+    }]
+  }
+  const useRef = (initial) => {
+    const index = cursor++
+    return slots[index] ||= { current: initial }
+  }
+  const effect = (queue, callback, deps) => {
+    const index = cursor++
+    const previous = slots[index]
+    if (!previous || deps.some((value, i) => !Object.is(value, previous.deps[i]))) {
+      queue.push(() => {
+        previous?.cleanup?.()
+        slots[index] = { deps, cleanup: callback() }
+      })
+    }
+  }
+  const source = panelSource.slice(panelSource.indexOf('function MyAnswersSection('), panelSource.indexOf('    <section className="topbar-my-answers"'))
+  const logic = source.slice(0, source.lastIndexOf('  return ('))
+  const render = new Function('useState', 'useRef', 'useEffect', 'useLayoutEffect', 'window', `${logic}
+    return { savedAnswers, activeIndex, draftText, loading, saving, error, handleSave, handleNew, handlePrevious, handleNext, setDraftText, pendingSavedAnswerId }
+  }; return MyAnswersSection`)(useState, useRef, (fn, deps) => effect(effects, fn, deps), (fn, deps) => effect(layouts, fn, deps), { saiia, confirm })
+  const flush = () => {
+    for (let pass = 0; dirty; pass++) {
+      assert.ok(pass < 30, 'component effects must settle')
+      dirty = false; cursor = 0; effects = []; layouts = []
+      state = render({ sessionId })
+      layouts.forEach((run) => run())
+      effects.forEach((run) => run())
+    }
+    return state
+  }
+  return {
+    flush,
+    switchSession(next) { sessionId = next; dirty = true; return flush() },
+    unmount() { slots.forEach((slot) => slot?.cleanup?.()) },
+  }
+}
+
+for (const staleResult of ['success', 'error', 'rejection']) {
+  it(`discards session A save ${staleResult} after switching to B`, async () => {
+    let resolveSave
+    let rejectSave
+    const calls = []
+    const mounted = mountMyAnswers({
+      listMyAnswers: async () => ({ items: [] }),
+      saveMyAnswer: (sessionId, body) => {
+        calls.push({ sessionId, body })
+        return new Promise((resolve, reject) => { resolveSave = resolve; rejectSave = reject })
+      },
+    })
+    mounted.flush()
+    await Promise.resolve()
+    mounted.flush().setDraftText('answer A')
+    const pending = mounted.flush().handleSave()
+    mounted.switchSession('B')
+    await Promise.resolve()
+    mounted.flush().setDraftText('draft B')
+    mounted.flush()
+    if (staleResult === 'rejection') rejectSave(new Error('offline'))
+    else resolveSave(staleResult === 'success' ? { answer: { id: 'answer-A', body: 'answer A' } } : { error: 'offline' })
+    await pending
+    const current = mounted.flush()
+    assert.deepEqual(calls, [{ sessionId: 'A', body: 'answer A' }])
+    assert.deepEqual(current.savedAnswers, [])
+    assert.equal(current.activeIndex, null)
+    assert.equal(current.pendingSavedAnswerId.current, null)
+    assert.equal(current.draftText, 'draft B')
+    assert.equal(current.error, '')
+    mounted.unmount()
+  })
+}
+
+it('saves and selects a read-only answer for the current session', async () => {
+  const mounted = mountMyAnswers({
+    listMyAnswers: async () => ({ items: [] }),
+    saveMyAnswer: async (sessionId, body) => ({ answer: { id: 'saved', session_id: sessionId, body } }),
+  })
+  mounted.flush()
+  await Promise.resolve()
+  mounted.flush().setDraftText('  current answer  ')
+  await mounted.flush().handleSave()
+  const current = mounted.flush()
+  assert.deepEqual(current.savedAnswers, [{ id: 'saved', session_id: 'A', body: 'current answer' }])
+  assert.equal(current.activeIndex, 0)
+  assert.equal(current.draftText, 'current answer')
+  assert.equal(current.saving, false)
+  assert.equal(current.error, '')
+  mounted.unmount()
+})
+
+it('loads saved answers, navigates with arrows, and creates a blank draft', async () => {
+  const items = [{ id: 'first', body: 'First answer' }, { id: 'second', body: 'Second answer' }]
+  const mounted = mountMyAnswers({ listMyAnswers: async () => ({ items }) })
+  assert.equal(mounted.flush().loading, true)
+  await Promise.resolve()
+  assert.equal(mounted.flush().loading, false)
+  assert.equal(mounted.flush().draftText, 'First answer')
+  mounted.flush().handleNext()
+  assert.equal(mounted.flush().activeIndex, 1)
+  assert.equal(mounted.flush().draftText, 'Second answer')
+  mounted.flush().handlePrevious()
+  assert.equal(mounted.flush().activeIndex, 0)
+  assert.equal(mounted.flush().draftText, 'First answer')
+  mounted.flush().handleNew()
+  assert.equal(mounted.flush().activeIndex, null)
+  assert.equal(mounted.flush().draftText, '')
+  assert.deepEqual(mounted.flush().savedAnswers, items)
+  mounted.unmount()
+})
+
+for (const action of ['handleNew', 'handlePrevious', 'handleNext']) {
+  it(`${action} preserves an unsaved draft unless discard is confirmed`, async () => {
+    let discard = false
+    const mounted = mountMyAnswers({
+      listMyAnswers: async () => ({ items: [{ id: 'saved', body: 'Saved answer' }] }),
+    }, 'A', (message) => {
+      assert.equal(message, 'Discard this unsaved answer?')
+      return discard
+    })
+    mounted.flush()
+    await Promise.resolve()
+    mounted.flush().handleNew()
+    mounted.flush().setDraftText('Unsaved draft')
+    mounted.flush()[action]()
+    assert.equal(mounted.flush().draftText, 'Unsaved draft')
+    assert.equal(mounted.flush().activeIndex, null)
+    discard = true
+    mounted.flush()[action]()
+    assert.equal(mounted.flush().draftText, action === 'handleNew' ? '' : 'Saved answer')
+    assert.equal(mounted.flush().activeIndex, action === 'handleNew' ? null : 0)
+    mounted.unmount()
+  })
+}

@@ -10,6 +10,7 @@ const mainSource = readFileSync(new URL('../electron/main.cjs', import.meta.url)
 const stylesSource = readFileSync(new URL('./styles/glass.css', import.meta.url), 'utf8')
 
 function sourceBetween(source, start, end) {
+  source = source.replace(/\r\n/g, '\n')
   const startIndex = source.indexOf(start)
   assert.ok(startIndex >= 0, `missing source marker: ${start}`)
   const endIndex = source.indexOf(end, startIndex + start.length)
@@ -54,7 +55,7 @@ test('OCR active path uses one capture and one direct screen-model request', () 
   const handler = sourceBetween(
     appSource,
     'const handleScreenCapture = async () => {',
-    'const handleManualQuestionSubmit = async (nextText) => {'
+    'const handleManualQuestionSubmit = async (nextText, submitId = null) => {'
   )
 
   assert.match(handler, /await window\.saiia\.captureActiveWindow\(\)/)
@@ -126,7 +127,7 @@ test('active-window resolver fails controlled instead of choosing ambiguous sour
   const handler = sourceBetween(
     appSource,
     'const handleScreenCapture = async () => {',
-    'const handleManualQuestionSubmit = async (nextText) => {'
+    'const handleManualQuestionSubmit = async (nextText, submitId = null) => {'
   )
 
   assert.match(fallback, /candidateCount \+= 1/)
@@ -203,7 +204,7 @@ test('Analyze Screen empty state hides idle placeholder text', () => {
 test('manual typed questions use the Chat display route', () => {
   const manualSubmit = sourceBetween(
     appSource,
-    'const handleManualQuestionSubmit = async (nextText) => {',
+    'const handleManualQuestionSubmit = async (nextText, submitId = null) => {',
     'const handleGenerateFromProvidedScreenText = async (nextText, options = {}) => {'
   )
 

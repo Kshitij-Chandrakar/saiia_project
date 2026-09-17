@@ -467,7 +467,7 @@ test('startup session setup screen collects local setup and routes back or into 
   assert.match(appSource, /onStartupSessionConfigChange={applyStartupSessionConfig}/)
   assert.match(appSource, /const activeStartupSessionConfig = startupSessionConfigRef\.current/)
   assert.match(appSource, /const activeSessionId = String\(activeStartupSessionConfig\?\.activeSessionId \|\| ''\)\.trim\(\)/)
-  assert.match(appSource, /const requestId = Date\.now\(\) \+ Math\.random\(\)/)
+  assert.match(appSource, /const requestId = logicalRequestId \|\| Date\.now\(\) \+ Math\.random\(\)/)
   assert.match(appSource, /function getSafeGenerationSource\(mode, source\)/)
   assert.match(appSource, /if \(normalizedSource === 'chat'\)/)
   assert.match(appSource, /if \(normalizedSource === 'answer'\)/)
