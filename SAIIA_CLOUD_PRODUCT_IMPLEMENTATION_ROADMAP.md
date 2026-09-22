@@ -4961,3 +4961,9 @@ Stabilize the desktop
 ```
 
 Do not skip foundational phases to build visible features faster.
+
+### C10.2C.1 — local one-time auth email handler
+
+Implemented locally: `/auth/confirm` verifies Supabase TokenHash links with type `email` or `recovery`, scrubs the URL, and presents branded success/expired/error states. Verified recovery reuses the password form and hides it after completion; an existing browser session does not bypass link verification. Existing account/profile-bootstrap flow and strict auth redirect allowlist are preserved. See `docs/C10_EMAIL_SYSTEM_PLAN.md` for behavior, limitations, and manual template cutover instructions.
+
+Supabase signup/reset templates must switch both CTA and fallback links from `{{ .ConfirmationURL }}` to the documented TokenHash custom links **only after this route is deployed**. No templates, SMTP/Resend configuration, DNS, or remote settings were changed here. Live delivery/replay smoke verification remains pending. C10.2C.2 custom auth domain / Google OAuth branding remains pending; this does not mark all of C10.2 complete.

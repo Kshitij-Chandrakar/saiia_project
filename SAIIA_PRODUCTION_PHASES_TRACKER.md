@@ -2357,3 +2357,7 @@ Rollback:
   `backend/app/nlp/answer_generator.py`, and the frontend fallback/history
   cleanup changes. Then rerun focused streaming/history tests.
 
+
+### C10.2C.1 status — implemented locally, deployment/live email validation pending
+
+The frontend one-time `/auth/confirm` handler supports signup verification and recovery with safe errors, URL cleanup, and the existing reset/account flow. Supabase template CTA and fallback links must be switched from `{{ .ConfirmationURL }}` to TokenHash custom links only after the route is deployed. Exact links and rollout checks are in `docs/C10_EMAIL_SYSTEM_PLAN.md`. No remote configuration was applied. C10.2C.2 custom auth domain / Google OAuth branding remains pending; C10.2 remains incomplete overall.

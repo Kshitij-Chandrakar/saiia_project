@@ -259,3 +259,22 @@ The later demo should show:
 ## Safety Boundary
 
 C10.1, C10.3A, C10.3B, C10.3C, C10.3D, C10.4A, C10.4B, C10.5A/B, C10.6A, C10.6B, and C10.6C do not call Resend, configure Supabase SMTP, add real API keys, send emails, create custom verification/reset tokens, modify applied migrations, or implement promotional campaign messaging. C9 remains merged/closed. C10.2A runbook/setup documentation is completed/merged, but C10.2B live verification/reset delivery is blocked pending a verified Resend sender/domain, so C10.2 delivery is not complete. C10.3A is completed locally with disabled/offline dry-run defaults. C10.3B adds the backend-owned `outbound_email_events` migration and event-store boundary, and C10.3D records its successful remote dev apply and post-apply validation. C10.3C connects the event store to the dry-run provider only. C10.4A adds the service-level welcome template and C10.4B wires it after authenticated profile bootstrap; C10.5A adds feature templates/helpers and C10.5B wires available notes-generation and transcript-export success points only. C10.6A adds signup consent/preference capture, C10.6B adds hash-only unsubscribe tokens and atomic opt-out, and C10.6C adds the public generic unsubscribe endpoint and safe confirmation page. The C10.6A/C10.6B migrations remain local and unapplied remotely. These paths remain dry-run-only and non-blocking, with no session-summary trigger because no preparation flow exists. Full C10.3/C10.5/C10.6 and real C10.4/C10.5 delivery remain incomplete because real delivery is not enabled.
+
+## C10.2C.1 — one-time auth email action handler (local implementation)
+
+The frontend now handles `/auth/confirm` with Supabase `verifyOtp({ token_hash, type })` using `email` for signup verification and `recovery` for password recovery. Missing, duplicate, unknown, or unsafe parameters are rejected before verification. Optional `next` accepts only `/auth/dashboard` or `/auth/status`, matching the existing auth route allowlist.
+
+A valid verification displays **Email verified** and **Your Intervu AI account is ready.** Continue enters the existing authenticated account/profile-bootstrap flow when a session was returned; otherwise it opens login. Recovery success displays the existing password form on the scrubbed confirmation route. The form is hidden after a successful password update. A replayed/expired link shows a safe expired-or-already-used message and a login/reset-request action, even when another session already exists. A reload of the scrubbed confirmation URL requires a new email link. Supabase enforces token consumption; no browser token cache is used. StrictMode effect replay shares the pending verification rather than submitting the token twice.
+
+The query and fragment are removed from the address bar before verification. Token hashes are never sent to the application backend, written to localStorage, displayed, or included in application errors/logs. Supabase retains its existing session persistence behavior. Hosting/CDN access logs must redact query strings for this route: frontend URL cleanup cannot remove a URL already received by the host. No real email/Supabase smoke test or deployment has been performed as part of this local implementation.
+
+### Template cutover — only after the route is deployed
+
+Keep current Supabase templates until the deployed frontend serves `/auth/confirm` directly (SPA fallback included). Then manually change **both the CTA and fallback link** in each template:
+
+- Confirm signup: `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email`
+- Reset password: `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery`
+
+In HTML attributes escape the query separator as `&amp;`. Replace `{{ .ConfirmationURL }}` in both locations; use the deployed app origin as the existing Site URL. Smoke-test fresh, second-click, expired, and invalid links plus password reset completion before rollout. Do not change SMTP, Resend, DNS, or secrets for this frontend cutover. Existing legacy callback/reset routes remain available during transition. C10.2C.2 custom auth domain / Google OAuth branding remains pending.
+
+Reference: [Supabase verifyOtp](https://supabase.com/docs/reference/javascript/auth-verifyotp) and [email templates](https://supabase.com/docs/guides/auth/auth-email-templates); local SDK `@supabase/supabase-js` 2.111.0.

@@ -408,3 +408,20 @@
   font-size: 18px;
   line-height: 1.25;
 }
+
+.auth-action-logo {
+  display: block;
+  max-width: 100%;
+  width: 144px;
+  margin-bottom: 20px;
+}
+
+.auth-action-button {
+  display: block;
+  padding: 12px 16px;
+  border-radius: 6px;
+  background: #2f8ee5;
+  color: #fff;
+  text-align: center;
+  text-decoration: none;
+}

@@ -152,7 +152,7 @@ test('protected dashboard redirect returns to dashboard after login', () => {
 
 
 test('unsafe external auth next URLs are ignored by allowlist', () => {
-  assert.match(source, /const SAFE_AUTH_NEXT_ROUTES = new Set\(\['\/auth\/dashboard', '\/auth\/status'\]\)/)
+  assert.match(readFileSync(new URL('./authApi.js', import.meta.url), 'utf8'), /const SAFE_AUTH_NEXT_ROUTES = new Set\(\['\/auth\/dashboard', '\/auth\/status'\]\)/)
   assert.match(source, /return SAFE_AUTH_NEXT_ROUTES\.has\(route\) \? route : fallback/)
   assert.match(openDesktopHandoffSource, /window\.location\.href = callbackUrl\.toString\(\)/)
   assert.doesNotMatch(sourceWithoutDesktopHandoff, /window\.location\s*=|window\.location\.href\s*=|location\.href\s*=|new URL\(.*next/)
@@ -477,4 +477,24 @@ test('cloud resume page supports delete and rebuild lifecycle controls safely', 
   assert.match(resumePageSource, /disabled=\{busy \|\| !currentResume\.is_active\}/)
   assert.match(resumePageSource, /deletePending \? 'Deleting resume\.\.\.' : 'Delete Resume'/)
   assert.match(resumePageSource, /rebuildPending \? 'Rebuilding index\.\.\.' : 'Rebuild Index'/)
+})
+
+test('confirmation route presents branded safe states and gates the reset form on verification', () => {
+  const confirm = source.slice(source.indexOf('export function AuthConfirmPage'), source.indexOf('export function AuthResetPasswordPage'))
+  const reset = source.slice(source.indexOf('export function AuthResetPasswordPage'), source.indexOf('export function AuthCallbackPage'))
+  assert.match(appSource, /path="\/auth\/confirm" element=\{<AuthConfirmPage \/>\}/)
+  assert.match(confirm, /Email verified/)
+  assert.match(confirm, /Checking your secure link/)
+  assert.match(confirm, /alt="Intervu AI"/)
+  assert.match(confirm, /result\?\.status === 'recovery'\) return <AuthResetPasswordPage/)
+  assert.match(confirm, /replaceState\(window.history.state, '', '\/auth\/confirm'\)/)
+  assert.ok(confirm.indexOf('replaceState(') < confirm.indexOf('verifyAuthEmailAction(search'))
+  assert.match(confirm, /if \(!operation.current\)/)
+  assert.match(confirm, /if \(active\) setResult\(value\)/)
+  assert.match(reset, /!message && <form/)
+  assert.match(reset, /!supabase \|\| loading \|\| message/)
+  assert.doesNotMatch(confirm, /localStorage|console\.|dangerouslySetInnerHTML|searchParams|error\.message/)
+  assert.doesNotMatch(confirm.slice(confirm.indexOf('  return (')), /token_hash|window.location|\{search\}/)
+  const action = readFileSync(new URL('./authApi.js', import.meta.url), 'utf8').split('async function parseJsonResponse')[0]
+  assert.doesNotMatch(action, /localStorage|console\.|fetch\(/)
 })
