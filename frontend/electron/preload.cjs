@@ -32,7 +32,19 @@ const electronAPI = {
   createInterviewSession: (payload, options) => ipcRenderer.invoke('cloud:create-interview-session', payload, options),
   listInterviewSessions: (options) => ipcRenderer.invoke('cloud:list-interview-sessions', options),
   endInterviewSession: (sessionId) => ipcRenderer.invoke('cloud:end-interview-session', sessionId),
+  listMyAnswers: (sessionId) => ipcRenderer.invoke('cloud:list-my-answers', sessionId),
+  saveMyAnswer: (sessionId, body) => ipcRenderer.invoke('cloud:save-my-answer', sessionId, body),
   generateAnswer: (body) => ipcRenderer.invoke('generate:answer', body),
+  startAnswerStream: (body) => ipcRenderer.invoke('generate:answer:stream:start', body),
+  cancelAnswerStream: (streamId) => ipcRenderer.invoke('generate:answer:stream:cancel', streamId),
+  onAnswerStreamEvent: (requestId, fn) => {
+    if (typeof requestId !== 'string' || typeof fn !== 'function') throw new Error('Invalid stream subscription.')
+    const listener = (_event, payload) => {
+      if (payload?.client_request_id === requestId) fn(payload)
+    }
+    ipcRenderer.on('generate:answer:stream:event', listener)
+    return () => ipcRenderer.removeListener('generate:answer:stream:event', listener)
+  },
   onOverlayState: (fn) => {
     const listener = (_event, payload) => fn(payload)
     ipcRenderer.on('overlay:state', listener)
@@ -55,9 +67,14 @@ contextBridge.exposeInMainWorld('saiia', {
   getAuthState: electronAPI.getAuthState,
   getCloudStartupContext: electronAPI.getCloudStartupContext,
   generateAnswer: electronAPI.generateAnswer,
+  startAnswerStream: electronAPI.startAnswerStream,
+  cancelAnswerStream: electronAPI.cancelAnswerStream,
+  onAnswerStreamEvent: electronAPI.onAnswerStreamEvent,
   createInterviewSession: electronAPI.createInterviewSession,
   endInterviewSession: electronAPI.endInterviewSession,
   listInterviewSessions: electronAPI.listInterviewSessions,
+  listMyAnswers: electronAPI.listMyAnswers,
+  saveMyAnswer: electronAPI.saveMyAnswer,
   listScreenSources: electronAPI.listScreenSources,
   listCloudResumes: electronAPI.listCloudResumes,
   logoutAuth: electronAPI.logoutAuth,

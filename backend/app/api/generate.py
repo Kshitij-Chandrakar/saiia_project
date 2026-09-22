@@ -5,6 +5,7 @@ import time
 import uuid
 from typing import Any, Dict, Optional
 
+import anyio
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -34,7 +35,7 @@ from app.nlp.classifier import (
     looks_like_coding_implementation_request,
     personal_question_allows_professional_context,
 )
-from app.nlp.answer_generator import AnswerGenerator, ProviderError
+from app.nlp.answer_generator import AnswerGenerator, ProviderError, StreamCancellation
 from app.nlp.answer_planner import build_answer_plan
 from app.nlp.followup_resolver import FollowUpResolution, resolve_live_followup
 from app.nlp.followup_intent_compiler import FollowUpIntentPlan, compile_followup_intent
@@ -855,6 +856,68 @@ def _stream_event(payload: Dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, default=str) + "\n"
 
 
+def _stream_request_id(value: Any) -> str:
+    candidate = str(value or "").strip()
+    if re.fullmatch(r"[A-Za-z0-9._:-]{1,120}", candidate):
+        return candidate
+    return uuid.uuid4().hex
+
+
+class _SyncStreamFailure:
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+
+
+async def _iterate_sync_stream(stream_factory, *, max_buffer_size: int = 8, cancellation=None):
+    """Run a synchronous provider iterator without blocking the ASGI loop."""
+    send_stream, receive_stream = anyio.create_memory_object_stream(max_buffer_size)
+    stream_error = None
+
+    def run_sync_stream() -> None:
+        iterator = None
+        try:
+            iterator = iter(stream_factory())
+            for item in iterator:
+                if cancellation and cancellation.stopped.is_set():
+                    break
+                anyio.from_thread.run(send_stream.send, item)
+        except BaseException as exc:
+            try:
+                anyio.from_thread.run(send_stream.send, _SyncStreamFailure(exc))
+            except BaseException:
+                pass
+        finally:
+            if iterator is not None and hasattr(iterator, "close"):
+                iterator.close()
+            try:
+                anyio.from_thread.run(send_stream.aclose)
+            except BaseException:
+                pass
+
+    async def run_worker() -> None:
+        await anyio.to_thread.run_sync(run_sync_stream, abandon_on_cancel=True)
+
+    try:
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(run_worker)
+            async with receive_stream:
+                async for item in receive_stream:
+                    if isinstance(item, _SyncStreamFailure):
+                        stream_error = item.error
+                        task_group.cancel_scope.cancel()
+                        break
+                    yield item
+            task_group.cancel_scope.cancel()
+    finally:
+        if cancellation:
+            cancellation.stopped.set()
+            with anyio.CancelScope(shield=True):
+                await anyio.to_thread.run_sync(cancellation.cancel)
+        await send_stream.aclose()
+    if stream_error is not None:
+        raise stream_error
+
+
 def _stream_safe_metadata(
     *,
     result: Dict[str, Any],
@@ -1090,7 +1153,8 @@ async def _store_transcript_for_stream_result_async(
     source: str,
     screen_question_type: str | None,
 ) -> Dict[str, Any]:
-    return await run_in_threadpool(
+    started = time.perf_counter()
+    metadata = await run_in_threadpool(
         _store_transcript_for_stream_result,
         req=req,
         request=request,
@@ -1098,6 +1162,10 @@ async def _store_transcript_for_stream_result_async(
         source=source,
         screen_question_type=screen_question_type,
     )
+    metadata["persistence_ms"] = round((time.perf_counter() - started) * 1000, 2)
+    if req.session_id and not metadata.get("transcript_entry_stored"):
+        raise HTTPException(status_code=503, detail="Answer could not be saved.")
+    return metadata
 
 
 def _resolve_request_followup(req: GenerateRequest, *, source: str) -> FollowUpResolution:
@@ -1169,10 +1237,20 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
         raise HTTPException(status_code=400, detail="`question` field cannot be empty.")
     if not req.category or not req.category.strip():
         raise HTTPException(status_code=400, detail="`category` field cannot be empty.")
-    _authorize_generation_session(req, request)
-
-    request_id = uuid.uuid4().hex
+    request_id = req.request_id = _stream_request_id(req.request_id)
+    req.source = str(req.source or "").strip().lower()
     request_started = time.perf_counter()
+    await run_in_threadpool(_authorize_generation_session, req, request)
+    authorization_ms = round((time.perf_counter() - request_started) * 1000, 2)
+    # Coding retains the buffered contract/extraction/validation path. No second
+    # contract extraction or provisional unvalidated code is introduced by Chat.
+    if req.source == "chat" and _selected_resume_strict_mode(req) and (
+        req.coding_answer_mode
+        or looks_like_coding_implementation_request(req.question)
+        or str(req.question_type or req.screen_question_type or "") in {"coding", "debugging", "output"}
+        or generator._select_primary_provider(req.question, req.category) != "openai"
+    ):
+        raise HTTPException(status_code=501, detail="Use the authenticated buffered answer path.")
 
     async def events():
         source = str(req.source or "").strip().lower()
@@ -1188,6 +1266,12 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
             else followup_resolution.resolved_question or str(req.question or "").strip()
         )
         if followup_resolution.resolution_status == "needs_clarification":
+            if _selected_resume_strict_mode(req):
+                retrieval = await run_in_threadpool(
+                    _retrieve_resume_context, req=req, request=request,
+                    use_profile_context=False, question=effective_question, category=req.category,
+                )
+                _require_selected_resume_context(req, retrieval)
             clarification = followup_resolution.clarification_question or "Which earlier topic should I connect this follow-up to?"
             yield _stream_event(
                 {
@@ -1286,6 +1370,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
         )
         use_job_context = answer_plan.job_context_policy != "FORBIDDEN"
         accumulated_answer = ""
+        provider_first_delta_ms = None
         first_delta_ms = None
         primary_result = None
         stream_sanitizer = InternalMarkerStreamSanitizer()
@@ -1302,8 +1387,14 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
             }
         )
         try:
-            saved_job_context = _generation_job_context(req, use_job_context=use_job_context)
-            retrieval = _retrieve_resume_context(
+            context_started = time.perf_counter()
+            saved_job_context = await run_in_threadpool(
+                _generation_job_context,
+                req,
+                use_job_context=use_job_context,
+            )
+            retrieval = await run_in_threadpool(
+                _retrieve_resume_context,
                 req=req,
                 request=request,
                 use_profile_context=use_profile_context,
@@ -1324,21 +1415,29 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                 use_profile_context=use_profile_context,
                 retrieval=retrieval,
             )
+            context_load_ms = round((time.perf_counter() - context_started) * 1000, 2)
 
-            for stream_item in generator.stream_openai_primary_answer(
-                question=generation_question,
-                question_type=effective_category,
-                profile=generation_profile,
-                retrieved_snippets=retrieved_chunks,
-                job_context=saved_job_context if saved_job_context.get("saved") else None,
-                source=source,
-                question_context_type=screen_question_type,
-                screen_question_type=screen_question_type,
-                coding_answer_mode=coding_answer_mode,
-                profile_context_enabled=generation_profile_context_enabled,
-                editor_text=generation_editor_text,
-                answer_plan=answer_plan,
+            cancellation = StreamCancellation()
+            async for stream_item in _iterate_sync_stream(
+                lambda: generator.stream_openai_primary_answer(
+                    question=generation_question,
+                    question_type=effective_category,
+                    profile=generation_profile,
+                    retrieved_snippets=retrieved_chunks,
+                    job_context=saved_job_context if saved_job_context.get("saved") else None,
+                    source=source,
+                    question_context_type=screen_question_type,
+                    screen_question_type=screen_question_type,
+                    coding_answer_mode=coding_answer_mode,
+                    profile_context_enabled=generation_profile_context_enabled,
+                    editor_text=generation_editor_text,
+                    answer_plan=answer_plan,
+                    cancellation=cancellation,
+                ),
+                cancellation=cancellation,
             ):
+                if provider_first_delta_ms is None and stream_item.get("type") == "delta":
+                    provider_first_delta_ms = round((time.perf_counter() - request_started) * 1000, 2)
                 if stream_item.get("type") == "delta":
                     text = str(stream_item.get("text") or "")
                     if not text:
@@ -1379,7 +1478,10 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                     phase="primary_generation_stream",
                 )
 
-            result = generator.generate_answer(
+            provider_completed_ms = round((time.perf_counter() - request_started) * 1000, 2)
+            postprocess_started = time.perf_counter()
+            result = await run_in_threadpool(
+                generator.generate_answer,
                 question=generation_question,
                 question_type=effective_category,
                 profile=generation_profile,
@@ -1422,6 +1524,9 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                     2,
                 )
             final_answer = str(result.get("answer") or "")
+            if not final_answer.strip():
+                raise HTTPException(status_code=502, detail="No canonical answer was produced.")
+            postprocessing_ms = round((time.perf_counter() - postprocess_started) * 1000, 2)
             if final_answer and final_answer != accumulated_answer:
                 yield _stream_event({"type": "replace", "request_id": request_id, "answer": final_answer})
             metadata = _stream_safe_metadata(
@@ -1442,6 +1547,11 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                 followup_intent=followup_intent,
             )
             metadata["time_to_first_visible_text_ms"] = first_delta_ms
+            metadata["provider_first_delta_ms"] = provider_first_delta_ms
+            metadata["authorization_ms"] = authorization_ms
+            metadata["context_load_ms"] = context_load_ms
+            metadata["provider_completed_ms"] = provider_completed_ms
+            metadata["postprocessing_ms"] = postprocessing_ms
             metadata["stream_duration_ms"] = round((time.perf_counter() - request_started) * 1000, 2)
             metadata["stream_sanitizer_ms"] = round(stream_sanitizer_ms, 4)
             metadata["initial_prefix_hold_ms"] = initial_prefix_hold_ms
@@ -1469,6 +1579,8 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                 source=source,
                 screen_question_type=screen_question_type,
             )
+            metadata["persistence_completed_ms"] = round((time.perf_counter() - request_started) * 1000, 2)
+            metadata["stream_duration_ms"] = metadata["persistence_completed_ms"]
             yield _stream_event({"type": "metadata", "request_id": request_id, "metadata": metadata})
             yield _stream_event({"type": "done", "request_id": request_id})
         except ProviderError as exc:
@@ -1486,7 +1598,8 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                 and not _selected_resume_strict_mode(req)
             ):
                 try:
-                    fallback = generator.generate_answer(
+                    fallback = await run_in_threadpool(
+                        generator.generate_answer,
                         question=generation_question,
                         question_type=effective_category,
                         profile=generation_profile,
@@ -1567,8 +1680,24 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
             )
             yield _stream_event({"type": "done", "request_id": request_id, "incomplete": bool(accumulated_answer.strip())})
 
+    async def sequenced_events():
+        sequence = 0
+        try:
+            async for line in events():
+                event = json.loads(line)
+                event["sequence"] = sequence
+                sequence += 1
+                yield _stream_event(event)
+        except Exception as exc:
+            yield _stream_event({"type": "error", "request_id": request_id,
+                                 "sequence": sequence, "error": "stream_generation_failed",
+                                 "status_code": exc.status_code if isinstance(exc, HTTPException) else 500})
+            yield _stream_event({"type": "done", "request_id": request_id,
+                                 "sequence": sequence + 1, "incomplete": True})
+
+
     return StreamingResponse(
-        events(),
+        sequenced_events(),
         media_type="application/x-ndjson",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

@@ -49,10 +49,11 @@ test('readNdjsonStream emits deltas before done without artificial timers', asyn
     ]),
   }
 
-  await readNdjsonStream(response, {
+  const result = await readNdjsonStream(response, {
     onEvent: (event) => events.push(event),
   })
 
+  assert.equal(result.sawDone, true)
   assert.equal(events[1].type, 'delta')
   assert.equal(events.at(-1).type, 'done')
   assert.equal(events.filter((event) => event.type === 'delta').map((event) => event.text).join(''), 'What is streaming?')
@@ -76,6 +77,18 @@ test('readNdjsonStream cancels cleanly when aborted', async () => {
   })
 
   assert.deepEqual(events, [])
+})
+
+test('readNdjsonStream reports an incomplete response without done', async () => {
+  const result = await readNdjsonStream(
+    {
+      body: streamFromChunks(['{"type":"delta","text":"partial"}\n']),
+    },
+    { onEvent: () => {} }
+  )
+
+  assert.equal(result.sawDone, false)
+  assert.equal(result.aborted, false)
 })
 
 test('metadata events remain separate from answer deltas', async () => {
