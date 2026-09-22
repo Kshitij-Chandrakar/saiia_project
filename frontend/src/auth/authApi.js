@@ -1,6 +1,37 @@
 const DEFAULT_BACKEND_URL = 'http://localhost:8000'
 const SAFE_UNSUBSCRIBE_ERROR = 'Unable to update your promotional email preference right now.'
 
+export const SAFE_AUTH_NEXT_ROUTES = new Set(['/auth/dashboard', '/auth/status'])
+
+export async function verifyAuthEmailAction(search, client) {
+  const params = new URLSearchParams(search)
+  const type = params.get('type')
+  const tokenHash = params.get('token_hash')?.trim()
+  const next = params.get('next') || '/auth/dashboard'
+  if (!tokenHash || !['email', 'recovery'].includes(type)
+      || !SAFE_AUTH_NEXT_ROUTES.has(next)
+      || [...params.keys()].some((key) => !['token_hash', 'type', 'next'].includes(key) || params.getAll(key).length !== 1)) {
+    return { status: 'error', message: 'This secure link is missing or invalid.', href: '/auth/login' }
+  }
+  const failure = {
+    status: 'error',
+    message: type === 'recovery'
+      ? 'This password reset link is expired or already used.'
+      : 'This verification link is expired or already used.',
+    href: type === 'recovery' ? '/auth/forgot-password' : '/auth/login',
+  }
+  if (!client) return { ...failure, message: 'Secure link verification is unavailable. Please try again later.' }
+  try {
+    const { data, error } = await client.auth.verifyOtp({ token_hash: tokenHash, type })
+    if (error || (type === 'recovery' && !data?.session?.access_token)) return failure
+    return type === 'recovery'
+      ? { status: 'recovery' }
+      : { status: 'verified', message: 'Your Intervu AI account is ready.', href: data?.session?.access_token ? next : '/auth/login' }
+  } catch {
+    return failure
+  }
+}
+
 
 async function parseJsonResponse(response, fallbackMessage) {
   const payload = await response.json().catch(() => ({}))

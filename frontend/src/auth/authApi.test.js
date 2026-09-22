@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  verifyAuthEmailAction,
   askInterviewSessionAI,
   bootstrapProfile,
   confirmCloudResume,
@@ -773,4 +774,67 @@ test('cloud resume helpers surface string detail and fallback empty errors', asy
     }),
     /Unable to extract the resume\./,
   )
+})
+
+for (const query of ['', '?type=email', '?token_hash=fake&type=signup', '?token_hash=fake&type=unknown', '?token_hash=fake&type=email&next=https://evil.example', '?token_hash=fake&type=email&next=//evil.example', '?token_hash=fake&type=email&redirect=https://evil.example', '?token_hash=fake&type=email&type=recovery']) {
+  test(`auth email action rejects invalid parameters: ${query}`, async () => {
+    let calls = 0
+    const result = await verifyAuthEmailAction(query, { auth: { verifyOtp() { calls++ } } })
+    assert.equal(calls, 0)
+    assert.equal(result.status, 'error')
+    assert.equal(result.message, 'This secure link is missing or invalid.')
+    assert.equal(result.href, '/auth/login')
+  })
+}
+
+for (const type of ['email', 'recovery']) {
+  test(`auth email action verifies ${type} and returns only safe state`, async () => {
+    const calls = []
+    const result = await verifyAuthEmailAction(`?token_hash=synthetic-token&type=${type}&next=/auth/status`, {
+      auth: { verifyOtp: async (params) => {
+        calls.push(params)
+        return { data: { session: { access_token: 'synthetic-session' } }, error: null }
+      } },
+    })
+    assert.deepEqual(calls, [{ token_hash: 'synthetic-token', type }])
+    assert.equal(result.status, type === 'email' ? 'verified' : 'recovery')
+    if (type === 'email') {
+      assert.equal(result.message, 'Your Intervu AI account is ready.')
+      assert.equal(result.href, '/auth/status')
+    }
+    assert.doesNotMatch(JSON.stringify(result), /synthetic|token_hash/)
+  })
+  for (const throws of [false, true]) {
+    test(`auth email action redacts ${type} failure (throws=${throws})`, async () => {
+      const result = await verifyAuthEmailAction(`?token_hash=synthetic-token&type=${type}`, {
+        auth: { verifyOtp: async () => {
+          if (throws) throw new Error('synthetic-token')
+          return { error: { message: 'synthetic-token' } }
+        } },
+      })
+      assert.equal(result.status, 'error')
+      assert.equal(result.message, type === 'email' ? 'This verification link is expired or already used.' : 'This password reset link is expired or already used.')
+      assert.equal(result.href, type === 'email' ? '/auth/login' : '/auth/forgot-password')
+      assert.doesNotMatch(JSON.stringify(result), /synthetic-token/)
+    })
+  }
+}
+
+test('recovery requires a newly verified session and rejects a consumed link', async () => {
+  let consumed = false
+  const client = { auth: { verifyOtp: async () => {
+    if (consumed) return { error: { message: 'expired' } }
+    consumed = true
+    return { data: { session: { access_token: 'synthetic-session' } } }
+  } } }
+  const query = '?token_hash=synthetic-token&type=recovery'
+  assert.equal((await verifyAuthEmailAction(query, client)).status, 'recovery')
+  assert.equal((await verifyAuthEmailAction(query, client)).status, 'error')
+  assert.equal((await verifyAuthEmailAction(query, { auth: { verifyOtp: async () => ({ data: { session: null } }) } })).status, 'error')
+})
+
+test('verified email without a session continues to login', async () => {
+  const result = await verifyAuthEmailAction('?token_hash=synthetic-token&type=email', { auth: { verifyOtp: async () => ({ data: { session: null } }) } })
+  assert.equal(result.status, 'verified')
+  assert.equal(result.href, '/auth/login')
 })

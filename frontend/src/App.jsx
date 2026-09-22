@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import {
   AuthCallbackPage,
+  AuthConfirmPage,
   AuthDashboardPage,
   AuthDesktopLoginPage,
   AuthForgotPasswordPage,
@@ -6373,6 +6374,7 @@ export default function App() {
       <Route path="/auth/forgot-password" element={<AuthForgotPasswordPage />} />
       <Route path="/auth/reset-password" element={<AuthResetPasswordPage />} />
       <Route path="/auth/callback" element={<AuthCallbackPage backendUrl={BACKEND_URL} />} />
+      <Route path="/auth/confirm" element={<AuthConfirmPage />} />
       <Route path="/auth/status" element={<AuthStatusPage backendUrl={BACKEND_URL} />} />
       <Route path="/unsubscribe" element={<AuthUnsubscribePage backendUrl={BACKEND_URL} />} />
       <Route path="/auth/dashboard" element={<AuthDashboardPage backendUrl={BACKEND_URL} />} />

@@ -22,7 +22,10 @@ import {
   rebuildCloudResumeIndex,
   submitMarketingUnsubscribe,
   uploadCloudResume,
+  verifyAuthEmailAction,
+  SAFE_AUTH_NEXT_ROUTES,
 } from './authApi'
+import authLogo from '../assets/startup-login/login-logo.svg'
 import { supabase } from './supabaseClient'
 import './auth.css'
 
@@ -34,7 +37,6 @@ const UNSUBSCRIBE_TRANSACTIONAL_NOTICE = 'You may still receive important accoun
 const UNSUBSCRIBE_MISSING_MESSAGE = 'This unsubscribe link is missing or invalid. Your preferences were not changed.'
 const UNSUBSCRIBE_FAILURE_MESSAGE = 'Unable to update your promotional email preference right now. Please try again later.'
 const DEFAULT_LOGIN_NEXT_ROUTE = '/auth/dashboard'
-const SAFE_AUTH_NEXT_ROUTES = new Set(['/auth/dashboard', '/auth/status'])
 const LOGIN_REQUIRED_MESSAGE = 'Session expired or signed out. Please log in.'
 const DESKTOP_CALLBACK_URL = 'saiia://auth/callback'
 const PENDING_SIGNUP_CONSENT_STORAGE_KEY = 'intervuai.pendingSignupConsent'
@@ -977,6 +979,36 @@ export function AuthForgotPasswordPage() {
 }
 
 
+export function AuthConfirmPage() {
+  const operation = useRef(null)
+  const [result, setResult] = useState(null)
+
+  useEffect(() => {
+    let active = true
+    if (!operation.current) {
+      const search = window.location.search
+      // Scrub before any network work; never persist or display the email token.
+      window.history.replaceState(window.history.state, '', '/auth/confirm')
+      operation.current = verifyAuthEmailAction(search, supabase)
+    }
+    // Share the pending verification across StrictMode's effect replay.
+    operation.current.then((value) => { if (active) setResult(value) })
+    return () => { active = false }
+  }, [])
+
+  if (result?.status === 'recovery') return <AuthResetPasswordPage />
+  return (
+    <AuthShell title={result?.status === 'verified' ? 'Email verified' : result ? 'Secure link unavailable' : 'Checking your secure link…'}>
+      <img className="auth-action-logo" src={authLogo} alt="Intervu AI" />
+      <div role="status" aria-live="polite">
+        <AuthMessage message={result?.message} tone={result?.status === 'error' ? 'error' : 'success'} />
+      </div>
+      {result && <Link className="auth-action-button" to={result.href}>{result.href === '/auth/forgot-password' ? 'Request a new reset link' : result.status === 'verified' ? 'Continue' : 'Go to login'}</Link>}
+    </AuthShell>
+  )
+}
+
+
 export function AuthResetPasswordPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -985,7 +1017,7 @@ export function AuthResetPasswordPage() {
 
   async function handleSubmit(event) {
     event.preventDefault()
-    if (!supabase) {
+    if (!supabase || loading || message) {
       return
     }
 
@@ -1006,7 +1038,7 @@ export function AuthResetPasswordPage() {
   return (
     <AuthShell title="New Password">
       <ConfigNotice />
-      <form className="auth-form" onSubmit={handleSubmit}>
+      {!message && <form className="auth-form" onSubmit={handleSubmit}>
         <label>
           Password
           <PasswordInput
@@ -1020,7 +1052,7 @@ export function AuthResetPasswordPage() {
         <button type="submit" disabled={!supabase || loading}>
           {loading ? 'Updating...' : 'Update Password'}
         </button>
-      </form>
+      </form>}
       <AuthMessage message={error} tone="error" />
       <AuthMessage message={message} tone="success" />
       <AuthLinks />
