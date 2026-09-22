@@ -1,6 +1,7 @@
 from typing import Annotated
+import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.cloud.supabase_config import SupabaseConfigurationError
@@ -12,6 +13,21 @@ from app.email.unsubscribe import (
 
 
 router = APIRouter()
+
+
+class UnsubscribeAccessLogFilter(logging.Filter):
+    """Also redact rejected methods/validation failures before endpoint execution."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and len(record.args) == 5:
+            address, method, path, version, code = record.args
+            if isinstance(path, str) and path.split("?", 1)[0].rstrip("/") == "/api/email/unsubscribe/one-click":
+                record.args = (address, method, path.split("?", 1)[0], version, code)
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(UnsubscribeAccessLogFilter())
+
 
 UNSUBSCRIBE_MESSAGE = (
     "Your promotional email preference has been updated if the link was valid."
@@ -51,3 +67,22 @@ def unsubscribe_marketing_email(
         success=True,
         message=UNSUBSCRIBE_MESSAGE,
     )
+
+
+def _one_click_token(request: Request) -> str:
+    token = request.query_params.get("token", "")
+    # Remove the query before dependency failures or Uvicorn response access logs.
+    request.scope["query_string"] = b""
+    return token
+
+
+@router.post("/unsubscribe/one-click")
+def unsubscribe_one_click(
+    token: Annotated[str, Depends(_one_click_token)],
+    service: Annotated[MarketingUnsubscribeService, Depends(get_marketing_unsubscribe_service)],
+) -> dict[str, bool]:
+    try:
+        service.unsubscribe(raw_token=token)
+    except (MarketingUnsubscribeStorageError, SupabaseConfigurationError):
+        raise HTTPException(status_code=503, detail=UNSUBSCRIBE_FAILURE_MESSAGE) from None
+    return {"success": True}

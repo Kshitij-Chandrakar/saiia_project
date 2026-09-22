@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import hashlib
 import logging
@@ -44,7 +44,7 @@ class MarketingUnsubscribeValidationError(MarketingUnsubscribeError, ValueError)
 class CreatedMarketingUnsubscribeToken:
     """The raw token is returned only when a token is created."""
 
-    raw_token: str
+    raw_token: str = field(repr=False)
     expires_at: str
 
 
@@ -220,7 +220,7 @@ class SupabaseMarketingUnsubscribeTokenClient:
             self._raise_request("read_marketing_opt_in", exc)
         if not isinstance(data, list) or not data:
             return False
-        return bool(isinstance(data[0], dict) and data[0].get("marketing_email_opt_in"))
+        return bool(isinstance(data[0], dict) and data[0].get("marketing_email_opt_in") is True)
 
 
 class MarketingUnsubscribeService:
@@ -271,7 +271,7 @@ class MarketingUnsubscribeService:
         )
 
     def is_marketing_allowed(self, *, user_id: str) -> bool:
-        return self._client.get_marketing_opt_in(user_id=_normalize_user_id(user_id))
+        return self._client.get_marketing_opt_in(user_id=_normalize_user_id(user_id)) is True
 
 
 def build_marketing_unsubscribe_service(
