@@ -3,7 +3,7 @@ const SAFE_UNSUBSCRIBE_ERROR = 'Unable to update your promotional email preferen
 
 export const SAFE_AUTH_NEXT_ROUTES = new Set(['/auth/dashboard', '/auth/status'])
 
-export async function verifyAuthEmailAction(search, client) {
+export async function verifyAuthEmailAction(search, client, onEmailVerified = async () => {}) {
   const params = new URLSearchParams(search)
   const type = params.get('type')
   const tokenHash = params.get('token_hash')?.trim()
@@ -24,6 +24,13 @@ export async function verifyAuthEmailAction(search, client) {
   try {
     const { data, error } = await client.auth.verifyOtp({ token_hash: tokenHash, type })
     if (error || (type === 'recovery' && !data?.session?.access_token)) return failure
+    if (type === 'email' && data?.session?.access_token) {
+      try {
+        await onEmailVerified(data.session)
+      } catch {
+        return { status: 'error', message: 'Email verified, but account setup could not be completed. Your signup preferences have not been cleared. Continue to Account and retry profile setup.', href: '/auth/status' }
+      }
+    }
     return type === 'recovery'
       ? { status: 'recovery' }
       : { status: 'verified', message: 'Your Intervu AI account is ready.', href: data?.session?.access_token ? next : '/auth/login' }

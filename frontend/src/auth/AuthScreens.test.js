@@ -482,7 +482,7 @@ test('cloud resume page supports delete and rebuild lifecycle controls safely', 
 test('confirmation route presents branded safe states and gates the reset form on verification', () => {
   const confirm = source.slice(source.indexOf('export function AuthConfirmPage'), source.indexOf('export function AuthResetPasswordPage'))
   const reset = source.slice(source.indexOf('export function AuthResetPasswordPage'), source.indexOf('export function AuthCallbackPage'))
-  assert.match(appSource, /path="\/auth\/confirm" element=\{<AuthConfirmPage \/>\}/)
+  assert.match(appSource, /path="\/auth\/confirm" element=\{<AuthConfirmPage backendUrl=\{BACKEND_URL\} \/>\}/)
   assert.match(confirm, /Email verified/)
   assert.match(confirm, /Checking your secure link/)
   assert.match(confirm, /alt="Intervu AI"/)
@@ -497,4 +497,91 @@ test('confirmation route presents branded safe states and gates the reset form o
   assert.doesNotMatch(confirm.slice(confirm.indexOf('  return (')), /token_hash|window.location|\{search\}/)
   const action = readFileSync(new URL('./authApi.js', import.meta.url), 'utf8').split('async function parseJsonResponse')[0]
   assert.doesNotMatch(action, /localStorage|console\.|fetch\(/)
+})
+
+function consentHelpers(bootstrap, enabled = true) {
+  const records = new Map()
+  const storage = {
+    setItem: (key, value) => records.set(key, value),
+    getItem: (key) => records.get(key) ?? null,
+    removeItem: (key) => records.delete(key),
+  }
+  const helpers = new Function('window', 'CONSENT_FEATURE_ENABLED', 'PENDING_SIGNUP_CONSENT_STORAGE_KEY', 'SIGNUP_CONSENT_VERSION', 'bootstrapProfile',
+    source.slice(source.indexOf('function buildSignupConsent('), source.indexOf('function getSafeAuthNextRoute(')) +
+    '\nreturn { rememberSignupConsent, pendingSignupConsentForSession, persistPendingSignupConsent }')(
+      { localStorage: storage }, enabled, 'intervuai.pendingSignupConsent', 'c10.6a-v1', bootstrap)
+  return { ...helpers, records, storage }
+}
+
+for (const marketing of [true, false, null]) {
+  test(`verified email persists pending consent with marketing=${marketing}`, async () => {
+    const { verifyAuthEmailAction, bootstrapProfile } = await import('./authApi.js')
+    const calls = []
+    const helpers = consentHelpers((token, options) => bootstrapProfile(token, {
+      ...options, fetchImpl: async (url, init) => {
+        calls.push({ url, init })
+        return { ok: true, json: async () => ({ profile_exists: true, settings_exists: true }) }
+      },
+    }))
+    assert.equal(helpers.rememberSignupConsent(' Test@Example.com ', marketing), true)
+    assert.equal(helpers.records.size, 1)
+    const session = { access_token: 'synthetic-session', user: { email: 'test@example.com' } }
+    const result = await verifyAuthEmailAction('?token_hash=synthetic&type=email', {
+      auth: { verifyOtp: async () => ({ data: { session } }) },
+    }, (verifiedSession) => helpers.persistPendingSignupConsent(verifiedSession, 'https://backend.example'))
+    assert.equal(result.status, 'verified')
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].url, 'https://backend.example/api/auth/profile/bootstrap')
+    assert.deepEqual(JSON.parse(calls[0].init.body), {
+      terms_accepted: true, privacy_accepted: true, marketing_email_opt_in: marketing,
+      consent_source: 'signup', consent_version: 'c10.6a-v1',
+    })
+    assert.equal(helpers.records.size, 0)
+  })
+}
+
+test('bootstrap failure preserves pending consent and reports setup failure after verification', async () => {
+  const { verifyAuthEmailAction } = await import('./authApi.js')
+  const helpers = consentHelpers(async () => { throw new Error('private backend detail') })
+  helpers.rememberSignupConsent('test@example.com', true)
+  const session = { access_token: 'synthetic', user: { email: 'test@example.com' } }
+  const result = await verifyAuthEmailAction('?token_hash=synthetic&type=email', {
+    auth: { verifyOtp: async () => ({ data: { session } }) },
+  }, (verified) => helpers.persistPendingSignupConsent(verified, 'backend'))
+  assert.equal(result.status, 'error')
+  assert.equal(result.href, '/auth/status')
+  assert.match(result.message, /Email verified, but account setup/)
+  assert.doesNotMatch(result.message, /private backend detail|expired/)
+  assert.equal(helpers.pendingSignupConsentForSession(session).marketing_email_opt_in, true)
+})
+
+test('mismatched account or no stored signup consent never grants consent', async () => {
+  let calls = 0
+  const helpers = consentHelpers(async () => { calls++ })
+  const session = { access_token: 'synthetic', user: { email: 'other@example.com' } }
+  await helpers.persistPendingSignupConsent(session, 'backend')
+  helpers.rememberSignupConsent('test@example.com', true)
+  await helpers.persistPendingSignupConsent(session, 'backend')
+  assert.equal(calls, 0)
+  assert.equal(helpers.records.size, 1)
+  assert.doesNotMatch(loginPageSource, /rememberSignupConsent\(|buildSignupConsent\(/)
+})
+
+test('signup fails closed on storage failure and keeps Google preference storage before redirect', () => {
+  const helpers = consentHelpers(async () => {})
+  helpers.storage.setItem = () => { throw new Error('storage unavailable') }
+  assert.equal(helpers.rememberSignupConsent('test@example.com', true), false)
+  assert.match(signupPageSource, /if \(!rememberSignupConsent\(form.email, marketingEmailOptIn\)\) \{[\s\S]*?return\s*\}\s*const \{ data, error \} = await supabase.auth.signUp/)
+  assert.match(signupPageSource, /if \(!rememberSignupConsent\(form.email, marketingEmailOptIn\)\) \{[\s\S]*?return\s*\}\s*try \{\s*const \{ error \} = await startGoogleLogin/)
+})
+
+test('bootstrap completion does not clear a newer signup record', async () => {
+  let complete
+  const helpers = consentHelpers(() => new Promise((resolve) => { complete = resolve }))
+  helpers.rememberSignupConsent('test@example.com', true)
+  const pending = helpers.persistPendingSignupConsent({ access_token: 'synthetic', user: { email: 'test@example.com' } }, 'backend')
+  helpers.rememberSignupConsent('other@example.com', false)
+  complete()
+  await pending
+  assert.equal(helpers.records.size, 1)
 })

@@ -309,3 +309,31 @@ Repeated keys return the terminal event or block an in-progress attempt. Dry-run
 Before any separately authorized real send: apply/verify the migration, verify consent and unsubscribe storage, verify the sender with Resend, deploy and route both public unsubscribe URLs (including `/api/email/...` to the backend), test one-click POST and replay/expired links, confirm query-log redaction and provider tracking settings, and make a reply-to decision. `support@intervucopilot.in` receiving is deferred because GoDaddy mailbox/forwarding needs paid setup. Omit reply-to until a receiving mailbox is confirmed; this phase does not depend on support receiving. No campaigns are enabled.
 
 Provider reference: [Resend send-email API](https://resend.com/docs/api-reference/emails/send-email) and [idempotency keys](https://resend.com/docs/dashboard/emails/idempotency-keys). The adapter uses existing `requests`, a bounded timeout, no redirect following, no automatic retries, and sanitized errors.
+
+### Temporary C10.7A live smoke command (dev-only)
+
+`app.email.marketing_smoke` is a temporary developer CLI kept in source with focused tests, not a public route or scheduled job. From `backend`, run:
+
+```powershell
+python -m app.email.marketing_smoke --user-id <test-user-uuid> --email <that-users-email> --idempotency-key c10-7a-smoke-<unique-attempt-id>
+```
+
+The operator must use the email belonging to the specified opted-in test account. Configure secrets only in the secure backend environment. The command does not enable flags: it refuses dispatch unless `EMAIL_PROVIDER_MODE=live`, `MARKETING_EMAILS_ENABLED=true`, a valid backend Resend configuration, and explicit consent are present. It sends one `product_update` request through the existing marketing service; existing consent rechecks, token creation, provider, event claims and reconciliation remain authoritative. Deployment/migration/unsubscribe readiness prerequisites above still apply.
+
+Use one unique idempotency key for one intended smoke send and reuse that same key when checking/retrying it. Do not generate a new key after an uncertain failure; inspect/reconcile the stored event first. A `sent` result may be a replay of that event and confirms provider acceptance, not inbox delivery. Output is restricted to status, validated event/provider UUIDs and mode. Failures print a generic status only, never exceptions, recipient addresses, credentials, headers or unsubscribe values. Exit codes: 0 for sent/replayed-sent, 2 for blocked/canceled/incomplete, 1 for failure or invalid arguments. No live test was run during implementation. Remove this temporary tool after smoke verification; no ongoing campaign tooling is implied.
+
+### Signup consent persistence fix
+
+Email/password signup now checks that pending consent was saved before creating the auth user. After `/auth/confirm` verifies an `email` action and receives a session, it runs the existing authenticated profile bootstrap with consent from `intervuai.pendingSignupConsent` only when the feature flag is enabled and the stored email matches the verified session email (trimmed/lowercased). It clears matching pending consent only after bootstrap succeeds; a newer signup record is preserved. Bootstrap failure leaves consent pending and shows a safe account-setup retry message linking to Account, rather than claiming the email link expired.
+
+Login does not manufacture consent. Marketing remains explicit `true`, unchecked `false`, or untouched `null`; no default opt-in is introduced. Google signup retains its existing store-before-redirect and matching-email rules. Verification in a different browser/origin, blocked storage, or a mismatched email does not transfer pending consent; this change does not trust Auth user metadata as a fallback. If verification returns no session, consent stays pending for the existing authenticated profile-setup flow. These paths were validated with local mocked tests, not a live signup/database mutation.
+
+### Forward RPC ambiguity fix (2026-09-24)
+
+The applied claim function already has `p_`-prefixed inputs and qualified SELECT/WHERE references. PostgreSQL also creates variables for `RETURNS TABLE` output names. Those output variables collide with bare index-column names in `ON CONFLICT (user_id, email_type, recipient_email, session_id, idempotency_key)`, producing SQLSTATE 42702.
+
+New migration: `20260924120000_fix_outbound_email_event_claim_ambiguous_user_id.sql`. It replaces only the RPC, adds function-local `#variable_conflict use_column` for the conflict target, and uses an explicit INSERT alias in RETURNING. It preserves the exact RPC argument/result contract, six-type allowlist, unique-index inference, atomic INSERT/duplicate row lock behavior, grants, and existing status/lease logic. Old migrations are unchanged. No table changes or CHECK validation are added; deferred validation remains maintenance work.
+
+The migration is local and must be applied separately through the approved rollout process; this fix does not claim a successful remote claim or send. Local regression tests compare the complete function to the previous version (apart from the intended fix) and exercise event-service claims with fakes. PostgreSQL execution remains a rollout check because no local PostgreSQL runtime is available. Do not retry a live smoke send until the forward migration is applied and the prior event state is checked; retain the intended idempotency key. No email was sent during this fix.
+
+Reference: [PostgreSQL PL/pgSQL variable substitution](https://www.postgresql.org/docs/current/plpgsql-implementation.html#PLPGSQL-VAR-SUBST).

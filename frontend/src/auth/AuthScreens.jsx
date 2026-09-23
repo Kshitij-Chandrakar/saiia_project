@@ -127,6 +127,18 @@ function clearPendingSignupConsent() {
 }
 
 
+async function persistPendingSignupConsent(session, backendUrl) {
+  if (!CONSENT_FEATURE_ENABLED) return
+  const consent = pendingSignupConsentForSession(session)
+  if (!consent) return
+  await bootstrapProfile(session.access_token, { backendUrl, consent })
+  // A different signup may have replaced the record while bootstrap was pending.
+  if (JSON.stringify(pendingSignupConsentForSession(session)) === JSON.stringify(consent)) {
+    clearPendingSignupConsent()
+  }
+}
+
+
 function getSafeAuthNextRoute(value, fallback = DEFAULT_LOGIN_NEXT_ROUTE) {
   const route = String(value || '').trim()
   return SAFE_AUTH_NEXT_ROUTES.has(route) ? route : fallback
@@ -623,7 +635,11 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
     form.setError('')
     form.setMessage('')
     const consent = buildSignupConsent(form.email, marketingEmailOptIn)
-    rememberSignupConsent(form.email, marketingEmailOptIn)
+    if (!rememberSignupConsent(form.email, marketingEmailOptIn)) {
+      form.setLoading(false)
+      form.setError('Unable to save signup preferences. Please try again.')
+      return
+    }
     const { data, error } = await supabase.auth.signUp({
       email: form.email,
       password: form.password,
@@ -979,7 +995,7 @@ export function AuthForgotPasswordPage() {
 }
 
 
-export function AuthConfirmPage() {
+export function AuthConfirmPage({ backendUrl }) {
   const operation = useRef(null)
   const [result, setResult] = useState(null)
 
@@ -989,7 +1005,8 @@ export function AuthConfirmPage() {
       const search = window.location.search
       // Scrub before any network work; never persist or display the email token.
       window.history.replaceState(window.history.state, '', '/auth/confirm')
-      operation.current = verifyAuthEmailAction(search, supabase)
+      operation.current = verifyAuthEmailAction(search, supabase,
+        (session) => persistPendingSignupConsent(session, backendUrl))
     }
     // Share the pending verification across StrictMode's effect replay.
     operation.current.then((value) => { if (active) setResult(value) })
@@ -1003,7 +1020,7 @@ export function AuthConfirmPage() {
       <div role="status" aria-live="polite">
         <AuthMessage message={result?.message} tone={result?.status === 'error' ? 'error' : 'success'} />
       </div>
-      {result && <Link className="auth-action-button" to={result.href}>{result.href === '/auth/forgot-password' ? 'Request a new reset link' : result.status === 'verified' ? 'Continue' : 'Go to login'}</Link>}
+      {result && <Link className="auth-action-button" to={result.href}>{result.href === '/auth/forgot-password' ? 'Request a new reset link' : result.status === 'verified' ? 'Continue' : result.href === '/auth/status' ? 'Continue to Account' : 'Go to login'}</Link>}
     </AuthShell>
   )
 }
