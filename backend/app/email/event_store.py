@@ -105,7 +105,7 @@ class OutboundEmailEventRequest:
     safe_metadata: Mapping[str, object]
 
     def __post_init__(self) -> None:
-        if self.email_type not in BACKEND_TRANSACTIONAL_EMAIL_TYPES:
+        if self.email_type not in BACKEND_TRANSACTIONAL_EMAIL_TYPES | {"marketing_product_update"}:
             raise OutboundEmailEventValidationError(
                 "Email type is not a backend transactional email."
             )

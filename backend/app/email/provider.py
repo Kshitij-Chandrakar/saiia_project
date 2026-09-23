@@ -129,7 +129,7 @@ class EmailSendRequest:
 class EmailSendResult:
     """Provider result that contains no message body or credential data."""
 
-    status: Literal["dry_run"]
+    status: Literal["dry_run", "sent"]
     provider: str
     message_id: str
     dry_run: bool

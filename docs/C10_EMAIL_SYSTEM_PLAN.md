@@ -278,3 +278,34 @@ Keep current Supabase templates until the deployed frontend serves `/auth/confir
 In HTML attributes escape the query separator as `&amp;`. Replace `{{ .ConfirmationURL }}` in both locations; use the deployed app origin as the existing Site URL. Smoke-test fresh, second-click, expired, and invalid links plus password reset completion before rollout. Do not change SMTP, Resend, DNS, or secrets for this frontend cutover. Existing legacy callback/reset routes remain available during transition. C10.2C.2 custom auth domain / Google OAuth branding remains pending.
 
 Reference: [Supabase verifyOtp](https://supabase.com/docs/reference/javascript/auth-verifyotp) and [email templates](https://supabase.com/docs/guides/auth/auth-email-templates); local SDK `@supabase/supabase-js` 2.111.0.
+
+## C10.7A — backend marketing foundation (local, no campaigns enabled)
+
+The replacement email-type CHECK is a superset of the previous allowed values and is added `NOT VALID`, avoiding an immediate scan of existing rows. New and updated rows are still checked; the ALTER TABLE operations still acquire locks. Validation is deferred to a later maintenance migration after rollout. No validation migration is included in C10.7A.
+
+`app.email.marketing.MarketingEmailService.send_marketing_email` is a backend-only, single-recipient service. It requires a user UUID, recipient email, campaign key, `template_key="product_update"`, and an idempotency key. Trusted backend callers must supply the recipient associated with that user; no public sending endpoint, frontend Resend integration, worker, scheduler, or campaign UI was added. Existing Supabase Auth SMTP and transactional/welcome/feature dry-run behavior are unchanged. Do not use Supabase Auth SMTP for marketing.
+
+Configuration (backend only):
+
+| Setting | Default / requirement |
+| --- | --- |
+| `EMAIL_PROVIDER_MODE` | `dry_run`; accepts only `dry_run` or `live` |
+| `MARKETING_EMAILS_ENABLED` | `false`; explicit `true` required for live dispatch |
+| `RESEND_API_KEY` | Secure backend environment only; required for `live` mode; never print it |
+| `MARKETING_FROM_EMAIL` | `updates@intervucopilot.in`; exact sender domain enforced |
+| `MARKETING_FROM_NAME` | `Intervu AI` |
+| `MARKETING_REPLY_TO` | Omitted by default; if set, must be a safe address on `intervucopilot.in` |
+
+Dry-run works without a Resend key and never contacts Resend. Persistence and token creation still require the existing database services; tests use offline fakes. Live dispatch requires **all** of `MARKETING_EMAILS_ENABLED=true`, `EMAIL_PROVIDER_MODE=live`, and a backend-only `RESEND_API_KEY`. Unknown/invalid configuration fails closed. No live flags were enabled or real messages sent during implementation.
+
+The service reuses `user_settings.marketing_email_opt_in` and the existing unsubscribe token service. Only boolean `true` qualifies; missing, false, or malformed consent cancels the event. Unsubscribe consumes the existing hashed token and sets opt-in false. Consent is checked again after token creation immediately before dispatch. A remote opt-out racing an already dispatched provider request cannot retract that request; this is not an atomic transaction across Supabase and Resend. Token/consent errors block sending. No raw resume, transcript, interview data, claims, or discounts are accepted by the sample template.
+
+`product_update` uses subject **What's new in Intervu AI** (typographic apostrophe in the message), generic product copy and a required unsubscribe URL. The body links to the existing `/unsubscribe?token=...` UI. `List-Unsubscribe` points to `https://intervucopilot.in/api/email/unsubscribe/one-click?token=...`; `List-Unsubscribe-Post` is `List-Unsubscribe=One-Click`. The new backend POST endpoint reuses token consumption without login. Uvicorn access records redact that endpoint's query, including rejected-method responses. Never enable URL/click tracking on unsubscribe links. Hosting/proxy/APM logs must also redact these queries; application redaction cannot control upstream logs.
+
+`outbound_email_events` is reused with type `marketing_product_update`. Apply the forward migration `20260922120000_add_marketing_email_event_type.sql` through the normal approved migration process; it is **not applied remotely by this work**. It extends the type constraint and claim function allowlist while preserving RLS, service-role-only privileges and atomic unique claims. Metadata contains only `campaign_key`, `template_key`, and `dry_run`; provider message ID remains in its dedicated column. No body, HTML, raw token or unsubscribe URL is stored in event metadata. Recipient email remains in the existing restricted event column; logs use masked recipients.
+
+Repeated keys return the terminal event or block an in-progress attempt. Dry-run and canceled events do not become live sends after flag changes; use an intentional new campaign/key for a new action. Resend receives the persisted event ID as its idempotency key. There are no automatic retries. A timeout, provider error, or failure to persist completion leaves the claim for existing reconciliation rather than risking a duplicate. Do not manually retry an uncertain message without provider reconciliation. Existing unsubscribe tokens retain their configured expiry.
+
+Before any separately authorized real send: apply/verify the migration, verify consent and unsubscribe storage, verify the sender with Resend, deploy and route both public unsubscribe URLs (including `/api/email/...` to the backend), test one-click POST and replay/expired links, confirm query-log redaction and provider tracking settings, and make a reply-to decision. `support@intervucopilot.in` receiving is deferred because GoDaddy mailbox/forwarding needs paid setup. Omit reply-to until a receiving mailbox is confirmed; this phase does not depend on support receiving. No campaigns are enabled.
+
+Provider reference: [Resend send-email API](https://resend.com/docs/api-reference/emails/send-email) and [idempotency keys](https://resend.com/docs/dashboard/emails/idempotency-keys). The adapter uses existing `requests`, a bounded timeout, no redirect following, no automatic retries, and sanitized errors.
