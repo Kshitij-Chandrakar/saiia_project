@@ -281,6 +281,8 @@ Reference: [Supabase verifyOtp](https://supabase.com/docs/reference/javascript/a
 
 ## C10.7A — backend marketing foundation (local, no campaigns enabled)
 
+The replacement email-type CHECK is a superset of the previous allowed values and is added `NOT VALID`, avoiding an immediate scan of existing rows. New and updated rows are still checked; the ALTER TABLE operations still acquire locks. Validation is deferred to a later maintenance migration after rollout. No validation migration is included in C10.7A.
+
 `app.email.marketing.MarketingEmailService.send_marketing_email` is a backend-only, single-recipient service. It requires a user UUID, recipient email, campaign key, `template_key="product_update"`, and an idempotency key. Trusted backend callers must supply the recipient associated with that user; no public sending endpoint, frontend Resend integration, worker, scheduler, or campaign UI was added. Existing Supabase Auth SMTP and transactional/welcome/feature dry-run behavior are unchanged. Do not use Supabase Auth SMTP for marketing.
 
 Configuration (backend only):

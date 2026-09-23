@@ -2364,6 +2364,8 @@ The frontend one-time `/auth/confirm` handler supports signup verification and r
 
 ### C10.7A — local backend foundation; real campaigns remain disabled
 
+The replacement email-type CHECK is a superset of the previous allowed values and is added `NOT VALID`, avoiding an immediate scan of existing rows. New and updated rows are still checked; the ALTER TABLE operations still acquire locks. Validation is deferred to a later maintenance migration after rollout. No validation migration is included in C10.7A.
+
 Implemented the Resend marketing adapter with default dry-run/offline provider behavior, opt-in-only guard, mandatory unsubscribe token/link and one-click POST support, safe event metadata, and atomic idempotency. One generic product-update template only. No frontend Resend integration, campaign blast UI, real sends, or remote migrations. The forward event-type migration remains unapplied remotely.
 
 Live sending requires `MARKETING_EMAILS_ENABLED=true`, `EMAIL_PROVIDER_MODE=live`, secure backend `RESEND_API_KEY`, verified consent/unsubscribe and public routes, sender readiness and a reply-to decision. Support receiving is deferred because GoDaddy mailbox/forwarding requires paid setup; omit reply-to until a receiving mailbox exists. Supabase Auth SMTP is not used for marketing. Details: `docs/C10_EMAIL_SYSTEM_PLAN.md`. Campaign execution is not enabled by this foundation.

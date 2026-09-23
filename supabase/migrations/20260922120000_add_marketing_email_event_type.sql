@@ -4,7 +4,7 @@ begin;
 alter table public.outbound_email_events drop constraint outbound_email_events_type_check;
 alter table public.outbound_email_events add constraint outbound_email_events_type_check check (email_type in (
   'welcome', 'account_security', 'ai_notes_ready', 'session_summary', 'transcript_export', 'marketing_product_update'
-));
+)) not valid;
 
 create or replace function public.claim_outbound_email_event(
   p_user_id uuid,

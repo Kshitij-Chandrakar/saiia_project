@@ -4970,6 +4970,8 @@ Supabase signup/reset templates must switch both CTA and fallback links from `{{
 
 ### C10.7A — backend marketing foundation implemented locally
 
+The replacement email-type CHECK is a superset of the previous allowed values and is added `NOT VALID`, avoiding an immediate scan of existing rows. New and updated rows are still checked; the ALTER TABLE operations still acquire locks. Validation is deferred to a later maintenance migration after rollout. No validation migration is included in C10.7A.
+
 Backend-only Resend API foundation, default dry-run and `MARKETING_EMAILS_ENABLED=false`; no campaigns enabled. Adds one generic `product_update` template, explicit consent checks, existing unsubscribe-token integration and one-click POST headers/endpoint, and atomic outbound-event idempotency. Existing Auth SMTP and welcome/feature dry-run behavior remain unchanged. Forward migration `20260922120000_add_marketing_email_event_type.sql` is local and unapplied remotely.
 
 Real marketing requires `MARKETING_EMAILS_ENABLED=true`, `EMAIL_PROVIDER_MODE=live`, a secure backend-only `RESEND_API_KEY`, verified consent/unsubscribe and sender setup, public unsubscribe route deployment, and a reply-to decision. `support@intervucopilot.in` receiving remains deferred due to paid GoDaddy mailbox/forwarding setup; reply-to is omitted by default. Do not use Supabase Auth SMTP for marketing. See `docs/C10_EMAIL_SYSTEM_PLAN.md` for configuration and rollout limitations. C10.7 live campaign work remains pending.

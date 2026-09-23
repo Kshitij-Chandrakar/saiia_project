@@ -159,6 +159,11 @@ def test_forward_migration_preserves_atomic_claim_and_restricted_grants():
     root = Path(__file__).resolve().parents[2]
     sql = (root/'supabase/migrations/20260922120000_add_marketing_email_event_type.sql').read_text()
     assert sql.count("'marketing_product_update'") == 2
+    constraint = sql.split('add constraint outbound_email_events_type_check', 1)[1].split(';', 1)[0]
+    assert constraint.rstrip().lower().endswith('not valid')
+    assert 'validate constraint' not in sql.lower()
+    for email_type in ('welcome', 'account_security', 'ai_notes_ready', 'session_summary', 'transcript_export', 'marketing_product_update'):
+        assert f"'{email_type}'" in constraint
     assert 'on conflict (user_id, email_type, recipient_email, session_id, idempotency_key) do nothing' in sql
     assert 'from public, anon, authenticated' in sql
     assert 'to service_role' in sql
