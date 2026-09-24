@@ -180,3 +180,47 @@ def test_access_log_filter_redacts_rejected_method_urls():
         ('local', 'GET', '/api/email/unsubscribe/one-click?token=synthetic-private-token', '1.1', 405), None)
     assert UnsubscribeAccessLogFilter().filter(record)
     assert 'synthetic-private-token' not in record.getMessage()
+
+
+def test_claim_ambiguity_forward_migration_preserves_expected_function_text():
+    root = Path(__file__).resolve().parents[2]
+    prior = (root/'supabase/migrations/20260922120000_add_marketing_email_event_type.sql').read_text()
+    fixed = (root/'supabase/migrations/20260924120000_fix_outbound_email_event_claim_ambiguous_user_id.sql').read_text()
+    assert '#variable_conflict use_column' in fixed
+    assert 'insert into public.outbound_email_events as inserted_event (' in fixed
+    assert 'returning inserted_event.id, inserted_event.status, inserted_event.claim_token' in fixed
+    for column in ('user_id', 'email_type', 'recipient_email', 'idempotency_key'):
+        assert f'e.{column} = p_{column}' in fixed
+    assert 'e.status' in fixed and 'e.created_at' in fixed and 'e.updated_at' in fixed
+    # The whole RPC, including its explicit allowlist and duplicate/locking branches,
+    # is unchanged after accounting for only the name-resolution fix.
+    original_function = prior[prior.index('create or replace function'):]
+    fixed_function = fixed[fixed.index('create or replace function'):]
+    fixed_function = fixed_function.replace(
+        '-- RETURNS TABLE creates output variables named like the conflict-target columns.\n'
+        '-- Resolve those index-column names as columns, only within this function.\n'
+        '#variable_conflict use_column\n', '')
+    fixed_function = fixed_function.replace('as inserted_event (', '(').replace('inserted_event.', 'outbound_email_events.')
+    assert fixed_function == original_function
+    assert 'alter table' not in fixed.lower()
+
+
+@pytest.mark.parametrize('email_type', ['welcome', 'account_security', 'ai_notes_ready', 'session_summary', 'transcript_export', 'marketing_product_update'])
+def test_supported_email_event_claim_and_duplicate(email_type):
+    events = OutboundEmailEventService(client=FakeEventClient())
+    args = dict(user_id=TEST_USER_ID, session_id=None, email_type=email_type,
+                recipient_email='reader@example.com', idempotency_key='claim-test')
+    first = events.reserve(**args)
+    second = events.reserve(**args)
+    assert first.event.id == second.event.id
+    assert second.conflict_reason == 'already_processing'
+
+
+def test_unknown_email_event_claim_rejected():
+    from app.email.event_store import OutboundEmailEventValidationError
+    client = FakeEventClient()
+    with pytest.raises(OutboundEmailEventValidationError):
+        OutboundEmailEventService(client=client).reserve(
+            user_id=TEST_USER_ID, session_id=None, email_type='unknown',
+            recipient_email='reader@example.com', idempotency_key='claim-test')
+    assert not client.records
