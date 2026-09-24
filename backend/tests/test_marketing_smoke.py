@@ -14,6 +14,7 @@ ARGS = ['--user-id', USER, '--email', 'test@example.com', '--idempotency-key', '
 
 @pytest.fixture
 def deps(monkeypatch):
+    monkeypatch.setattr(smoke, 'canonical_user_email', Mock(return_value='test@example.com'))
     settings = MarketingEmailSettings(provider_mode='live', enabled=True, resend_api_key='synthetic-key')
     monkeypatch.setattr(smoke, 'load_marketing_email_settings', lambda: settings)
     unsubscribe = Mock()
@@ -68,3 +69,46 @@ def test_smoke_redacts_provider_failure(deps, capsys):
     deps[3].send_marketing_email.side_effect = RuntimeError('Authorization: synthetic-key token=private')
     assert smoke.main(ARGS) == 1
     assert json.loads(capsys.readouterr().out) == {'status':'failed_check_event_before_retry', 'mode':'live'}
+
+
+def test_smoke_rejects_recipient_mismatch(monkeypatch, deps, capsys):
+    monkeypatch.setattr(smoke, 'canonical_user_email', Mock(return_value='owner@example.com'))
+    assert smoke.main(ARGS) == 2
+    deps[3].send_marketing_email.assert_not_called()
+    deps[2].assert_not_called()
+    assert json.loads(capsys.readouterr().out) == {'status':'blocked_recipient_mismatch', 'mode':'live'}
+
+
+def test_smoke_dispatches_canonical_email_after_normalized_match(deps):
+    args = ARGS.copy()
+    args[3] = ' TEST@EXAMPLE.COM '
+    assert smoke.main(args) == 0
+    assert deps[3].send_marketing_email.call_args.kwargs['recipient_email'] == 'test@example.com'
+
+
+def test_smoke_refuses_identity_lookup_failure(monkeypatch, deps, capsys):
+    monkeypatch.setattr(smoke, 'canonical_user_email', Mock(side_effect=RuntimeError('private token https://private.example')))
+    assert smoke.main(ARGS) == 1
+    deps[3].send_marketing_email.assert_not_called()
+    assert json.loads(capsys.readouterr().out) == {'status':'failed_check_event_before_retry', 'mode':'live'}
+
+
+@pytest.mark.parametrize('status,user,ok', [
+    (200, {'id':USER, 'email':' TEST@Example.com ', 'email_confirmed_at':'2026-01-01'}, True),
+    (200, {'id':USER, 'email':'test@example.com'}, False),
+    (200, {'id':'00000000-0000-4000-8000-000000000002', 'email':'test@example.com', 'email_confirmed_at':'2026-01-01'}, False),
+    (404, {}, False),
+])
+def test_canonical_lookup_uses_trusted_auth_user(monkeypatch, status, user, ok):
+    settings = SimpleNamespace(supabase_url='https://project.supabase.co', service_role_key='synthetic-service', anon_key='synthetic-anon')
+    monkeypatch.setattr(smoke, 'get_supabase_settings', lambda: SimpleNamespace(require_configured=lambda:settings))
+    get = Mock(return_value=SimpleNamespace(status_code=status, json=lambda:user))
+    monkeypatch.setattr(smoke.requests, 'get', get)
+    if ok:
+        assert smoke.canonical_user_email(USER) == 'test@example.com'
+    else:
+        with pytest.raises(ValueError, match='Trusted identity lookup failed'):
+            smoke.canonical_user_email(USER)
+    assert get.call_args.args[0] == f'https://project.supabase.co/auth/v1/admin/users/{USER}'
+    assert get.call_args.kwargs['allow_redirects'] is False
+    assert get.call_args.kwargs['timeout'] == 8

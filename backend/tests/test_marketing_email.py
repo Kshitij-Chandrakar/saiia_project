@@ -182,7 +182,7 @@ def test_access_log_filter_redacts_rejected_method_urls():
     assert 'synthetic-private-token' not in record.getMessage()
 
 
-def test_claim_ambiguity_forward_fix_preserves_rpc_contract_and_atomic_behavior():
+def test_claim_ambiguity_forward_migration_preserves_expected_function_text():
     root = Path(__file__).resolve().parents[2]
     prior = (root/'supabase/migrations/20260922120000_add_marketing_email_event_type.sql').read_text()
     fixed = (root/'supabase/migrations/20260924120000_fix_outbound_email_event_claim_ambiguous_user_id.sql').read_text()
