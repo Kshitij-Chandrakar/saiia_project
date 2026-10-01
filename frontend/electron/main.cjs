@@ -1205,7 +1205,7 @@ function buildApplicationMenu() {
 function getRendererUrl(view) {
   const devURL = process.env.VITE_DEV_SERVER_URL || (!app.isPackaged ? 'http://localhost:5173' : '')
   if (devURL) {
-    return view === 'overlay' ? `${devURL}?view=overlay` : devURL
+    return view === 'overlay' ? `${devURL}?view=overlay` : `${devURL.replace(/\/$/, '')}/desktop`
   }
 
   return null
@@ -1219,7 +1219,7 @@ function loadWindow(window, view) {
   }
 
   window.loadFile(path.join(__dirname, '../dist/index.html'), {
-    query: view === 'overlay' ? { view: 'overlay' } : {},
+    query: view === 'overlay' ? { view: 'overlay' } : { view: 'desktop' },
   })
 }
 

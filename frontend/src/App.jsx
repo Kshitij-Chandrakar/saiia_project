@@ -16,6 +16,7 @@ import {
 } from './auth/AuthScreens'
 import MainDiagnosticsWindow from './components/MainDiagnosticsWindow'
 import OverlayWindowView from './components/OverlayWindow'
+import LandingPage from './landing/LandingPage'
 import { markChatTiming, readNdjsonStream, stripInternalControlMarkers } from './answer_stream'
 import { isCurrentRequest } from './request_state'
 import { normalizeScreenResponse } from './screen_intelligence_contract'
@@ -6360,10 +6361,14 @@ function ProfileSetupForm() {
 
 export default function App() {
   const params = new URLSearchParams(window.location.search)
-  const isOverlayView = params.get('view') === 'overlay'
+  const view = params.get('view')
 
-  if (isOverlayView) {
+  if (view === 'overlay') {
     return <OverlayWindow />
+  }
+
+  if (view === 'desktop') {
+    return <MainWindow />
   }
 
   return (
@@ -6380,7 +6385,8 @@ export default function App() {
       <Route path="/auth/dashboard" element={<AuthDashboardPage backendUrl={BACKEND_URL} />} />
       <Route path="/auth/resume" element={<AuthResumePage backendUrl={BACKEND_URL} />} />
       <Route path="/auth/logout" element={<AuthLogoutPage />} />
-      <Route path="/" element={<MainWindow />} />
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/desktop" element={<MainWindow />} />
       <Route path="/profile-setup" element={<ProfileSetupForm />} />
     </Routes>
   )
