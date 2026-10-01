@@ -301,6 +301,21 @@ a.landing-button {
   letter-spacing: 0.06em;
 }
 
+.floating-card__live-label {
+  display: flex !important;
+  align-items: center;
+  gap: 7px;
+}
+
+.floating-card__live-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #55e59d;
+  box-shadow: 0 0 0 3px rgba(85, 229, 157, 0.22);
+}
+
 .floating-card p {
   margin: 8px 0 0;
   color: #58647a;
