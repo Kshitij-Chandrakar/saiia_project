@@ -138,6 +138,25 @@ const heroVisualReveal = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.7, ease: heroEase, delay: 0.2 } },
 }
 
+const equationGroup = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.14, delayChildren: 1.1 } },
+}
+
+const equationTerm = {
+  hidden: { opacity: 0, y: 8, scale: 0.9 },
+  visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.32, ease: heroEase } },
+}
+
+const equationResult = {
+  hidden: { opacity: 0, scale: 0.7 },
+  visible: {
+    opacity: 1,
+    scale: [0.7, 1.12, 1],
+    transition: { duration: 0.45, ease: heroEase },
+  },
+}
+
 function floatLoop(duration, delay = 0) {
   return {
     y: [0, -8, 0],
@@ -223,7 +242,20 @@ function Hero() {
           <img src={targetIcon} alt="" />
           <div><strong>TARGET CONTEXT</strong><p>Staff Backend @ Stripe</p><small>System Design / Concurrency</small></div>
         </FloatingCard>
-        <div className="equation-bar">RESUME <b>+</b> TARGET ROLE <b>+</b> LIVE CONTEXT <b>=</b> <span>Intervucopilot</span></div>
+        <motion.div
+          className="equation-bar"
+          initial={reduceMotion ? false : 'hidden'}
+          animate="visible"
+          variants={equationGroup}
+        >
+          <motion.span variants={equationTerm}>RESUME</motion.span>
+          <motion.b variants={equationTerm}>+</motion.b>
+          <motion.span variants={equationTerm}>TARGET ROLE</motion.span>
+          <motion.b variants={equationTerm}>+</motion.b>
+          <motion.span variants={equationTerm}>LIVE CONTEXT</motion.span>
+          <motion.b variants={equationTerm}>=</motion.b>
+          <motion.span className="equation-bar__result" variants={equationResult}>Intervucopilot</motion.span>
+        </motion.div>
       </motion.div>
     </section>
   )
