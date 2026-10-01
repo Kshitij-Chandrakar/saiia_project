@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import './LandingPage.css'
 
 import arrowWhite from '../assets/landing/arrow-white.svg'
@@ -503,7 +503,43 @@ function Footer() {
   )
 }
 
+function useScrollReveal() {
+  useEffect(() => {
+    const targets = document.querySelectorAll(
+      '.landing-page .landing-section, .landing-page .trusted-section, .landing-page .pricing-section'
+    )
+
+    if (!targets.length) {
+      return undefined
+    }
+
+    if (typeof IntersectionObserver === 'undefined') {
+      targets.forEach((el) => el.classList.add('is-visible'))
+      return undefined
+    }
+
+    targets.forEach((el) => el.classList.add('reveal-on-scroll'))
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-visible')
+            observer.unobserve(entry.target)
+          }
+        })
+      },
+      { threshold: 0.12, rootMargin: '0px 0px -60px 0px' }
+    )
+
+    targets.forEach((el) => observer.observe(el))
+    return () => observer.disconnect()
+  }, [])
+}
+
 export default function LandingPage() {
+  useScrollReveal()
+
   return (
     <div className="landing-page">
       <Header />
