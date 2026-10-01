@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { motion, useReducedMotion } from 'framer-motion'
 import './LandingPage.css'
 
 import arrowWhite from '../assets/landing/arrow-white.svg'
@@ -120,38 +121,79 @@ function Header() {
   )
 }
 
+const heroEase = [0.22, 1, 0.36, 1]
+
+const heroCopyGroup = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.09, delayChildren: 0.05 } },
+}
+
+const heroCopyItem = {
+  hidden: { opacity: 0, y: 18 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.55, ease: heroEase } },
+}
+
+const heroVisualReveal = {
+  hidden: { opacity: 0, y: 24 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.7, ease: heroEase, delay: 0.2 } },
+}
+
+function floatLoop(duration, delay = 0) {
+  return {
+    y: [0, -8, 0],
+    transition: { duration, delay, repeat: Infinity, ease: 'easeInOut' },
+  }
+}
+
 function Hero() {
+  const reduceMotion = useReducedMotion()
+
   return (
     <section className="landing-hero">
-      <div className="landing-hero__copy">
-        <p className="landing-pill"><span /> SMART AI INTERVIEW ASSISTANT - CONTEXT-AWARE INTELLIGENCE</p>
-        <h1>Walk into every <span>interview prepared.</span></h1>
-        <p className="landing-lede">
+      <motion.div
+        className="landing-hero__copy"
+        initial={reduceMotion ? false : 'hidden'}
+        animate="visible"
+        variants={heroCopyGroup}
+      >
+        <motion.p className="landing-pill" variants={heroCopyItem}><span /> SMART AI INTERVIEW ASSISTANT - CONTEXT-AWARE INTELLIGENCE</motion.p>
+        <motion.h1 variants={heroCopyItem}>Walk into every <span>interview prepared.</span></motion.h1>
+        <motion.p className="landing-lede" variants={heroCopyItem}>
           AI that understands your resume, your target role, and your interview context - helping you prepare smarter, respond with precision, and learn from every conversation.
-        </p>
-        <div className="landing-actions">
+        </motion.p>
+        <motion.div className="landing-actions" variants={heroCopyItem}>
           <a className="landing-button" href="/auth/signup">Get Started <img src={arrowWhite} alt="" /></a>
           <a className="landing-button landing-button--secondary" href="#how-it-works"><img src={playIcon} alt="" /> See How It Works</a>
-        </div>
-        <p className="landing-trust"><img src={trustIcon} alt="" /> Resume-powered / Job-targeted / AI-assisted. Built around your actual context.</p>
-      </div>
-      <div className="landing-hero__visual" aria-label="Intervucopilot interview preparation preview">
-        <div className="landing-glow" />
-        <div className="floating-card floating-card--top">
+        </motion.div>
+        <motion.p className="landing-trust" variants={heroCopyItem}><img src={trustIcon} alt="" /> Resume-powered / Job-targeted / AI-assisted. Built around your actual context.</motion.p>
+      </motion.div>
+      <motion.div
+        className="landing-hero__visual"
+        aria-label="Intervucopilot interview preparation preview"
+        initial={reduceMotion ? false : 'hidden'}
+        animate="visible"
+        variants={heroVisualReveal}
+      >
+        <motion.div
+          className="landing-glow"
+          animate={reduceMotion ? undefined : { opacity: [0.85, 1, 0.85] }}
+          transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.div className="floating-card floating-card--top" animate={reduceMotion ? undefined : floatLoop(6.5)}>
           <strong>AI LIVE GUIDANCE</strong>
           <p>"Highlight your distributed systems experience in Go and latency optimizations when discussing this role."</p>
-        </div>
+        </motion.div>
         <img className="landing-hero__mascot" src={heroMascot} alt="Intervucopilot AI mascot" />
-        <div className="floating-card floating-card--left">
+        <motion.div className="floating-card floating-card--left" animate={reduceMotion ? undefined : floatLoop(7.5, 0.4)}>
           <img src={docIcon} alt="" />
           <div><strong>RESUME SOURCE</strong><p>4.2 MB PDF Indexed</p><small>Senior Software Eng</small></div>
-        </div>
-        <div className="floating-card floating-card--right">
+        </motion.div>
+        <motion.div className="floating-card floating-card--right" animate={reduceMotion ? undefined : floatLoop(7, 0.8)}>
           <img src={targetIcon} alt="" />
           <div><strong>TARGET CONTEXT</strong><p>Staff Backend @ Stripe</p><small>System Design / Concurrency</small></div>
-        </div>
+        </motion.div>
         <div className="equation-bar">RESUME <b>+</b> TARGET ROLE <b>+</b> LIVE CONTEXT <b>=</b> <span>Intervucopilot</span></div>
-      </div>
+      </motion.div>
     </section>
   )
 }
