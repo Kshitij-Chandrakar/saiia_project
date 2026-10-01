@@ -145,6 +145,26 @@ function floatLoop(duration, delay = 0) {
   }
 }
 
+function FloatingCard({ className, entryDelay, floatDuration, reduceMotion, children }) {
+  const [hasEntered, setHasEntered] = useState(false)
+
+  if (reduceMotion) {
+    return <div className={className}>{children}</div>
+  }
+
+  return (
+    <motion.div
+      className={className}
+      initial={{ opacity: 0, y: 28, scale: 0.96 }}
+      animate={hasEntered ? { ...floatLoop(floatDuration), opacity: 1, scale: 1 } : { opacity: 1, y: 0, scale: 1 }}
+      transition={hasEntered ? undefined : { duration: 0.6, delay: entryDelay, ease: heroEase }}
+      onAnimationComplete={() => setHasEntered(true)}
+    >
+      {children}
+    </motion.div>
+  )
+}
+
 function Hero() {
   const reduceMotion = useReducedMotion()
 
@@ -179,19 +199,30 @@ function Hero() {
           animate={reduceMotion ? undefined : { opacity: [0.85, 1, 0.85] }}
           transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
         />
-        <motion.div className="floating-card floating-card--top" animate={reduceMotion ? undefined : floatLoop(6.5)}>
-          <strong>AI LIVE GUIDANCE</strong>
+        <FloatingCard className="floating-card floating-card--top" entryDelay={0.55} floatDuration={6.5} reduceMotion={reduceMotion}>
+          <strong className="floating-card__live-label">
+            {reduceMotion ? (
+              <span className="floating-card__live-dot" />
+            ) : (
+              <motion.span
+                className="floating-card__live-dot"
+                animate={{ opacity: [1, 0.35, 1], scale: [1, 0.85, 1] }}
+                transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+              />
+            )}
+            AI LIVE GUIDANCE
+          </strong>
           <p>"Highlight your distributed systems experience in Go and latency optimizations when discussing this role."</p>
-        </motion.div>
+        </FloatingCard>
         <img className="landing-hero__mascot" src={heroMascot} alt="Intervucopilot AI mascot" />
-        <motion.div className="floating-card floating-card--left" animate={reduceMotion ? undefined : floatLoop(7.5, 0.4)}>
+        <FloatingCard className="floating-card floating-card--left" entryDelay={0.7} floatDuration={7.5} reduceMotion={reduceMotion}>
           <img src={docIcon} alt="" />
           <div><strong>RESUME SOURCE</strong><p>4.2 MB PDF Indexed</p><small>Senior Software Eng</small></div>
-        </motion.div>
-        <motion.div className="floating-card floating-card--right" animate={reduceMotion ? undefined : floatLoop(7, 0.8)}>
+        </FloatingCard>
+        <FloatingCard className="floating-card floating-card--right" entryDelay={0.85} floatDuration={7} reduceMotion={reduceMotion}>
           <img src={targetIcon} alt="" />
           <div><strong>TARGET CONTEXT</strong><p>Staff Backend @ Stripe</p><small>System Design / Concurrency</small></div>
-        </motion.div>
+        </FloatingCard>
         <div className="equation-bar">RESUME <b>+</b> TARGET ROLE <b>+</b> LIVE CONTEXT <b>=</b> <span>Intervucopilot</span></div>
       </motion.div>
     </section>
