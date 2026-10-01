@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import './LandingPage.css'
 
 import arrowWhite from '../assets/landing/arrow-white.svg'
@@ -83,11 +83,11 @@ const pricingPlans = [
   ['INSTITUTION', 'Custom', 'For bootcamps, university career centers, and coaching teams.', ['Bulk seats', 'Coach workflows', 'Dedicated support path'], 'Contact Sales'],
 ]
 
-const faqQuestions = [
-  'Will my interviewer know I am using the Desktop HUD?',
-  'How does Intervucopilot ground answers in my real work?',
-  'Can I delete my transcripts and session logs?',
-  'Can I use Intervucopilot for mock practice before real rounds?',
+const faqItems = [
+  ['Will my interviewer know I am using the Desktop HUD?', 'The HUD runs as a lightweight overlay outside the shared window or screen in most meeting setups. Visibility still depends on your OS, meeting app, and whether you share your full screen, a single window, or a browser tab - always check your sharing scope before a live round.'],
+  ['How does Intervucopilot ground answers in my real work?', 'Your resume, target role, and session context are indexed into a structured profile. Every suggestion is built from that profile instead of generic scripts, so guidance reflects your actual projects, metrics, and technical decisions.'],
+  ['Can I delete my transcripts and session logs?', 'Yes. Session transcripts, debriefs, and audio artifacts are tied to your account and can be removed from Workspace settings at any time. Raw screenshots and audio are not retained by default.'],
+  ['Can I use Intervucopilot for mock practice before real rounds?', 'Yes. The Practice Arena lets you rehearse against your indexed resume and target role before a live interview, so you can validate answers and timing ahead of the real conversation.'],
 ]
 
 function BrandMark({ footer = false }) {
@@ -232,7 +232,11 @@ function WorkflowSection() {
   )
 }
 
+const featureTabLabels = ['Resume', 'Job Match', 'Live Assist']
+
 function FeatureSection() {
+  const [activeIndex, setActiveIndex] = useState(1)
+
   return (
     <section className="landing-section feature-section" id="features">
       <div className="section-heading">
@@ -241,13 +245,20 @@ function FeatureSection() {
         <span>From deep resume ingestion to post-interview reflection, Intervucopilot keeps your preparation completely coherent.</span>
       </div>
       <div className="feature-tabbar" aria-label="Feature highlights">
-        {['Resume', 'Job Match', 'Live Assist', 'AI Guidance'].map((label, index) => (
-          <span className={index === 0 ? 'is-active' : ''} key={label}>{label}</span>
+        {featureTabLabels.map((label, index) => (
+          <button
+            type="button"
+            className={index === activeIndex ? 'is-active' : ''}
+            key={label}
+            onClick={() => setActiveIndex(index)}
+          >
+            {label}
+          </button>
         ))}
       </div>
       <div className="feature-slider">
         {featureCards.map(([number, title, body, note, image], index) => (
-          <article className={index === 1 ? 'feature-slide feature-slide--active' : 'feature-slide'} key={title}>
+          <article className={index === activeIndex ? 'feature-slide feature-slide--active' : 'feature-slide'} key={title}>
             <img src={image} alt="" />
             <span>{number}</span>
             <h3>{title}</h3>
@@ -336,6 +347,17 @@ function ProductShowcase() {
 }
 
 function PreparationWorkflow() {
+  const [activeIndex, setActiveIndex] = useState(1)
+  const stepCount = prepSlides.length
+
+  function showPrevious() {
+    setActiveIndex((current) => (current - 1 + stepCount) % stepCount)
+  }
+
+  function showNext() {
+    setActiveIndex((current) => (current + 1) % stepCount)
+  }
+
   return (
     <section className="landing-section prep-section">
       <div className="section-heading">
@@ -344,16 +366,16 @@ function PreparationWorkflow() {
         <span>A structured, repeatable protocol designed to build confidence in high-stakes technical and leadership interviews.</span>
       </div>
       <div className="prep-slider">
-        <button type="button" aria-label="Previous preparation step">{'<'}</button>
+        <button type="button" aria-label="Previous preparation step" onClick={showPrevious}>{'<'}</button>
         {prepSlides.map(([number, title, body, note], index) => (
-          <article className={index === 1 ? 'prep-card prep-card--active' : 'prep-card'} key={title}>
+          <article className={index === activeIndex ? 'prep-card prep-card--active' : 'prep-card'} key={title}>
             <span>{number}</span>
             <h3>{title}</h3>
             <p>{body}</p>
             <small>{note}</small>
           </article>
         ))}
-        <button type="button" aria-label="Next preparation step">{'>'}</button>
+        <button type="button" aria-label="Next preparation step" onClick={showNext}>{'>'}</button>
       </div>
     </section>
   )
@@ -412,6 +434,8 @@ function PrivacySection() {
 }
 
 function PricingSection() {
+  const [isYearly, setIsYearly] = useState(true)
+
   return (
     <section className="pricing-section" id="pricing">
       <div className="section-heading">
@@ -419,7 +443,11 @@ function PricingSection() {
         <h2>Choose the plan that fits your preparation.</h2>
         <span>Plan packaging is shown as a preview while public pricing is finalized.</span>
       </div>
-      <div className="billing-toggle" aria-label="Billing period preview"><span>Monthly</span><span className="is-active">Yearly</span><b>SAVE 20%</b></div>
+      <div className="billing-toggle" role="group" aria-label="Billing period preview">
+        <button type="button" className={isYearly ? '' : 'is-active'} onClick={() => setIsYearly(false)}>Monthly</button>
+        <button type="button" className={isYearly ? 'is-active' : ''} onClick={() => setIsYearly(true)}>Yearly</button>
+        <b>SAVE 20%</b>
+      </div>
       <div className="pricing-grid">
         {pricingPlans.map(([name, price, body, features, action], index) => (
           <article className={index === 2 ? 'price-card price-card--featured' : 'price-card'} key={name}>
@@ -437,6 +465,12 @@ function PricingSection() {
 }
 
 function FAQSection() {
+  const [openIndex, setOpenIndex] = useState(null)
+
+  function toggle(index) {
+    setOpenIndex((current) => (current === index ? null : index))
+  }
+
   return (
     <section className="landing-section faq-section" id="faq">
       <div className="section-heading">
@@ -445,12 +479,30 @@ function FAQSection() {
         <span>Everything you need to know about how Intervucopilot operates during your job search.</span>
       </div>
       <div className="faq-list">
-        {faqQuestions.map((question) => (
-          <div className="faq-row" role="button" tabIndex={0} key={question}>
-            <span>{question}</span>
-            <img src={faqChevron} alt="" />
-          </div>
-        ))}
+        {faqItems.map(([question, answer], index) => {
+          const isOpen = openIndex === index
+          return (
+            <div className={isOpen ? 'faq-item faq-item--open' : 'faq-item'} key={question}>
+              <div
+                className="faq-row"
+                role="button"
+                tabIndex={0}
+                aria-expanded={isOpen}
+                onClick={() => toggle(index)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    toggle(index)
+                  }
+                }}
+              >
+                <span>{question}</span>
+                <img src={faqChevron} alt="" className={isOpen ? 'faq-chevron faq-chevron--open' : 'faq-chevron'} />
+              </div>
+              {isOpen ? <p className="faq-answer">{answer}</p> : null}
+            </div>
+          )
+        })}
       </div>
     </section>
   )
