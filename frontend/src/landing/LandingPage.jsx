@@ -31,7 +31,7 @@ const navItems = [
 ]
 
 const problemCards = [
-  ['Generic answers', docIcon, 'Standard AI chatbots spit out generic behavioral scripts that lack the authenticity and depth of your lived career milestones.', 'Zero profile awareness'],
+  ['Generic answers', docIcon, 'Standard AI chatbots give you the same behavioral scripts as everyone else, with no idea what you actually worked on.', 'Zero profile awareness'],
   ['Scattered prep', featureDocuments, 'Your resume, target rubrics, personal cheat sheets, and rehearsal bullet points exist in disparate browser tabs and Notion docs.', 'Constant tab toggling'],
   ['Lost takeaways', trustIcon, 'Critical technical follow-ups and exact interviewer reactions evaporate from your memory seconds after hanging up the call.', 'No post-call retention'],
   ['No role context', targetIcon, 'Blanket interview strategies miss the mark by failing to adapt to level expectations, whether L4 IC execution or Staff architectural tradeoffs.', 'Misaligned seniorities'],
@@ -49,9 +49,9 @@ const workflowOutputs = [
 ]
 
 const featureCards = [
-  ['04', 'Know what to practice before the next round.', 'Get structured practice questions, relevant technical topics, and follow-up prompts tailored to your target role and experience.', 'AI follow-ups and answer refinement', featureSearch],
-  ['01', 'Turn your experience into interview-ready answers.', 'Intervu AI extracts your skills, projects, achievements, and work history to build a personal knowledge base for interview preparation.', 'Automatic parsing - PDF, DOCX, TXT', featureDocuments],
-  ['02', 'Prepare for the role, not just the interview.', 'Add a job description to identify required skills, technical expectations, and role-specific competencies. Focus your preparation on what matters for the position.', 'Job requirements mapped', targetIcon],
+  ['01', 'Know what to practice before the next round.', 'Get structured practice questions, relevant technical topics, and follow-up prompts tailored to your target role and experience.', 'AI follow-ups and answer refinement', featureSearch],
+  ['02', 'Turn your experience into interview-ready answers.', 'Intervu AI extracts your skills, projects, achievements, and work history to build a personal knowledge base for interview preparation.', 'Automatic parsing - PDF, DOCX, TXT', featureDocuments],
+  ['03', 'Prepare for the role, not just the interview.', 'Add a job description to identify required skills, technical expectations, and role-specific competencies. Focus your preparation on what matters for the position.', 'Job requirements mapped', targetIcon],
 ]
 
 const platforms = [
@@ -65,8 +65,8 @@ const platforms = [
 const trustedCompanies = ['Google', 'Microsoft', 'MongoDB', 'LinkedIn', 'PayPal', 'IBM']
 
 const prepSlides = [
-  ['06', 'Review and iterate', 'Review detailed AI debriefs, question breakdowns, and simulated follow-ups to make each round stronger than the last.', 'Continuous interview growth'],
-  ['01', 'Upload your resume', 'Drop in your PDF or LinkedIn export. Intervu AI constructs an indexed semantic graph of every role, metric, and tech stack milestone.', 'Automatic parsing - PDF, DOCX, TXT'],
+  ['03', 'Review and iterate', 'Review detailed AI debriefs, question breakdowns, and simulated follow-ups to make each round stronger than the last.', 'Continuous interview growth'],
+  ['01', 'Upload your resume', 'Drop in your PDF or LinkedIn export. Intervu AI builds a structured profile from every role, metric, and project you list.', 'Automatic parsing - PDF, DOCX, TXT'],
   ['02', 'Set your job target', 'Paste the job description or enter target title and company. The engine maps key hiring rubrics and anticipated line-of-questioning.', 'Role rubric alignment calibrated'],
 ]
 
@@ -80,25 +80,25 @@ const privacyItems = [
 const pricingPlans = [
   ['FREE', 'Preview', 'Explore context ingestion and standard preparation rubrics.', ['1 resume workspace', 'Practice prompts', 'Basic preparation flow'], 'Get Started'],
   ['STUDENT', 'TBD', 'Built for new grads and campus recruitment cycles.', ['Resume indexing', 'Practice arena', 'Desktop app access'], 'Join Waitlist'],
-  ['PRO CANDIDATE', 'TBD', 'For active job searches across senior and staff roles.', ['Unlimited prep contexts', 'Desktop HUD support', 'Post-interview retrospectives'], 'Start Signup'],
+  ['PRO CANDIDATE', 'TBD', 'For active job searches across senior and staff roles.', ['Unlimited prep contexts', 'Desktop HUD support', 'Post-interview retrospectives'], 'Get Started'],
   ['INSTITUTION', 'Custom', 'For bootcamps, university career centers, and coaching teams.', ['Bulk seats', 'Coach workflows', 'Dedicated support path'], 'Contact Sales'],
 ]
 
 const faqItems = [
   ['Will my interviewer know I am using the Desktop HUD?', 'The HUD runs as a lightweight overlay outside the shared window or screen in most meeting setups. Visibility still depends on your OS, meeting app, and whether you share your full screen, a single window, or a browser tab - always check your sharing scope before a live round.'],
-  ['How does Intervucopilot ground answers in my real work?', 'Your resume, target role, and session context are indexed into a structured profile. Every suggestion is built from that profile instead of generic scripts, so guidance reflects your actual projects, metrics, and technical decisions.'],
+  ['How does Intervu AI ground answers in my real work?', 'Your resume, target role, and session context are indexed into a structured profile. Every suggestion is built from that profile instead of generic scripts, so guidance reflects your actual projects, metrics, and technical decisions.'],
   ['Can I delete my transcripts and session logs?', 'Yes. Session transcripts, debriefs, and audio artifacts are tied to your account and can be removed from Workspace settings at any time. Raw screenshots and audio are not retained by default.'],
-  ['Can I use Intervucopilot for mock practice before real rounds?', 'Yes. The Practice Arena lets you rehearse against your indexed resume and target role before a live interview, so you can validate answers and timing ahead of the real conversation.'],
+  ['Can I use Intervu AI for mock practice before real rounds?', 'Yes. The Practice Arena lets you rehearse against your indexed resume and target role before a live interview, so you can validate answers and timing ahead of the real conversation.'],
 ]
 
 function BrandMark({ footer = false }) {
   return (
-    <a className="landing-brand" href="#top" aria-label={footer ? 'Intervu AI home' : 'Intervucopilot home'}>
+    <a className="landing-brand" href="#top" aria-label="Intervu AI home">
       <span className="landing-brand__icon">
         <img src={headerLogoMark} alt="" />
       </span>
       <span className={footer ? 'landing-brand__copy landing-brand__copy--footer' : 'landing-brand__copy'}>
-        {footer ? 'Intervu AI' : 'Intervucopilot'}
+        Intervu AI
       </span>
     </a>
   )
@@ -208,7 +208,7 @@ function Hero() {
       </motion.div>
       <motion.div
         className="landing-hero__visual"
-        aria-label="Intervucopilot interview preparation preview"
+        aria-label="Intervu AI interview preparation preview"
         initial={reduceMotion ? false : 'hidden'}
         animate="visible"
         variants={heroVisualReveal}
@@ -233,14 +233,14 @@ function Hero() {
           </strong>
           <p>"Highlight your distributed systems experience in Go and latency optimizations when discussing this role."</p>
         </FloatingCard>
-        <img className="landing-hero__mascot" src={heroMascot} alt="Intervucopilot AI mascot" />
+        <img className="landing-hero__mascot" src={heroMascot} alt="Intervu AI mascot" />
         <FloatingCard className="floating-card floating-card--left" entryDelay={0.7} floatDuration={7.5} reduceMotion={reduceMotion}>
           <img src={docIcon} alt="" />
           <div><strong>RESUME SOURCE</strong><p>4.2 MB PDF Indexed</p><small>Senior Software Eng</small></div>
         </FloatingCard>
         <FloatingCard className="floating-card floating-card--right" entryDelay={0.85} floatDuration={7} reduceMotion={reduceMotion}>
           <img src={targetIcon} alt="" />
-          <div><strong>TARGET CONTEXT</strong><p>Staff Backend @ Stripe</p><small>System Design / Concurrency</small></div>
+          <div><strong>TARGET CONTEXT</strong><p>Staff Backend @ Nimbus Cloud</p><small>System Design / Concurrency</small></div>
         </FloatingCard>
         <motion.div
           className="equation-bar"
@@ -254,7 +254,7 @@ function Hero() {
           <motion.b variants={equationTerm}>+</motion.b>
           <motion.span variants={equationTerm}>LIVE CONTEXT</motion.span>
           <motion.b variants={equationTerm}>=</motion.b>
-          <motion.span className="equation-bar__result" variants={equationResult}>Intervucopilot</motion.span>
+          <motion.span className="equation-bar__result" variants={equationResult}>Intervu AI</motion.span>
         </motion.div>
       </motion.div>
     </section>
@@ -295,7 +295,7 @@ function WorkflowSection() {
     <section className="landing-section" id="how-it-works">
       <div className="section-heading">
         <h2>Your entire interview journey. One intelligent AI.</h2>
-        <span>From resume analysis to personalized interview guidance, Intervucopilot connects every step to help you prepare with confidence.</span>
+        <span>From resume analysis to personalized interview guidance, Intervu AI connects every step to help you prepare with confidence.</span>
       </div>
       <div className="architecture-panel">
         <div className="architecture-column">
@@ -309,9 +309,9 @@ function WorkflowSection() {
           ))}
         </div>
         <div className="architecture-core" id="product">
-          <img src={workflowMascot} alt="Intervucopilot core engine mascot" />
+          <img src={workflowMascot} alt="Intervu AI core engine mascot" />
           <span>CORE ENGINE</span>
-          <h3>Intervucopilot</h3>
+          <h3>Intervu AI</h3>
           <p>Connects your experience, target role, and interview context to generate relevant, personalized preparation intelligence.</p>
           <small>Context synchronized</small>
         </div>
@@ -347,7 +347,7 @@ function FeatureSection() {
       <div className="section-heading">
         <p>BESPOKE PREPARATION</p>
         <h2>Everything you need to prepare smarter.</h2>
-        <span>From deep resume ingestion to post-interview reflection, Intervucopilot keeps your preparation completely coherent.</span>
+        <span>From deep resume ingestion to post-interview reflection, Intervu AI keeps your preparation completely coherent.</span>
       </div>
       <div className="feature-tabbar" aria-label="Feature highlights">
         {featureTabLabels.map((label, index) => (
@@ -382,7 +382,7 @@ function PlatformSection() {
       <div className="section-heading">
         <p className="section-badge">WORKS EVERYWHERE</p>
         <h2>Works on every interview platform.</h2>
-        <span>Zoom, Google Meet, Microsoft Teams, HackerRank, LeetCode - Intervucopilot works alongside the platforms candidates already use.</span>
+        <span>Zoom, Google Meet, Microsoft Teams, HackerRank, LeetCode - Intervu AI works alongside the platforms candidates already use.</span>
       </div>
       <div className="platform-rail">
         {platforms.map(([name, logo]) => (
@@ -401,7 +401,7 @@ function TrustedSection() {
     <section className="trusted-section">
       <div>
         <p>TRUSTED BY CANDIDATES AT</p>
-        <h2>Used for 10,00,000+ interviews</h2>
+        <h2>Used for 1,000,000+ interviews</h2>
       </div>
       <div className="trusted-rail" aria-label="Company logo marquee">
         {[...trustedCompanies, ...trustedCompanies].map((company, index) => (
@@ -420,10 +420,10 @@ function ProductShowcase() {
         <h2>One workspace for your entire interview journey.</h2>
         <span>Track candidate metrics, review indexed resumes, explore target company rubrics, and inspect simulated question banks.</span>
       </div>
-      <div className="dashboard-window" aria-label="Intervucopilot dashboard preview">
+      <div className="dashboard-window" aria-label="Intervu AI dashboard preview">
         <div className="browser-bar">
           <span /><span /><span />
-          <strong>app.intervu.ai/workspace/sessions/stripe-staff-round</strong>
+          <strong>app.intervu.ai/workspace/sessions/nimbus-staff-round</strong>
         </div>
         <div className="dashboard-grid">
           <aside>
@@ -433,7 +433,7 @@ function ProductShowcase() {
           <main>
             <div className="metric-grid">
               <article><small>READINESS SCORE</small><b>92%</b><p>Resume & Desktop sync verified</p></article>
-              <article><small>ACTIVE TARGET</small><b>Stripe Inc.</b><p>Staff Infrastructure / Band L6</p></article>
+              <article><small>ACTIVE TARGET</small><b>Nimbus Cloud</b><p>Staff Infrastructure / Band L6</p></article>
               <article><small>INDEXED SOURCES</small><b>3 Documents</b><p>Resume / GitHub repo / Patents</p></article>
               <article><small>HUD SESSION</small><b>Standby</b><p>Audio daemon connected</p></article>
             </div>
@@ -581,7 +581,7 @@ function FAQSection() {
       <div className="section-heading">
         <p>CLEAR CLARITY</p>
         <h2>Questions, answered.</h2>
-        <span>Everything you need to know about how Intervucopilot operates during your job search.</span>
+        <span>Everything you need to know about how Intervu AI operates during your job search.</span>
       </div>
       <div className="faq-list">
         {faqItems.map(([question, answer], index) => {
@@ -619,11 +619,11 @@ function CTASection() {
       <div className="cta-card">
         <div className="cta-lines cta-lines--left" />
         <div className="cta-lines cta-lines--right" />
-        <img src={ctaMascot} alt="Intervucopilot mascot" />
+        <img src={ctaMascot} alt="Intervu AI mascot" />
         <h2>Your next interview starts before you enter the room.</h2>
         <p>Join ambitious engineers and professionals turning interview anxiety into structured, context-rich confidence.</p>
         <div className="landing-actions">
-          <a className="landing-button" href="/auth/signup">Create Free Account <img src={arrowWhite} alt="" /></a>
+          <a className="landing-button" href="/auth/signup">Get Started <img src={arrowWhite} alt="" /></a>
           <a className="landing-button landing-button--secondary" href="#desktop"><img src={downloadIcon} alt="" /> Download Desktop App</a>
         </div>
         <small>No credit card required / macOS and Windows compatible / Ready in 2 minutes</small>
