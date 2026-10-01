@@ -369,7 +369,7 @@ a.landing-button {
   font-weight: 900;
 }
 
-.equation-bar span {
+.equation-bar__result {
   padding: 8px 12px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.13);
