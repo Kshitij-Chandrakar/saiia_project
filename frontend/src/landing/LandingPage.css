@@ -118,11 +118,14 @@
   border: 1px solid transparent;
   border-radius: 999px;
   background: linear-gradient(135deg, var(--blue), var(--blue-2));
-  color: #ffffff;
   font-weight: 900;
   line-height: 1;
   box-shadow: 0 18px 42px rgba(40, 100, 255, 0.28);
   transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+a.landing-button {
+  color: #ffffff;
 }
 
 .landing-button--small {
