@@ -1683,45 +1683,9 @@ a.landing-button {
 }
 
 /* Floating hero cards: gentle idle float */
-@keyframes landingFloat {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-8px);
-  }
-}
-
-.floating-card--top {
-  animation: landingFloat 6.5s var(--ease) infinite;
-}
-
-.floating-card--left {
-  animation: landingFloat 7.5s var(--ease) infinite;
-  animation-delay: 0.4s;
-}
-
-.floating-card--right {
-  animation: landingFloat 7s var(--ease) infinite;
-  animation-delay: 0.8s;
-}
-
-@keyframes landingGlowPulse {
-  0%,
-  100% {
-    opacity: 0.85;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-.landing-glow {
-  animation: landingGlowPulse 5s ease-in-out infinite;
-}
-
-/* Hero entrance */
+/* Hero motion (floating cards, glow pulse, copy/visual entrance) is handled by
+   framer-motion in Hero() - see LandingPage.jsx - to avoid two animation
+   systems fighting over the same transform/opacity properties. */
 @keyframes landingFadeUp {
   from {
     opacity: 0;
@@ -1731,39 +1695,6 @@ a.landing-button {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-.landing-pill,
-.landing-hero h1,
-.landing-lede,
-.landing-actions,
-.landing-trust {
-  animation: landingFadeUp var(--t-section) var(--ease) both;
-}
-
-.landing-pill {
-  animation-delay: 40ms;
-}
-
-.landing-hero h1 {
-  animation-delay: 100ms;
-}
-
-.landing-lede {
-  animation-delay: 180ms;
-}
-
-.landing-actions {
-  animation-delay: 260ms;
-}
-
-.landing-trust {
-  animation-delay: 340ms;
-}
-
-.landing-hero__visual {
-  animation: landingFadeUp 700ms var(--ease) both;
-  animation-delay: 200ms;
 }
 
 /* Scroll-triggered section reveal (class toggled via IntersectionObserver) */
@@ -1869,16 +1800,6 @@ a.landing-button {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .landing-pill,
-  .landing-hero h1,
-  .landing-lede,
-  .landing-actions,
-  .landing-trust,
-  .landing-hero__visual,
-  .floating-card--top,
-  .floating-card--left,
-  .floating-card--right,
-  .landing-glow,
   .trusted-rail {
     animation: none !important;
   }
