@@ -559,6 +559,17 @@ a.landing-button {
   border-radius: 22px;
   background: #ffffff;
   box-shadow: 0 16px 40px rgba(18, 34, 78, 0.08);
+  cursor: pointer;
+  transition: transform var(--t-hover, 220ms) ease, border-color var(--t-hover, 220ms) ease,
+    background var(--t-hover, 220ms) ease, box-shadow var(--t-hover, 220ms) ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .architecture-node:not(.architecture-node--active):hover {
+    transform: translateY(-2px);
+    border-color: rgba(40, 100, 255, 0.3);
+    box-shadow: 0 20px 48px rgba(18, 34, 78, 0.12);
+  }
 }
 
 .architecture-node--active {
