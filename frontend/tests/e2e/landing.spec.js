@@ -190,8 +190,8 @@ test('workflow reduced motion disables autoplay but preserves manual selection',
 
 test('feature tabs cycle every two seconds and continue from manual selection', async ({ page }) => {
   await page.clock.install();
-  await page.clock.pauseAt(await page.evaluate(() => Date.now()));
   await page.goto('/');
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
   const section = page.locator('#features');
   const names = ['Resume', 'Job Match', 'Live Assist', 'AI Guidance'];
   const titles = ['Turn your experience into interview-ready answers.', 'Prepare for the role, not just the interview.',
@@ -236,7 +236,7 @@ test('feature tabs preserve manual keyboard selection with reduced motion', asyn
 test('desktop route retains its separate application', async ({ page }) => {
   await page.goto('/desktop');
   await expect(page.locator('.landing-page')).toHaveCount(0);
-  await expect(page.locator('#root')).not.toBeEmpty();
+  await expect(page.getByLabel('Intervu AI startup login', { exact: true })).toBeVisible();
 });
 
 test('platform marquee loops only on mobile and shows all logos with reduced motion', async ({ page }) => {
