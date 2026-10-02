@@ -697,11 +697,61 @@ function PreparationWorkflow() {
   )
 }
 
+const hudGroup = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.1, delayChildren: 0.1 } },
+}
+
+const hudItem = {
+  hidden: { opacity: 0, y: 10 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: heroEase } },
+}
+
+const contextBullets = [
+  'Handled 80k/sec write-heavy ingestion',
+  'Tunable consistency matched loss tolerance',
+  'Postgres vacuum contention became bottleneck',
+]
+
+function HudMock() {
+  const reduceMotion = useReducedMotion()
+
+  return (
+    <motion.div
+      className="hud-mock"
+      initial={reduceMotion ? false : 'hidden'}
+      whileInView="visible"
+      viewport={{ once: true, amount: 0.5 }}
+      variants={hudGroup}
+    >
+      <motion.strong className="hud-mock__live-label" variants={hudItem}>
+        {reduceMotion ? (
+          <span className="floating-card__live-dot" />
+        ) : (
+          <motion.span
+            className="floating-card__live-dot"
+            animate={{ opacity: [1, 0.35, 1], scale: [1, 0.85, 1] }}
+            transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+          />
+        )}
+        Intervu AI HUD - ACTIVE
+      </motion.strong>
+      <motion.small variants={hudItem}>MINIMAL MODE</motion.small>
+      <motion.h3 variants={hudItem}>INTERVIEWER QUESTION</motion.h3>
+      <motion.p variants={hudItem}>"Why choose Cassandra over Postgres for this event stream?"</motion.p>
+      <motion.h3 variants={hudItem}>YOUR CONTEXT BULLETS</motion.h3>
+      {contextBullets.map((bullet) => (
+        <motion.p variants={hudItem} key={bullet}>{bullet}</motion.p>
+      ))}
+    </motion.div>
+  )
+}
+
 function DesktopSection() {
   return (
     <section className="landing-section desktop-section" id="desktop">
       <div className="desktop-card">
-        <div>
+        <div className="desktop-card__copy">
           <p>DESKTOP HUD COMPANION</p>
           <h2>Bring Intervu AI directly into your interview workflow.</h2>
           <span>A cohesive duo: the Web Workspace handles deep resume curation, role target rubrics, and longitudinal analytics. The Desktop App remains docked during live interviews for real-time memory cues.</span>
@@ -715,14 +765,7 @@ function DesktopSection() {
             <li>Universal meeting support</li>
           </ul>
         </div>
-        <div className="hud-mock">
-          <strong>Intervu AI HUD - ACTIVE</strong>
-          <small>MINIMAL MODE</small>
-          <h3>INTERVIEWER QUESTION</h3>
-          <p>"Why choose Cassandra over Postgres for this event stream?"</p>
-          <h3>YOUR CONTEXT BULLETS</h3>
-          <p>Handled 80k/sec write-heavy ingestion<br />Tunable consistency matched loss tolerance<br />Postgres vacuum contention became bottleneck</p>
-        </div>
+        <HudMock />
       </div>
     </section>
   )
