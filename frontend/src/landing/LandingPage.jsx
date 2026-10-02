@@ -78,10 +78,10 @@ const privacyItems = [
 ]
 
 const pricingPlans = [
-  ['FREE', 'Preview', 'Explore context ingestion and standard preparation rubrics.', ['1 resume workspace', 'Practice prompts', 'Basic preparation flow'], 'Get Started'],
-  ['STUDENT', 'TBD', 'Built for new grads and campus recruitment cycles.', ['Resume indexing', 'Practice arena', 'Desktop app access'], 'Join Waitlist'],
-  ['PRO CANDIDATE', 'TBD', 'For active job searches across senior and staff roles.', ['Unlimited prep contexts', 'Desktop HUD support', 'Post-interview retrospectives'], 'Get Started'],
-  ['INSTITUTION', 'Custom', 'For bootcamps, university career centers, and coaching teams.', ['Bulk seats', 'Coach workflows', 'Dedicated support path'], 'Contact Sales'],
+  ['FREE', 0, 0, 'Explore context ingestion and standard preparation rubrics.', ['1 resume workspace', 'Practice prompts', 'Basic preparation flow'], 'Get Started'],
+  ['STUDENT', 10, 8, 'Built for new grads and campus recruitment cycles.', ['Resume indexing', 'Practice arena', 'Desktop app access'], 'Join Waitlist'],
+  ['PRO CANDIDATE', 29, 23, 'For active job searches across senior and staff roles.', ['Unlimited prep contexts', 'Desktop HUD support', 'Post-interview retrospectives'], 'Get Started'],
+  ['INSTITUTION', null, null, 'For bootcamps, university career centers, and coaching teams.', ['Bulk seats', 'Coach workflows', 'Dedicated support path'], 'Contact Sales'],
 ]
 
 const faqItems = [
@@ -794,6 +794,7 @@ function PrivacySection() {
 
 function PricingSection() {
   const [isYearly, setIsYearly] = useState(true)
+  const reduceMotion = useReducedMotion()
 
   return (
     <section className="pricing-section" id="pricing">
@@ -808,16 +809,29 @@ function PricingSection() {
         <b>SAVE 20%</b>
       </div>
       <div className="pricing-grid">
-        {pricingPlans.map(([name, price, body, features, action], index) => (
-          <article className={index === 2 ? 'price-card price-card--featured' : 'price-card'} key={name}>
-            {index === 2 ? <span className="recommended">RECOMMENDED</span> : null}
-            <h3>{name}</h3>
-            <strong>{price}</strong>
-            <p>{body}</p>
-            <ul>{features.map((feature) => <li key={feature}>{feature}</li>)}</ul>
-            <a className={index === 2 ? 'landing-button' : 'landing-button landing-button--secondary'} href={index === 3 ? '#footer' : '/auth/signup'}>{action}</a>
-          </article>
-        ))}
+        {pricingPlans.map(([name, monthly, yearly, body, features, action], index) => {
+          const price = isYearly ? yearly : monthly
+          return (
+            <article className={index === 2 ? 'price-card price-card--featured' : 'price-card'} key={name}>
+              {index === 2 ? <span className="recommended">RECOMMENDED</span> : null}
+              <h3>{name}</h3>
+              <div className="price-card__price">
+                <motion.strong
+                  key={price === null ? 'custom' : `${price}-${isYearly}`}
+                  initial={reduceMotion ? false : { opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.25, ease: heroEase }}
+                >
+                  {price === null ? 'Custom' : price === 0 ? 'Free' : `$${price}`}
+                </motion.strong>
+                {price !== null && price > 0 ? <span className="price-card__period">/{isYearly ? 'mo, billed yearly' : 'mo'}</span> : null}
+              </div>
+              <p>{body}</p>
+              <ul>{features.map((feature) => <li key={feature}>{feature}</li>)}</ul>
+              <a className={index === 2 ? 'landing-button' : 'landing-button landing-button--secondary'} href={index === 3 ? '#footer' : '/auth/signup'}>{action}</a>
+            </article>
+          )
+        })}
       </div>
     </section>
   )
