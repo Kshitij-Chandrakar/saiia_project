@@ -650,25 +650,55 @@ a.landing-button {
 .architecture-detail {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: 0.6fr 0.4fr 1fr auto;
-  align-items: center;
-  gap: 18px;
-  padding: 20px;
+  grid-template-columns: 200px 1fr;
+  grid-template-areas: "meta content" "hint content";
+  align-items: start;
+  column-gap: 28px;
+  row-gap: 14px;
+  padding: 26px 28px;
   border-radius: 24px;
   background: #061640;
   color: #ffffff;
 }
 
-.architecture-detail h3,
+.architecture-detail__meta {
+  grid-area: meta;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+.architecture-detail__meta strong {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
+.architecture-detail__meta small {
+  color: #80a9ff;
+}
+
+.architecture-detail__content {
+  grid-area: content;
+  display: grid;
+  gap: 10px;
+  max-width: 62ch;
+}
+
+.architecture-detail h3 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.25;
+}
+
 .architecture-detail p {
   margin: 0;
-}
-
-.architecture-detail p {
   color: #cad8ff;
+  line-height: 1.55;
 }
 
-.architecture-detail span {
+.architecture-detail__hint {
+  grid-area: hint;
+  align-self: end;
   color: #80a9ff;
   font-weight: 900;
 }
@@ -1369,6 +1399,15 @@ a.landing-button {
 
   .architecture-detail {
     grid-template-columns: 1fr;
+    grid-template-areas: "meta" "content" "hint";
+  }
+
+  .architecture-detail__content {
+    max-width: none;
+  }
+
+  .architecture-detail__hint {
+    align-self: start;
   }
 
   .problem-grid,
