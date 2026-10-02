@@ -747,11 +747,6 @@ a.landing-button {
   border-radius: 28px;
 }
 
-.feature-slide--active {
-  transform: translateY(-10px);
-  border-color: rgba(40, 100, 255, 0.32);
-}
-
 .feature-slide img {
   width: 96px;
   height: 96px;
@@ -1555,7 +1550,6 @@ a.landing-button {
 .landing-brand,
 .landing-nav__links a,
 .problem-card,
-.feature-slide,
 .privacy-card,
 .price-card,
 .prep-card,
@@ -1659,12 +1653,6 @@ a.landing-button {
 
   .problem-card:hover .problem-card__icon {
     transform: scale(1.06);
-  }
-
-  .feature-slide:hover:not(.feature-slide--active) {
-    transform: translateY(-6px);
-    border-color: rgba(40, 100, 255, 0.28);
-    box-shadow: 0 26px 60px rgba(18, 34, 78, 0.14);
   }
 
   .feature-slide:hover img {
