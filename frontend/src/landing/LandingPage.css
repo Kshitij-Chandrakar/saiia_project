@@ -909,11 +909,25 @@ a.landing-button {
 }
 
 .sidebar-nav__item {
+  width: 100%;
   padding: 12px;
+  border: none;
   border-radius: 14px;
   background: #f5f7fc;
   color: #334058;
+  font: inherit;
   font-weight: 900;
+  text-align: left;
+}
+
+button.sidebar-nav__item {
+  cursor: pointer;
+  transition: background var(--t-hover, 220ms) ease, color var(--t-hover, 220ms) ease;
+}
+
+button.sidebar-nav__item:not(.sidebar-nav__item--active):hover {
+  background: #eef4ff;
+  color: var(--blue);
 }
 
 .sidebar-nav--secondary .sidebar-nav__item {
