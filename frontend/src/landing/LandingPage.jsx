@@ -516,7 +516,98 @@ function TrustedSection() {
   )
 }
 
+const workspacePages = {
+  'Active Workspace': {
+    url: 'app.intervu.ai/workspace/sessions/nimbus-staff-round',
+    metrics: [
+      ['READINESS SCORE', 92, 'Resume & Desktop sync verified'],
+      ['ACTIVE TARGET', 'Nimbus Cloud', 'Staff Infrastructure / Band L6'],
+      ['INDEXED SOURCES', '3 Documents', 'Resume / GitHub repo / Patents'],
+      ['HUD SESSION', 'Standby', 'Audio daemon connected'],
+    ],
+    panelTitle: 'LATEST SESSION INTELLIGENCE',
+    panelSubtitle: 'System Architecture Round / 38 min',
+    chips: ['14 Questions Analyzed', '3 Strengths Mapped'],
+    rows: [
+      ['Technical Specificity', 96, 'Strong quantification of cache eviction latency and consensus protocol trade-offs.'],
+      ['Role Rubric Alignment', 88, 'Could further emphasize cross-functional stakeholder management in final system choices.'],
+    ],
+  },
+  'Resume Knowledge': {
+    url: 'app.intervu.ai/workspace/resume-knowledge',
+    metrics: [
+      ['PARSED SECTIONS', '6 Sections', 'Experience, education, skills, projects, certifications, summary'],
+      ['SKILLS INDEXED', '42 Skills', 'Technical and soft skills tagged'],
+      ['PROJECTS MAPPED', '5 Projects', 'Linked to specific resume bullets'],
+      ['LAST SYNCED', '2 min ago', 'Updates automatically on edit'],
+    ],
+    panelTitle: 'RESUME BREAKDOWN',
+    panelSubtitle: 'Senior Backend Candidate / 5 yrs experience',
+    chips: ['6 Sections Parsed', '42 Skills Indexed'],
+    rows: [
+      ['Distributed Systems', 94, 'Strong coverage across caching, consensus, and sharding projects.'],
+      ['Leadership & Mentoring', 71, 'Limited direct evidence - consider adding a specific example.'],
+    ],
+  },
+  'Target Rubrics': {
+    url: 'app.intervu.ai/workspace/target-rubrics',
+    metrics: [
+      ['ROLE LEVEL', 'Staff', 'Band L6 equivalent'],
+      ['CORE COMPETENCIES', '8 Areas', 'Mapped from the job description'],
+      ['MUST-HAVE SKILLS', '12 Skills', 'Matched against your resume'],
+      ['GAP FLAGS', '2 Gaps', 'Worth reviewing before the interview'],
+    ],
+    panelTitle: 'ROLE RUBRIC MAP',
+    panelSubtitle: 'Nimbus Cloud / Staff Infrastructure',
+    chips: ['8 Competencies Mapped', '2 Gaps Flagged'],
+    rows: [
+      ['System Design Depth', 90, 'Strong alignment with large-scale infrastructure experience.'],
+      ['Cross-Team Influence', 64, 'Rubric expects org-wide impact examples; resume shows team-level only.'],
+    ],
+  },
+  'Practice Arena': {
+    url: 'app.intervu.ai/workspace/practice-arena',
+    metrics: [
+      ['SESSIONS COMPLETED', '9 Sessions', 'Across 3 target roles'],
+      ['AVG READINESS', 81, 'Trending up over the last 3 sessions'],
+      ['QUESTIONS PRACTICED', '54 Qs', 'Behavioral and technical mix'],
+      ['NEXT SUGGESTED', 'System Design', 'Based on your last gap analysis'],
+    ],
+    panelTitle: 'PRACTICE HISTORY',
+    panelSubtitle: 'Most recent: System Architecture Round / 38 min',
+    chips: ['9 Sessions Logged', '3 Follow-ups Pending'],
+    rows: [
+      ['Consistency Across Rounds', 85, 'Story details stayed consistent across resume and live answers.'],
+      ['Follow-up Readiness', 69, 'Some technical follow-ups took longer than the target response time.'],
+    ],
+  },
+}
+
+function DashboardMetric([label, value, note]) {
+  return (
+    <article key={label}>
+      <small>{label}</small>
+      {typeof value === 'number' ? <AnimatedStat value={value} /> : <b>{value}</b>}
+      <p>{note}</p>
+    </article>
+  )
+}
+
+function DashboardRow([label, value, note]) {
+  return (
+    <article key={label}>
+      <strong>{label}</strong>
+      {typeof value === 'number' ? <AnimatedStat value={value} as="span" /> : <span>{value}</span>}
+      <p>{note}</p>
+    </article>
+  )
+}
+
 function ProductShowcase() {
+  const [activePage, setActivePage] = useState('Active Workspace')
+  const reduceMotion = useReducedMotion()
+  const page = workspacePages[activePage]
+
   return (
     <section className="landing-section workspace-section">
       <div className="section-heading">
@@ -527,14 +618,21 @@ function ProductShowcase() {
       <div className="dashboard-window" aria-label="Intervu AI dashboard preview">
         <div className="browser-bar">
           <span /><span /><span />
-          <strong>app.intervu.ai/workspace/sessions/nimbus-staff-round</strong>
+          <strong>{page.url}</strong>
         </div>
         <div className="dashboard-grid">
           <aside>
             <div className="profile-chip"><b>JD</b><span>Jane Doe<br />Senior Backend Candidate</span></div>
             <nav className="sidebar-nav">
-              {['Active Workspace', 'Resume Knowledge', 'Target Rubrics', 'Practice Arena'].map((item, index) => (
-                <div className={index === 0 ? 'sidebar-nav__item sidebar-nav__item--active' : 'sidebar-nav__item'} key={item}>{item}</div>
+              {Object.keys(workspacePages).map((item) => (
+                <button
+                  type="button"
+                  className={item === activePage ? 'sidebar-nav__item sidebar-nav__item--active' : 'sidebar-nav__item'}
+                  key={item}
+                  onClick={() => setActivePage(item)}
+                >
+                  {item}
+                </button>
               ))}
             </nav>
             <div className="sidebar-nav sidebar-nav--secondary">
@@ -542,21 +640,22 @@ function ProductShowcase() {
               <div className="sidebar-nav__item">Settings</div>
             </div>
           </aside>
-          <main>
+          <motion.main
+            key={activePage}
+            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, ease: heroEase }}
+          >
             <div className="metric-grid">
-              <article><small>READINESS SCORE</small><AnimatedStat value={92} /><p>Resume & Desktop sync verified</p></article>
-              <article><small>ACTIVE TARGET</small><b>Nimbus Cloud</b><p>Staff Infrastructure / Band L6</p></article>
-              <article><small>INDEXED SOURCES</small><b>3 Documents</b><p>Resume / GitHub repo / Patents</p></article>
-              <article><small>HUD SESSION</small><b>Standby</b><p>Audio daemon connected</p></article>
+              {page.metrics.map(DashboardMetric)}
             </div>
             <section className="intelligence-panel">
-              <h3>LATEST SESSION INTELLIGENCE</h3>
-              <p>System Architecture Round / 38 min</p>
-              <div><b>14 Questions Analyzed</b><b>3 Strengths Mapped</b></div>
-              <article><strong>Technical Specificity</strong><AnimatedStat value={96} as="span" /><p>Strong quantification of cache eviction latency and consensus protocol trade-offs.</p></article>
-              <article><strong>Role Rubric Alignment</strong><AnimatedStat value={88} as="span" /><p>Could further emphasize cross-functional stakeholder management in final system choices.</p></article>
+              <h3>{page.panelTitle}</h3>
+              <p>{page.panelSubtitle}</p>
+              <div>{page.chips.map((chip) => <b key={chip}>{chip}</b>)}</div>
+              {page.rows.map(DashboardRow)}
             </section>
-          </main>
+          </motion.main>
         </div>
       </div>
     </section>
