@@ -394,8 +394,23 @@ function WorkflowSection() {
 
 const featureTabLabels = ['Resume', 'Job Match', 'Live Assist']
 
+const featureSlideInactive = {
+  scale: 1,
+  y: 0,
+  borderColor: 'rgba(228, 233, 244, 1)',
+  boxShadow: '0 18px 46px rgba(18, 34, 78, 0.08)',
+}
+const featureSlideActive = {
+  scale: 1.04,
+  y: -10,
+  borderColor: 'rgba(40, 100, 255, 0.32)',
+  boxShadow: '0 26px 60px rgba(18, 34, 78, 0.14)',
+}
+const featureSlideHover = { y: -6, boxShadow: '0 26px 60px rgba(18, 34, 78, 0.14)' }
+
 function FeatureSection() {
   const [activeIndex, setActiveIndex] = useState(1)
+  const reduceMotion = useReducedMotion()
 
   return (
     <section className="landing-section feature-section" id="features">
@@ -417,15 +432,24 @@ function FeatureSection() {
         ))}
       </div>
       <div className="feature-slider">
-        {featureCards.map(([number, title, body, note, image], index) => (
-          <article className={index === activeIndex ? 'feature-slide feature-slide--active' : 'feature-slide'} key={title}>
-            <img src={image} alt="" />
-            <span>{number}</span>
-            <h3>{title}</h3>
-            <p>{body}</p>
-            <small>{note}</small>
-          </article>
-        ))}
+        {featureCards.map(([number, title, body, note, image], index) => {
+          const isActive = index === activeIndex
+          return (
+            <motion.article
+              className="feature-slide"
+              key={title}
+              animate={isActive ? featureSlideActive : featureSlideInactive}
+              whileHover={!isActive && !reduceMotion ? featureSlideHover : undefined}
+              transition={{ duration: 0.4, ease: heroEase }}
+            >
+              <img src={image} alt="" />
+              <motion.span animate={{ scale: isActive ? 1.08 : 1 }} transition={{ duration: 0.4, ease: heroEase }}>{number}</motion.span>
+              <h3>{title}</h3>
+              <p>{body}</p>
+              <small>{note}</small>
+            </motion.article>
+          )
+        })}
       </div>
     </section>
   )
