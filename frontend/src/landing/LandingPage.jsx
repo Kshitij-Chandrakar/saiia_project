@@ -148,6 +148,16 @@ const equationTerm = {
   visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.32, ease: heroEase } },
 }
 
+const detailGroup = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.07 } },
+}
+
+const detailItem = {
+  hidden: { opacity: 0, y: 10 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.3, ease: heroEase } },
+}
+
 const equationResult = {
   hidden: { opacity: 0, scale: 0.7 },
   visible: {
@@ -363,15 +373,19 @@ function WorkflowSection() {
         <motion.div
           className="architecture-detail"
           key={activeTitle}
-          initial={reduceMotion ? false : { opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, ease: heroEase }}
+          initial={reduceMotion ? false : 'hidden'}
+          animate="visible"
+          variants={detailGroup}
         >
-          <strong>{kicker} - {title.toUpperCase()}</strong>
-          <small>Interactive Deep-Dive</small>
-          <h3>{headline}</h3>
-          <p>{body}</p>
-          <span>Click any node to explore</span>
+          <motion.div className="architecture-detail__meta" variants={detailItem}>
+            <strong>{kicker} - {title.toUpperCase()}</strong>
+            <small>Interactive Deep-Dive</small>
+          </motion.div>
+          <motion.div className="architecture-detail__content" variants={detailItem}>
+            <h3>{headline}</h3>
+            <p>{body}</p>
+          </motion.div>
+          <motion.span className="architecture-detail__hint" variants={detailItem}>Click any node to explore</motion.span>
         </motion.div>
       </div>
     </section>
