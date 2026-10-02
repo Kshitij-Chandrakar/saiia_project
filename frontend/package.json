@@ -14,12 +14,15 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.111.0",
+    "framer-motion": "^13.5.0",
     "lucide-react": "^1.21.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.17.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.4",
     "@vitejs/plugin-react": "^4.6.0",
     "concurrently": "^9.2.0",
     "electron": "^42.4.0",

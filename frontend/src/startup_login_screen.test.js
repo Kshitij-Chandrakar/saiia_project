@@ -246,6 +246,14 @@ test('main process starts compact and keeps overlay hidden before startup comple
   assert.match(mainSource, /function completeStartupFlow\(\)[\s\S]*?mainWindow\.setSize\(620, 860\)[\s\S]*?syncOverlayVisibility\(true\)/)
 })
 
+test('electron main window loads the desktop route instead of the public landing page', () => {
+  assert.match(appSource, /if \(view === 'desktop'\) {[\s\S]*?return <MainWindow \/>/)
+  assert.match(appSource, /<Route path="\/" element=\{<LandingPage \/>/)
+  assert.match(appSource, /<Route path="\/desktop" element=\{<MainWindow \/>/)
+  assert.match(mainSource, /view === 'overlay' \? `\$\{devURL\}\?view=overlay` : `\$\{devURL\.replace\(\/\\\/\$\/, ''\)\}\/desktop`/)
+  assert.match(mainSource, /query: view === 'overlay' \? \{ view: 'overlay' \} : \{ view: 'desktop' \}/)
+})
+
 test('startup view validation and completion clear stale presentation state safely', () => {
   assert.match(mainSource, /function resizeStartupWindow\(view\)\s*\{[\s\S]*?typeof view !== 'string'[\s\S]*?hasOwnProperty\.call\(STARTUP_WINDOW_LAYOUTS, view\)/)
   assert.match(mainSource, /function completeStartupFlow\(\)\s*\{\s*startupWindowController\.reset\(\)\s*startupFlowComplete = true[\s\S]*?mainWindow\.setSize\(620, 860\)/)

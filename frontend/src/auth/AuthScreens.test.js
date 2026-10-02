@@ -359,7 +359,8 @@ test('status logout resolved-error is generic and preserves bootstrap state', ()
 test('desktop-local routes remain unprotected while auth dashboard is protected', () => {
   assert.match(appSource, /<Route path="\/auth\/dashboard" element=\{<AuthDashboardPage backendUrl=\{BACKEND_URL\} \/>\} \/>/)
   assert.match(appSource, /<Route path="\/auth\/resume" element=\{<AuthResumePage backendUrl=\{BACKEND_URL\} \/>\} \/>/)
-  assert.match(appSource, /<Route path="\/" element=\{<MainWindow \/>\} \/>/)
+  assert.match(appSource, /<Route path="\/" element=\{<LandingPage \/>\} \/>/)
+  assert.match(appSource, /<Route path="\/desktop" element=\{<MainWindow \/>\} \/>/)
   assert.match(appSource, /<Route path="\/profile-setup" element=\{<ProfileSetupForm \/>\} \/>/)
 })
 
