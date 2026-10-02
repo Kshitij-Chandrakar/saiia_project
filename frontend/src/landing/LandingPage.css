@@ -897,14 +897,34 @@ a.landing-button {
   line-height: 1.35;
 }
 
-.dashboard-grid aside a {
-  display: block;
-  margin-top: 10px;
+.sidebar-nav {
+  display: grid;
+  gap: 10px;
+}
+
+.sidebar-nav--secondary {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #e9edf6;
+}
+
+.sidebar-nav__item {
   padding: 12px;
   border-radius: 14px;
   background: #f5f7fc;
   color: #334058;
   font-weight: 900;
+}
+
+.sidebar-nav--secondary .sidebar-nav__item {
+  background: transparent;
+  color: #778196;
+  font-weight: 800;
+}
+
+.sidebar-nav__item--active {
+  background: #061640;
+  color: #ffffff;
 }
 
 .dashboard-grid main {
@@ -971,14 +991,21 @@ a.landing-button {
 }
 
 .intelligence-panel article {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 12px;
+  row-gap: 6px;
   margin-top: 12px;
   padding: 16px;
   border-radius: 18px;
   background: #f7f9fd;
 }
 
+.intelligence-panel article p {
+  grid-column: 1 / -1;
+}
+
 .intelligence-panel article span {
-  float: right;
   color: var(--blue);
   font-weight: 900;
 }
@@ -1565,7 +1592,6 @@ a.landing-button {
 .architecture-node,
 .platform-logo,
 .faq-row,
-.dashboard-grid aside a,
 .faq-row img,
 .landing-button img,
 .video-card > img,
@@ -1703,11 +1729,6 @@ a.landing-button {
 
   .faq-row:hover img:not(.faq-chevron--open) {
     transform: rotate(90deg);
-  }
-
-  .dashboard-grid aside a:hover {
-    background: #eef4ff;
-    color: var(--blue);
   }
 
   .video-card:hover > img {
