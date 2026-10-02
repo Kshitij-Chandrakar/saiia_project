@@ -1826,46 +1826,12 @@ a.landing-button {
   transition-delay: 280ms;
 }
 
-/* Trusted-companies marquee (list is already duplicated in markup for a seamless loop) */
-.trusted-rail {
-  display: flex;
-  gap: 16px;
-  overflow: hidden;
-  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
-}
-
-.trusted-rail span {
-  flex: 0 0 auto;
-  min-width: 160px;
-}
-
-@keyframes landingMarquee {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
-  }
-}
-
-.trusted-rail {
-  animation: landingMarquee 22s linear infinite;
-}
-
-.trusted-section:hover .trusted-rail {
-  animation-play-state: paused;
-}
-
 /* Dropdowns/menus reserved for future use keep a consistent open transition */
 .landing-page [data-dropdown-open] {
   animation: landingFadeUp var(--t-comp) var(--ease) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .trusted-rail {
-    animation: none !important;
-  }
-
   .reveal-on-scroll,
   .reveal-on-scroll .problem-grid > *,
   .reveal-on-scroll .privacy-grid > *,
