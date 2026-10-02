@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import { motion, useReducedMotion } from 'framer-motion'
+import React, { useEffect, useRef, useState } from 'react'
+import { animate, motion, useInView, useReducedMotion } from 'framer-motion'
 import './LandingPage.css'
 
 import arrowWhite from '../assets/landing/arrow-white.svg'
@@ -192,6 +192,31 @@ function FloatingCard({ className, entryDelay, floatDuration, reduceMotion, chil
       {children}
     </motion.div>
   )
+}
+
+function AnimatedStat({ value, suffix = '%', as = 'b' }) {
+  const [display, setDisplay] = useState(0)
+  const reduceMotion = useReducedMotion()
+  const ref = useRef(null)
+  const isInView = useInView(ref, { once: true, amount: 0.6 })
+
+  useEffect(() => {
+    if (!isInView) {
+      return undefined
+    }
+    if (reduceMotion) {
+      setDisplay(value)
+      return undefined
+    }
+    const controls = animate(0, value, {
+      duration: 1.1,
+      ease: heroEase,
+      onUpdate: (current) => setDisplay(Math.round(current)),
+    })
+    return () => controls.stop()
+  }, [isInView, value, reduceMotion])
+
+  return React.createElement(as, { ref }, `${display}${suffix}`)
 }
 
 function Hero() {
@@ -507,11 +532,19 @@ function ProductShowcase() {
         <div className="dashboard-grid">
           <aside>
             <div className="profile-chip"><b>JD</b><span>Jane Doe<br />Senior Backend Candidate</span></div>
-            {['Active Workspace', 'Resume Knowledge', 'Target Rubrics', 'Practice Arena'].map((item) => <a key={item}>{item}</a>)}
+            <nav className="sidebar-nav">
+              {['Active Workspace', 'Resume Knowledge', 'Target Rubrics', 'Practice Arena'].map((item, index) => (
+                <div className={index === 0 ? 'sidebar-nav__item sidebar-nav__item--active' : 'sidebar-nav__item'} key={item}>{item}</div>
+              ))}
+            </nav>
+            <div className="sidebar-nav sidebar-nav--secondary">
+              <div className="sidebar-nav__item">Session History</div>
+              <div className="sidebar-nav__item">Settings</div>
+            </div>
           </aside>
           <main>
             <div className="metric-grid">
-              <article><small>READINESS SCORE</small><b>92%</b><p>Resume & Desktop sync verified</p></article>
+              <article><small>READINESS SCORE</small><AnimatedStat value={92} /><p>Resume & Desktop sync verified</p></article>
               <article><small>ACTIVE TARGET</small><b>Nimbus Cloud</b><p>Staff Infrastructure / Band L6</p></article>
               <article><small>INDEXED SOURCES</small><b>3 Documents</b><p>Resume / GitHub repo / Patents</p></article>
               <article><small>HUD SESSION</small><b>Standby</b><p>Audio daemon connected</p></article>
@@ -520,8 +553,8 @@ function ProductShowcase() {
               <h3>LATEST SESSION INTELLIGENCE</h3>
               <p>System Architecture Round / 38 min</p>
               <div><b>14 Questions Analyzed</b><b>3 Strengths Mapped</b></div>
-              <article><strong>Technical Specificity</strong><span>96%</span><p>Strong quantification of cache eviction latency and consensus protocol trade-offs.</p></article>
-              <article><strong>Role Rubric Alignment</strong><span>88%</span><p>Could further emphasize cross-functional stakeholder management in final system choices.</p></article>
+              <article><strong>Technical Specificity</strong><AnimatedStat value={96} as="span" /><p>Strong quantification of cache eviction latency and consensus protocol trade-offs.</p></article>
+              <article><strong>Role Rubric Alignment</strong><AnimatedStat value={88} as="span" /><p>Could further emphasize cross-functional stakeholder management in final system choices.</p></article>
             </section>
           </main>
         </div>
