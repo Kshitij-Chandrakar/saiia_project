@@ -51,3 +51,27 @@ dist-electron/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Local temporary, design, and backup artifacts
+.tmp*/
+.archify/
+/SAIIA_Design_Report.docx
+/broken-landing-backup.patch
+
+# Local tool checkout
+/tools/archify/
+
+# Generated build and test output
+build/
+coverage/
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
+playwright/.auth/
+
+# Private keys and credential containers
+*.pem
+*.key
+*.p12
+*.pfx
