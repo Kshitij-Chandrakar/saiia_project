@@ -482,9 +482,9 @@ function TrustedSection() {
         <p>TRUSTED BY CANDIDATES AT</p>
         <h2>Used for 1,000,000+ interviews</h2>
       </div>
-      <div className="trusted-rail" aria-label="Company logo marquee">
-        {[...trustedCompanies, ...trustedCompanies].map((company, index) => (
-          <span key={`${company}-${index}`}>{company}</span>
+      <div className="trusted-rail" aria-label="Companies candidates interview at">
+        {trustedCompanies.map((company) => (
+          <span key={company}>{company}</span>
         ))}
       </div>
     </section>
