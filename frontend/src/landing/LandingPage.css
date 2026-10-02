@@ -1232,11 +1232,26 @@ button.sidebar-nav__item:not(.sidebar-nav__item--active):hover {
   color: #061640;
 }
 
-.price-card > strong {
-  display: block;
+.price-card__price {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   margin: 18px 0;
+}
+
+.price-card__price strong {
   font-family: Sora, "Hanken Grotesk", sans-serif;
   font-size: 44px;
+}
+
+.price-card__period {
+  color: #9fb0d6;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.price-card--featured .price-card__period {
+  color: #647088;
 }
 
 .price-card p,
