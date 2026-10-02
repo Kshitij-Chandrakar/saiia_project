@@ -760,7 +760,13 @@ a.landing-button {
   font-weight: 800;
 }
 
-.platform-rail,
+.platform-rail {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+}
+
 .trusted-rail {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
@@ -779,6 +785,11 @@ a.landing-button {
   color: #657087;
   font-weight: 900;
   box-shadow: 0 12px 32px rgba(18, 34, 78, 0.06);
+}
+
+.platform-logo {
+  flex: 1 1 180px;
+  max-width: 220px;
 }
 
 .platform-logo img {
@@ -1416,7 +1427,6 @@ a.landing-button {
     grid-template-columns: 1fr;
   }
 
-  .platform-rail,
   .trusted-rail {
     grid-template-columns: repeat(3, 1fr);
   }
@@ -1498,7 +1508,6 @@ a.landing-button {
   .privacy-grid,
   .pricing-grid,
   .metric-grid,
-  .platform-rail,
   .trusted-rail,
   .dashboard-grid,
   .landing-footer {
