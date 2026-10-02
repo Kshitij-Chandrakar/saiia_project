@@ -38,14 +38,14 @@ const problemCards = [
 ]
 
 const workflowInputs = [
-  ['INPUT 01', 'Your Resume', docIcon, 'Resume indexed', 'Parse, index, and organize your experience, skills, achievements, and project history into structured interview ready context.'],
-  ['INPUT 02', 'Target Role', targetIcon, 'Role mapped', 'Analyze the job description, required competencies, technical skills, and role-specific expectations.'],
-  ['INPUT 03', 'Live Interview', playIcon, 'Session ready', 'Uses permitted interview context and available session information to support relevant preparation and contextual assistance.'],
+  ['INPUT 01', 'Your Resume', docIcon, 'Resume indexed', 'Parse, index, and organize your experience, skills, achievements, and project history into structured interview ready context.', 'Your experience becomes structured context.'],
+  ['INPUT 02', 'Target Role', targetIcon, 'Role mapped', 'Analyze the job description, required competencies, technical skills, and role-specific expectations.', 'The job description becomes your prep rubric.'],
+  ['INPUT 03', 'Live Interview', playIcon, 'Session ready', 'Uses permitted interview context and available session information to support relevant preparation and contextual assistance.', 'Live session context stays available in the moment.'],
 ]
 
 const workflowOutputs = [
-  ['OUTPUT 01', 'AI Guidance', trustIcon, 'Personalized guidance', 'Provides role-specific preparation prompts, relevant experience references, and structured guidance grounded in the candidate context.'],
-  ['OUTPUT 02', 'Session Insights', featureSearch, 'Insights organized', 'Organizes interview takeaways, strengths, improvement areas, and follow-up preparation into a reusable learning history.'],
+  ['OUTPUT 01', 'AI Guidance', trustIcon, 'Personalized guidance', 'Provides role-specific preparation prompts, relevant experience references, and structured guidance grounded in the candidate context.', 'Guidance comes from your profile, not a script.'],
+  ['OUTPUT 02', 'Session Insights', featureSearch, 'Insights organized', 'Organizes interview takeaways, strengths, improvement areas, and follow-up preparation into a reusable learning history.', 'Every round becomes material for the next one.'],
 ]
 
 const featureCards = [
@@ -290,7 +290,18 @@ function ProblemSection() {
   )
 }
 
+const workflowNodes = [
+  ...workflowInputs.map((node) => ({ group: 'input', node })),
+  ...workflowOutputs.map((node) => ({ group: 'output', node })),
+]
+
 function WorkflowSection() {
+  const [activeTitle, setActiveTitle] = useState(workflowInputs[0][1])
+  const reduceMotion = useReducedMotion()
+
+  const active = workflowNodes.find(({ node }) => node[1] === activeTitle) || workflowNodes[0]
+  const [kicker, title, , , body, headline] = active.node
+
   return (
     <section className="landing-section" id="how-it-works">
       <div className="section-heading">
@@ -300,8 +311,20 @@ function WorkflowSection() {
       <div className="architecture-panel">
         <div className="architecture-column">
           <div className="architecture-label"><span>CANDIDATE INPUTS</span><b>3 Streams</b></div>
-          {workflowInputs.map(([kicker, title, icon, status, body], index) => (
-            <article className={index === 0 ? 'architecture-node architecture-node--active' : 'architecture-node'} key={title}>
+          {workflowInputs.map(([kicker, title, icon, status, body]) => (
+            <article
+              className={title === activeTitle ? 'architecture-node architecture-node--active' : 'architecture-node'}
+              key={title}
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveTitle(title)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  setActiveTitle(title)
+                }
+              }}
+            >
               <div><img src={icon} alt="" /><span><b>{kicker}</b><strong>{title}</strong></span></div>
               <em>{status}</em>
               <p>{body}</p>
@@ -318,20 +341,38 @@ function WorkflowSection() {
         <div className="architecture-column">
           <div className="architecture-label"><span>INTELLIGENT OUTPUTS</span><b>Real-Time Results</b></div>
           {workflowOutputs.map(([kicker, title, icon, status, body]) => (
-            <article className="architecture-node" key={title}>
+            <article
+              className={title === activeTitle ? 'architecture-node architecture-node--active' : 'architecture-node'}
+              key={title}
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveTitle(title)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  setActiveTitle(title)
+                }
+              }}
+            >
               <div><img src={icon} alt="" /><span><b>{kicker}</b><strong>{title}</strong></span></div>
               <em>{status}</em>
               <p>{body}</p>
             </article>
           ))}
         </div>
-        <div className="architecture-detail">
-          <strong>INPUT 01 - RESUME CONTEXT</strong>
+        <motion.div
+          className="architecture-detail"
+          key={activeTitle}
+          initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, ease: heroEase }}
+        >
+          <strong>{kicker} - {title.toUpperCase()}</strong>
           <small>Interactive Deep-Dive</small>
-          <h3>Your experience becomes structured context.</h3>
-          <p>Intervu AI organizes skills, projects, achievements, and work history into information that can support more relevant preparation.</p>
+          <h3>{headline}</h3>
+          <p>{body}</p>
           <span>Click any node to explore</span>
-        </div>
+        </motion.div>
       </div>
     </section>
   )
