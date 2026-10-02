@@ -181,7 +181,7 @@ a.landing-button {
 .landing-pill,
 .section-heading > p,
 .section-badge,
-.desktop-card > div > p,
+.desktop-card__copy > p,
 .pricing-section .section-heading > p {
   display: inline-flex;
   align-items: center;
@@ -228,7 +228,7 @@ a.landing-button {
 
 .landing-lede,
 .section-heading span,
-.desktop-card > div > span,
+.desktop-card__copy > span,
 .cta-card p {
   color: var(--muted);
   font-size: 20px;
@@ -1084,7 +1084,7 @@ button.sidebar-nav__item:not(.sidebar-nav__item--active):hover {
   line-height: 1.03;
 }
 
-.desktop-card > div > span,
+.desktop-card__copy > span,
 .desktop-card p,
 .desktop-card li {
   color: #cad8ff;
@@ -1139,6 +1139,21 @@ button.sidebar-nav__item:not(.sidebar-nav__item--active):hover {
 .hud-mock h3 {
   margin: 24px 0 8px;
   color: #ffffff;
+}
+
+.hud-mock p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.hud-mock p + p {
+  margin-top: 6px;
+}
+
+.hud-mock__live-label {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
 }
 
 .privacy-grid {
@@ -1511,7 +1526,7 @@ button.sidebar-nav__item:not(.sidebar-nav__item--active):hover {
 
   .landing-lede,
   .section-heading span,
-  .desktop-card > div > span,
+  .desktop-card__copy > span,
   .cta-card p {
     font-size: 17px;
   }
