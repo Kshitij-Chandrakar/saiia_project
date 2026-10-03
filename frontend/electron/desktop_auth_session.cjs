@@ -1053,6 +1053,9 @@ class DesktopAuthSessionManager {
   }
 
   async generateAnswer(body) {
+    if ([AUTH_STATUSES.TOKEN_EXPIRED, AUTH_STATUSES.OFFLINE, AUTH_STATUSES.BOOTSTRAP_FAILED, AUTH_STATUSES.BACKEND_UNAVAILABLE].includes(this.status)) {
+      return { ok: false, status: 401, reason: 'auth-required', payload: { detail: 'Sign in again to use cloud context, or clear cloud selections to generate locally.' } }
+    }
     if (!this.session?.access_token) {
       return { ok: false, status: 401, payload: { detail: 'Log in to generate answers with a cloud resume.' } }
     }
@@ -1064,6 +1067,7 @@ class DesktopAuthSessionManager {
     }
 
     const captured = this.captureCloudRequestContext()
+    this.logger?.debug?.('generation_auth', { required: true, token_attached: true })
     const response = await this._backendJson('/generate/', 'POST', this.session.access_token, body || {})
     if (!this._cloudRequestStillCurrent(captured)) {
       return { ok: false, status: 409, payload: { detail: 'Session changed. Please retry.' } }
@@ -1075,6 +1079,9 @@ class DesktopAuthSessionManager {
   }
 
   async openAnswerStream(body, options = {}) {
+    if ([AUTH_STATUSES.TOKEN_EXPIRED, AUTH_STATUSES.OFFLINE, AUTH_STATUSES.BOOTSTRAP_FAILED, AUTH_STATUSES.BACKEND_UNAVAILABLE].includes(this.status)) {
+      return { ok: false, status: 401, reason: 'auth-required', payload: { detail: 'Sign in again to use cloud context, or clear cloud selections to generate locally.' } }
+    }
     const tracked = this._trackAnswerStream(options.signal)
     let handedOff = false
     try {
@@ -1107,6 +1114,7 @@ class DesktopAuthSessionManager {
       const captured = this.captureCloudRequestContext()
       let response
       try {
+        this.logger?.debug?.('generation_auth', { required: true, token_attached: true })
         response = await this.fetchImpl(`${this.backendUrl}/generate/stream`, {
           method: 'POST',
           headers: {

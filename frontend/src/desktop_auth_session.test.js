@@ -2272,3 +2272,14 @@ for (const status of [0, 503]) {
     } finally { ctx.cleanup() }
   })
 }
+
+test('known unavailable cloud state never sends stale generation bearer tokens', async () => {
+  const ctx = createManager()
+  try {
+    ctx.manager.session = { access_token: 'stale-test-token' }
+    ctx.manager.status = AUTH_STATUSES.OFFLINE
+    assert.equal((await ctx.manager.generateAnswer({ question: 'Question' })).status, 401)
+    assert.equal((await ctx.manager.openAnswerStream({ question: 'Question' })).status, 401)
+    assert.equal(ctx.calls.length, 0)
+  } finally { ctx.cleanup() }
+})
