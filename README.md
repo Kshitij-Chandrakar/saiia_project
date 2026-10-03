@@ -6,7 +6,7 @@ SAIIA is a Smart AI Interview Assistant for fast MVP demos and the current produ
 
 - A profile-aware interview answer assistant
 - A FastAPI + React + Electron MVP
-- An AssemblyAI-first STT runtime with local Whisper fallback for transcription, Affinda-first resume parsing with local fallback, Groq-first answer generation, optional Ollama fallback
+- An AssemblyAI-first STT runtime with local Whisper fallback for transcription, Affinda-first resume parsing with local fallback, OpenAI-default answer generation, configurable Groq answers (`ANSWER_PROVIDER=groq`), optional local Ollama fallback for the Groq path
 - A performance-tuned live answer path with cached profile context, capped RAG retrieval, manual Groq STT, and demo-mode short answers
 - A two-window app: main control panel plus overlay answer display
 
@@ -21,7 +21,7 @@ SAIIA is a Smart AI Interview Assistant for fast MVP demos and the current produ
 ## MVP Flow
 
 ```text
-Profile setup -> optional Affinda/local resume extraction + local resume indexing -> optional job/company context -> microphone recording -> transcription -> classification -> grounded Groq answer generation -> Electron overlay display
+Profile setup -> optional Affinda/local resume extraction + local resume indexing -> optional job/company context -> microphone recording -> transcription -> classification -> grounded answer generation (OpenAI by default; Groq with ANSWER_PROVIDER=groq) -> Electron overlay display
 ```
 
 ## Tech Stack
@@ -30,8 +30,8 @@ Profile setup -> optional Affinda/local resume extraction + local resume indexin
 - Frontend: React, Vite
 - Desktop shell: Electron
 - Screen Analyze: Groq Vision (`meta-llama/llama-4-scout-17b-16e-instruct`) with RapidOCR fallback
-- Primary LLM: Groq
-- Optional fallback LLM: Ollama
+- Default answer-generation provider: OpenAI; select Groq with `ANSWER_PROVIDER=groq`
+- Optional local fallback LLM for the Groq answer path: Ollama (`ENABLE_OLLAMA_FALLBACK=true`)
 
 ## Setup
 
@@ -58,7 +58,7 @@ Copy `.env.example` to `.env` in the repo root and fill in placeholders only on 
 Required MVP variables:
 
 ```env
-LLM_PROVIDER=groq
+ANSWER_PROVIDER=openai
 STT_PROVIDER=assemblyai
 MANUAL_STT_PROVIDER=groq
 STT_FALLBACK_PROVIDER=whisper_local
@@ -168,7 +168,7 @@ Never commit the real key.
 
 ## Answer Provider Configuration
 
-Supported answer providers are `openai`, `groq`, and `ollama`, selected through `ANSWER_PROVIDER`. Unsupported values fall back to OpenAI unless `PRIMARY_LLM_PROVIDER=ollama` selects the existing local compatibility path.
+OpenAI is the default answer-generation provider. Select Groq with `ANSWER_PROVIDER=groq`. Supported answer providers are `openai`, `groq`, and `ollama`, selected through `ANSWER_PROVIDER`. Unsupported values fall back to OpenAI unless `PRIMARY_LLM_PROVIDER=ollama` selects the existing local compatibility path.
 
 NVIDIA generation, routing/refinement flags, credentials, and `/api/debug/nvidia-test` have been retired. Historical roadmap and tracker entries describe earlier experiments; setting their old flags does not enable NVIDIA.
 
@@ -261,7 +261,7 @@ The current production-core track includes:
 - Lightweight Auto Mode with repeated short microphone segments and deterministic question filtering
 - User-triggered Screen Read Mode with local OCR preview and editable question confirmation
 - AssemblyAI STT as the default transcription path, with local Whisper fallback
-- Groq-first answer generation as the production path, with optional Ollama fallback
+- OpenAI as the default production answer-generation provider; Groq can be selected with `ANSWER_PROVIDER=groq`, with optional local Ollama fallback when `ENABLE_OLLAMA_FALLBACK=true`
 - Cleaner introduction-style answers that use focused profile data and strip markdown leaks before rendering in the overlay
 - Performance-focused live answering with cached profile loading, summarized prompt context, capped RAG retrieval, pipeline timing diagnostics, and demo-mode shorter answers
 
@@ -382,6 +382,6 @@ Start Ollama locally, verify `OLLAMA_BASE_URL`, or set `ENABLE_OLLAMA_FALLBACK=f
 - Auto Mode uses deterministic transcript filtering, so interview-like background voices may still be processed if they sound like real questions.
 - This is a microphone-only MVP.
 - SAIIA does not guarantee screen-share invisibility.
-- It requires an AssemblyAI API key plus internet access for the primary STT path and a Groq API key for the answer path, unless local fallback-only settings are used.
+- It requires an AssemblyAI API key plus internet access for the primary STT path and an OpenAI API key for the default answer path (a Groq API key when `ANSWER_PROVIDER=groq`), unless local-only settings are used.
 - `ffmpeg` is required for transcription.
 - Production-grade continuous listening, speaker separation, and wake-word behavior are still future work.
