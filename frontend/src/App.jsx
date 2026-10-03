@@ -19,6 +19,9 @@ import OverlayWindowView from './components/OverlayWindow'
 import LandingPage from './landing/LandingPage'
 import { markChatTiming, readNdjsonStream, stripInternalControlMarkers } from './answer_stream'
 import { isCurrentRequest } from './request_state'
+import { createLiveMicTransport } from './live_mic_transport'
+import { createManualLiveSession, createManualLiveState, getManualFinalTranscript } from './manual_live_session'
+import { prepareGenerationRequest } from './generation_auth'
 import { normalizeScreenResponse } from './screen_intelligence_contract'
 import {
   SCREEN_OPERATION_STATUS,
@@ -1307,6 +1310,9 @@ function MainWindow() {
   const answerReadyResetTimeoutRef = useRef(null)
   const generatingWatchdogTimeoutRef = useRef(null)
   const systemRecordingIdRef = useRef('')
+  const [manualLiveState, setManualLiveState] = useState(createManualLiveState)
+  const manualLiveSessionRef = useRef(null)
+  const manualLiveStartIdRef = useRef('')
   const manualRecordingCancelledRef = useRef(false)
 
   const applyStartupSessionConfig = (nextConfig) => {
@@ -1593,13 +1599,15 @@ function MainWindow() {
 
     try {
       const activeStartupSessionConfig = startupSessionConfigRef.current
-      const selectedResumeId = String(activeStartupSessionConfig?.selectedResumeId || '').trim()
-      const activeSessionId = String(activeStartupSessionConfig?.activeSessionId || '').trim()
-      const requestBody = {
-        ...body,
-        ...(selectedResumeId ? { selected_resume_id: selectedResumeId } : {}),
-        ...(activeSessionId ? { session_id: activeSessionId } : {}),
-      }
+      const { requestBody, authRequired } = await prepareGenerationRequest(
+        body, activeStartupSessionConfig, window.saiia
+      )
+      console.info('Generation auth diagnostics', {
+        generationAuthRequired: authRequired,
+        generationAuthTokenAttached: false,
+        generationTransport: authRequired ? 'desktop-authenticated' : 'local-rest',
+      })
+      appendEventLog(`Generation auth required: ${authRequired}; renderer token attached: false.`, 'info')
       const desktopGenerateAnswer = window.saiia?.generateAnswer
       const applyBufferedAnswer = async () => {
         if (typeof desktopGenerateAnswer !== 'function') {
@@ -1610,7 +1618,7 @@ function MainWindow() {
           throw abortError()
         }
         if (!result?.ok) {
-          throw new Error('Could not generate an answer right now.')
+          throw new Error(result?.payload?.detail || 'Sign in again to use cloud context, or clear cloud selections.')
         }
         finalPayload = result.payload || {}
         const finalAnswer = stripInternalControlMarkers(finalPayload.answer || '')
@@ -1638,7 +1646,7 @@ function MainWindow() {
         return finalPayload
       }
 
-      if (selectedResumeId && typeof desktopGenerateAnswer === 'function') {
+      if (authRequired && typeof desktopGenerateAnswer === 'function') {
         const desktopStartAnswerStream = window.saiia?.startAnswerStream
         const desktopCancelAnswerStream = window.saiia?.cancelAnswerStream
         const desktopStreamEvents = window.saiia?.onAnswerStreamEvent
@@ -1708,7 +1716,9 @@ function MainWindow() {
             } else if (started?.reason === 'canceled') {
               throw abortError()
             } else {
-              throw new Error('Could not generate an answer right now.')
+              throw new Error([401, 403].includes(started?.status)
+                ? 'Sign in again to use cloud context, or clear cloud selections.'
+                : 'Could not generate an answer right now.')
             }
           } finally {
             if (
@@ -1731,7 +1741,8 @@ function MainWindow() {
       }
 
       // The desktop bridge already consumed its stream. Never dispatch twice.
-      if (!(selectedResumeId && typeof desktopGenerateAnswer === 'function')) {
+      if (!(authRequired && typeof desktopGenerateAnswer === 'function')) {
+      if (authRequired) throw new Error('Cloud generation requires the desktop auth bridge. Sign in again.')
       const response = await fetch(`${BACKEND_URL}/generate/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1740,6 +1751,9 @@ function MainWindow() {
       })
 
       if (!response.ok) {
+        if ([401, 403].includes(response.status)) {
+          return parseJsonResponse(response, 'Sign in again to use cloud context, or clear cloud selections.')
+        }
         const fallbackResponse = await fetch(`${BACKEND_URL}/generate/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1918,6 +1932,8 @@ function MainWindow() {
         autoStreamingAudioContextRef.current.close().catch(() => {})
         autoStreamingAudioContextRef.current = null
       }
+      manualLiveStartIdRef.current = ''
+      manualLiveSessionRef.current?.cancel()
       streamRef.current?.getTracks().forEach((track) => track.stop())
       streamRef.current = null
     }
@@ -1944,6 +1960,7 @@ function MainWindow() {
     recording,
     manualProcessing,
     isManualGenerating,
+    manualLiveState,
     manualQuestionError,
     recordingStartedAt,
     audioPipelineStatus,
@@ -2349,6 +2366,9 @@ function MainWindow() {
   }
 
   const stopActiveStream = () => {
+    manualLiveStartIdRef.current = ''
+    manualLiveSessionRef.current?.cancel()
+    manualLiveSessionRef.current = null
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
     mediaRecorderRef.current = null
@@ -2730,7 +2750,7 @@ function MainWindow() {
     }
   }, [refinementJobId, refinementStatus])
 
-  const transcribeAudioBlob = async (blob, mode) => {
+  const transcribeAudioBlob = async (blob, mode, isActive = () => true) => {
     if (!blob || blob.size === 0) {
       if (mode === 'manual') {
         setAudioPipelineStatus('error')
@@ -2758,6 +2778,7 @@ function MainWindow() {
       transcribeResponse,
       'Could not transcribe the recording.'
     )
+    if (!isActive()) return { text: '', noSpeech: true }
     const text = transcribePayload.text || ''
     const noSpeech = Boolean(transcribePayload.no_speech) || !text.trim()
     const nextSttProvider = String(transcribePayload.transcription_provider || '').trim()
@@ -2925,6 +2946,7 @@ function MainWindow() {
     forceTechnical = false,
     suppressProfileContext = false,
     logicalRequestId = null,
+    capturedHistoryEntryId = '',
   }) => {
     const requestId = logicalRequestId || Date.now() + Math.random()
     latestGenerationRequestIdRef.current = requestId
@@ -2932,9 +2954,9 @@ function MainWindow() {
     const displayMode = mode === 'screen' ? 'screen' : mode === 'chat' ? 'chat' : 'answer'
     const historyMode = normalizeQuestionHistoryMode(displayMode)
     const requestSource = getSafeGenerationSource(mode, source)
-    const historyEntryId = historyMode
+    const historyEntryId = capturedHistoryEntryId || (historyMode
       ? `qh-${Date.now()}-${Math.random().toString(16).slice(2)}`
-      : ''
+      : '')
     const continuousMicAuto = mode === 'auto' && isContinuousMicAutoActive()
     const trackAudioPipeline =
       (mode === 'manual' || mode === 'auto') &&
@@ -3465,26 +3487,6 @@ function MainWindow() {
       }
       throw err
     }
-  }
-
-  const processManualBlob = async (blob) => {
-    const pipelineStarted = performance.now()
-    const recordingMs = recordingStartedAt
-      ? Number((Date.now() - recordingStartedAt).toFixed(2))
-      : null
-    const { text, uploadMs, transcriptionMs, noSpeech } = await transcribeAudioBlob(blob, 'manual')
-    if (noSpeech) {
-      return
-    }
-    await classifyAndGenerate({
-      text,
-      displayQuestion: text,
-      recordingMs,
-      uploadMs,
-      transcriptionMs,
-      pipelineStarted,
-      mode: 'manual',
-    })
   }
 
   const shouldSkipRecentTranscript = (normalizedText) => {
@@ -4069,38 +4071,16 @@ function MainWindow() {
     setMicStreamRestartCount(0)
     setLastMicStreamRestartReason('')
 
-    const socket = new WebSocket(getBackendWebSocketUrl('/ws/auto-stt'))
-    socket.binaryType = 'arraybuffer'
+    const { socket, audioContext, sourceNode, processor } = createLiveMicTransport({
+      stream,
+      url: getBackendWebSocketUrl('/ws/auto-stt'),
+      isActive: () => autoModeRef.current && autoModeRunIdRef.current === runId,
+      downsample: downsampleToInt16Mono,
+    })
     autoStreamingSocketRef.current = socket
-
-    const audioContext = new window.AudioContext()
     autoStreamingAudioContextRef.current = audioContext
-    const sourceNode = audioContext.createMediaStreamSource(stream)
     autoStreamingSourceNodeRef.current = sourceNode
-    const processor = audioContext.createScriptProcessor(4096, 1, 1)
     autoStreamingProcessorRef.current = processor
-
-    processor.onaudioprocess = (event) => {
-      if (
-        !autoModeRef.current ||
-        autoModeRunIdRef.current !== runId ||
-        socket.readyState !== WebSocket.OPEN
-      ) {
-        return
-      }
-      const inputChannel = event.inputBuffer.getChannelData(0)
-      const pcm16 = downsampleToInt16Mono(
-        inputChannel,
-        audioContext.sampleRate,
-        16000
-      )
-      if (pcm16.length) {
-        socket.send(pcm16.buffer)
-      }
-    }
-
-    sourceNode.connect(processor)
-    processor.connect(audioContext.destination)
 
     const activateAutoStreamingFallback = () => {
       if (!autoModeRef.current || autoModeRunIdRef.current !== runId) {
@@ -4659,6 +4639,7 @@ function MainWindow() {
   }
 
   const startAutoMode = async () => {
+    if (manualLiveStartIdRef.current) return
     const sourceMode = getSelectedAudioSourceLabel(audioSourcesRef.current)
     setAutoStartClicked(true)
     logAutoModeDebug('auto start clicked', {
@@ -4844,6 +4825,11 @@ function MainWindow() {
   }
 
   const stopActiveOperation = () => {
+    manualLiveStartIdRef.current = ''
+    manualLiveSessionRef.current?.cancel()
+    manualLiveSessionRef.current = null
+    setManualLiveState(createManualLiveState())
+    setGenerationStarted(false)
     latestGenerationRequestIdRef.current = createScreenOpaqueId('stopped_request')
     activeGenerateAbortControllerRef.current?.abort()
     activeGenerateAbortControllerRef.current = null
@@ -5655,8 +5641,9 @@ function MainWindow() {
   }
 
   const handleAnswerFromLatestContext = async () => {
+    if (recording || manualProcessing) return
     const latestScreenQuestion = ocrText.trim()
-    const latestQuestion = (latestScreenQuestion || transcript).trim()
+    const latestQuestion = latestScreenQuestion
 
     if (!latestQuestion) {
       clearProgressiveAnswer()
@@ -5680,16 +5667,6 @@ function MainWindow() {
         })
         return
       }
-
-      await classifyAndGenerate({
-        text: latestQuestion,
-        displayQuestion: latestQuestion,
-        recordingMs: null,
-        uploadMs: null,
-        transcriptionMs: null,
-        pipelineStarted: performance.now(),
-        mode: 'manual',
-      })
     } catch (err) {
       console.error('Toolbar answer generation error', err)
       clearProgressiveAnswer()
@@ -5703,6 +5680,40 @@ function MainWindow() {
     const currentAudioSources = audioSourcesRef.current
     const currentAudioPipelineStatus = audioPipelineStatusRef.current
     const sourceMode = getSelectedAudioSourceLabel(currentAudioSources)
+
+    if (manualLiveStartIdRef.current) {
+      const session = manualLiveSessionRef.current
+      if (!session) {
+        stopActiveStream()
+        setRecording(false)
+        setRecordingStartedAt(null)
+        setActiveAudioSource('none')
+        setAudioPipelineStatus('idle')
+        setManualLiveState(createManualLiveState())
+        setStatus('Stopped.')
+        return
+      }
+      try {
+        await session.stop()
+      } catch (err) {
+        if (manualLiveSessionRef.current !== session) return
+        setError(normalizePipelineError(err, 'Could not process the microphone question.'))
+        setStatus('Request failed.')
+        setGenerationStarted(false)
+        setAudioPipelineStatus('idle')
+      } finally {
+        if (manualLiveSessionRef.current === session) {
+          manualLiveSessionRef.current = null
+          manualLiveStartIdRef.current = ''
+          streamRef.current = null
+          setManualProcessing(false)
+          setRecording(false)
+          setRecordingStartedAt(null)
+          setActiveAudioSource('none')
+        }
+      }
+      return
+    }
 
     if (autoMode || autoProcessing || ocrProcessing) {
       return
@@ -5763,6 +5774,7 @@ function MainWindow() {
       }
 
       setError('')
+      setGenerationStarted(false)
       setStatus('Preparing microphone...')
       clearProgressiveAnswer()
       resetAnswerMeta()
@@ -5770,72 +5782,94 @@ function MainWindow() {
       setManualQuestionError('')
       setTranscript('')
 
+      const sessionId = crypto.randomUUID()
+      manualLiveStartIdRef.current = sessionId
+      setAnswerDisplayMode('answer')
+      setManualLiveState({ ...createManualLiveState(sessionId), phase: 'connecting' })
+      setRecording(true)
+      setRecordingStartedAt(Date.now())
+      setAudioPipelineStatus('recording')
+      setActiveAudioSource('microphone')
+      setStatus('Listening...')
+      const isCurrent = () => manualLiveStartIdRef.current === sessionId
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        const mimeType = getPreferredRecorderMimeType()
-        const recorder = mimeType
-          ? new MediaRecorder(stream, { mimeType })
-          : new MediaRecorder(stream)
-
+        if (!isCurrent()) { stream.getTracks().forEach((track) => track.stop()); return }
         streamRef.current = stream
-        mediaRecorderRef.current = recorder
-        chunksRef.current = []
-
-        recorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            chunksRef.current.push(event.data)
-          }
-        }
-
-        recorder.onstop = async () => {
-          if (manualRecordingCancelledRef.current) {
-            manualRecordingCancelledRef.current = false
-            chunksRef.current = []
-            stopActiveStream()
-            setRecording(false)
-            setManualProcessing(false)
-            setRecordingStartedAt(null)
-            setActiveAudioSource('none')
-            setAudioPipelineStatus('idle')
-            setStatus('Stopped.')
-            return
-          }
-          try {
-            const type = recorder.mimeType || chunksRef.current[0]?.type || 'audio/webm'
-            const blob = new Blob(chunksRef.current, { type })
-            await processManualBlob(blob)
-          } catch (err) {
-            console.error('AI pipeline error', err)
-            clearProgressiveAnswer()
-            resetAnswerMeta()
-            setAudioPipelineStatus('error')
-            setError(normalizePipelineError(err, 'Could not process the recording.'))
-            setStatus('Request failed.')
-            scheduleAudioPipelineIdleReset()
-          } finally {
-            stopActiveStream()
-            setRecording(false)
-            setManualProcessing(false)
-            setRecordingStartedAt(null)
-            setActiveAudioSource('none')
-          }
-        }
-
-        recorder.start()
-        setRecording(true)
-        setAudioPipelineStatus('recording')
-        setActiveAudioSource('microphone')
-        setRecordingStartedAt(Date.now())
-        setStatus('Recording...')
+        setSttProvider('assemblyai_streaming')
+        setSttFallbackUsed(false)
+        setSttFallbackReason('')
+        manualLiveSessionRef.current = createManualLiveSession({
+          sessionId, stream,
+          createTransport: (micStream, isActive) => createLiveMicTransport({
+            stream: micStream, isActive, downsample: downsampleToInt16Mono,
+            url: getBackendWebSocketUrl('/ws/auto-stt'),
+          }),
+          createRecorder: (micStream) => {
+            const mimeType = getPreferredRecorderMimeType()
+            return mimeType ? new MediaRecorder(micStream, { mimeType }) : new MediaRecorder(micStream)
+          },
+          onState: (next) => {
+            if (!isCurrent()) return
+            setManualLiveState(next)
+            setGenerationStarted(next.phase === 'generating')
+            if (next.phase === 'finalizing') {
+              setRecording(false)
+              setManualProcessing(true)
+              setAudioPipelineStatus('transcribing')
+              setStatus('Finalizing question...')
+            } else if (next.phase === 'generating') {
+              setAudioPipelineStatus('generating')
+              setStatus('Generating answer...')
+            } else if (next.phase === 'idle' || next.phase === 'error') {
+              setAudioPipelineStatus('idle')
+              if (!next.detectedQuestion) setStatus('No clear question detected yet.')
+            }
+          },
+          onTranscript: (text) => { if (isCurrent()) setTranscript(text) },
+          onFallback: () => {
+            if (!isCurrent()) return
+            setSttFallbackUsed(true)
+            setSttFallbackReason('live_stt_unavailable')
+            appendEventLog('Live STT unavailable. Batch transcription will run when stopped.', 'info')
+          },
+          transcribe: async (blob) => {
+            if (!isCurrent()) return { text: '' }
+            const result = await transcribeAudioBlob(blob, 'manual', isCurrent)
+            if (isCurrent()) {
+              setSttFallbackUsed(true)
+              setSttFallbackReason(result.fallbackReason || 'live_stt_unavailable')
+              setPipelineTimings((current) => ({ ...current, upload_ms: result.uploadMs, transcription_ms: result.transcriptionMs }))
+            }
+            return result
+          },
+          detectQuestion: async (text) => {
+            const corrected = correctTechnicalQuestionText(text).correctedText || text
+            const response = await fetch(`${BACKEND_URL}/api/question-detect`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ transcript: corrected, combined_transcript: corrected }),
+            })
+            const detected = await parseJsonResponse(response, 'Could not detect the microphone question.')
+            return detected.is_question ? String(detected.normalized_question || corrected).trim() : ''
+          },
+          generate: async ({ text, historyEntryId, recordingMs, uploadMs, transcriptionMs }) => {
+            if (!isCurrent()) return
+            setQuestionHistoryState((current) => appendQuestionHistoryEntry(current,
+              createQuestionHistoryEntry({ id: historyEntryId, mode: 'answer', question: text, status: 'pending' })))
+            await classifyAndGenerate({ text, displayQuestion: text, mode: 'manual', capturedHistoryEntryId: historyEntryId,
+              recordingMs, uploadMs, transcriptionMs, pipelineStarted: performance.now() })
+          },
+        })
       } catch (err) {
-        console.error('Microphone error', err)
-        setAudioPipelineStatus('error')
+        if (!isCurrent()) return
+        stopActiveStream()
+        setManualLiveState({ ...createManualLiveState(sessionId), phase: 'error' })
+        setRecording(false)
+        setRecordingStartedAt(null)
+        setAudioPipelineStatus('idle')
         setActiveAudioSource('none')
         setError('Could not access the microphone. Please check microphone permissions and try again.')
         setStatus('Microphone unavailable.')
-        setManualProcessing(false)
-        setRecordingStartedAt(null)
-        scheduleAudioPipelineIdleReset()
       }
       return
     }
@@ -6101,6 +6135,8 @@ function MainWindow() {
       setFontSize={setFontSize}
       overlayVisible={overlayVisible}
       handleOverlayToggle={handleOverlayToggle}
+      manualLiveState={manualLiveState}
+      manualFinalTranscript={getManualFinalTranscript(manualLiveState)}
       recording={recording}
       manualProcessing={manualProcessing}
       audioPipelineStatus={audioPipelineStatus}

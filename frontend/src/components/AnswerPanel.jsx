@@ -536,7 +536,7 @@ function getPanelCopy(mode, overlayState) {
   }
 
   return {
-    title: overlayState.transcript || 'No clear question detected yet.',
+    title: overlayState.transcript || (['connecting', 'listening'].includes(overlayState.manualLiveState?.phase) ? 'Listening...' : 'No clear question detected yet.'),
     body:
       overlayState.answer ||
       'Your latest SAIIA answer will appear here once a question is captured or generated.',

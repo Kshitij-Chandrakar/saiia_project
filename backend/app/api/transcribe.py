@@ -3,6 +3,7 @@ import time
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from app.services import STTProviderService, STTServiceError
 
@@ -31,7 +32,8 @@ async def transcribe_audio(file: UploadFile = File(...), mode: str = Form("manua
     started = time.perf_counter()
     try:
         content = await file.read()
-        result = stt_provider.transcribe_upload(
+        result = await run_in_threadpool(
+            stt_provider.transcribe_upload,
             filename=file.filename,
             content_type=file.content_type,
             content=content,

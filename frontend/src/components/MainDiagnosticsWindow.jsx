@@ -427,6 +427,8 @@ export default function MainDiagnosticsWindow(props) {
     isCooldownListening,
     autoStreamingConnected,
     partialAutoTranscript,
+    manualLiveState,
+    manualFinalTranscript,
     streamingError,
     autoProcessing,
     ocrProcessing,
@@ -1647,6 +1649,11 @@ export default function MainDiagnosticsWindow(props) {
                     label="Raw final transcript"
                     value={rawFinalTranscript || 'n/a'}
                   />
+                  <MetaRow label="Manual listening active" value={['connecting', 'listening'].includes(manualLiveState?.phase) ? 'true' : 'false'} />
+                  <MetaRow label="Manual phase" value={manualLiveState?.phase || 'idle'} />
+                  <MetaRow label="Manual partial transcript" value={manualLiveState?.partialTranscript || 'n/a'} />
+                  <MetaRow label="Manual final transcript" value={manualFinalTranscript || 'n/a'} />
+                  <MetaRow label="Manual detected question" value={manualLiveState?.detectedQuestion || 'n/a'} />
                   <MetaRow
                     label="Partial transcript"
                     value={partialAutoTranscript || 'n/a'}

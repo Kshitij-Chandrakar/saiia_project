@@ -327,7 +327,7 @@ async def test_generate_rejects_unauthenticated_session_id_before_calling_genera
         )
 
     assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == generate_api.AUTH_ERROR_DETAIL
+    assert "Sign in again" in exc_info.value.detail
 
 
 @pytest.mark.anyio
@@ -1254,3 +1254,24 @@ def test_selected_resume_name_is_not_forced_into_non_intro_prompt() -> None:
     )
 
     assert "Use the candidate name from the selected resume naturally" not in prompt
+
+@pytest.mark.parametrize("token", [None, "Bearer invalid-test-token"])
+def test_local_generation_authorization_ignores_unavailable_optional_auth(monkeypatch, token):
+    from starlette.requests import Request
+    headers = [(b"authorization", token.encode())] if token else []
+    request = Request({"type": "http", "headers": headers})
+    monkeypatch.setattr(generate_api, "get_current_user", lambda _: pytest.fail("local request must not resolve cloud identity"))
+    assert generate_api._authorize_generation_session(generate_api.GenerateRequest(question="What is deep learning?", category="technical"), request) is None
+
+@pytest.mark.parametrize("field", ["selected_resume_id", "session_id", "job_context_id"])
+def test_invalid_auth_blocks_explicit_cloud_generation(monkeypatch, field):
+    from starlette.requests import Request
+    request = Request({"type": "http", "headers": [(b"authorization", b"Bearer invalid-test-token")]})
+    def reject(_):
+        raise generate_api.HTTPException(status_code=401, detail="Invalid authentication credentials.")
+    monkeypatch.setattr(generate_api, "get_current_user", reject)
+    req = generate_api.GenerateRequest(question="Question", category="technical", **{field: SESSION_ID})
+    with pytest.raises(generate_api.HTTPException) as exc:
+        generate_api._authorize_generation_session(req, request)
+    assert exc.value.status_code == 401
+    assert "Sign in again" in exc.value.detail

@@ -71,11 +71,13 @@ class STTProviderService:
     def __init__(self) -> None:
         from app.services.assemblyai_stt_service import AssemblyAISTTService
         from app.services.groq_stt_service import GroqSTTService
+        from app.services.openai_stt_service import OpenAISTTService
         from app.services.whisper_stt_service import WhisperSTTService
 
         self.logger = logging.getLogger("stt_provider")
         self.assemblyai_service = AssemblyAISTTService()
         self.groq_service = GroqSTTService()
+        self.openai_service = OpenAISTTService()
         self.whisper_service = WhisperSTTService()
 
     def transcribe_upload(
@@ -156,6 +158,25 @@ class STTProviderService:
         else:
             provider = settings.STT_PROVIDER
 
+        if mode == "manual" and provider == "openai_whisper":
+            try:
+                return self.openai_service.transcribe(
+                    audio_path=audio_path, original_filename=original_filename
+                )
+            except STTServiceError as error:
+                self.logger.warning("OpenAI STT failed: %s", error)
+                if settings.STT_FALLBACK_PROVIDER != "whisper_local":
+                    raise
+                result = self.whisper_service.transcribe(audio_path=audio_path)
+                result.fallback_used = True
+                result.fallback_reason = error.fallback_reason or "openai_stt_failed"
+                self.logger.info(
+                    "STT fallback activated provider=%s reason=%s",
+                    result.transcription_provider,
+                    result.fallback_reason,
+                )
+                return result
+
         if provider == "assemblyai":
             return self._transcribe_with_assemblyai_then_optional_whisper(
                 audio_path=audio_path,
@@ -174,7 +195,8 @@ class STTProviderService:
         raise STTServiceError(
             f"Unsupported STT provider '{provider}'.",
             public_message=(
-                "Unsupported STT provider. Use STT_PROVIDER=assemblyai, STT_PROVIDER=groq, "
+                "Unsupported STT provider. Use MANUAL_STT_PROVIDER=openai_whisper for manual audio, "
+                "STT_PROVIDER=assemblyai, STT_PROVIDER=groq, "
                 "STT_PROVIDER=whisper_local, or AUTO_STT_FALLBACK_PROVIDER=whisper_local."
             ),
             status_code=500,

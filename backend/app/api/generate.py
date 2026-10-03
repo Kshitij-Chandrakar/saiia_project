@@ -258,9 +258,35 @@ def _current_user_for_session_id(req: "GenerateRequest", request: Request | None
 
 def _authorize_generation_session(req: "GenerateRequest", request: Request | None) -> CurrentUser | None:
     session_id = _normalize_session_id(req.session_id)
-    if not session_id:
+    selected_resume_id = _normalize_selected_resume_id(req.selected_resume_id)
+    auth_required = bool(session_id or selected_resume_id or req.job_context_id)
+    logger.info(
+        "generation_auth required=%s token_attached=%s",
+        auth_required, bool(getattr(request, "headers", {}).get("Authorization")),
+    )
+    if not auth_required:
         return None
-    current_user = _current_user_for_session_id(req, request)
+    try:
+        if session_id:
+            current_user = _current_user_for_session_id(req, request)
+        elif selected_resume_id:
+            current_user = _current_user_for_selected_resume(req, request)
+        elif request is not None:
+            current_user = get_current_user(request)
+        else:
+            raise HTTPException(status_code=401, detail=AUTH_ERROR_DETAIL)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            raise HTTPException(
+                status_code=401,
+                detail="Cloud generation requires valid authentication. Sign in again or clear cloud selections to generate locally.",
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from None
+        raise
+    if req.job_context_id:
+        raise HTTPException(status_code=400, detail="Use an authorized interview session for cloud job context; direct job-context selection is not supported.")
+    if not session_id:
+        return current_user
     if current_user is None:
         return None
     try:
@@ -597,6 +623,7 @@ class GenerateRequest(BaseModel):
     profile_context_used: Optional[bool] = True
     selected_resume_id: Optional[str] = None
     session_id: Optional[str] = None
+    job_context_id: Optional[str] = None
     request_id: Optional[str] = None
     target_role: Optional[str] = None
     company_name: Optional[str] = None
