@@ -28,6 +28,7 @@ import {
 import authLogo from '../assets/startup-login/login-logo.svg'
 import { supabase } from './supabaseClient'
 import './auth.css'
+import WebsiteLogin from './WebsiteLogin'
 
 
 const AUTH_CALLBACK_URL = 'http://localhost:5173/auth/callback'
@@ -301,20 +302,25 @@ function useProfileBootstrap({ backendUrl, sessionErrorMessage, disabled = false
 }
 
 
-function getAuthRedirectUrl(desktopState = '') {
+function getAuthRedirectUrl(desktopState = '', nextRoute = '') {
   const safeDesktopState = getSafeDesktopState(desktopState)
+  if (!safeDesktopState && nextRoute) {
+    const callback = new URL('/auth/callback', window.location.origin)
+    callback.searchParams.set('next', getSafeAuthNextRoute(nextRoute))
+    return callback.toString()
+  }
   return safeDesktopState ? `${window.location.origin}${desktopLoginRoute(safeDesktopState)}` : AUTH_CALLBACK_URL
 }
 
 
-async function startGoogleLogin(desktopState = '') {
+async function startGoogleLogin(desktopState = '', nextRoute = '') {
   if (!supabase) {
     return { error: new Error('Supabase auth is not configured for this build.') }
   }
   return supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: getAuthRedirectUrl(desktopState),
+      redirectTo: getAuthRedirectUrl(desktopState, nextRoute),
     },
   })
 }
@@ -767,18 +773,18 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
 }
 
 
-export function AuthLoginPage({ backendUrl, desktopState = '', desktopError = '' }) {
+export function AuthLoginPage({ backendUrl, desktopState = '', desktopError = '', desktopChecking = false, desktopBlocked = false }) {
   const form = useAuthForm()
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const safeDesktopState = getSafeDesktopState(desktopState)
   const safeNextRoute = getSafeAuthNextRoute(searchParams.get('next') || location.state?.next)
-  const checkingSession = useRedirectAuthenticatedUser(safeDesktopState ? '' : safeNextRoute)
+  const checkingSession = useRedirectAuthenticatedUser(safeDesktopState || desktopBlocked ? '' : safeNextRoute)
 
   async function handleSubmit(event) {
     event.preventDefault()
-    if (!supabase) {
+    if (!supabase || desktopBlocked || desktopChecking || checkingSession) {
       return
     }
 
@@ -788,11 +794,11 @@ export function AuthLoginPage({ backendUrl, desktopState = '', desktopError = ''
     const { data, error } = await supabase.auth.signInWithPassword({
       email: form.email,
       password: form.password,
-    })
+    }).catch(() => ({ data: {}, error: { message: 'Login could not be completed. Please try again.' } }))
 
     if (error) {
       form.setLoading(false)
-      form.setError(error.message)
+      form.setError(safeDesktopState ? (error.code === 'invalid_credentials' ? 'Invalid email or password.' : 'Desktop sign-in could not be completed. Please try again.') : error.message)
       return
     }
 
@@ -808,68 +814,37 @@ export function AuthLoginPage({ backendUrl, desktopState = '', desktopError = ''
       form.setMessage('Login successful.')
       navigate(safeNextRoute, { replace: true })
     } catch (verifyError) {
-      form.setError(verifyError.message)
+      form.setError(safeDesktopState ? 'Desktop login could not be completed. Try logging in again.' : verifyError.message)
     } finally {
       form.setLoading(false)
     }
   }
 
   async function handleGoogleLogin() {
+    if (desktopBlocked || desktopChecking || checkingSession) return
     form.setError('')
     try {
-      const { error } = await startGoogleLogin(safeDesktopState)
+      const { error } = await startGoogleLogin(safeDesktopState, safeDesktopState ? '' : safeNextRoute)
       if (error) {
-        form.setError(error.message || 'Google login could not be started.')
+        form.setError(safeDesktopState ? 'Google login could not be started.' : (error.message || 'Google login could not be started.'))
       }
     } catch {
       form.setError('Google login could not be started.')
     }
   }
 
-  if (checkingSession) {
-    return (
-      <AuthShell title="Login">
-        <p className="auth-message info">Checking session...</p>
-      </AuthShell>
-    )
-  }
-
   return (
-    <AuthShell title="Login">
-      <ConfigNotice />
-      <form className="auth-form" onSubmit={handleSubmit}>
-        <label>
-          Email
-          <input
-            type="email"
-            value={form.email}
-            onChange={(event) => form.setEmail(event.target.value)}
-            autoComplete="email"
-            required
-          />
-        </label>
-        <label>
-          Password
-          <PasswordInput
-            value={form.password}
-            onChange={(event) => form.setPassword(event.target.value)}
-            autoComplete="current-password"
-            required
-          />
-        </label>
-        <button type="submit" disabled={!supabase || form.loading}>
-          {form.loading ? 'Checking...' : 'Login'}
-        </button>
-      </form>
-      <button className="auth-secondary-button" type="button" onClick={handleGoogleLogin} disabled={!supabase || form.loading}>
-        Continue with Google
-      </button>
-      <AuthMessage message={location.state?.authMessage || ''} tone="info" />
-      <AuthMessage message={desktopError} tone="error" />
-      <AuthMessage message={form.error} tone="error" />
-      <AuthMessage message={form.message} tone="success" />
-      <AuthLinks mode="login" desktopState={safeDesktopState} />
-    </AuthShell>
+    <WebsiteLogin
+      form={form}
+      checkingSession={checkingSession || desktopChecking}
+      configured={Boolean(supabase)}
+      blocked={desktopBlocked}
+      desktopError={desktopError}
+      signupHref={safeDesktopState ? desktopSignupRoute(safeDesktopState) : '/auth/signup'}
+      onSubmit={handleSubmit}
+      onGoogleLogin={handleGoogleLogin}
+      authMessage={location.state?.authMessage || ''}
+    />
   )
 }
 
@@ -916,27 +891,14 @@ export function AuthDesktopLoginPage({ backendUrl }) {
     }
   }, [backendUrl, state])
 
-  if (!state) {
-    return (
-      <AuthShell title="Desktop Login">
-        <AuthMessage message="Invalid desktop login request. Start again from the desktop app." tone="error" />
-        <AuthLinks />
-      </AuthShell>
-    )
-  }
-
-  if (checking) {
-    return (
-      <AuthShell title="Desktop Login">
-        <p className="auth-message info">Checking session...</p>
-      </AuthShell>
-    )
-  }
-
   return (
-    <>
-      <AuthLoginPage backendUrl={backendUrl} desktopState={state} desktopError={error} />
-    </>
+    <AuthLoginPage
+      backendUrl={backendUrl}
+      desktopState={state}
+      desktopChecking={checking}
+      desktopBlocked={!state}
+      desktopError={!state ? 'Invalid desktop login request. Start again from the desktop app.' : error}
+    />
   )
 }
 
@@ -1079,6 +1041,9 @@ export function AuthResetPasswordPage() {
 
 
 export function AuthCallbackPage({ backendUrl }) {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const nextRoute = searchParams.has('next') ? getSafeAuthNextRoute(searchParams.get('next')) : ''
   const [status, setStatus] = useState('Finishing sign in...')
   const [error, setError] = useState('')
 
@@ -1106,6 +1071,7 @@ export function AuthCallbackPage({ backendUrl }) {
         const user = await fetchCurrentUser(data.session.access_token, { backendUrl })
         if (!ignore) {
           setStatus(`Signed in as ${user.email || user.user_id}.`)
+          if (nextRoute) navigate(nextRoute, { replace: true })
         }
       } catch (verifyError) {
         if (!ignore) {
@@ -1119,7 +1085,7 @@ export function AuthCallbackPage({ backendUrl }) {
     return () => {
       ignore = true
     }
-  }, [backendUrl])
+  }, [backendUrl, navigate, nextRoute])
 
   return (
     <AuthShell title="Auth Status">
