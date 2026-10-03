@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
-import { createManualLiveSession, getManualFinalTranscript } from './manual_live_session.js'
+import { createManualLiveSession, getManualFinalTranscript, isManualLiveEnabled } from './manual_live_session.js'
 import { createLiveMicTransport } from './live_mic_transport.js'
 import { appendQuestionHistoryEntry, createQuestionHistoryEntry, createQuestionHistoryState, updateQuestionHistoryEntry } from './question_history.js'
 
@@ -17,7 +17,7 @@ function setup(options = {}) {
     stop() { this.state = 'inactive'; this.ondataavailable({ data: new Blob(['backup']) }); this.onstop() },
   }
   const session = createManualLiveSession({
-    sessionId: 'session-1', stream,
+    sessionId: 'session-1', stream, manualSttProvider: 'openai_whisper', manualLiveSttProvider: 'assemblyai_streaming',
     createTransport: () => ({ socket, pauseAudio: () => pauses++, close: () => { closes++; socket.onclose?.() } }),
     createRecorder: () => recorder,
     transcribe: async (blob) => { transcriptions.push(blob); return { text: options.batchText ?? 'What is React?', transcriptionMs: 12 } },
@@ -274,7 +274,7 @@ test('Auto microphone callbacks retain partial preview, final generation and fal
   assert.match(autoProcess, /startAutoCooldown\(runId\)/)
 })
 
-function appManualHarness() {
+function appManualHarness(manualConfig = { manual_stt_provider: 'openai_whisper', manual_live_stt_provider: 'assemblyai_streaming' }) {
   const values = {}, generationRequests = [], batchRequests = [], detectionRequests = []
   let history = createQuestionHistoryState(), stoppedTracks = 0
   const socket = { readyState: 1, send() {} }
@@ -289,18 +289,22 @@ function appManualHarness() {
   const context = {
     crypto: { randomUUID: () => 'app-session' }, Date, performance, console,
     audioSourcesRef: { current: { microphone: true, system: false } }, audioPipelineStatusRef: { current: 'idle' },
-    manualLiveStartIdRef: { current: '' }, manualLiveSessionRef: { current: null }, streamRef: { current: null },
+    pendingManualGenerationRef: { current: null }, manualLiveStartIdRef: { current: '' }, manualLiveSessionRef: { current: null }, streamRef: { current: null },
     autoMode: false, autoProcessing: false, ocrProcessing: false, recording: false,
     getSelectedAudioSourceLabel: () => 'microphone', getPreferredRecorderMimeType: () => '',
     navigator: { mediaDevices: { getUserMedia: async () => stream } }, MediaRecorder: Recorder,
     getBackendWebSocketUrl: (path) => path, downsampleToInt16Mono: () => {},
+    isManualLiveEnabled,
     createManualLiveState: (id = '') => ({ sessionId: id, phase: 'idle' }),
     createManualLiveSession: (options) => createManualLiveSession({ ...options, finalizeMs: 5, connectMs: 50 }),
     createLiveMicTransport: () => ({ socket, pauseAudio() {}, close() { socket.onclose?.() } }),
     transcribeAudioBlob: async (blob, mode) => { batchRequests.push({ blob, mode }); return { text: 'What is React?', transcriptionMs: 12 } },
     correctTechnicalQuestionText: (text) => ({ correctedText: text }), BACKEND_URL: 'http://local',
-    fetch: async (url, args) => { detectionRequests.push({ url, body: JSON.parse(args.body) }); return {} },
-    parseJsonResponse: async () => ({ is_question: true, normalized_question: 'What is React?' }),
+    fetch: async (url, args) => {
+      if (url.endsWith('/transcribe/config')) return manualConfig
+      detectionRequests.push({ url, body: JSON.parse(args.body) }); return { is_question: true, normalized_question: 'What is React?' }
+    },
+    parseJsonResponse: async (response) => response,
     classifyAndGenerate: async (request) => {
       generationRequests.push(request)
       history = appendQuestionHistoryEntry(history, createQuestionHistoryEntry({ id: request.capturedHistoryEntryId, mode: 'answer', question: request.text, status: 'generating' }))
@@ -366,9 +370,11 @@ test('actual App fallback calls manual batch STT once and retains its timing', a
 
 test('stop during microphone permission request ignores late permission result and releases tracks', async () => {
   const f = appManualHarness()
-  let resolvePermission
-  f.context.navigator.mediaDevices.getUserMedia = () => new Promise((resolve) => { resolvePermission = resolve })
+  let resolvePermission, permissionRequested
+  const requested = new Promise((resolve) => { permissionRequested = resolve })
+  f.context.navigator.mediaDevices.getUserMedia = () => { permissionRequested(); return new Promise((resolve) => { resolvePermission = resolve }) }
   const starting = f.click()
+  await requested
   await f.click()
   resolvePermission(f.stream)
   await starting
@@ -427,4 +433,116 @@ test('Answer panel shows Listening before text and opens once for a new manual s
   assert.match(overlay, /\[overlayState\.manualLiveState\?\.sessionId\]/)
   assert.match(panel, /title: overlayState\.transcript \|\| \(\['connecting', 'listening'\]/)
   assert.match(panel, /\? 'Listening\.\.\.'/)
+})
+
+for (const provider of ['whisper_local', 'openai_whisper']) {
+  test(`${provider} without explicit live opt-in captures batch only`, async () => {
+    const f = setup({ manualSttProvider: provider, manualLiveSttProvider: 'none', createTransport: () => { throw new Error('privacy boundary breached') } })
+    assert.equal(f.states.at(-1).liveProvider, 'none')
+    await f.session.stop()
+    assert.equal(f.transcriptions.length, 1)
+    assert.equal(f.generations.length, 1)
+    assert.equal(f.counts().fallbackCount, 0)
+  })
+}
+test('local Whisper blocks streaming even with explicit external live provider', async () => {
+  assert.equal(isManualLiveEnabled('whisper_local', 'assemblyai_streaming'), false)
+  let transportStarts = 0
+  const f = setup({ manualSttProvider: 'whisper_local', createTransport: () => { transportStarts++; throw new Error('external') } })
+  await f.session.stop()
+  assert.equal(transportStarts, 0)
+  assert.equal(f.transcriptions.length, 1)
+})
+test('explicit AssemblyAI live provider allows openai_whisper preview', () => {
+  assert.equal(isManualLiveEnabled('openai_whisper', 'assemblyai_streaming'), true)
+  assert.equal(isManualLiveEnabled('openai_whisper', ''), false)
+  assert.equal(isManualLiveEnabled('unsupported', 'assemblyai_streaming'), false)
+})
+test('App uses backend provider gate and disabled preview remains normal batch, not fallback', async () => {
+  const f = appManualHarness({ manual_stt_provider: 'whisper_local', manual_live_stt_provider: 'none' })
+  await f.click()
+  assert.equal(f.socket.onmessage, undefined)
+  assert.equal(f.values.setSttProvider, 'whisper_local')
+  assert.equal(f.values.setGenerationStarted, false)
+  await f.click()
+  assert.equal(f.batchRequests.length, 1)
+  assert.equal(f.generationRequests.length, 1)
+  assert.equal(f.values.setSttFallbackUsed, false)
+})
+test('configuration fetch failure defaults to batch and never opens external live transport', async () => {
+  const f = appManualHarness()
+  const fetch = f.context.fetch
+  f.context.fetch = (url, args) => url.endsWith('/transcribe/config') ? Promise.reject(new Error('unavailable')) : fetch(url, args)
+  await f.click()
+  assert.equal(f.socket.onmessage, undefined)
+  await f.click()
+  assert.equal(f.batchRequests.length, 1)
+  assert.equal(f.generationRequests.length, 1)
+})
+test('new privacy/auth paths do not log secret payloads', () => {
+  const auth = readFileSync(new URL('./generation_auth.js', import.meta.url), 'utf8')
+  const session = readFileSync(new URL('./manual_live_session.js', import.meta.url), 'utf8')
+  assert.doesNotMatch(auth + session, /console\.|logger\.|Authorization|api_key|access_token/)
+})
+
+
+test('early final finishes after revision grace before the 700 ms ceiling, with stop-to-detection timing', async () => {
+  const f = setup({ finalizeMs: 700 })
+  const stopping = f.session.stop()
+  f.turn('What is React?', 0, true)
+  await stopping
+  const state = f.states.at(-1)
+  assert.ok(state.manual_finalization_wait_ms >= 90)
+  assert.ok(state.manual_finalization_wait_ms < 650)
+  assert.ok(state.manual_final_transcript_received_at >= state.manual_stop_clicked_at)
+  assert.equal(state.stop_to_question_detection_ms, state.manual_question_detection_started_at - state.manual_stop_clicked_at)
+  assert.ok(state.stop_to_question_detection_ms >= state.manual_finalization_wait_ms)
+  assert.equal(f.generations.length, 1)
+})
+
+test('no fresh final retains the default 700 ms timeout and uses best partial', async () => {
+  const f = setup({ finalizeMs: 700 })
+  f.turn('What is React?')
+  await f.session.stop()
+  assert.ok(f.states.at(-1).manual_finalization_wait_ms >= 690)
+  assert.equal(f.generations[0].text, 'What is React?')
+})
+
+test('revision during grace replaces the final and repeated Stop generates once; post-close turns are ignored', async () => {
+  const f = setup({ finalizeMs: 700 })
+  const stopping = f.session.stop()
+  f.turn('What is React?', 0, true)
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  f.turn('What are React hooks?', 0, true)
+  assert.equal(f.session.stop(), stopping)
+  await stopping
+  assert.ok(f.states.at(-1).manual_finalization_wait_ms >= 150)
+  assert.equal(f.generations.length, 1)
+  assert.equal(f.generations[0].text, 'What are React hooks?')
+  f.turn('What is a late revision?', 0, true)
+  await f.session.stop()
+  assert.equal(f.generations.length, 1)
+  assert.equal(getManualFinalTranscript(f.states.at(-1)), 'What are React hooks?')
+})
+
+test('an older final cannot complete finalization while a newer partial is outstanding', async () => {
+  const f = setup({ finalizeMs: 300 })
+  f.turn('Explain hooks.', 0, true)
+  f.turn('What is useEffect?', 1)
+  const stopping = f.session.stop()
+  f.turn('Explain React hooks.', 0, true)
+  await stopping
+  assert.ok(f.states.at(-1).manual_finalization_wait_ms >= 290)
+  assert.equal(f.generations[0].text, 'Explain React hooks. What is useEffect?')
+})
+
+test('empty final cannot trigger early completion or generation; empty batch stays safe', async () => {
+  const f = setup({ finalizeMs: 150, batchText: '' })
+  const stopping = f.session.stop()
+  f.turn('   ', 0, true)
+  await stopping
+  assert.equal(f.generations.length, 0)
+  assert.equal(f.transcriptions.length, 1)
+  assert.equal(f.states.at(-1).manual_question_detection_started_at, null)
+  assert.equal(f.states.at(-1).stop_to_question_detection_ms, null)
 })

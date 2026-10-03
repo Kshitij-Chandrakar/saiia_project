@@ -1390,7 +1390,8 @@ test('openAnswerStream uses the authenticated stream endpoint without exposing c
     })
 
     const streamCall = ctx.calls.find((call) => call.url.endsWith('/generate/stream'))
-    assert.deepEqual(Object.keys(opened).sort(), ['isCurrent', 'ok', 'release', 'response', 'status'])
+    assert.deepEqual(Object.keys(opened).sort(), ['generateRequestSent', 'isCurrent', 'ok', 'release', 'response', 'status'])
+    assert.equal(opened.generateRequestSent, true)
     assert.equal(opened.ok, true)
     assert.equal(streamCall.init.headers.Authorization, 'Bearer access-token')
     assert.equal(streamCall.init.headers.Accept, 'application/x-ndjson')
@@ -1937,6 +1938,8 @@ test('desktop auth manager creates lists and ends interview sessions without exp
     const ended = await ctx.manager.endInterviewSession('session-1')
     assert.equal(ended.session.status, 'ended')
     assert.equal(ctx.manager.activeInterviewSession, null)
+    assert.deepEqual(ctx.manager.getStartupContext().auth.endedInterviewSessionIds, ['session-1'])
+    assert.equal(JSON.stringify(ctx.manager.getStartupContext().auth).includes('access-token'), false)
 
     const createCall = ctx.calls.find((call) => call.url.endsWith('/api/interview-sessions'))
     assert.equal(createCall.init.headers.Authorization, 'Bearer access-token')

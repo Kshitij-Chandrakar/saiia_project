@@ -20,7 +20,7 @@ import LandingPage from './landing/LandingPage'
 import { markChatTiming, readNdjsonStream, stripInternalControlMarkers } from './answer_stream'
 import { isCurrentRequest } from './request_state'
 import { createLiveMicTransport } from './live_mic_transport'
-import { createManualLiveSession, createManualLiveState, getManualFinalTranscript } from './manual_live_session'
+import { createManualLiveSession, createManualLiveState, getManualFinalTranscript, isManualLiveEnabled } from './manual_live_session'
 import { prepareGenerationRequest } from './generation_auth'
 import { normalizeScreenResponse } from './screen_intelligence_contract'
 import {
@@ -1174,6 +1174,7 @@ function MainWindow() {
   const [cooldownQueueReason, setCooldownQueueReason] = useState('')
   const [queuedQuestionProcessed, setQueuedQuestionProcessed] = useState(false)
   const [generationStarted, setGenerationStarted] = useState(false)
+  const [generationDiagnostics, setGenerationDiagnostics] = useState({ generationRequestBlocked: false, generationBlockReason: '', activeSessionIdPresent: false, activeSessionEnded: false, authRequired: false, generateRequestSent: false })
   const [generationBlockedReason, setGenerationBlockedReason] = useState('')
   const [isCooldownListening, setIsCooldownListening] = useState(false)
   const [sttProvider, setSttProvider] = useState('')
@@ -1470,6 +1471,9 @@ function MainWindow() {
     }
   }
 
+  const pendingManualGenerationRef = useRef(null)
+  const generationRecoveryBusyRef = useRef(false)
+
   const streamGenerateAnswer = async ({
     body,
     requestId,
@@ -1477,6 +1481,7 @@ function MainWindow() {
     historyMode = '',
     historyEntryId = '',
     pipelineStarted = null,
+    localWithoutSaving = false,
   }) => {
     activeGenerateAbortControllerRef.current?.abort()
     const controller = new AbortController()
@@ -1517,7 +1522,10 @@ function MainWindow() {
         fullAnswerRef.current = text
         setFullAnswer(text)
         setAnswer(text)
-        if (text && firstStateMs == null) firstStateMs = performance.now() - pipelineStartedAt
+        if (text && firstStateMs == null) {
+          firstStateMs = performance.now() - pipelineStartedAt
+          setGenerationDiagnostics((current) => ({ ...current, first_ui_update_ms: firstStateMs }))
+        }
         markChatTiming(requestId, 'answer_state_update')
       }
     }
@@ -1547,6 +1555,7 @@ function MainWindow() {
           const firstDeltaAt = performance.now()
           markChatTiming(requestId, 'first_answer_text_received')
           firstDeltaMs = Number((firstDeltaAt - pipelineStartedAt).toFixed(2))
+          setGenerationDiagnostics((current) => ({ ...current, first_delta_received_ms: firstDeltaMs, provider_streaming: true }))
           streamDispatchToFirstDeltaMs = Number((firstDeltaAt - streamStartedAt).toFixed(2))
         }
         accumulatedAnswer += text
@@ -1600,7 +1609,13 @@ function MainWindow() {
     try {
       const activeStartupSessionConfig = startupSessionConfigRef.current
       const { requestBody, authRequired } = await prepareGenerationRequest(
-        body, activeStartupSessionConfig, window.saiia
+        body, activeStartupSessionConfig, window.saiia, (diagnostics) => {
+          if (controller.signal.aborted || !isCurrentRequest(latestGenerationRequestIdRef.current, requestId)) return
+          setGenerationDiagnostics(diagnostics)
+          if (diagnostics.startupSessionEnded && startupSessionConfigRef.current === activeStartupSessionConfig) {
+            applyStartupSessionConfig({ ...activeStartupSessionConfig, activeSessionId: '' })
+          }
+        }, { localWithoutSaving }
       )
       console.info('Generation auth diagnostics', {
         generationAuthRequired: authRequired,
@@ -1608,12 +1623,19 @@ function MainWindow() {
         generationTransport: authRequired ? 'desktop-authenticated' : 'local-rest',
       })
       appendEventLog(`Generation auth required: ${authRequired}; renderer token attached: false.`, 'info')
-      const desktopGenerateAnswer = window.saiia?.generateAnswer
-      const applyBufferedAnswer = async () => {
+      const desktopGenerateAnswer = window.saiia?.generateAnswer || window.electronAPI?.generateAnswer
+      const desktopStartAnswerStream = window.saiia?.startAnswerStream || window.electronAPI?.startAnswerStream
+      const desktopCancelAnswerStream = window.saiia?.cancelAnswerStream || window.electronAPI?.cancelAnswerStream
+      const desktopStreamEvents = window.saiia?.onAnswerStreamEvent || window.electronAPI?.onAnswerStreamEvent
+      const desktopStreamAvailable = typeof desktopStartAnswerStream === 'function' && typeof desktopStreamEvents === 'function'
+      setGenerationDiagnostics((current) => ({ ...current, generation_transport_version: 'authenticated-stream-v2', generation_display_mode: displayMode, electron_stream_available: desktopStreamAvailable }))
+      const applyBufferedAnswer = async (reason = 'stream_transport_unsupported') => {
+        setGenerationDiagnostics((current) => ({ ...current, generate_non_stream_fallback_used: true, stream_fallback_reason: reason, provider_streaming: false }))
         if (typeof desktopGenerateAnswer !== 'function') {
           throw new Error('Could not generate an answer right now.')
         }
         const result = await desktopGenerateAnswer(requestBody)
+        setGenerationDiagnostics((current) => ({ ...current, generateRequestSent: Boolean(result?.generateRequestSent ?? result?.ok), generateFallbackRequestSent: Boolean(result?.generateRequestSent ?? result?.ok) }))
         if (controller.signal.aborted || !isCurrentRequest(latestGenerationRequestIdRef.current, requestId)) {
           throw abortError()
         }
@@ -1624,9 +1646,7 @@ function MainWindow() {
         const finalAnswer = stripInternalControlMarkers(finalPayload.answer || '')
         if (finalAnswer) {
           accumulatedAnswer = finalAnswer
-          fullAnswerRef.current = finalAnswer
-          setFullAnswer(finalAnswer)
-          setAnswer(finalAnswer)
+          publishAnswer(finalAnswer)
         }
         if (historyMode && historyEntryId) {
           setQuestionHistoryState((current) =>
@@ -1646,10 +1666,7 @@ function MainWindow() {
         return finalPayload
       }
 
-      if (authRequired && typeof desktopGenerateAnswer === 'function') {
-        const desktopStartAnswerStream = window.saiia?.startAnswerStream
-        const desktopCancelAnswerStream = window.saiia?.cancelAnswerStream
-        const desktopStreamEvents = window.saiia?.onAnswerStreamEvent
+      if (authRequired) {
         let desktopHandlerKey = ''
         let desktopStreamId = String(requestId)
         let desktopStreamPromise = null
@@ -1657,9 +1674,7 @@ function MainWindow() {
         let unsubscribeDesktop = () => {}
 
         if (
-          displayMode === 'chat' &&
-          typeof desktopStartAnswerStream === 'function' &&
-          typeof desktopStreamEvents === 'function'
+          displayMode !== 'screen' && desktopStreamAvailable
         ) {
           desktopHandlerKey = String(requestId)
           desktopStreamPromise = new Promise((resolve, reject) => {
@@ -1700,6 +1715,7 @@ function MainWindow() {
 
           try {
             const started = await desktopStartAnswerStream(requestBody)
+            setGenerationDiagnostics((current) => ({ ...current, generateRequestSent: Boolean(started?.generateRequestSent ?? started?.ok), generateStreamRequestSent: Boolean(started?.generateRequestSent ?? started?.ok), generate_stream_request_sent: Boolean(started?.generateRequestSent ?? started?.ok) }))
             if (started?.ok) {
               desktopStreamId = String(started.stream_id || '')
               if (!desktopStreamId) {
@@ -1709,9 +1725,9 @@ function MainWindow() {
                 throw abortError()
               }
               await desktopStreamPromise
-            } else if (started?.reason === 'stream-unavailable') {
+            } else if (!receivedAnyDelta && ![401, 403].includes(started?.status) && (started?.reason === 'stream-unavailable' || (started?.reason === 'service-unavailable' && started?.status === 0) || [408, 429, 500, 502, 503, 504].includes(started?.status))) {
               desktopAnswerStreamHandlersRef.current.delete(desktopHandlerKey)
-              await applyBufferedAnswer()
+              await applyBufferedAnswer(started?.reason || `stream_http_${started?.status}`)
               return finalPayload
             } else if (started?.reason === 'canceled') {
               throw abortError()
@@ -1736,13 +1752,17 @@ function MainWindow() {
             }
           }
         } else {
-          return applyBufferedAnswer()
+          if (displayMode !== 'screen' && !desktopStreamAvailable) {
+            throw new Error('Authenticated streaming transport is unavailable. Fully restart Electron to load the current preload; generation has not been sent.')
+          }
+          return await applyBufferedAnswer('screen_buffered_transport')
         }
       }
 
       // The desktop bridge already consumed its stream. Never dispatch twice.
-      if (!(authRequired && typeof desktopGenerateAnswer === 'function')) {
+      if (!authRequired) {
       if (authRequired) throw new Error('Cloud generation requires the desktop auth bridge. Sign in again.')
+      setGenerationDiagnostics((current) => ({ ...current, generateRequestSent: true, generateStreamRequestSent: true, generate_stream_request_sent: true }))
       const response = await fetch(`${BACKEND_URL}/generate/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1754,6 +1774,8 @@ function MainWindow() {
         if ([401, 403].includes(response.status)) {
           return parseJsonResponse(response, 'Sign in again to use cloud context, or clear cloud selections.')
         }
+        if (![404, 501, 408, 429, 500, 502, 503, 504].includes(response.status)) return parseJsonResponse(response, 'Could not generate an answer right now.')
+        setGenerationDiagnostics((current) => ({ ...current, generateFallbackRequestSent: true, generate_non_stream_fallback_used: true, stream_fallback_reason: `stream_http_${response.status}`, provider_streaming: false }))
         const fallbackResponse = await fetch(`${BACKEND_URL}/generate/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1774,6 +1796,7 @@ function MainWindow() {
         throw new Error('Answer incomplete. Generation or saving was interrupted.')
       }
     } catch (error) {
+      if (isCurrentRequest(latestGenerationRequestIdRef.current, requestId)) setGenerationDiagnostics((current) => ({ ...current, generationRequestBlocked: !current.generateRequestSent, generationBlockReason: current.generateRequestSent ? current.generationBlockReason : (current.generationBlockReason || 'generation_dispatch_blocked') }))
       publishAnswer(accumulatedAnswer)
       error.streamIncomplete = Boolean(accumulatedAnswer)
       if (historyMode && historyEntryId) {
@@ -2048,6 +2071,7 @@ function MainWindow() {
     pendingCooldownQuestionAgeMs,
     cooldownQueueReason,
     queuedQuestionProcessed,
+    generationDiagnostics,
     generationStarted,
     generationBlockedReason,
     isCooldownListening,
@@ -2947,6 +2971,7 @@ function MainWindow() {
     suppressProfileContext = false,
     logicalRequestId = null,
     capturedHistoryEntryId = '',
+    localWithoutSaving = false,
   }) => {
     const requestId = logicalRequestId || Date.now() + Math.random()
     latestGenerationRequestIdRef.current = requestId
@@ -3117,7 +3142,7 @@ function MainWindow() {
       problem_title: problemTitle || '',
       screen_platform_detected: screenPlatformDetected || '',
       category: nextCategory,
-      profile: selectedResumeId ? {} : liveProfile,
+      profile: selectedResumeId && !localWithoutSaving ? {} : liveProfile,
       source: requestSource,
       screen_question_type: effectiveScreenQuestionType,
       force_technical: forceTechnical,
@@ -3181,6 +3206,7 @@ function MainWindow() {
     setStatus('Streaming answer...')
     markChatTiming(requestId, 'generation_dispatch')
     const generatePayload = await streamGenerateAnswer({
+      localWithoutSaving,
       body: generateRequestBody,
       requestId,
       displayMode,
@@ -4885,6 +4911,8 @@ function MainWindow() {
     setQuestionHistoryNavigationCount(0)
     setEventLog([])
     applyStartupSessionConfig(null)
+    pendingManualGenerationRef.current = null
+    setGenerationDiagnostics({ generationRequestBlocked: false, generationBlockReason: '', activeSessionIdPresent: false, activeSessionEnded: false, authRequired: false, generationAuthRequired: false, generateRequestSent: false, generateStreamRequestSent: false, generateFallbackRequestSent: false, localWithoutSaving: false, cloudStatusAtGeneration: 'signed_out' })
     profileCacheRef.current = null
     profileFetchMsRef.current = null
     setStatus('Signed out. Log in to start a new desktop session.')
@@ -5783,6 +5811,8 @@ function MainWindow() {
       setTranscript('')
 
       const sessionId = crypto.randomUUID()
+      pendingManualGenerationRef.current = null
+      setGenerationDiagnostics((current) => ({ ...current, generationRequestBlocked: false, generationBlockReason: '', generateRequestSent: false, generateStreamRequestSent: false, generateFallbackRequestSent: false, localWithoutSaving: false, generate_stream_request_sent: false, generate_non_stream_fallback_used: false, stream_fallback_reason: '', first_delta_received_ms: null, first_ui_update_ms: null, provider_streaming: false }))
       manualLiveStartIdRef.current = sessionId
       setAnswerDisplayMode('answer')
       setManualLiveState({ ...createManualLiveState(sessionId), phase: 'connecting' })
@@ -5793,14 +5823,23 @@ function MainWindow() {
       setStatus('Listening...')
       const isCurrent = () => manualLiveStartIdRef.current === sessionId
       try {
+        let manualConfig = { manual_stt_provider: '', manual_live_stt_provider: 'none' }
+        try {
+          const response = await fetch(`${BACKEND_URL}/transcribe/config`)
+          manualConfig = (await parseJsonResponse(response, 'Manual STT configuration unavailable.')) || manualConfig
+        } catch { /* Fail closed to configured batch STT, never external preview. */ }
+        if (!isCurrent()) return
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         if (!isCurrent()) { stream.getTracks().forEach((track) => track.stop()); return }
         streamRef.current = stream
-        setSttProvider('assemblyai_streaming')
+        const liveAllowed = isManualLiveEnabled(manualConfig.manual_stt_provider, manualConfig.manual_live_stt_provider)
+        setSttProvider(liveAllowed ? 'assemblyai_streaming' : manualConfig.manual_stt_provider)
         setSttFallbackUsed(false)
         setSttFallbackReason('')
         manualLiveSessionRef.current = createManualLiveSession({
           sessionId, stream,
+          manualSttProvider: manualConfig.manual_stt_provider,
+          manualLiveSttProvider: manualConfig.manual_live_stt_provider,
           createTransport: (micStream, isActive) => createLiveMicTransport({
             stream: micStream, isActive, downsample: downsampleToInt16Mono,
             url: getBackendWebSocketUrl('/ws/auto-stt'),
@@ -5837,8 +5876,9 @@ function MainWindow() {
             if (!isCurrent()) return { text: '' }
             const result = await transcribeAudioBlob(blob, 'manual', isCurrent)
             if (isCurrent()) {
-              setSttFallbackUsed(true)
-              setSttFallbackReason(result.fallbackReason || 'live_stt_unavailable')
+              const liveFallback = liveAllowed
+              setSttFallbackUsed(liveFallback || Boolean(result.fallbackUsed))
+              setSttFallbackReason(result.fallbackReason || (liveFallback ? 'live_stt_unavailable' : ''))
               setPipelineTimings((current) => ({ ...current, upload_ms: result.uploadMs, transcription_ms: result.transcriptionMs }))
             }
             return result
@@ -5856,8 +5896,11 @@ function MainWindow() {
             if (!isCurrent()) return
             setQuestionHistoryState((current) => appendQuestionHistoryEntry(current,
               createQuestionHistoryEntry({ id: historyEntryId, mode: 'answer', question: text, status: 'pending' })))
-            await classifyAndGenerate({ text, displayQuestion: text, mode: 'manual', capturedHistoryEntryId: historyEntryId,
-              recordingMs, uploadMs, transcriptionMs, pipelineStarted: performance.now() })
+            const pending = { text, displayQuestion: text, mode: 'manual', capturedHistoryEntryId: historyEntryId,
+              recordingMs, uploadMs, transcriptionMs, pipelineStarted: performance.now() }
+            pendingManualGenerationRef.current = pending
+            await classifyAndGenerate(pending)
+            if (pendingManualGenerationRef.current === pending) pendingManualGenerationRef.current = null
           },
         })
       } catch (err) {
@@ -5920,6 +5963,50 @@ function MainWindow() {
     mediaRecorderRef.current?.stop()
   }
 
+  const refreshGenerationCloud = async () => {
+    const state = await window.saiia?.refreshCloudStartupContext?.()
+    profileCacheRef.current = null
+    profileFetchMsRef.current = null
+    await prepareGenerationRequest({}, startupSessionConfigRef.current, { getCloudStartupContext: async () => state }, (diagnostics) => {
+      setGenerationDiagnostics(diagnostics)
+      if (diagnostics.startupSessionEnded) applyStartupSessionConfig({ ...startupSessionConfigRef.current, activeSessionId: '' })
+    }).catch(() => {})
+    return state
+  }
+
+  const recoverManualGeneration = async (action) => {
+    if (generationRecoveryBusyRef.current || recording || manualProcessing) return
+    const pending = pendingManualGenerationRef.current
+    generationRecoveryBusyRef.current = true
+    try {
+      if (action === 'generation-end-session') {
+        const sessionConfig = startupSessionConfigRef.current
+        const id = sessionConfig?.activeSessionId
+        if (id) {
+          const result = await window.saiia?.endInterviewSession?.(id)
+          if (result?.session?.id !== id || result?.session?.status !== 'ended') throw new Error(result?.error || 'Could not end the cloud session. Reconnect or explicitly generate locally without saving.')
+          if (startupSessionConfigRef.current === sessionConfig) applyStartupSessionConfig({ ...sessionConfig, activeSessionId: '' })
+        }
+      }
+      const localWithoutSaving = action === 'generation-local'
+      if (localWithoutSaving && !window.confirm('Generate locally without saving? This answer will not be saved to your cloud session and will not use your selected cloud resume or job context.')) return
+      if (action === 'generation-refresh-cloud') await refreshGenerationCloud()
+      if (pendingManualGenerationRef.current !== pending) return
+      if (!pending) { setStatus('No pending manual question. Record a question first.'); return }
+      setManualProcessing(true)
+      setError('')
+      await classifyAndGenerate({ ...pending, localWithoutSaving, pipelineStarted: performance.now() })
+      if (pendingManualGenerationRef.current === pending) pendingManualGenerationRef.current = null
+      if (localWithoutSaving) setStatus('Answer generated locally. Not saved to cloud session.')
+    } catch (err) {
+      setError(err.message || 'Generation blocked. Reconnect cloud or generate locally without saving.')
+      setStatus('Generation blocked. Choose a recovery action.')
+    } finally {
+      generationRecoveryBusyRef.current = false
+      setManualProcessing(false)
+    }
+  }
+
   useEffect(() => {
     if (!window.electronAPI?.onToolbarAction) {
       return undefined
@@ -5930,6 +6017,14 @@ function MainWindow() {
       const nextValue = payload?.payload?.value
 
       try {
+        if (action === 'cloud-session-ended') {
+          if (startupSessionConfigRef.current?.activeSessionId === payload?.payload?.sessionId) applyStartupSessionConfig({ ...startupSessionConfigRef.current, activeSessionId: '' })
+          return
+        }
+        if (['generation-refresh-cloud', 'generation-end-session', 'generation-local'].includes(action)) {
+          await recoverManualGeneration(action)
+          return
+        }
         if (action === 'toggle-microphone') {
           if (recording || manualProcessing || autoMode || autoProcessing) {
             setStatus('Please wait...')
@@ -6115,6 +6210,7 @@ function MainWindow() {
       }
     }
   }, [
+    startupSessionConfig,
     autoMode,
     autoProcessing,
     audioPipelineStatus,
@@ -6182,6 +6278,7 @@ function MainWindow() {
       pendingCooldownQuestionAgeMs={pendingCooldownQuestionAgeMs}
       cooldownQueueReason={cooldownQueueReason}
       queuedQuestionProcessed={queuedQuestionProcessed}
+      generationDiagnostics={generationDiagnostics}
       generationStarted={generationStarted}
       generationBlockedReason={generationBlockedReason}
       micStreamingState={micStreamingState}
@@ -6294,6 +6391,7 @@ function MainWindow() {
       eventLog={eventLog}
       refinedAnswer={refinedAnswer}
       applyRefinedAnswer={applyRefinedAnswer}
+      onDesktopAuthenticated={refreshGenerationCloud}
       onDesktopSignedOut={resetRuntimeForDesktopLogout}
       onStartupSessionConfigChange={applyStartupSessionConfig}
     />

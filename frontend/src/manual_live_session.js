@@ -1,5 +1,5 @@
 export function createManualLiveState(sessionId = '') {
-  return { sessionId, phase: 'idle', partialTranscript: '', finalTurns: {}, detectedQuestion: '', pendingGeneration: false, historyEntryId: '' }
+  return { sessionId, phase: 'idle', partialTranscript: '', finalTurns: {}, detectedQuestion: '', pendingGeneration: false, historyEntryId: '', liveProvider: 'none', manual_stop_clicked_at: null, manual_final_transcript_received_at: null, manual_finalization_wait_ms: null, manual_question_detection_started_at: null, stop_to_question_detection_ms: null }
 }
 
 export function getManualFinalTranscript(state) {
@@ -12,12 +12,17 @@ function previewText(state, partialOrder) {
   return getManualFinalTranscript({ finalTurns: turns })
 }
 
+export function isManualLiveEnabled(manualProvider, liveProvider) {
+  return liveProvider === 'assemblyai_streaming' && ['groq', 'openai_whisper', 'assemblyai'].includes(manualProvider)
+}
+
 // The caller supplies the existing detector, batch STT and authenticated generator.
-export function createManualLiveSession({ sessionId, stream, createTransport, createRecorder, transcribe, detectQuestion, generate, onState, onTranscript, onFallback = () => {}, finalizeMs = 700, connectMs = 5000 }) {
+export function createManualLiveSession({ sessionId, stream, manualSttProvider = '', manualLiveSttProvider = 'none', createTransport, createRecorder, transcribe, detectQuestion, generate, onState, onTranscript, onFallback = () => {}, finalizeMs = 700, connectMs = 5000 }) {
+  const liveEnabled = isManualLiveEnabled(manualSttProvider, manualLiveSttProvider)
   const recordingStarted = performance.now()
-  let state = { ...createManualLiveState(sessionId), phase: 'connecting', historyEntryId: `manual-${sessionId}` }
+  let state = { ...createManualLiveState(sessionId), phase: 'connecting', historyEntryId: `manual-${sessionId}`, liveProvider: liveEnabled ? 'assemblyai_streaming' : 'none' }
   let transport, recorder, partialOrder = 0, failed = false, canceled = false, finishing
-  let connectTimer, finalizeTimer, finishWait, closing = false
+  let connectTimer, finalizeTimer, revisionTimer, finishWait, closing = false
   const chunks = []
   const publish = (patch) => {
     state = { ...state, ...patch }
@@ -40,6 +45,7 @@ export function createManualLiveSession({ sessionId, stream, createTransport, cr
   const release = () => {
     clearTimeout(connectTimer)
     clearTimeout(finalizeTimer)
+    clearTimeout(revisionTimer)
     closing = true
     transport?.close()
     stopTracks()
@@ -56,7 +62,9 @@ export function createManualLiveSession({ sessionId, stream, createTransport, cr
     release()
     throw error
   }
-  try {
+  if (!liveEnabled) {
+    publish({ phase: 'listening' })
+  } else try {
     transport = createTransport(stream, () => !canceled && ['connecting', 'listening'].includes(state.phase))
     const socket = transport.socket
     socket.onopen = () => {
@@ -65,7 +73,7 @@ export function createManualLiveSession({ sessionId, stream, createTransport, cr
       publish({ phase: 'listening' })
     }
     socket.onmessage = ({ data }) => {
-      if (canceled || failed || !['connecting', 'listening', 'finalizing'].includes(state.phase)) return
+      if (canceled || closing || failed || !['connecting', 'listening', 'finalizing'].includes(state.phase)) return
       let payload
       try { payload = JSON.parse(String(data)) } catch { return }
       if (!payload || typeof payload !== 'object') return
@@ -75,12 +83,21 @@ export function createManualLiveSession({ sessionId, stream, createTransport, cr
       if (!text) return
       const order = Number.isSafeInteger(payload.turn_order) && payload.turn_order >= 0 ? payload.turn_order : partialOrder
       if (payload.end_of_turn === true) {
-        publish({ finalTurns: { ...state.finalTurns, [order]: text }, ...(order === partialOrder ? { partialTranscript: '' } : {}) })
+        publish({ manual_final_transcript_received_at: performance.now(), finalTurns: { ...state.finalTurns, [order]: text }, ...(order === partialOrder ? { partialTranscript: '' } : {}) })
         partialOrder = Math.max(partialOrder, order + 1)
       } else {
         if (Object.hasOwn(state.finalTurns, order)) return
         partialOrder = order
         publish({ partialTranscript: text })
+      }
+      if (state.phase === 'finalizing' && finishWait) {
+        clearTimeout(revisionTimer)
+        const latestOrder = Math.max(...Object.keys(state.finalTurns).map(Number))
+        // Only a final for the newest turn qualifies. Allow 100 ms of quiet for
+        // revisions; any new turn restarts this grace, within the original cap.
+        if (payload.end_of_turn === true && order === latestOrder && !state.partialTranscript) {
+          revisionTimer = setTimeout(() => finishWait?.(), 100)
+        }
       }
       onTranscript(previewText(state, partialOrder))
     }
@@ -93,7 +110,8 @@ export function createManualLiveSession({ sessionId, stream, createTransport, cr
     if (finishing) return finishing
     if (canceled) return Promise.resolve()
     const recordingMs = Number((performance.now() - recordingStarted).toFixed(2))
-    publish({ phase: 'finalizing', pendingGeneration: true })
+    const stopClickedAt = performance.now()
+    publish({ phase: 'finalizing', pendingGeneration: true, manual_stop_clicked_at: stopClickedAt })
     finishing = (async () => {
       try {
         clearTimeout(connectTimer)
@@ -110,16 +128,19 @@ export function createManualLiveSession({ sessionId, stream, createTransport, cr
             } catch { fail() }
           })
           finishWait = null
+          clearTimeout(finalizeTimer)
+          clearTimeout(revisionTimer)
         }
+        publish({ manual_finalization_wait_ms: performance.now() - stopClickedAt })
         if (canceled) return
         let backupError
         const blob = await backup.catch((error) => { backupError = error; return null })
         if (canceled) return
         let text = previewText(state, partialOrder)
         let capture = { text, transcriptionMs: null, uploadMs: null }
-        if (failed || !text) {
+        if (!liveEnabled || failed || !text) {
           if (backupError) throw backupError
-          if (!failed) { failed = true; onFallback() }
+          if (liveEnabled && !failed) { failed = true; onFallback() }
           capture = await transcribe(blob)
           text = String(capture.text || '').trim()
         }
@@ -129,7 +150,12 @@ export function createManualLiveSession({ sessionId, stream, createTransport, cr
         stopTracks()
         // Common batch hallucination is never a question.
         const hallucination = /^thank you for watching[.!?\s]*$/i.test(text)
-        const question = text && !hallucination ? await detectQuestion(text) : ''
+        let question = ''
+        if (text && !hallucination) {
+          const detectionStartedAt = performance.now()
+          publish({ manual_question_detection_started_at: detectionStartedAt, stop_to_question_detection_ms: detectionStartedAt - stopClickedAt })
+          question = await detectQuestion(text)
+        }
         if (canceled) return
         if (!question) {
           publish({ phase: 'idle', pendingGeneration: false, detectedQuestion: '' })
