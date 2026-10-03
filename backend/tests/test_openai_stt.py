@@ -77,6 +77,7 @@ def test_missing_key(monkeypatch):
 def provider(monkeypatch):
     monkeypatch.setattr(module.settings, "MANUAL_STT_PROVIDER", "openai_whisper")
     service = STTProviderService.__new__(STTProviderService)
+    service.logger = MagicMock()
     service.openai_service = MagicMock()
     service.whisper_service = MagicMock()
     service.openai_service.transcribe.return_value = TranscriptionResult("hello", "openai_whisper", "whisper-1", 1)
@@ -101,10 +102,15 @@ def test_fallback(provider, monkeypatch, enabled):
         assert result.text == "local"
         assert result.fallback_used is True
         assert result.fallback_reason == "openai_stt_timeout"
+        provider.logger.info.assert_called_once_with(
+            "STT fallback activated provider=%s reason=%s", "whisper_local", "openai_stt_timeout"
+        )
     else:
         with pytest.raises(STTServiceError):
             provider.transcribe_upload(filename="clip.wav", content_type="audio/wav", content=b"audio")
         provider.whisper_service.transcribe.assert_not_called()
+        provider.logger.info.assert_not_called()
+    provider.logger.warning.assert_called_once_with("OpenAI STT failed: %s", provider.openai_service.transcribe.side_effect)
     assert not Path(provider.openai_service.transcribe.call_args.kwargs["audio_path"]).exists()
 
 
@@ -133,3 +139,29 @@ def test_response_shape(provider, monkeypatch):
         "upload_ms": response.json()["upload_ms"], "fallback_used": False,
         "fallback_reason": None, "no_speech": False, "reason": None,
     }
+
+
+@pytest.mark.parametrize("manual, live, expected", [
+    ("whisper_local", "none", "none"),
+    ("whisper_local", "assemblyai_streaming", "none"),
+    ("openai_whisper", "none", "none"),
+    ("openai_whisper", "assemblyai_streaming", "assemblyai_streaming"),
+    ("groq", "invalid", "none"),
+    ("unknown", "assemblyai_streaming", "none"),
+])
+def test_manual_live_config_gate(provider, monkeypatch, manual, live, expected):
+    from app.api import transcribe
+
+    monkeypatch.setattr(transcribe.settings, "MANUAL_STT_PROVIDER", manual)
+    monkeypatch.setattr(transcribe.settings, "MANUAL_LIVE_STT_PROVIDER", live)
+    monkeypatch.setattr(transcribe.settings, "OPENAI_API_KEY", "secret-test-key")
+    app = FastAPI()
+    app.include_router(transcribe.router, prefix="/transcribe")
+    with TestClient(app) as client:
+        response = client.get("/transcribe/config")
+    assert response.status_code == 200
+    assert response.json() == {
+        "manual_stt_provider": manual if manual != "unknown" else "unsupported",
+        "manual_live_stt_provider": expected,
+    }
+    assert "secret-test-key" not in response.text

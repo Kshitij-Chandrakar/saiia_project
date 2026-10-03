@@ -143,6 +143,10 @@ STT_FALLBACK_PROVIDER=whisper_local
 
 ### OpenAI Whisper for manual recordings
 
+Manual capture defaults to batch STT through `/transcribe/` after stopping. Live preview requires explicit `MANUAL_LIVE_STT_PROVIDER=assemblyai_streaming` on the backend (default: `none`), along with the existing AssemblyAI streaming configuration. `/transcribe/config` exposes only provider names to the frontend. `MANUAL_STT_PROVIDER=whisper_local` always disables external manual preview, even with the live setting enabled. OpenAI Whisper manual capture remains batch-only unless you opt in to AssemblyAI preview; streaming failure uses the configured manual batch provider. Restart the backend after changing these settings.
+
+An active interview session always requires connected cloud authentication, even without a selected resume or job context. When cloud/auth is unavailable, reconnect to continue, or explicitly end the session and clear cloud selections before using local generation. Requests never silently drop the session ID.
+
 Set `MANUAL_STT_PROVIDER=openai_whisper` and a server-side `OPENAI_API_KEY` to use the OpenAI Whisper API for manual uploads to `/transcribe/`. `OPENAI_STT_MODEL` defaults to `whisper-1`; `OPENAI_STT_TIMEOUT_SECONDS` defaults to 30 seconds, with automatic SDK retries disabled. The existing Groq manual provider remains selectable.
 
 ```env

@@ -5,6 +5,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
+from app.config import settings
 from app.services import STTProviderService, STTServiceError
 
 router = APIRouter()
@@ -25,6 +26,19 @@ class TranscribeResponse(BaseModel):
     fallback_reason: str | None = None
     no_speech: bool = False
     reason: str | None = None
+
+
+@router.get("/config")
+def manual_stt_config():
+    # Only provider names are public; never expose credentials or the full settings.
+    manual = settings.MANUAL_STT_PROVIDER
+    return {
+        "manual_stt_provider": manual if manual in {"groq", "openai_whisper", "whisper_local", "assemblyai"} else "unsupported",
+        "manual_live_stt_provider": "assemblyai_streaming" if (
+            settings.MANUAL_LIVE_STT_PROVIDER == "assemblyai_streaming"
+            and manual in {"groq", "openai_whisper", "assemblyai"}
+        ) else "none",
+    }
 
 
 @router.post("/", response_model=TranscribeResponse)
