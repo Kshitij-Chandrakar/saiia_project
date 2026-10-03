@@ -6,7 +6,7 @@ SAIIA is a Smart AI Interview Assistant for fast MVP demos and the current produ
 
 - A profile-aware interview answer assistant
 - A FastAPI + React + Electron MVP
-- An AssemblyAI-first STT runtime with local Whisper fallback for transcription, Affinda-first resume parsing with local fallback, Groq-first answer generation, optional Ollama fallback, and paused-by-default NVIDIA support
+- An AssemblyAI-first STT runtime with local Whisper fallback for transcription, Affinda-first resume parsing with local fallback, Groq-first answer generation, optional Ollama fallback
 - A performance-tuned live answer path with cached profile context, capped RAG retrieval, manual Groq STT, and demo-mode short answers
 - A two-window app: main control panel plus overlay answer display
 
@@ -31,7 +31,6 @@ Profile setup -> optional Affinda/local resume extraction + local resume indexin
 - Desktop shell: Electron
 - Screen Analyze: Groq Vision (`meta-llama/llama-4-scout-17b-16e-instruct`) with RapidOCR fallback
 - Primary LLM: Groq
-- Experimental/paused refinement/router LLM: NVIDIA DeepSeek via NVIDIA NIM
 - Optional fallback LLM: Ollama
 
 ## Setup
@@ -73,13 +72,6 @@ GROQ_API_KEY=
 GROQ_MODEL=llama-3.1-8b-instant
 GROQ_STT_MODEL=whisper-large-v3-turbo
 GROQ_TIMEOUT_SECONDS=20
-ENABLE_NVIDIA_REFINEMENT=false
-ENABLE_PROVIDER_ROUTER=false
-ENABLE_PARALLEL_REFINEMENT=false
-NVIDIA_API_KEY=
-NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
-NVIDIA_MODEL=deepseek-ai/deepseek-v4-pro
-NVIDIA_TIMEOUT_SECONDS=45
 ENABLE_OLLAMA_FALLBACK=true
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=llama3:8b
@@ -174,29 +166,13 @@ GROQ_API_KEY=your_local_key_here
 
 Never commit the real key.
 
-## Optional NVIDIA Setup
+## Answer Provider Configuration
 
-NVIDIA is optional and currently paused by default for the real-time interview flow. SAIIA still works with Groq only.
+Supported answer providers are `openai`, `groq`, and `ollama`, selected through `ANSWER_PROVIDER`. Unsupported values fall back to OpenAI unless `PRIMARY_LLM_PROVIDER=ollama` selects the existing local compatibility path.
 
-Use these local `.env` flags only if you want router/refinement behavior:
+NVIDIA generation, routing/refinement flags, credentials, and `/api/debug/nvidia-test` have been retired. Historical roadmap and tracker entries describe earlier experiments; setting their old flags does not enable NVIDIA.
 
-```env
-ENABLE_NVIDIA_REFINEMENT=false
-ENABLE_PROVIDER_ROUTER=false
-ENABLE_PARALLEL_REFINEMENT=false
-NVIDIA_API_KEY=
-NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
-NVIDIA_MODEL=deepseek-ai/deepseek-v4-pro
-NVIDIA_TIMEOUT_SECONDS=45
-```
-
-Recommended behavior:
-
-- Keep `LLM_PROVIDER=groq` for the default fast path.
-- Keep `STT_PROVIDER=assemblyai` with `STT_FALLBACK_PROVIDER=whisper_local` for the default transcription path plus local fallback.
-- Keep `ENABLE_NVIDIA_REFINEMENT=false`, `ENABLE_PARALLEL_REFINEMENT=false`, and `ENABLE_PROVIDER_ROUTER=false` for the stable production path.
-- NVIDIA can be re-enabled later for experimentation with env flags after latency and timeout behavior is improved.
-- Ollama fallback remains available if Groq fails and local Ollama is running.
+`REFINEMENT_JOB_TIMEOUT_SECONDS` defaults independently to 50 seconds and can still be overridden explicitly.
 
 ## `/transcribe` Response
 
@@ -285,7 +261,7 @@ The current production-core track includes:
 - Lightweight Auto Mode with repeated short microphone segments and deterministic question filtering
 - User-triggered Screen Read Mode with local OCR preview and editable question confirmation
 - AssemblyAI STT as the default transcription path, with local Whisper fallback
-- Groq-first answer generation as the production path, with optional Ollama fallback and paused-by-default NVIDIA support
+- Groq-first answer generation as the production path, with optional Ollama fallback
 - Cleaner introduction-style answers that use focused profile data and strip markdown leaks before rendering in the overlay
 - Performance-focused live answering with cached profile loading, summarized prompt context, capped RAG retrieval, pipeline timing diagnostics, and demo-mode shorter answers
 
@@ -399,22 +375,6 @@ Groq fails and fallback also fails.
 Fix:
 Start Ollama locally, verify `OLLAMA_BASE_URL`, or set `ENABLE_OLLAMA_FALLBACK=false` if fallback is not needed.
 
-### NVIDIA refinement unavailable
-
-Symptom:
-Generation still works, but refinement metadata shows a failed NVIDIA attempt.
-
-Fix:
-Check `NVIDIA_API_KEY`, `NVIDIA_BASE_URL`, `NVIDIA_MODEL`, and `ENABLE_NVIDIA_REFINEMENT`. If NVIDIA is not needed, keep it disabled.
-
-### Temporary NVIDIA debug route unavailable
-
-Symptom:
-`/api/debug/nvidia-test` returns 404.
-
-Fix:
-That route is intentionally guarded and only mounts when `DEBUG=true`. It is a temporary backend-only diagnostic endpoint and should stay disabled in normal runs.
-
 ## Known Limitations
 
 - Recording is manual start/stop for this MVP.
@@ -423,6 +383,5 @@ That route is intentionally guarded and only mounts when `DEBUG=true`. It is a t
 - This is a microphone-only MVP.
 - SAIIA does not guarantee screen-share invisibility.
 - It requires an AssemblyAI API key plus internet access for the primary STT path and a Groq API key for the answer path, unless local fallback-only settings are used.
-- NVIDIA refinement/router behavior is implemented but paused by default due to latency and timeout instability in the live interview flow.
 - `ffmpeg` is required for transcription.
 - Production-grade continuous listening, speaker separation, and wake-word behavior are still future work.

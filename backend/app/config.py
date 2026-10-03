@@ -169,16 +169,7 @@ class Settings:
     REFINEMENT_TIMEOUT_MS = int(os.getenv("REFINEMENT_TIMEOUT_MS", "2500"))
     REFINEMENT_MAX_WORDS = int(os.getenv("REFINEMENT_MAX_WORDS", "120"))
 
-    ENABLE_NVIDIA_REFINEMENT = os.getenv("ENABLE_NVIDIA_REFINEMENT", "false").strip().lower() == "true"
-    ENABLE_PROVIDER_ROUTER = os.getenv("ENABLE_PROVIDER_ROUTER", "false").strip().lower() == "true"
-    ENABLE_PARALLEL_REFINEMENT = os.getenv("ENABLE_PARALLEL_REFINEMENT", "false").strip().lower() == "true"
-    NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "").strip()
-    NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1").strip().rstrip("/")
-    NVIDIA_MODEL = os.getenv("NVIDIA_MODEL", "deepseek-ai/deepseek-v4-pro").strip()
-    NVIDIA_TIMEOUT_SECONDS = float(os.getenv("NVIDIA_TIMEOUT_SECONDS", "45"))
-    REFINEMENT_JOB_TIMEOUT_SECONDS = float(
-        os.getenv("REFINEMENT_JOB_TIMEOUT_SECONDS", str(max(NVIDIA_TIMEOUT_SECONDS + 5, 20)))
-    )
+    REFINEMENT_JOB_TIMEOUT_SECONDS = float(os.getenv("REFINEMENT_JOB_TIMEOUT_SECONDS", "50"))
 
     ENABLE_OLLAMA_FALLBACK = os.getenv("ENABLE_OLLAMA_FALLBACK", "true").strip().lower() == "true"
     OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").strip().rstrip("/")
