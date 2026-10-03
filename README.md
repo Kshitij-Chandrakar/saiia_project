@@ -141,6 +141,21 @@ STT_PROVIDER=assemblyai
 STT_FALLBACK_PROVIDER=whisper_local
 ```
 
+### OpenAI Whisper for manual recordings
+
+Set `MANUAL_STT_PROVIDER=openai_whisper` and a server-side `OPENAI_API_KEY` to use the OpenAI Whisper API for manual uploads to `/transcribe/`. `OPENAI_STT_MODEL` defaults to `whisper-1`; `OPENAI_STT_TIMEOUT_SECONDS` defaults to 30 seconds, with automatic SDK retries disabled. The existing Groq manual provider remains selectable.
+
+```env
+MANUAL_STT_PROVIDER=openai_whisper
+OPENAI_STT_MODEL=whisper-1
+OPENAI_STT_TIMEOUT_SECONDS=30
+STT_FALLBACK_PROVIDER=whisper_local
+```
+
+On API failure, local Whisper remains the fallback when enabled. Empty transcripts return `no_speech=true`. Keep ffmpeg and the local Whisper runtime available. Existing `.env` files are not changed automatically.
+
+Auto/live AssemblyAI WebSocket transcription is unchanged. System-audio `/stop` and `/capture-chunk` also use manual transcription mode and therefore inherit this provider selection. The `/transcribe/` response fields are unchanged.
+
 ## Resume Parser Setup
 
 Set your local Affinda credentials in `.env` if you want Affinda to be the primary resume parser.
@@ -385,3 +400,5 @@ Start Ollama locally, verify `OLLAMA_BASE_URL`, or set `ENABLE_OLLAMA_FALLBACK=f
 - It requires an AssemblyAI API key plus internet access for the primary STT path and an OpenAI API key for the default answer path (a Groq API key when `ANSWER_PROVIDER=groq`), unless local-only settings are used.
 - `ffmpeg` is required for transcription.
 - Production-grade continuous listening, speaker separation, and wake-word behavior are still future work.
+
+Manual answer generation can continue locally when cloud connectivity is unavailable and no cloud resume or job context is selected. An incidental startup session is omitted in that case. Selected cloud resumes and interview sessions still require valid authentication; sign in again or clear cloud selections to generate locally. Cloud job context is loaded through an authorized interview session. Generation diagnostics report whether authentication is required and whether a token was attached, without logging token values.

@@ -98,6 +98,8 @@ class Settings:
     ANSWER_FALLBACK_PROVIDER = os.getenv("ANSWER_FALLBACK_PROVIDER", "groq").strip().lower()
     ENABLE_ANSWER_PROVIDER_FALLBACK = os.getenv("ENABLE_ANSWER_PROVIDER_FALLBACK", "true").strip().lower() == "true"
 
+    OPENAI_STT_MODEL = os.getenv("OPENAI_STT_MODEL", "whisper-1").strip()
+    OPENAI_STT_TIMEOUT_SECONDS = float(os.getenv("OPENAI_STT_TIMEOUT_SECONDS", "30"))
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
     OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini-2026-03-17").strip()
     AI_NOTES_MODEL = os.getenv("AI_NOTES_MODEL", OPENAI_MODEL).strip()
