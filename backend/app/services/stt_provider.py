@@ -164,11 +164,17 @@ class STTProviderService:
                     audio_path=audio_path, original_filename=original_filename
                 )
             except STTServiceError as error:
+                self.logger.warning("OpenAI STT failed: %s", error)
                 if settings.STT_FALLBACK_PROVIDER != "whisper_local":
                     raise
                 result = self.whisper_service.transcribe(audio_path=audio_path)
                 result.fallback_used = True
                 result.fallback_reason = error.fallback_reason or "openai_stt_failed"
+                self.logger.info(
+                    "STT fallback activated provider=%s reason=%s",
+                    result.transcription_provider,
+                    result.fallback_reason,
+                )
                 return result
 
         if provider == "assemblyai":
