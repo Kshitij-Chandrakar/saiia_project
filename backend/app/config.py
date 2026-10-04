@@ -15,6 +15,7 @@ class Settings:
     STT_PROVIDER = os.getenv("STT_PROVIDER", "assemblyai").strip().lower()
     MANUAL_STT_PROVIDER = os.getenv("MANUAL_STT_PROVIDER", "groq").strip().lower()
     STT_FALLBACK_PROVIDER = os.getenv("STT_FALLBACK_PROVIDER", "whisper_local").strip().lower()
+    MANUAL_LIVE_STT_PROVIDER = os.getenv("MANUAL_LIVE_STT_PROVIDER", "none").strip().lower()
     AUTO_STT_PROVIDER = os.getenv("AUTO_STT_PROVIDER", "assemblyai_streaming").strip().lower()
     AUTO_STT_FALLBACK_PROVIDER = os.getenv("AUTO_STT_FALLBACK_PROVIDER", "whisper_local").strip().lower()
     ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY", "").strip()
@@ -98,6 +99,8 @@ class Settings:
     ANSWER_FALLBACK_PROVIDER = os.getenv("ANSWER_FALLBACK_PROVIDER", "groq").strip().lower()
     ENABLE_ANSWER_PROVIDER_FALLBACK = os.getenv("ENABLE_ANSWER_PROVIDER_FALLBACK", "true").strip().lower() == "true"
 
+    OPENAI_STT_MODEL = os.getenv("OPENAI_STT_MODEL", "whisper-1").strip()
+    OPENAI_STT_TIMEOUT_SECONDS = float(os.getenv("OPENAI_STT_TIMEOUT_SECONDS", "30"))
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
     OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini-2026-03-17").strip()
     AI_NOTES_MODEL = os.getenv("AI_NOTES_MODEL", OPENAI_MODEL).strip()

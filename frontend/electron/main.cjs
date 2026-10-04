@@ -1333,6 +1333,7 @@ async function finalizeActiveInterviewSession(reason = 'ended') {
       console.error('Interview session finalization failed.', result.error)
       return { ok: false, error: result.error }
     }
+    if (result?.session?.status === 'ended') broadcastToolbarAction('cloud-session-ended', { sessionId: result.session.id })
     return { ok: true, session: result?.session || null }
   } catch (error) {
     console.error(`Interview session ${reason} finalization failed.`, error)
@@ -2002,7 +2003,9 @@ ipcMain.handle('cloud:list-interview-sessions', async (event, options) => {
 
 ipcMain.handle('cloud:end-interview-session', async (event, sessionId) => {
   validateAuthIpc(event)
-  return desktopAuthSessionManager.endInterviewSession(sessionId)
+  const result = await desktopAuthSessionManager.endInterviewSession(sessionId)
+  if (result?.session?.id === sessionId && result.session.status === 'ended') broadcastToolbarAction('cloud-session-ended', { sessionId })
+  return result
 })
 
 ipcMain.handle('cloud:list-my-answers', async (event, sessionId) => {
@@ -2059,6 +2062,7 @@ ipcMain.handle('generate:answer:stream:start', async (event, body) => {
         ok: false,
         status: Number.isInteger(opened?.status) ? opened.status : 502,
         reason: opened?.reason || 'generation-failed',
+        generateRequestSent: Boolean(opened?.generateRequestSent),
       }
     }
     if (entry.controller.signal.aborted || activeAnswerStreams.get(streamId) !== entry) {

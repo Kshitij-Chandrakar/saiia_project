@@ -3,7 +3,9 @@ import time
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
+from app.config import settings
 from app.services import STTProviderService, STTServiceError
 
 router = APIRouter()
@@ -26,12 +28,26 @@ class TranscribeResponse(BaseModel):
     reason: str | None = None
 
 
+@router.get("/config")
+def manual_stt_config():
+    # Only provider names are public; never expose credentials or the full settings.
+    manual = settings.MANUAL_STT_PROVIDER
+    return {
+        "manual_stt_provider": manual if manual in {"groq", "openai_whisper", "whisper_local", "assemblyai"} else "unsupported",
+        "manual_live_stt_provider": "assemblyai_streaming" if (
+            settings.MANUAL_LIVE_STT_PROVIDER == "assemblyai_streaming"
+            and manual in {"groq", "openai_whisper", "assemblyai"}
+        ) else "none",
+    }
+
+
 @router.post("/", response_model=TranscribeResponse)
 async def transcribe_audio(file: UploadFile = File(...), mode: str = Form("manual")):
     started = time.perf_counter()
     try:
         content = await file.read()
-        result = stt_provider.transcribe_upload(
+        result = await run_in_threadpool(
+            stt_provider.transcribe_upload,
             filename=file.filename,
             content_type=file.content_type,
             content=content,
@@ -41,7 +57,7 @@ async def transcribe_audio(file: UploadFile = File(...), mode: str = Form("manua
         upload_ms = max(0.0, round(total_request_ms - result.transcription_ms, 2))
 
         logger.info(
-            "Transcribed audio mode=%s provider=%s model=%s fallback_used=%s fallback_reason=%s no_speech=%s upload_ms=%s text='%s...'",
+            "Transcribed audio mode=%s provider=%s model=%s fallback_used=%s fallback_reason=%s no_speech=%s upload_ms=%s",
             mode,
             result.transcription_provider,
             result.transcription_model,
@@ -49,7 +65,6 @@ async def transcribe_audio(file: UploadFile = File(...), mode: str = Form("manua
             result.fallback_reason,
             result.no_speech,
             upload_ms,
-            result.text[:50],
         )
         return TranscribeResponse(
             text=result.text,

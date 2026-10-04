@@ -490,7 +490,7 @@ test('startup session setup screen collects local setup and routes back or into 
   assert.match(appSource, /activeStartupSessionConfig\?\.targetRole \|\| activeStartupSessionConfig\?\.role/)
   assert.match(appSource, /activeStartupSessionConfig\?\.companyName \|\| activeStartupSessionConfig\?\.company/)
   assert.match(appSource, /activeStartupSessionConfig\?\.jobDescription \|\| activeStartupSessionConfig\?\.jobContext/)
-  assert.match(appSource, /profile: selectedResumeId \? \{\} : liveProfile/)
+  assert.match(appSource, /profile: selectedResumeId && !localWithoutSaving \? \{\} : liveProfile/)
   assert.match(appSource, /selected_resume_id: selectedResumeId \|\| undefined/)
   assert.match(appSource, /target_role: targetRole \|\| undefined/)
   assert.match(appSource, /company_name: companyName \|\| undefined/)

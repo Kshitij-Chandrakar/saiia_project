@@ -536,7 +536,7 @@ function getPanelCopy(mode, overlayState) {
   }
 
   return {
-    title: overlayState.transcript || 'No clear question detected yet.',
+    title: overlayState.transcript || (['connecting', 'listening'].includes(overlayState.manualLiveState?.phase) ? 'Listening...' : 'No clear question detected yet.'),
     body:
       overlayState.answer ||
       'Your latest SAIIA answer will appear here once a question is captured or generated.',
@@ -933,6 +933,17 @@ export default function AnswerPanel({
         ...panelShellStyle,
       }}
     >
+      {mode !== 'chat' && mode !== 'analyzeScreen' && overlayState.generationDiagnostics?.generationRequestBlocked ? (
+        <div role="alert" className="no-drag">
+          <p>Generation blocked: cloud access is unavailable. Reconnect to save this answer, end the session, or explicitly generate locally without saving.</p>
+          {[
+            ['generation-refresh-cloud', 'Reconnect / refresh cloud'],
+            ['generation-end-session', 'End active session'],
+            ['generation-local', 'Generate locally without saving'],
+          ].map(([action, label]) => <button key={action} type="button" disabled={overlayState.isManualGenerating} onClick={() => window.electronAPI?.triggerToolbarAction?.(action)}>{label}</button>)}
+        </div>
+      ) : null}
+      {mode !== 'chat' && mode !== 'analyzeScreen' && overlayState.generationDiagnostics?.localWithoutSaving ? <p>Local answer. Not saved to cloud session.</p> : null}
       {!(mode === 'chat' && chatPanelView === 'myAnswers') ? (
         <div className="topbar-answer-panel__header">
         <div className={`topbar-answer-panel__question-row${mode === 'chat' ? ' topbar-answer-panel__question-row--chat' : ''}`}>

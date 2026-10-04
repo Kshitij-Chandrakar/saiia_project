@@ -1390,7 +1390,8 @@ test('openAnswerStream uses the authenticated stream endpoint without exposing c
     })
 
     const streamCall = ctx.calls.find((call) => call.url.endsWith('/generate/stream'))
-    assert.deepEqual(Object.keys(opened).sort(), ['isCurrent', 'ok', 'release', 'response', 'status'])
+    assert.deepEqual(Object.keys(opened).sort(), ['generateRequestSent', 'isCurrent', 'ok', 'release', 'response', 'status'])
+    assert.equal(opened.generateRequestSent, true)
     assert.equal(opened.ok, true)
     assert.equal(streamCall.init.headers.Authorization, 'Bearer access-token')
     assert.equal(streamCall.init.headers.Accept, 'application/x-ndjson')
@@ -1937,6 +1938,8 @@ test('desktop auth manager creates lists and ends interview sessions without exp
     const ended = await ctx.manager.endInterviewSession('session-1')
     assert.equal(ended.session.status, 'ended')
     assert.equal(ctx.manager.activeInterviewSession, null)
+    assert.deepEqual(ctx.manager.getStartupContext().auth.endedInterviewSessionIds, ['session-1'])
+    assert.equal(JSON.stringify(ctx.manager.getStartupContext().auth).includes('access-token'), false)
 
     const createCall = ctx.calls.find((call) => call.url.endsWith('/api/interview-sessions'))
     assert.equal(createCall.init.headers.Authorization, 'Bearer access-token')
@@ -2272,3 +2275,41 @@ for (const status of [0, 503]) {
     } finally { ctx.cleanup() }
   })
 }
+
+test('known unavailable cloud state never sends stale generation bearer tokens', async () => {
+  const ctx = createManager()
+  try {
+    ctx.manager.session = { access_token: 'stale-test-token' }
+    ctx.manager.status = AUTH_STATUSES.OFFLINE
+    assert.equal((await ctx.manager.generateAnswer({ question: 'Question' })).status, 401)
+    assert.equal((await ctx.manager.openAnswerStream({ question: 'Question' })).status, 401)
+    assert.equal(ctx.calls.length, 0)
+  } finally { ctx.cleanup() }
+})
+
+test('ended session IDs retain same-user expiration but stay private during sign-in and clear on account switch/logout', async () => {
+  const ctx = createManager()
+  try {
+    await ctx.manager.startLogin()
+    await ctx.manager.handleAuthCallback(callbackUrlFor(ctx.manager, { code: 'auth-code' }))
+    ctx.manager.endedInterviewSessionUserId = 'user-1'
+    ctx.manager.endedInterviewSessionIds.add('ended-private')
+    assert.deepEqual(ctx.manager.getSafeState().endedInterviewSessionIds, ['ended-private'])
+    ctx.manager.status = AUTH_STATUSES.SIGNING_IN
+    assert.deepEqual(ctx.manager.getSafeState().endedInterviewSessionIds, [])
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    await ctx.manager._verifyAndBootstrap(ctx.manager.session)
+    assert.deepEqual(ctx.manager.getSafeState().endedInterviewSessionIds, ['ended-private'])
+    ctx.manager._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED)
+    assert.deepEqual(ctx.manager.getSafeState().endedInterviewSessionIds, ['ended-private'])
+    ctx.manager.fetchImpl = async (url) => jsonResponse(200, url.endsWith('/api/auth/me') ? { user_id: 'user-2', email: 'other@example.test' } : { ok: true })
+    ctx.manager.session = { access_token: 'synthetic', refresh_token: 'synthetic' }
+    await ctx.manager._verifyAndBootstrap(ctx.manager.session)
+    assert.deepEqual(ctx.manager.getSafeState().endedInterviewSessionIds, [])
+    assert.equal(ctx.manager.endedInterviewSessionIds.size, 0)
+    ctx.manager.endedInterviewSessionIds.add('user-2-ended')
+    await ctx.manager.logout()
+    assert.equal(ctx.manager.endedInterviewSessionIds.size, 0)
+    assert.deepEqual(ctx.manager.getSafeState().endedInterviewSessionIds, [])
+  } finally { ctx.cleanup() }
+})

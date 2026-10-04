@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import vm from 'node:vm'
 
 
 const source = readFileSync(new URL('./AuthScreens.jsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
@@ -78,9 +79,9 @@ test('signed-in users visiting login or signup redirect to dashboard', () => {
   assert.match(source, /const \{ data \} = await supabase\.auth\.getSession\(\)/)
   assert.match(source, /if \(data\.session\?\.access_token\) \{[\s\S]*if \(targetRoute\) \{[\s\S]*navigate\(targetRoute, \{ replace: true \}\)/)
   assert.match(signupPageSource, /const safeNextRoute = safeDesktopState[\s\S]*\? desktopLoginRoute\(safeDesktopState\)[\s\S]*: getSafeAuthNextRoute\(searchParams\.get\('next'\) \|\| location\.state\?\.next\)[\s\S]*const checkingSession = useRedirectAuthenticatedUser\(safeNextRoute\)/)
-  assert.match(loginPageSource, /const safeNextRoute = getSafeAuthNextRoute\(searchParams\.get\('next'\) \|\| location\.state\?\.next\)[\s\S]*const checkingSession = useRedirectAuthenticatedUser\(safeDesktopState \? '' : safeNextRoute\)/)
+  assert.match(loginPageSource, /const safeNextRoute = getSafeAuthNextRoute\(searchParams\.get\('next'\) \|\| location\.state\?\.next\)[\s\S]*const checkingSession = useRedirectAuthenticatedUser\(safeDesktopState \|\| desktopBlocked \? '' : safeNextRoute\)/)
   assert.match(signupPageSource, /if \(checkingSession\) \{[\s\S]*<p className="auth-message info">Checking session\.\.\.<\/p>/)
-  assert.match(loginPageSource, /if \(checkingSession\) \{[\s\S]*<p className="auth-message info">Checking session\.\.\.<\/p>/)
+  assert.match(loginPageSource, /checkingSession=\{checkingSession \|\| desktopChecking\}/)
 })
 
 
@@ -94,7 +95,7 @@ test('desktop login handoff is isolated to the /auth/desktop-login entry path', 
   assert.match(source, /function desktopSignupRoute\(state\) \{[\s\S]*return `\/auth\/signup\?desktop_state=\$\{encodeURIComponent\(state\)\}`/)
   assert.match(source, /export function AuthDesktopLoginPage\(\{ backendUrl \}\)/)
   assert.match(source, /const state = getSafeDesktopState\(searchParams\.get\('state'\)\)/)
-  assert.match(source, /<AuthLoginPage backendUrl=\{backendUrl\} desktopState=\{state\} desktopError=\{error\} \/>/)
+  assert.match(source, /<AuthLoginPage[\s\S]*backendUrl=\{backendUrl\}[\s\S]*desktopState=\{state\}[\s\S]*desktopBlocked=\{!state\}/)
 })
 
 
@@ -116,11 +117,11 @@ test('desktop mode preserves email password and Google auth without changing nor
   assert.match(signupPageSource, /if \(data\.session\) \{[\s\S]*if \(safeDesktopState\) \{[\s\S]*await openDesktopHandoff\(data\.session, safeDesktopState, backendUrl\)/)
   assert.match(loginPageSource, /if \(safeDesktopState\) \{[\s\S]*await openDesktopHandoff\(data\.session, safeDesktopState, backendUrl\)/)
   assert.match(loginPageSource, /fetchCurrentUser\(data\.session\.access_token, \{ backendUrl \}\)[\s\S]*navigate\(safeNextRoute, \{ replace: true \}\)/)
-  assert.match(source, /async function startGoogleLogin\(desktopState = ''\) \{[\s\S]*provider: 'google'[\s\S]*redirectTo: getAuthRedirectUrl\(desktopState\)/)
+  assert.match(source, /async function startGoogleLogin\(desktopState = '', nextRoute = ''\) \{[\s\S]*provider: 'google'[\s\S]*redirectTo: getAuthRedirectUrl\(desktopState, nextRoute\)/)
   assert.match(signupPageSource, /async function handleGoogleLogin\(\) {[\s\S]*const \{ error \} = await startGoogleLogin\(safeDesktopState\)[\s\S]*form\.setError\(error\.message \|\| 'Google login could not be started\.'\)/)
-  assert.match(loginPageSource, /async function handleGoogleLogin\(\) {[\s\S]*const \{ error \} = await startGoogleLogin\(safeDesktopState\)[\s\S]*form\.setError\(error\.message \|\| 'Google login could not be started\.'\)/)
+  assert.match(loginPageSource, /async function handleGoogleLogin\(\) {[\s\S]*const \{ error \} = await startGoogleLogin\(safeDesktopState, safeDesktopState \? '' : safeNextRoute\)[\s\S]*form\.setError\(safeDesktopState \? 'Google login could not be started\.'/)
   assert.match(signupPageSource, /onClick=\{handleGoogleLogin\}/)
-  assert.match(loginPageSource, /onClick=\{handleGoogleLogin\}/)
+  assert.match(loginPageSource, /onGoogleLogin=\{handleGoogleLogin\}/)
 })
 
 
@@ -585,4 +586,176 @@ test('bootstrap completion does not clear a newer signup record', async () => {
   complete()
   await pending
   assert.equal(helpers.records.size, 1)
+})
+
+
+test('website OAuth callback uses current origin and preserves only an allowed next route', () => {
+  const redirectSource = source.match(/function getAuthRedirectUrl[\s\S]*?\n\}/)[0]
+  const safeNextSource = source.match(/function getSafeAuthNextRoute[\s\S]*?\n\}/)[0]
+  const context = { URL, window: { location: { origin: 'https://app.example.test' } },
+    DEFAULT_LOGIN_NEXT_ROUTE: '/auth/dashboard', SAFE_AUTH_NEXT_ROUTES: new Set(['/auth/dashboard', '/auth/status']),
+    getSafeDesktopState: (state) => state, desktopLoginRoute: (state) => `/auth/desktop-login?state=${state}`, AUTH_CALLBACK_URL: 'http://localhost:5173/auth/callback' }
+  const redirect = vm.runInNewContext(`${safeNextSource}; ${redirectSource}; getAuthRedirectUrl`, context)
+  assert.equal(redirect('', '/auth/status'), 'https://app.example.test/auth/callback?next=%2Fauth%2Fstatus')
+  assert.equal(redirect('', 'https://evil.example'), 'https://app.example.test/auth/callback?next=%2Fauth%2Fdashboard')
+  assert.equal(redirect('desktop-state', '/auth/status'), 'https://app.example.test/auth/desktop-login?state=desktop-state')
+})
+
+test('website legal controls show distinct unpublished notices without misleading navigation', () => {
+  const login = readFileSync(new URL('./WebsiteLogin.jsx', import.meta.url), 'utf8')
+  for (const target of ['/#privacy', '/privacy', '/terms']) assert.equal(login.includes(`to="${target}"`), false)
+  assert.match(login, /Privacy Policy is not published yet\./)
+  assert.match(login, /Terms of Service is not published yet\./)
+  assert.match(login, /legalNotice && <p role="status">/)
+})
+
+test('credential errors are associated with both inputs and cleared when either credential changes', () => {
+  const login = readFileSync(new URL('./WebsiteLogin.jsx', import.meta.url), 'utf8')
+  assert.match(login, /id="website-login-credential-error" role="alert"/)
+  assert.equal((login.match(/aria-invalid=\{Boolean\(form.error\)\}/g) || []).length, 2)
+  assert.equal((login.match(/aria-errormessage=\{form.error \? 'website-login-credential-error' : undefined\}/g) || []).length, 2)
+  for (const field of ['Email', 'Password']) {
+    const handler = login.match(new RegExp(`onChange=\\{\\(event\\) => \\{ form.set${field}\\(event.target.value\\); form.setError\\(''\\) \\}\\}`))[0]
+    const body = handler.slice(handler.indexOf('{ form.') + 1, handler.lastIndexOf('}') - 1)
+    const updates = []
+    vm.runInNewContext(body, { event: { target: { value: 'updated' } }, form: {
+      [`set${field}`]: (value) => updates.push(value), setError: (value) => updates.push(value),
+    } })
+    assert.deepEqual(updates, ['updated', ''])
+  }
+})
+
+test('remember email stores only the opted-in email and delegates to the existing login handler', () => {
+  const login = readFileSync(new URL('./WebsiteLogin.jsx', import.meta.url), 'utf8')
+  const submitSource = login.slice(login.indexOf('  function handleSubmit'), login.indexOf('  async function handleGoogle'))
+  const records = new Map(), events = []
+  const context = { rememberEmail: true, form: { email: ' person@example.test ', password: 'must-not-be-stored' },
+    localStorage: { setItem: (key, value) => records.set(key, value), removeItem: (key) => records.delete(key) },
+    onSubmit: (event) => events.push(event) }
+  const submit = vm.runInNewContext(`${submitSource}; handleSubmit`, context)
+  const event = { preventDefault() {} }
+  submit(event)
+  assert.deepEqual([...records], [['intervucopilot.login-email', 'person@example.test']])
+  assert.equal(events[0], event)
+  context.rememberEmail = false
+  submit(event)
+  assert.equal(records.size, 0)
+  context.rememberEmail = true
+  context.localStorage.setItem = () => { throw Error('storage unavailable') }
+  submit(event)
+  assert.equal(events.length, 3)
+  assert.match(login, /Remember email/)
+})
+
+test('login card rotation starts only on desktop with motion allowed and cleans up on unmount', () => {
+  const login = readFileSync(new URL('./WebsiteLogin.jsx', import.meta.url), 'utf8')
+  const effect = login.slice(login.indexOf('  useEffect(() => {'), login.indexOf('  // Increasing distances'))
+  let cleanup, listener, tick, intervalCount = 0
+  const cleared = [], rotations = []
+  const media = { matches: false, addEventListener: (_, fn) => { listener = fn }, removeEventListener: (_, fn) => assert.equal(fn, listener) }
+  const context = { window: { matchMedia: (query) => { assert.match(query, /no-preference.*min-width: 901px/); return media } },
+    useEffect: (fn) => { cleanup = fn() }, setRotation: (fn) => rotations.push(fn(0)),
+    setInterval: (fn, delay) => { assert.equal(delay, 3000); tick = fn; return ++intervalCount }, clearInterval: (id) => cleared.push(id) }
+  vm.runInNewContext(effect, context)
+  assert.equal(intervalCount, 0)
+  media.matches = true
+  listener()
+  assert.equal(intervalCount, 1)
+  tick()
+  assert.deepEqual(rotations, [1])
+  media.matches = false
+  listener()
+  assert.ok(cleared.includes(1))
+  cleanup()
+  assert.equal(intervalCount, 1)
+  media.matches = true
+  vm.runInNewContext(effect, context)
+  cleanup()
+  assert.ok(cleared.includes(2))
+})
+
+test('floating card positions advance clockwise without jumping backward at the loop boundary', () => {
+  const login = readFileSync(new URL('./WebsiteLogin.jsx', import.meta.url), 'utf8')
+  const positions = login.slice(login.indexOf('  const orbit ='), login.indexOf('  const [rememberedEmail'))
+  const context = { rotation: 0 }
+  const getPosition = () => vm.runInNewContext(`(function () { ${positions}; return [position(0), position(1), position(2)] })()`, context)
+  assert.deepEqual(Array.from(getPosition()), [87.5, 112.5, 137.5])
+  for (let step = 1; step <= 9; step++) {
+    const previous = Array.from(getPosition())
+    context.rotation = step
+    const next = Array.from(getPosition())
+    assert.ok(next.every((value, index) => value > previous[index]))
+    assert.deepEqual(next.map((value) => value % 100).sort(), [12.5, 37.5, 87.5])
+  }
+})
+
+
+test('desktop login loading/error states and ordinary login reuse the branded portal without a plain card', () => {
+  const desktop = source.match(/export function AuthDesktopLoginPage[\s\S]*?export function AuthForgotPasswordPage/)[0]
+  assert.match(loginPageSource, /<WebsiteLogin/)
+  assert.doesNotMatch(loginPageSource, /<AuthShell/)
+  assert.doesNotMatch(desktop, /<AuthShell/)
+  assert.match(desktop, /desktopChecking=\{checking\}/)
+  assert.match(loginPageSource, /signupHref=\{safeDesktopState \? desktopSignupRoute\(safeDesktopState\)/)
+  assert.match(desktop, /await openDesktopHandoff\(data.session, state, backendUrl\)/)
+  assert.match(loginPageSource, /Invalid email or password\./)
+  assert.match(loginPageSource, /safeDesktopState \? 'Google login could not be started.'/)
+})
+
+
+test('desktop email and signed-in continuation exchange tokens only for handoff code and state', async () => {
+  let exchanged
+  const context = { URL, DESKTOP_CALLBACK_URL: 'saiia://auth/callback', window: { location: { href: '' } },
+    createDesktopHandoff: async (...args) => { exchanged = args; return { handoff_code: 'synthetic-code' } } }
+  const handoff = vm.runInNewContext(`${openDesktopHandoffSource}; openDesktopHandoff`, context)
+  await handoff({ access_token: 'synthetic-access', refresh_token: 'synthetic-refresh' }, 'synthetic-state', 'backend')
+  assert.equal(exchanged[2], 'synthetic-state')
+  const callback = new URL(context.window.location.href)
+  assert.equal(callback.searchParams.get('state'), 'synthetic-state')
+  assert.equal(callback.searchParams.get('handoff_code'), 'synthetic-code')
+  assert.doesNotMatch(callback.toString(), /synthetic-access|synthetic-refresh/)
+  await assert.rejects(handoff({}, 'synthetic-state', 'backend'), /could not be completed/)
+})
+
+
+test('desktop email handler uses handoff, generic errors, and never dashboard navigation', async () => {
+  const submitSource = loginPageSource.slice(loginPageSource.indexOf('  async function handleSubmit'), loginPageSource.indexOf('  async function handleGoogleLogin'))
+  const values = {}, handoffs = []
+  const context = { checkingSession: false, desktopChecking: false, desktopBlocked: false,
+    safeDesktopState: 'synthetic-state', safeNextRoute: '/auth/dashboard', backendUrl: 'backend',
+    form: { email: 'audit@example.test', password: 'synthetic-password', setLoading: (v) => { values.loading = v }, setError: (v) => { values.error = v }, setMessage: (v) => { values.message = v } },
+    supabase: { auth: { signInWithPassword: async () => ({ data: { session: { access_token: 'synthetic-access', refresh_token: 'synthetic-refresh' } }, error: null }) } },
+    openDesktopHandoff: async (...args) => { handoffs.push(args) }, navigate: () => { throw Error('desktop must not navigate to dashboard') },
+  }
+  const submit = vm.runInNewContext(`${submitSource}; handleSubmit`, context)
+  await submit({ preventDefault() {} })
+  assert.equal(handoffs.length, 1)
+  assert.equal(handoffs[0][1], 'synthetic-state')
+  assert.equal(values.loading, false)
+  context.supabase.auth.signInWithPassword = async () => ({ data: {}, error: { code: 'invalid_credentials', message: 'upstream detail must stay private' } })
+  await submit({ preventDefault() {} })
+  assert.equal(values.error, 'Invalid email or password.')
+  assert.equal(values.loading, false)
+  context.supabase.auth.signInWithPassword = async () => { throw Error('private upstream detail') }
+  await submit({ preventDefault() {} })
+  assert.equal(values.error, 'Desktop sign-in could not be completed. Please try again.')
+  assert.equal(values.loading, false)
+})
+
+
+test('already signed-in desktop route continues handoff without showing session values', async () => {
+  const desktop = source.match(/export function AuthDesktopLoginPage[\s\S]*?export function AuthForgotPasswordPage/)[0]
+  const body = desktop.slice(desktop.indexOf('  const [searchParams]'), desktop.lastIndexOf('  return ('))
+  const handoffs = [], states = []
+  const context = { backendUrl: 'backend',
+    useSearchParams: () => [new URLSearchParams('state=synthetic-state-123456')],
+    getSafeDesktopState: (v) => v, useState: (initial) => [initial, (v) => states.push(v)], useEffect: (effect) => effect(),
+    supabase: { auth: { getSession: async () => ({ data: { session: { access_token: 'synthetic-access', refresh_token: 'synthetic-refresh' } } }) } },
+    openDesktopHandoff: async (...args) => handoffs.push(args),
+  }
+  vm.runInNewContext(`(function () { ${body} })()`, context)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(handoffs.length, 1)
+  assert.equal(handoffs[0][1], 'synthetic-state-123456')
+  assert.equal(states.some((value) => String(value).includes('synthetic-access')), false)
 })

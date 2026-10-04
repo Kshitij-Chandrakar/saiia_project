@@ -1042,3 +1042,22 @@ async def test_strict_clarification_retrieval_failure_emits_terminal_protocol(mo
     assert [e["type"] for e in events] == ["error", "done"]
     assert events[0]["status_code"] == 503
     assert events[-1]["incomplete"]
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", ["generate_answer", "generate_answer_stream"])
+@pytest.mark.parametrize("token", [None, "Bearer invalid-test-token"])
+async def test_local_endpoints_generate_with_optional_invalid_auth(monkeypatch, endpoint, token):
+    from starlette.requests import Request
+    monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
+    monkeypatch.setattr(generate_api, "get_current_user", lambda _: pytest.fail("local generation must not authenticate"))
+    monkeypatch.setattr(generate_api.resume_index_service, "retrieve", lambda **_: {"retrieval_used": False, "retrieved_chunks": [], "retrieval_ms": 0})
+    monkeypatch.setattr(generate_api.job_context_service, "get_context", lambda: {"saved": False})
+    monkeypatch.setattr(generate_api.generator, "generate_answer", lambda **_: {"answer": "Deep learning uses neural networks.", "provider": "openai", "model": "test", "fallback_used": False, "error": None, "generation_ms": 1})
+    monkeypatch.setattr(generate_api.generator, "stream_openai_primary_answer", lambda **_: iter([{"type": "primary_result", "result": {"answer": "Deep learning uses neural networks.", "provider": "openai", "model": "test", "error": None, "generation_ms": 1}}]))
+    request = Request({"type": "http", "headers": [(b"authorization", token.encode())] if token else []})
+    response = await getattr(generate_api, endpoint)(generate_api.GenerateRequest(question="What is deep learning?", category="technical"), request)
+    if endpoint == "generate_answer_stream":
+        events = await _collect_stream_events(response)
+        assert any(event.get("type") == "done" for event in events)
+    else:
+        assert response.answer == "Deep learning uses neural networks."

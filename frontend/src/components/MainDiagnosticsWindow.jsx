@@ -422,11 +422,14 @@ export default function MainDiagnosticsWindow(props) {
     pendingCooldownQuestionAgeMs,
     cooldownQueueReason,
     queuedQuestionProcessed,
+    generationDiagnostics,
     generationStarted,
     generationBlockedReason,
     isCooldownListening,
     autoStreamingConnected,
     partialAutoTranscript,
+    manualLiveState,
+    manualFinalTranscript,
     streamingError,
     autoProcessing,
     ocrProcessing,
@@ -607,6 +610,7 @@ export default function MainDiagnosticsWindow(props) {
     return (
       <StartupLoginScreen
         onAuthenticated={(nextState) => {
+          props.onDesktopAuthenticated?.().catch(() => {})
           resizeStartupWindow('home')
           setStartupAuthenticatedEmail(nextState?.email || '')
           setStartupAuthenticated(true)
@@ -1647,6 +1651,28 @@ export default function MainDiagnosticsWindow(props) {
                     label="Raw final transcript"
                     value={rawFinalTranscript || 'n/a'}
                   />
+                  <MetaRow label="Manual listening active" value={['connecting', 'listening'].includes(manualLiveState?.phase) ? 'true' : 'false'} />
+                  <MetaRow label="Generation request blocked" value={String(Boolean(generationDiagnostics?.generationRequestBlocked))} />
+                  <MetaRow label="Generation block reason" value={generationDiagnostics?.generationBlockReason || 'none'} />
+                  <MetaRow label="Active session ID present" value={String(Boolean(generationDiagnostics?.activeSessionIdPresent))} />
+                  <MetaRow label="Active session ended (confirmed)" value={String(Boolean(generationDiagnostics?.activeSessionEnded))} />
+                  <MetaRow label="Generation auth required" value={String(Boolean(generationDiagnostics?.authRequired))} />
+                  <MetaRow label="Cloud status at generation" value={generationDiagnostics?.cloudStatusAtGeneration || 'unknown'} />
+                  {['generation_transport_version', 'generation_display_mode', 'electron_stream_available', 'generate_stream_request_sent', 'generate_non_stream_fallback_used', 'stream_fallback_reason', 'first_delta_received_ms', 'first_ui_update_ms', 'provider_streaming'].map((field) => (
+                    <MetaRow key={field} label={field} value={String(generationDiagnostics?.[field] ?? 'n/a')} />
+                  ))}
+                  <MetaRow label="Generate stream request sent" value={String(Boolean(generationDiagnostics?.generateStreamRequestSent))} />
+                  <MetaRow label="Generate fallback request sent" value={String(Boolean(generationDiagnostics?.generateFallbackRequestSent))} />
+                  <MetaRow label="Local without saving" value={String(Boolean(generationDiagnostics?.localWithoutSaving))} />
+                  <MetaRow label="Generate request sent" value={String(Boolean(generationDiagnostics?.generateRequestSent))} />
+                  <MetaRow label="Manual live provider" value={manualLiveState?.liveProvider || 'none (batch)'} />
+                  {['manual_stop_clicked_at', 'manual_final_transcript_received_at', 'manual_finalization_wait_ms', 'manual_question_detection_started_at', 'stop_to_question_detection_ms'].map((field) => (
+                    <MetaRow key={field} label={field} value={manualLiveState?.[field] != null ? `${manualLiveState[field].toFixed(2)} ms` : 'n/a'} />
+                  ))}
+                  <MetaRow label="Manual phase" value={manualLiveState?.phase || 'idle'} />
+                  <MetaRow label="Manual partial transcript" value={manualLiveState?.partialTranscript || 'n/a'} />
+                  <MetaRow label="Manual final transcript" value={manualFinalTranscript || 'n/a'} />
+                  <MetaRow label="Manual detected question" value={manualLiveState?.detectedQuestion || 'n/a'} />
                   <MetaRow
                     label="Partial transcript"
                     value={partialAutoTranscript || 'n/a'}

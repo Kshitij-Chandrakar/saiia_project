@@ -38,7 +38,7 @@ function formatElapsedTime(startedAt) {
 }
 
 function getActivePanelQuestion(overlayState) {
-  return overlayState.transcript || 'No clear question detected yet.'
+  return overlayState.transcript || (['connecting', 'listening'].includes(overlayState.manualLiveState?.phase) ? 'Listening...' : 'No clear question detected yet.')
 }
 
 function getStatusSummary(overlayState) {
@@ -303,6 +303,12 @@ export default function OverlayWindow({ overlayState }) {
       }
     }
   }, [overlayState, activeTab])
+
+  useEffect(() => {
+    if (!overlayState.manualLiveState?.sessionId) return
+    setActiveTab('aiHelp')
+    setCollapsed(false)
+  }, [overlayState.manualLiveState?.sessionId])
 
   const handleAiHelp = async () => {
     setActiveTab('aiHelp')

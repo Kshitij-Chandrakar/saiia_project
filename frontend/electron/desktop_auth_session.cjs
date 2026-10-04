@@ -259,6 +259,8 @@ class DesktopAuthSessionManager {
     this.startupRefreshPromise = null
     this.verificationCache = null
     this.cloudCache = this._emptyCloudCache()
+    this.endedInterviewSessionIds = new Set()
+    this.endedInterviewSessionUserId = null
     this.activeInterviewSession = null
     this.interviewSessionCreatePromise = null
     this.interviewSessionCreateKey = ''
@@ -286,6 +288,10 @@ class DesktopAuthSessionManager {
       error_code: this.errorCode,
       safeStorageAvailable: this._canPersist(),
       activeInterviewSessionId: this.activeInterviewSession?.id || null,
+      endedInterviewSessionIds: this.status !== AUTH_STATUSES.SIGNING_IN &&
+        this.status !== AUTH_STATUSES.SIGNED_OUT &&
+        (this.user?.user_id || (this.status === AUTH_STATUSES.TOKEN_EXPIRED ? this.endedInterviewSessionUserId : null)) === this.endedInterviewSessionUserId
+        ? [...this.endedInterviewSessionIds] : [],
     }
   }
 
@@ -685,6 +691,8 @@ class DesktopAuthSessionManager {
       this._clearVerificationCache()
       this._clearCloudCache()
     }
+    if (this.endedInterviewSessionUserId !== nextUser.user_id) this.endedInterviewSessionIds.clear()
+    this.endedInterviewSessionUserId = nextUser.user_id
     this.user = nextUser
     this.sessionGeneration += 1
     const bootstrapGeneration = this.sessionGeneration
@@ -988,6 +996,12 @@ class DesktopAuthSessionManager {
       }
     }
     const record = safeInterviewSessionItem(response.payload)
+    if (record?.id === normalizedSessionId && record.status === 'ended') {
+      this.endedInterviewSessionUserId = this.user?.user_id || null
+      this.endedInterviewSessionIds.add(normalizedSessionId)
+      // ponytail: retain 50 confirmed endings; older unknown IDs remain auth-gated.
+      if (this.endedInterviewSessionIds.size > 50) this.endedInterviewSessionIds.delete(this.endedInterviewSessionIds.values().next().value)
+    }
     if (this.activeInterviewSession?.id === normalizedSessionId) {
       this.activeInterviewSession = null
     }
@@ -1053,6 +1067,11 @@ class DesktopAuthSessionManager {
   }
 
   async generateAnswer(body) {
+    let generateRequestSent = false
+    const result = await (async () => {
+    if ([AUTH_STATUSES.TOKEN_EXPIRED, AUTH_STATUSES.OFFLINE, AUTH_STATUSES.BOOTSTRAP_FAILED, AUTH_STATUSES.BACKEND_UNAVAILABLE].includes(this.status)) {
+      return { ok: false, status: 401, reason: 'auth-required', payload: { detail: 'Sign in again to use cloud context, or clear cloud selections to generate locally.' } }
+    }
     if (!this.session?.access_token) {
       return { ok: false, status: 401, payload: { detail: 'Log in to generate answers with a cloud resume.' } }
     }
@@ -1064,6 +1083,8 @@ class DesktopAuthSessionManager {
     }
 
     const captured = this.captureCloudRequestContext()
+    this.logger?.debug?.('generation_auth', { required: true, token_attached: true })
+    generateRequestSent = true
     const response = await this._backendJson('/generate/', 'POST', this.session.access_token, body || {})
     if (!this._cloudRequestStillCurrent(captured)) {
       return { ok: false, status: 409, payload: { detail: 'Session changed. Please retry.' } }
@@ -1072,9 +1093,16 @@ class DesktopAuthSessionManager {
       this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
     }
     return response
+    })()
+    return { ...result, generateRequestSent }
   }
 
   async openAnswerStream(body, options = {}) {
+    let generateRequestSent = false
+    const result = await (async () => {
+    if ([AUTH_STATUSES.TOKEN_EXPIRED, AUTH_STATUSES.OFFLINE, AUTH_STATUSES.BOOTSTRAP_FAILED, AUTH_STATUSES.BACKEND_UNAVAILABLE].includes(this.status)) {
+      return { ok: false, status: 401, reason: 'auth-required', payload: { detail: 'Sign in again to use cloud context, or clear cloud selections to generate locally.' } }
+    }
     const tracked = this._trackAnswerStream(options.signal)
     let handedOff = false
     try {
@@ -1107,6 +1135,8 @@ class DesktopAuthSessionManager {
       const captured = this.captureCloudRequestContext()
       let response
       try {
+        this.logger?.debug?.('generation_auth', { required: true, token_attached: true })
+        generateRequestSent = true
         response = await this.fetchImpl(`${this.backendUrl}/generate/stream`, {
           method: 'POST',
           headers: {
@@ -1159,6 +1189,8 @@ class DesktopAuthSessionManager {
         tracked.release()
       }
     }
+    })()
+    return { ...result, generateRequestSent }
   }
 
   _trackAnswerStream(signal) {
@@ -1397,6 +1429,10 @@ class DesktopAuthSessionManager {
   }
 
   _clearLocalSession(status, message = '', errorCode = '') {
+    if (status === AUTH_STATUSES.SIGNED_OUT) {
+      this.endedInterviewSessionIds.clear()
+      this.endedInterviewSessionUserId = null
+    }
     this._abortActiveAnswerStreams()
     this.loginAttemptGeneration += 1
     this.sessionGeneration += 1

@@ -160,7 +160,8 @@ async def stop_system_audio_recording(payload: SystemAudioStopRequest):
         stop_result = system_audio_service.stop_recording(recording_id=payload.recording_id)
         audio_path = stop_result["audio_path"]
         transcription_started = time.perf_counter()
-        transcription_result = stt_provider.transcribe_file(
+        transcription_result = await asyncio.to_thread(
+            stt_provider.transcribe_file,
             audio_path=audio_path,
             original_filename="system-loopback.wav",
             mode="manual",
@@ -213,7 +214,8 @@ async def capture_system_audio_chunk(payload: SystemAudioCaptureChunkRequest):
         await asyncio.sleep(duration_ms / 1000)
         stop_result = system_audio_service.stop_recording(recording_id=start_result["recording_id"])
         audio_path = stop_result["audio_path"]
-        transcription_result = stt_provider.transcribe_file(
+        transcription_result = await asyncio.to_thread(
+            stt_provider.transcribe_file,
             audio_path=audio_path,
             original_filename="system-loopback.wav",
             mode="manual",
