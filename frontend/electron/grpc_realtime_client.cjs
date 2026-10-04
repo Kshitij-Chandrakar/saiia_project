@@ -16,6 +16,9 @@ class GrpcRealtimeClient {
   constructor({ env = process.env, transportFactory = createTransport, timeoutMs = 3000,
     protoPath = path.join(__dirname, 'protos', 'interview_realtime.proto') } = {}) {
     this.enabled = String(env.ELECTRON_GRPC_REALTIME_ENABLED || 'false').toLowerCase() === 'true'
+    this.audioEnabled = String(env.ELECTRON_GRPC_AUDIO_ENABLED || 'false').toLowerCase() === 'true'
+    this.audioChunksSent = this.audioBytesSent = this.backendChunksReceived = this.backendBytesReceived = 0
+    this.lastAudioStatus = 'idle'
     this.host = env.ELECTRON_GRPC_REALTIME_HOST || '127.0.0.1'
     this.port = Number(env.ELECTRON_GRPC_REALTIME_PORT || 50051)
     this.transportFactory = transportFactory
@@ -29,7 +32,9 @@ class GrpcRealtimeClient {
   }
 
   getStatus() {
-    return { enabled: this.enabled, connectionStatus: this.status, lastPingResult: this.lastPing, lastErrorMessage: this.lastError }
+    return { enabled: this.enabled, connectionStatus: this.status, lastPingResult: this.lastPing, lastErrorMessage: this.lastError,
+      audioEnabled: this.enabled && this.audioEnabled, audioChunksSent: this.audioChunksSent, audioBytesSent: this.audioBytesSent,
+      backendChunksReceived: this.backendChunksReceived, backendBytesReceived: this.backendBytesReceived, lastAudioStatus: this.lastAudioStatus }
   }
 
   connect() {
@@ -55,12 +60,13 @@ class GrpcRealtimeClient {
           if (pending && event[pending.kind] !== undefined) {
             clearTimeout(pending.timer)
             this.pending.delete(event.request_id)
-            pending.resolve()
+            pending.resolve(event)
           } else if (event.error) this.fail()
         })
         stream.on('error', () => { if (epoch === this.epoch) this.fail() })
         stream.on('end', () => { if (epoch === this.epoch) this.close() })
         this.sessionId = randomUUID()
+        this.audioChunksSent = this.audioBytesSent = this.backendChunksReceived = this.backendBytesReceived = 0
         await this.startSession()
         if (epoch === this.epoch) { this.status = 'connected'; this.lastError = '' }
       } catch {
@@ -85,6 +91,46 @@ class GrpcRealtimeClient {
   }
 
   startSession() { return this.request({ start_session: { mode: 'diagnostics' } }, 'ready') }
+
+  async sendAudioChunk(data) {
+    if (!this.enabled || !this.audioEnabled || this.status !== 'connected') return this.getStatus()
+    if (!(data instanceof Uint8Array) && !(data instanceof ArrayBuffer)) {
+      this.lastAudioStatus = 'invalid_chunk'; return this.getStatus()
+    }
+    if (!data.byteLength || data.byteLength > 65536 || data.byteLength % 2) {
+      this.lastAudioStatus = 'invalid_chunk'; return this.getStatus()
+    }
+    // One acknowledged chunk at a time bounds IPC/gRPC buffering.
+    if (this.audioPending) { this.lastAudioStatus = 'backpressure'; return this.getStatus() }
+    const epoch = this.epoch
+    const audio = Buffer.from(data instanceof ArrayBuffer ? data : data.buffer, data instanceof ArrayBuffer ? 0 : data.byteOffset, data.byteLength)
+    const task = (async () => {
+      try {
+        const response = await this.request({ audio_chunk: { audio, sample_rate: 16000, channels: 1, encoding: 'linear16' } }, 'status')
+        if (epoch !== this.epoch) return
+        this.audioChunksSent++
+        this.audioBytesSent += audio.byteLength
+        this.backendChunksReceived = Number(response.status.total_chunks || 0)
+        this.backendBytesReceived = Number(response.status.total_audio_bytes || 0)
+        this.lastAudioStatus = response.status.code === 'audio_chunk_received' ? 'audio_chunk_received' : 'not_implemented'
+      } catch { if (epoch === this.epoch) { this.fail(); this.lastAudioStatus = 'failed' } }
+    })()
+    this.audioPending = task
+    try { await task } finally { if (this.audioPending === task) this.audioPending = null }
+    return this.getStatus()
+  }
+
+  async manualStop() {
+    if (!this.enabled || !this.audioEnabled || this.status !== 'connected') return this.getStatus()
+    const epoch = this.epoch
+    try {
+      await this.audioPending
+      if (epoch !== this.epoch) return this.getStatus()
+      await this.request({ manual_stop: {} }, 'status')
+      if (epoch === this.epoch) this.lastAudioStatus = 'audio_stopped'
+    } catch { if (epoch === this.epoch) this.fail() }
+    return this.getStatus()
+  }
 
   async ping() {
     if (!this.enabled) return this.getStatus()
@@ -131,6 +177,8 @@ function registerGrpcRealtimeIpc(ipcMain, validateSender, client) {
   for (const [channel, method] of [['getStatus', 'getStatus'], ['connect', 'connect'], ['ping', 'ping'], ['close', 'close']]) {
     ipcMain.handle(`grpcRealtime:${channel}`, async (event) => { validateSender(event); return client[method]() })
   }
+  ipcMain.handle('grpcRealtime:audioChunk', async (event, data) => { validateSender(event); return client.sendAudioChunk(data) })
+  ipcMain.handle('grpcRealtime:manualStop', async (event) => { validateSender(event); return client.manualStop() })
 }
 
 module.exports = { GrpcRealtimeClient, registerGrpcRealtimeIpc }

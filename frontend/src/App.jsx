@@ -19,7 +19,7 @@ import OverlayWindowView from './components/OverlayWindow'
 import LandingPage from './landing/LandingPage'
 import { markChatTiming, readNdjsonStream, stripInternalControlMarkers } from './answer_stream'
 import { isCurrentRequest } from './request_state'
-import { createLiveMicTransport } from './live_mic_transport'
+import { createLiveMicTransport, downsampleToInt16Mono } from './live_mic_transport'
 import { createManualLiveSession, createManualLiveState, getManualFinalTranscript, isManualLiveEnabled } from './manual_live_session'
 import { prepareGenerationRequest } from './generation_auth'
 import { normalizeScreenResponse } from './screen_intelligence_contract'
@@ -68,46 +68,6 @@ function getBackendWebSocketUrl(path) {
   return `${base}${path}`
 }
 
-function downsampleToInt16Mono(float32Array, inputSampleRate, outputSampleRate = 16000) {
-  if (!float32Array?.length) {
-    return new Int16Array(0)
-  }
-
-  if (inputSampleRate === outputSampleRate) {
-    const direct = new Int16Array(float32Array.length)
-    for (let index = 0; index < float32Array.length; index += 1) {
-      const sample = Math.max(-1, Math.min(1, float32Array[index]))
-      direct[index] = sample < 0 ? sample * 0x8000 : sample * 0x7fff
-    }
-    return direct
-  }
-
-  const ratio = inputSampleRate / outputSampleRate
-  const nextLength = Math.max(1, Math.round(float32Array.length / ratio))
-  const result = new Int16Array(nextLength)
-  let offsetResult = 0
-  let offsetBuffer = 0
-
-  while (offsetResult < result.length) {
-    const nextOffsetBuffer = Math.min(
-      float32Array.length,
-      Math.round((offsetResult + 1) * ratio)
-    )
-    let accumulator = 0
-    let count = 0
-    for (let sampleIndex = offsetBuffer; sampleIndex < nextOffsetBuffer; sampleIndex += 1) {
-      accumulator += float32Array[sampleIndex]
-      count += 1
-    }
-    const sample = count ? accumulator / count : 0
-    const normalized = Math.max(-1, Math.min(1, sample))
-    result[offsetResult] = normalized < 0 ? normalized * 0x8000 : normalized * 0x7fff
-    offsetResult += 1
-    offsetBuffer = nextOffsetBuffer
-  }
-
-  return result
-}
 
 function getPreferredRecorderMimeType() {
   const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']

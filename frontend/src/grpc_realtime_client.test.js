@@ -12,7 +12,7 @@ function fixture(env = {}, failure = false) {
   stream.write = (event) => {
     writes.push(event)
     const kind = event.start_session ? 'ready' : event.ping ? 'pong' : 'status'
-    queueMicrotask(() => stream.emit('data', { request_id: event.request_id, [kind]: {} }))
+    queueMicrotask(() => stream.emit('data', { request_id: event.request_id, [kind]: kind === 'status' ? { code: event.audio_chunk ? 'audio_chunk_received' : 'audio_stopped', total_chunks: writes.filter(x => x.audio_chunk).length, total_audio_bytes: writes.filter(x => x.audio_chunk).reduce((n,x) => n + x.audio_chunk.audio.length, 0) } : {} }))
   }
   stream.cancel = () => { canceled++ }
   const client = new GrpcRealtimeClient({ env, timeoutMs: 30, transportFactory: () => {
@@ -37,7 +37,7 @@ test('enabled loopback client handshakes, pings, and closes resources', async ()
   assert.equal(f.counts().calls, 1)
   assert.equal(f.client.getStatus().connectionStatus, 'connected')
   assert.equal((await f.client.ping()).lastPingResult, 'pong')
-  assert.deepEqual(Object.keys(f.client.getStatus()).sort(), ['connectionStatus', 'enabled', 'lastErrorMessage', 'lastPingResult'])
+  assert.deepEqual(Object.keys(f.client.getStatus()).sort(), ['audioBytesSent', 'audioChunksSent', 'audioEnabled', 'backendBytesReceived', 'backendChunksReceived', 'connectionStatus', 'enabled', 'lastAudioStatus', 'lastErrorMessage', 'lastPingResult'])
   await f.client.endSession()
   assert.deepEqual(f.counts(), { calls: 1, canceled: 1, closed: 1 })
   assert.equal(f.client.pending.size, 0)
@@ -70,11 +70,35 @@ test('closing during a pending ping clears the timer without restoring stale err
   assert.equal(f.client.getStatus().lastErrorMessage, '')
 })
 
+test('audio needs both flags and connection; validated PCM counts and manual stop work', async () => {
+  const disabled = fixture(enabled)
+  await disabled.client.connect()
+  await disabled.client.sendAudioChunk(new Uint8Array(4))
+  assert.equal(disabled.writes.filter(e => e.audio_chunk).length, 0)
+  disabled.client.close()
+  const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true' })
+  await f.client.sendAudioChunk(new Uint8Array(4))
+  assert.equal(f.writes.length, 0)
+  await f.client.connect()
+  await f.client.sendAudioChunk(new Uint8Array(65538))
+  await f.client.sendAudioChunk('private text')
+  assert.equal(f.writes.filter(e => e.audio_chunk).length, 0)
+  const result = await f.client.sendAudioChunk(new Uint8Array(4))
+  assert.equal(result.audioChunksSent, 1)
+  assert.equal(result.audioBytesSent, 4)
+  assert.equal(result.backendChunksReceived, 1)
+  assert.equal(result.backendBytesReceived, 4)
+  await f.client.manualStop()
+  assert.ok(f.writes.at(-1).manual_stop)
+  assert.equal(f.client.getStatus().lastAudioStatus, 'audio_stopped')
+  f.client.close()
+})
+
 test('connection errors never expose upstream secrets and late stream errors stay safe', async () => {
   const f = fixture(enabled, true)
   const state = await f.client.connect()
   assert.equal(state.connectionStatus, 'error')
-  assert.doesNotMatch(JSON.stringify(state), /token|transcript|audio|secret/)
+  assert.doesNotMatch(state.lastErrorMessage, /token|transcript|audio|secret/)
   assert.equal(f.counts().closed, 1)
   const live = fixture(enabled)
   await live.client.connect()
@@ -86,7 +110,7 @@ test('connection errors never expose upstream secrets and late stream errors sta
 test('diagnostics IPC validates sender and exposes only four narrow methods', async () => {
   const handlers = new Map(), f = fixture()
   registerGrpcRealtimeIpc({ handle: (name, fn) => handlers.set(name, fn) }, (event) => { if (!event.trusted) throw Error('untrusted') }, f.client)
-  assert.deepEqual([...handlers.keys()], ['grpcRealtime:getStatus', 'grpcRealtime:connect', 'grpcRealtime:ping', 'grpcRealtime:close'])
+  assert.deepEqual([...handlers.keys()], ['grpcRealtime:getStatus', 'grpcRealtime:connect', 'grpcRealtime:ping', 'grpcRealtime:close', 'grpcRealtime:audioChunk', 'grpcRealtime:manualStop'])
   await assert.rejects(handlers.get('grpcRealtime:connect')({ trusted: false }))
   const status = await handlers.get('grpcRealtime:getStatus')({ trusted: true })
   assert.deepEqual(status, f.client.getStatus())

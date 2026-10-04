@@ -4,6 +4,7 @@ import { extractCopyableCode } from '../screen_mode_state.js'
 import StartupLoginScreen, { shouldShowStartupLogin } from './StartupLoginScreen.jsx'
 import StartupSessionChoiceScreen from './StartupSessionChoiceScreen.jsx'
 import StartupSessionSetupScreen from './StartupSessionSetupScreen.jsx'
+import { createGrpcMicTest } from '../grpc_mic_test.js'
 
 function formatTimeLabel(value) {
   if (!value) {
@@ -31,14 +32,43 @@ function GrpcRealtimeDiagnostics() {
   const [busy, setBusy] = useState(false)
   const refreshStatusRef = useRef(null)
   const lifecycleRef = useRef({ active: false, busy: false, version: 0 })
-  const unavailableState = (current) => ({
-    ...current, enabled: current?.enabled ?? null, connectionStatus: 'unavailable',
-    lastErrorMessage: 'Local gRPC diagnostics unavailable.',
-  })
-  const safeStatus = (value) => ({
-    ...value,
-    lastErrorMessage: value?.lastErrorMessage ? 'Local gRPC request failed. Retry the connection.' : '',
-  })
+  const micTestRef = useRef(null)
+  const [micTesting, setMicTesting] = useState(false)
+  async function runMicTest(start) {
+    setBusy(true)
+    try {
+      if (start) {
+        micTestRef.current?.close()
+        micTestRef.current = createGrpcMicTest({ api: window.electronAPI })
+        await micTestRef.current.start()
+        if (lifecycleRef.current.active) setMicTesting(true)
+      } else {
+        await micTestRef.current?.stop()
+        if (lifecycleRef.current.active) setMicTesting(false)
+      }
+    } catch {
+      if (lifecycleRef.current.active) { setMicTesting(false); showUnavailable() }
+    } finally {
+      await refreshStatusRef.current?.(true)
+      if (lifecycleRef.current.active) setBusy(false)
+    }
+  }
+  function applyStatus(value) {
+    if (value.connectionStatus !== 'connected') {
+      micTestRef.current?.close()
+      setMicTesting(false)
+    }
+    setState({ ...value, lastErrorMessage: value.lastErrorMessage ? 'Local gRPC diagnostics unavailable.' : '' })
+  }
+  function showUnavailable() {
+    micTestRef.current?.close()
+    setMicTesting(false)
+    setState((current) => ({
+      ...current, enabled: current?.enabled ?? null, connectionStatus: 'unavailable',
+      lastPingResult: current?.lastPingResult || 'not sent',
+      lastErrorMessage: 'Local gRPC diagnostics unavailable.',
+    }))
+  }
   useEffect(() => {
     if (typeof window.electronAPI?.getGrpcRealtimeStatus !== 'function') return
     const lifecycle = { active: true, busy: false, version: 0 }
@@ -54,9 +84,9 @@ function GrpcRealtimeDiagnostics() {
       pending = (async () => {
         try {
           const value = await window.electronAPI.getGrpcRealtimeStatus()
-          if (lifecycle.active && version === lifecycle.version) setState(safeStatus(value))
+          if (lifecycle.active && version === lifecycle.version) applyStatus(value)
         } catch {
-          if (lifecycle.active && version === lifecycle.version) setState(unavailableState)
+          if (lifecycle.active && version === lifecycle.version) showUnavailable()
         }
       })()
       try { await pending } finally { pending = null }
@@ -66,11 +96,13 @@ function GrpcRealtimeDiagnostics() {
     const interval = setInterval(() => { refreshStatus() }, 3000)
     return () => {
       lifecycle.active = false
+      micTestRef.current?.close()
       refreshStatusRef.current = null
       clearInterval(interval)
     }
   }, [])
   async function run(method) {
+    if (method === 'closeGrpcRealtime') { micTestRef.current?.close(); setMicTesting(false) }
     const lifecycle = lifecycleRef.current
     if (!lifecycle.active || lifecycle.busy || typeof window.electronAPI?.[method] !== 'function') return
     lifecycle.busy = true
@@ -78,9 +110,9 @@ function GrpcRealtimeDiagnostics() {
     setBusy(true)
     try {
       const value = await window.electronAPI[method]()
-      if (lifecycle.active) setState(safeStatus(value))
+      if (lifecycle.active) applyStatus(value)
     } catch {
-      if (lifecycle.active) setState(unavailableState)
+      if (lifecycle.active) showUnavailable()
     } finally {
       if (lifecycle.active) {
         await refreshStatusRef.current?.(true)
@@ -91,11 +123,21 @@ function GrpcRealtimeDiagnostics() {
   }
   if (!state) return null
   return <section className="glass-card" aria-label="Experimental gRPC diagnostics">
-    <p className="section-title">Experimental gRPC · handshake only</p>
+    <p className="section-title">Experimental gRPC · transport diagnostics</p>
     <MetaRow label="Enabled" value={state.enabled == null ? 'unknown' : state.enabled ? 'yes' : 'no'} />
     <MetaRow label="Connection" value={state.connectionStatus} />
     <MetaRow label="Last ping" value={state.lastPingResult} />
     <MetaRow label="Last error" value={state.lastErrorMessage || 'none'} />
+    <MetaRow label="gRPC audio enabled" value={state.audioEnabled ? 'yes' : 'no'} />
+    <MetaRow label="Audio chunks sent" value={state.audioChunksSent || 0} />
+    <MetaRow label="Audio bytes sent" value={state.audioBytesSent || 0} />
+    <MetaRow label="Backend chunks received" value={state.backendChunksReceived || 0} />
+    <MetaRow label="Backend bytes received" value={state.backendBytesReceived || 0} />
+    <MetaRow label="Last audio status" value={state.lastAudioStatus || 'idle'} />
+    {state.audioEnabled && <div className="button-row">
+      <button type="button" disabled={busy || micTesting || state.connectionStatus !== 'connected'} onClick={() => runMicTest(true)}>Start experimental gRPC mic test</button>
+      <button type="button" disabled={busy || !micTesting} onClick={() => runMicTest(false)}>Stop gRPC mic test</button>
+    </div>}
     {state.enabled !== false && <div className="button-row">
       <button type="button" disabled={busy || typeof window.electronAPI?.connectGrpcRealtime !== 'function'} onClick={() => run('connectGrpcRealtime')}>Connect</button>
       <button type="button" disabled={busy || typeof window.electronAPI?.pingGrpcRealtime !== 'function'} onClick={() => run('pingGrpcRealtime')}>Ping</button>

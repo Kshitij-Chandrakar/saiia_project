@@ -484,3 +484,37 @@ IPC exposes only `grpcRealtime:getStatus`, `grpcRealtime:connect`, `grpcRealtime
 and `grpcRealtime:close`, with existing trusted-renderer validation. Current limits are
 handshake/ping only: no microphone/system audio, STT, answer generation, provider migration,
 or Electron authentication changes.
+
+### Experimental gRPC microphone transport (G3)
+
+G3 extends G2 with an explicit diagnostics-only microphone test. It is disabled by default:
+`ELECTRON_GRPC_AUDIO_ENABLED=false`. To test, start the standalone G1/G3 server using the
+command above, keep FastAPI running separately as usual, and launch Electron with:
+
+```powershell
+cd frontend
+$env:ELECTRON_GRPC_REALTIME_ENABLED = "true"
+$env:ELECTRON_GRPC_AUDIO_ENABLED = "true"
+$env:ELECTRON_GRPC_REALTIME_HOST = "127.0.0.1"
+$env:ELECTRON_GRPC_REALTIME_PORT = "50051"
+npm run electron:dev
+```
+
+In runtime diagnostics, Connect, verify Ping, then click **Start experimental gRPC mic test**.
+Grant microphone permission. **Stop gRPC mic test** closes local capture and sends `manual_stop`.
+Close/unmount/disconnection also releases microphone tracks and Web Audio resources.
+Do not run the diagnostic test concurrently with normal microphone capture.
+
+The test reuses the existing mono 16 kHz linear16 PCM capture/conversion. Main validates chunks
+(up to 64 KiB, even byte length) and accepts them only with both flags enabled and a connected
+session. Only one chunk is awaiting acknowledgement; incoming chunks are skipped under
+backpressure instead of accumulating audio. Counts reflect acknowledged chunks/bytes,
+not all microphone samples. Server totals are scoped to each gRPC stream. Polling shows
+sent/received counts and fixed safe status/error messages. No audio is logged or written to disk.
+G3 adds narrowly validated `grpcRealtime:audioChunk` and `grpcRealtime:manualStop` IPC;
+it does not expose arbitrary gRPC messages or credentials.
+
+Audio reaches the backend for validation/counting only. There is no STT, answer generation,
+system audio, provider migration, or replacement of REST/WebSocket/manual/auto flows.
+Sarvam and AssemblyAI integrations are unchanged. Regenerate Python bindings and run
+`npm run grpc:sync-proto` after changing the source proto.

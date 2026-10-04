@@ -15,6 +15,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
     async def StreamInterview(self, request_iterator, context):
         session_id = None
         sequence = 0
+        total_chunks = 0
+        total_audio_bytes = 0
 
         def event(request, kind, payload):
             nonlocal sequence
@@ -44,7 +46,17 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 if session_id is None or request.session_id != session_id:
                     yield event(request, "error", pb.ErrorEvent(code="invalid_session", message="Start the stream session first."))
                     return
-                yield event(request, "status", pb.Status(code="not_implemented", message="Transcription and generation are not implemented."))
+                if kind == "audio_chunk":
+                    chunk = request.audio_chunk
+                    if not chunk.audio or len(chunk.audio) % 2 or chunk.sample_rate != 16000 or chunk.channels != 1 or chunk.encoding != "linear16":
+                        yield event(request, "error", pb.ErrorEvent(code="invalid_audio", message="Expected mono 16 kHz linear16 PCM."))
+                        return
+                    total_chunks += 1
+                    total_audio_bytes += len(chunk.audio)
+                yield event(request, "status", pb.Status(
+                    code="audio_chunk_received" if kind == "audio_chunk" else "audio_stopped",
+                    message="Audio counted only; transcription and generation are not implemented.",
+                    total_chunks=total_chunks, total_audio_bytes=total_audio_bytes))
             else:
                 yield event(request, "error", pb.ErrorEvent(code="invalid_event", message="Unsupported client event."))
                 return

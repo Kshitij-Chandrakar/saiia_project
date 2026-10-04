@@ -37,12 +37,14 @@ def test_real_bidi_ready_ping_audio_and_safe_close(caplog, close_event):
                 await call.write(pb.InterviewClientEvent(request_id='r2', ping=pb.Empty()))
                 pong = await call.read()
                 assert pong.WhichOneof('event') == 'pong' and pong.request_id == 'r2'
-                await call.write(pb.InterviewClientEvent(session_id='local-session', audio_chunk=pb.AudioChunk(audio=b'private-audio-transcript-prompt')))
+                await call.write(pb.InterviewClientEvent(session_id='local-session', audio_chunk=pb.AudioChunk(audio=b'private-audio-transcript-prompt!', sample_rate=16000, channels=1, encoding='linear16')))
                 status = await call.read()
-                assert status.status.code == 'not_implemented'
+                assert status.status.code == 'audio_chunk_received'
+                assert status.status.total_chunks == 1
+                assert status.status.total_audio_bytes == 32
                 assert status.sequence_number == 4
                 await call.write(pb.InterviewClientEvent(session_id='local-session', manual_stop=pb.Empty()))
-                assert (await call.read()).status.code == 'not_implemented'
+                assert (await call.read()).status.code == 'audio_stopped'
                 await call.write(pb.InterviewClientEvent(**{close_event: pb.Empty()}))
                 assert (await call.read()).status.code == ('canceled' if close_event == 'cancel' else 'ended')
                 assert await call.read() is grpc.aio.EOF
