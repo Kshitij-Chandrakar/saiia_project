@@ -31,6 +31,14 @@ function GrpcRealtimeDiagnostics() {
   const [busy, setBusy] = useState(false)
   const refreshStatusRef = useRef(null)
   const lifecycleRef = useRef({ active: false, busy: false, version: 0 })
+  const unavailableState = (current) => ({
+    ...current, enabled: current?.enabled ?? null, connectionStatus: 'unavailable',
+    lastErrorMessage: 'Local gRPC diagnostics unavailable.',
+  })
+  const safeStatus = (value) => ({
+    ...value,
+    lastErrorMessage: value?.lastErrorMessage ? 'Local gRPC request failed. Retry the connection.' : '',
+  })
   useEffect(() => {
     if (typeof window.electronAPI?.getGrpcRealtimeStatus !== 'function') return
     const lifecycle = { active: true, busy: false, version: 0 }
@@ -46,11 +54,9 @@ function GrpcRealtimeDiagnostics() {
       pending = (async () => {
         try {
           const value = await window.electronAPI.getGrpcRealtimeStatus()
-          if (lifecycle.active && version === lifecycle.version) setState(value)
+          if (lifecycle.active && version === lifecycle.version) setState(safeStatus(value))
         } catch {
-          if (lifecycle.active && version === lifecycle.version) setState((current) => ({
-            ...current, connectionStatus: 'error', lastErrorMessage: 'Local gRPC diagnostics unavailable.',
-          }))
+          if (lifecycle.active && version === lifecycle.version) setState(unavailableState)
         }
       })()
       try { await pending } finally { pending = null }
@@ -66,14 +72,15 @@ function GrpcRealtimeDiagnostics() {
   }, [])
   async function run(method) {
     const lifecycle = lifecycleRef.current
+    if (!lifecycle.active || lifecycle.busy || typeof window.electronAPI?.[method] !== 'function') return
     lifecycle.busy = true
     lifecycle.version++
     setBusy(true)
     try {
       const value = await window.electronAPI[method]()
-      if (lifecycle.active) setState(value)
+      if (lifecycle.active) setState(safeStatus(value))
     } catch {
-      if (lifecycle.active) setState((current) => ({ ...current, connectionStatus: 'error', lastErrorMessage: 'Local gRPC diagnostics unavailable.' }))
+      if (lifecycle.active) setState(unavailableState)
     } finally {
       if (lifecycle.active) {
         await refreshStatusRef.current?.(true)
@@ -85,14 +92,14 @@ function GrpcRealtimeDiagnostics() {
   if (!state) return null
   return <section className="glass-card" aria-label="Experimental gRPC diagnostics">
     <p className="section-title">Experimental gRPC · handshake only</p>
-    <MetaRow label="Enabled" value={state.enabled ? 'yes' : 'no'} />
+    <MetaRow label="Enabled" value={state.enabled == null ? 'unknown' : state.enabled ? 'yes' : 'no'} />
     <MetaRow label="Connection" value={state.connectionStatus} />
     <MetaRow label="Last ping" value={state.lastPingResult} />
     <MetaRow label="Last error" value={state.lastErrorMessage || 'none'} />
-    {state.enabled && <div className="button-row">
-      <button type="button" disabled={busy} onClick={() => run('connectGrpcRealtime')}>Connect</button>
-      <button type="button" disabled={busy || state.connectionStatus !== 'connected'} onClick={() => run('pingGrpcRealtime')}>Ping</button>
-      <button type="button" disabled={busy} onClick={() => run('closeGrpcRealtime')}>Close</button>
+    {state.enabled !== false && <div className="button-row">
+      <button type="button" disabled={busy || typeof window.electronAPI?.connectGrpcRealtime !== 'function'} onClick={() => run('connectGrpcRealtime')}>Connect</button>
+      <button type="button" disabled={busy || typeof window.electronAPI?.pingGrpcRealtime !== 'function'} onClick={() => run('pingGrpcRealtime')}>Ping</button>
+      <button type="button" disabled={busy || typeof window.electronAPI?.closeGrpcRealtime !== 'function'} onClick={() => run('closeGrpcRealtime')}>Close</button>
     </div>}
   </section>
 }
