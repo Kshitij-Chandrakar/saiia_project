@@ -81,3 +81,47 @@ test('shared capture converts floats to mono PCM and cleans Web Audio resources'
   const source = readFileSync(new URL('./components/MainDiagnosticsWindow.jsx', import.meta.url), 'utf8')
   for (const field of ['audioEnabled', 'audioChunksSent', 'audioBytesSent', 'backendChunksReceived', 'backendBytesReceived', 'lastAudioStatus']) assert.ok(source.includes(`state.${field}`))
 })
+
+test('G4 retains sequential PCM while IPC is pending and drains it before Stop', async () => {
+  const f = fixture({ audioEnabled: true, sttEnabled: true, connectionStatus: 'connected' })
+  let resolve
+  const sent = []
+  f.api.sendGrpcRealtimeAudioChunk = data => { sent.push(data); return new Promise(done => { resolve = done }) }
+  await f.mic.start()
+  const first = new ArrayBuffer(3200), second = new ArrayBuffer(3200)
+  f.capture().onChunk(first)
+  await flush()
+  assert.equal(f.capture().isActive(), true)
+  f.capture().onChunk(second)
+  const stopping = f.mic.stop()
+  assert.equal(f.counts().stops, 0)
+  resolve({ connectionStatus: 'connected' })
+  await new Promise(done => setTimeout(done, 120))
+  assert.equal(sent.length, 2)
+  assert.deepEqual(new Uint8Array(sent[0]), new Uint8Array(first))
+  assert.deepEqual(new Uint8Array(sent[1]), new Uint8Array(second))
+  assert.equal(f.counts().stops, 0)
+  resolve({ connectionStatus: 'connected' })
+  await stopping
+  assert.equal(f.counts().stops, 1)
+})
+
+test('G4 frames preserve PCM byte order and Stop pads and drains the final tail', async () => {
+  const f = fixture({ audioEnabled: true, sttEnabled: true, connectionStatus: 'connected' })
+  await f.mic.start()
+  assert.equal(f.capture().contextSampleRate, 16000)
+  const pcm = new Int16Array(3300)
+  for (let i = 0; i < pcm.length; i++) pcm[i] = (i % 65536) - 32768
+  f.capture().onChunk(pcm.buffer.slice(0, 1600))
+  f.capture().onChunk(pcm.buffer.slice(1600))
+  await f.mic.stop()
+  assert.equal(f.sent.length, 3)
+  assert.ok(f.sent.every(frame => frame.byteLength === 3200 && frame.byteLength % 2 === 0))
+  const joined = new Uint8Array(9600)
+  f.sent.forEach((frame, i) => joined.set(new Uint8Array(frame), i * 3200))
+  const expected = new Uint8Array(6600), view = new DataView(expected.buffer)
+  for (let i = 0; i < pcm.length; i++) view.setInt16(i * 2, pcm[i], true)
+  assert.deepEqual(joined.slice(0, 6600), expected)
+  assert.ok(joined.slice(6600).every(value => value === 0))
+  assert.equal(f.counts().stops, 1)
+})

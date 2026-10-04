@@ -18,6 +18,12 @@ message Status {
   string message = 2;
   uint64 total_chunks = 3;
   uint64 total_audio_bytes = 4;
+  uint64 stt_chunks_forwarded = 5;
+  uint64 stt_bytes_forwarded = 6;
+  bool stt_bridge_connected = 7;
+  uint64 stt_callback_count = 8;
+  string stt_status = 9;
+  uint64 non_silent_chunks = 10;
 }
 message TextEvent { string text = 1; }
 message ErrorEvent { string code = 1; string message = 2; }

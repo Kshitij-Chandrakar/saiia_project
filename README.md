@@ -518,3 +518,22 @@ Audio reaches the backend for validation/counting only. There is no STT, answer 
 system audio, provider migration, or replacement of REST/WebSocket/manual/auto flows.
 Sarvam and AssemblyAI integrations are unchanged. Regenerate Python bindings and run
 `npm run grpc:sync-proto` after changing the source proto.
+
+### G4 experimental gRPC microphone STT
+
+Disabled by default (`GRPC_STT_ENABLED=false`). Start the standalone backend with
+`GRPC_REALTIME_ENABLED=true` and `GRPC_STT_ENABLED=true`, using
+`python -m app.grpc_server --host 127.0.0.1 --port 50051` from `backend`.
+Configure the existing backend-only `ASSEMBLYAI_API_KEY`. This opt-in test sends
+microphone PCM to AssemblyAI through the existing streaming bridge.
+
+Enable `ELECTRON_GRPC_REALTIME_ENABLED=true` and `ELECTRON_GRPC_AUDIO_ENABLED=true`
+for Electron. Connect in Experimental gRPC diagnostics, then start the mic test.
+The panel shows provider, partial/final counts, and only the current transcript.
+Stop sends ForceEndpoint/Terminate, drains for up to 1.5 seconds, and closes the
+provider connection. A later mic test starts a fresh provider connection.
+
+Audio is limited to 64 KiB per chunk; output buffering is bounded. Transcripts
+are carried in transcript events and the current preview only, never logged.
+No answer generation or system audio is connected. REST/WebSocket remains the
+production path; its provider routing and defaults are unchanged.

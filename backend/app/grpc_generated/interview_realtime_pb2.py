@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x18interview_realtime.proto\x12\x15intervuai.realtime.v1\"\x07\n\x05\x45mpty\"\x1c\n\x0cStartSession\x12\x0c\n\x04mode\x18\x01 \x01(\t\"T\n\nAudioChunk\x12\r\n\x05\x61udio\x18\x01 \x01(\x0c\x12\x13\n\x0bsample_rate\x18\x02 \x01(\r\x12\x10\n\x08\x63hannels\x18\x03 \x01(\r\x12\x10\n\x08\x65ncoding\x18\x04 \x01(\t\"X\n\x06Status\x12\x0c\n\x04\x63ode\x18\x01 \x01(\t\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\x14\n\x0ctotal_chunks\x18\x03 \x01(\x04\x12\x19\n\x11total_audio_bytes\x18\x04 \x01(\x04\"\x19\n\tTextEvent\x12\x0c\n\x04text\x18\x01 \x01(\t\"+\n\nErrorEvent\x12\x0c\n\x04\x63ode\x18\x01 \x01(\t\x12\x0f\n\x07message\x18\x02 \x01(\t\"\xc8\x03\n\x14InterviewClientEvent\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x12\n\nrequest_id\x18\x02 \x01(\t\x12\x17\n\x0fsequence_number\x18\x03 \x01(\x04\x12\x14\n\x0ctimestamp_ms\x18\x04 \x01(\x04\x12\x10\n\x08provider\x18\x05 \x01(\t\x12<\n\rstart_session\x18\n \x01(\x0b\x32#.intervuai.realtime.v1.StartSessionH\x00\x12\x38\n\x0b\x61udio_chunk\x18\x0b \x01(\x0b\x32!.intervuai.realtime.v1.AudioChunkH\x00\x12\x33\n\x0bmanual_stop\x18\x0c \x01(\x0b\x32\x1c.intervuai.realtime.v1.EmptyH\x00\x12.\n\x06\x63\x61ncel\x18\r \x01(\x0b\x32\x1c.intervuai.realtime.v1.EmptyH\x00\x12\x33\n\x0b\x65nd_session\x18\x0e \x01(\x0b\x32\x1c.intervuai.realtime.v1.EmptyH\x00\x12,\n\x04ping\x18\x0f \x01(\x0b\x32\x1c.intervuai.realtime.v1.EmptyH\x00\x42\x07\n\x05\x65vent\"\xfa\x04\n\x14InterviewServerEvent\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x12\n\nrequest_id\x18\x02 \x01(\t\x12\x17\n\x0fsequence_number\x18\x03 \x01(\x04\x12\x14\n\x0ctimestamp_ms\x18\x04 \x01(\x04\x12\x10\n\x08provider\x18\x05 \x01(\t\x12-\n\x05ready\x18\n \x01(\x0b\x32\x1c.intervuai.realtime.v1.EmptyH\x00\x12/\n\x06status\x18\x0b \x01(\x0b\x32\x1d.intervuai.realtime.v1.StatusH\x00\x12>\n\x12partial_transcript\x18\x0c \x01(\x0b\x32 .intervuai.realtime.v1.TextEventH\x00\x12<\n\x10\x66inal_transcript\x18\r \x01(\x0b\x32 .intervuai.realtime.v1.TextEventH\x00\x12=\n\x11question_detected\x18\x0e \x01(\x0b\x32 .intervuai.realtime.v1.TextEventH\x00\x12\x38\n\x0c\x61nswer_delta\x18\x0f \x01(\x0b\x32 .intervuai.realtime.v1.TextEventH\x00\x12\x37\n\x0b\x61nswer_done\x18\x10 \x01(\x0b\x32 .intervuai.realtime.v1.TextEventH\x00\x12\x32\n\x05\x65rror\x18\x11 \x01(\x0b\x32!.intervuai.realtime.v1.ErrorEventH\x00\x12,\n\x04pong\x18\x12 \x01(\x0b\x32\x1c.intervuai.realtime.v1.EmptyH\x00\x42\x07\n\x05\x65vent2\x8b\x01\n\x18InterviewRealtimeService\x12o\n\x0fStreamInterview\x12+.intervuai.realtime.v1.InterviewClientEvent\x1a+.intervuai.realtime.v1.InterviewServerEvent(\x01\x30\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x18interview_realtime.proto\x12\x15intervuai.realtime.v1\"\x07\n\x05\x45mpty\"\x1c\n\x0cStartSession\x12\x0c\n\x04mode\x18\x01 \x01(\t\"T\n\nAudioChunk\x12\r\n\x05\x61udio\x18\x01 \x01(\x0c\x12\x13\n\x0bsample_rate\x18\x02 \x01(\r\x12\x10\n\x08\x63hannels\x18\x03 \x01(\r\x12\x10\n\x08\x65ncoding\x18\x04 \x01(\t\"\xfc\x01\n\x06Status\x12\x0c\n\x04\x63ode\x18\x01 \x01(\t\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\x14\n\x0ctotal_chunks\x18\x03 \x01(\x04\x12\x19\n\x11total_audio_bytes\x18\x04 \x01(\x04\x12\x1c\n\x14stt_chunks_forwarded\x18\x05 \x01(\x04\x12\x1b\n\x13stt_bytes_forwarded\x18\x06 \x01(\x04\x12\x1c\n\x14stt_bridge_connected\x18\x07 \x01(\x08\x12\x1a\n\x12stt_callback_count\x18\x08 \x01(\x04\x12\x12\n\nstt_status\x18\t \x01(\t\x12\x19\n\x11non_silent_chunks\x18\n \x01(\x04\"\x19\n\tTextEvent\x12\x0c\n\x04text\x18\x01 \x01(\t\"+\n\nErrorEvent\x12\x0c\n\x04\x63ode\x18\x01 \x01(\t\x12\x0f\n\x07message\x18\x02 \x01(\t\"\xc8\x03\n\x14InterviewClientEvent\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x12\n\nrequest_id\x18\x02 \x01(\t\x12\x17\n\x0fsequence_number\x18\x03 \x01(\x04\x12\x14\n\x0ctimestamp_ms\x18\x04 \x01(\x04\x12\x10\n\x08provider\x18\x05 \x01(\t\x12<\n\rstart_session\x18\n \x01(\x0b\x32#.intervuai.realtime.v1.StartSessionH\x00\x12\x38\n\x0b\x61udio_chunk\x18\x0b \x01(\x0b\x32!.intervuai.realtime.v1.AudioChunkH\x00\x12\x33\n\x0bmanual_stop\x18\x0c \x01(\x0b\x32\x1c.intervuai.realtime.v1.EmptyH\x00\x12.\n\x06\x63\x61ncel\x18\r \x01(\x0b\x32\x1c.intervuai.realtime.v1.EmptyH\x00\x12\x33\n\x0b\x65nd_session\x18\x0e \x01(\x0b\x32\x1c.intervuai.realtime.v1.EmptyH\x00\x12,\n\x04ping\x18\x0f \x01(\x0b\x32\x1c.intervuai.realtime.v1.EmptyH\x00\x42\x07\n\x05\x65vent\"\xfa\x04\n\x14InterviewServerEvent\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x12\n\nrequest_id\x18\x02 \x01(\t\x12\x17\n\x0fsequence_number\x18\x03 \x01(\x04\x12\x14\n\x0ctimestamp_ms\x18\x04 \x01(\x04\x12\x10\n\x08provider\x18\x05 \x01(\t\x12-\n\x05ready\x18\n \x01(\x0b\x32\x1c.intervuai.realtime.v1.EmptyH\x00\x12/\n\x06status\x18\x0b \x01(\x0b\x32\x1d.intervuai.realtime.v1.StatusH\x00\x12>\n\x12partial_transcript\x18\x0c \x01(\x0b\x32 .intervuai.realtime.v1.TextEventH\x00\x12<\n\x10\x66inal_transcript\x18\r \x01(\x0b\x32 .intervuai.realtime.v1.TextEventH\x00\x12=\n\x11question_detected\x18\x0e \x01(\x0b\x32 .intervuai.realtime.v1.TextEventH\x00\x12\x38\n\x0c\x61nswer_delta\x18\x0f \x01(\x0b\x32 .intervuai.realtime.v1.TextEventH\x00\x12\x37\n\x0b\x61nswer_done\x18\x10 \x01(\x0b\x32 .intervuai.realtime.v1.TextEventH\x00\x12\x32\n\x05\x65rror\x18\x11 \x01(\x0b\x32!.intervuai.realtime.v1.ErrorEventH\x00\x12,\n\x04pong\x18\x12 \x01(\x0b\x32\x1c.intervuai.realtime.v1.EmptyH\x00\x42\x07\n\x05\x65vent2\x8b\x01\n\x18InterviewRealtimeService\x12o\n\x0fStreamInterview\x12+.intervuai.realtime.v1.InterviewClientEvent\x1a+.intervuai.realtime.v1.InterviewServerEvent(\x01\x30\x01\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -37,16 +37,16 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_STARTSESSION']._serialized_end=88
   _globals['_AUDIOCHUNK']._serialized_start=90
   _globals['_AUDIOCHUNK']._serialized_end=174
-  _globals['_STATUS']._serialized_start=176
-  _globals['_STATUS']._serialized_end=264
-  _globals['_TEXTEVENT']._serialized_start=266
-  _globals['_TEXTEVENT']._serialized_end=291
-  _globals['_ERROREVENT']._serialized_start=293
-  _globals['_ERROREVENT']._serialized_end=336
-  _globals['_INTERVIEWCLIENTEVENT']._serialized_start=339
-  _globals['_INTERVIEWCLIENTEVENT']._serialized_end=795
-  _globals['_INTERVIEWSERVEREVENT']._serialized_start=798
-  _globals['_INTERVIEWSERVEREVENT']._serialized_end=1432
-  _globals['_INTERVIEWREALTIMESERVICE']._serialized_start=1435
-  _globals['_INTERVIEWREALTIMESERVICE']._serialized_end=1574
+  _globals['_STATUS']._serialized_start=177
+  _globals['_STATUS']._serialized_end=429
+  _globals['_TEXTEVENT']._serialized_start=431
+  _globals['_TEXTEVENT']._serialized_end=456
+  _globals['_ERROREVENT']._serialized_start=458
+  _globals['_ERROREVENT']._serialized_end=501
+  _globals['_INTERVIEWCLIENTEVENT']._serialized_start=504
+  _globals['_INTERVIEWCLIENTEVENT']._serialized_end=960
+  _globals['_INTERVIEWSERVEREVENT']._serialized_start=963
+  _globals['_INTERVIEWSERVEREVENT']._serialized_end=1597
+  _globals['_INTERVIEWREALTIMESERVICE']._serialized_start=1600
+  _globals['_INTERVIEWREALTIMESERVICE']._serialized_end=1739
 # @@protoc_insertion_point(module_scope)

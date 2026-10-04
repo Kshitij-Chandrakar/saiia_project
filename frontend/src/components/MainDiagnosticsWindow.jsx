@@ -58,7 +58,8 @@ function GrpcRealtimeDiagnostics() {
       micTestRef.current?.close()
       setMicTesting(false)
     }
-    setState({ ...value, lastErrorMessage: value.lastErrorMessage ? 'Local gRPC diagnostics unavailable.' : '' })
+    const safeErrors = ['No final speech transcript received. Check microphone input and retry.', 'Live STT unavailable. Check AssemblyAI configuration and retry.']
+    setState({ ...value, lastErrorMessage: safeErrors.includes(value.lastErrorMessage) ? value.lastErrorMessage : value.lastErrorMessage ? 'Local gRPC diagnostics unavailable.' : '' })
   }
   function showUnavailable() {
     micTestRef.current?.close()
@@ -134,6 +135,23 @@ function GrpcRealtimeDiagnostics() {
     <MetaRow label="Backend chunks received" value={state.backendChunksReceived || 0} />
     <MetaRow label="Backend bytes received" value={state.backendBytesReceived || 0} />
     <MetaRow label="Last audio status" value={state.lastAudioStatus || 'idle'} />
+    <MetaRow label="STT enabled" value={state.sttEnabled ? 'yes' : 'no'} />
+    <MetaRow label="Partial transcripts" value={state.partialTranscriptCount || 0} />
+    <MetaRow label="Final transcripts" value={state.finalTranscriptCount || 0} />
+    <MetaRow label="Last transcript event" value={state.lastTranscriptEventType || 'none'} />
+    <MetaRow label="STT chunks forwarded" value={state.sttChunksForwarded || 0} />
+    <MetaRow label="STT bytes forwarded" value={state.sttBytesForwarded || 0} />
+    <MetaRow label="STT bridge connected" value={state.sttBridgeConnected ? 'yes' : 'no'} />
+    <MetaRow label="STT callbacks" value={state.sttCallbackCount || 0} />
+    <MetaRow label="Non-silent chunks" value={state.nonSilentChunks || 0} />
+    <MetaRow label="Frontend sample rate" value={state.pcmDiagnostics?.inputSampleRate || 'unknown'} />
+    <MetaRow label="Frontend channels" value={state.pcmDiagnostics?.inputChannelCount || 'unknown'} />
+    <MetaRow label="PCM output" value="16000 Hz ? mono ? signed Int16 LE" />
+    {['byteLength', 'durationMs', 'cadenceMs', 'min', 'max', 'rms', 'peak', 'clippedRatio', 'zeroRatio', 'evenByteLength', 'backendEvenByteLength'].map(key =>
+      <MetaRow key={key} label={`PCM ${key}`} value={typeof state.pcmDiagnostics?.[key] === 'number' ? Number(state.pcmDiagnostics[key].toFixed(6)) : String(state.pcmDiagnostics?.[key] ?? 'unknown')} />)}
+    <MetaRow label="STT status" value={state.sttStatus || 'idle'} />
+    <MetaRow label="STT provider" value={state.sttProvider || 'none'} />
+    {state.sttEnabled && state.currentTranscript && <p aria-label="Experimental live transcript" aria-live="polite">{state.currentTranscript}</p>}
     {state.audioEnabled && <div className="button-row">
       <button type="button" disabled={busy || micTesting || state.connectionStatus !== 'connected'} onClick={() => runMicTest(true)}>Start experimental gRPC mic test</button>
       <button type="button" disabled={busy || !micTesting} onClick={() => runMicTest(false)}>Stop gRPC mic test</button>

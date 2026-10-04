@@ -1,5 +1,5 @@
 // Shared microphone PCM capture. Callers own transport and generation.
-export function createPcmMicCapture({ stream, isActive, downsample = downsampleToInt16Mono, onChunk, AudioContextClass = window.AudioContext }) {
+export function createPcmMicCapture({ stream, isActive, downsample = downsampleToInt16Mono, onChunk, AudioContextClass = window.AudioContext, contextSampleRate }) {
   let audioContext, sourceNode, processor, closed = false
   const close = () => {
     if (closed) return
@@ -9,7 +9,7 @@ export function createPcmMicCapture({ stream, isActive, downsample = downsampleT
     audioContext?.close().catch(() => {})
   }
   try {
-    audioContext = new AudioContextClass()
+    audioContext = new AudioContextClass(contextSampleRate ? { sampleRate: contextSampleRate } : undefined)
     sourceNode = audioContext.createMediaStreamSource(stream)
     processor = audioContext.createScriptProcessor(4096, 1, 1)
     processor.onaudioprocess = (event) => {
