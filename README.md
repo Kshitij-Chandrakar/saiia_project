@@ -406,3 +406,43 @@ Start Ollama locally, verify `OLLAMA_BASE_URL`, or set `ENABLE_OLLAMA_FALLBACK=f
 - Production-grade continuous listening, speaker separation, and wake-word behavior are still future work.
 
 Manual answer generation can continue locally when cloud connectivity is unavailable and no cloud resume or job context is selected. An incidental startup session is omitted in that case. Selected cloud resumes and interview sessions still require valid authentication; sign in again or clear cloud selections to generate locally. Cloud job context is loaded through an authorized interview session. Generation diagnostics report whether authentication is required and whether a token was attached, without logging token values.
+
+### Experimental gRPC realtime foundation (G1)
+
+G1 is a standalone, loopback-only `grpc.aio` transport skeleton, disabled by default.
+REST/WebSocket remain the current production path. FastAPI startup does not start gRPC,
+and Electron has no gRPC client. Enabling the flag does not redirect existing traffic.
+
+Install the pinned dependencies from `backend/requirements.txt`. To run locally in PowerShell:
+
+```powershell
+cd backend
+$env:GRPC_REALTIME_ENABLED = "true"
+python -m app.grpc_server --host 127.0.0.1 --port 50051
+```
+
+Configuration: `GRPC_REALTIME_ENABLED=false`, `GRPC_REALTIME_HOST=127.0.0.1`,
+`GRPC_REALTIME_PORT=50051`, `GRPC_MAX_MESSAGE_MB=4` (allowed message limit: 1?64 MiB).
+This unauthenticated foundation refuses non-loopback addresses and must not be exposed
+through a public proxy. It grants no cloud/session ownership or access to application data.
+Remote access requires a future authenticated/TLS phase.
+
+The versioned `intervuai.realtime.v1.InterviewRealtimeService.StreamInterview` RPC is
+bidirectional. `start_session` returns `ready`/foundation status; `ping` returns `pong`.
+Audio requires a started matching session and returns `not_implemented`; no audio is
+transcribed, stored, or logged. `manual_stop` returns `not_implemented`.
+`cancel` and `end_session` acknowledge and close the stream. Half-close also ends cleanly.
+This readiness exchange is the G1 health check; no separate standard health RPC is provided.
+Messages reserve transcript/question/answer events for future phases. IDs are caller-supplied
+transport correlation values, not authenticated interview-session records.
+
+Regenerate the checked-in bindings from the repository root:
+
+```powershell
+python backend/scripts/generate_grpc.py
+```
+
+Source: `backend/protos/interview_realtime.proto`; generated package:
+`backend/app/grpc_generated/`. The script fixes the generated sibling import for package use.
+G1 intentionally has no STT, generation, provider migration, auth integration, Electron client,
+or changes to existing provider defaults.
