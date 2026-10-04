@@ -29,16 +29,58 @@ function MetaRow({ label, value }) {
 function GrpcRealtimeDiagnostics() {
   const [state, setState] = useState(null)
   const [busy, setBusy] = useState(false)
+  const refreshStatusRef = useRef(null)
+  const lifecycleRef = useRef({ active: false, busy: false, version: 0 })
   useEffect(() => {
-    let active = true
-    window.electronAPI?.getGrpcRealtimeStatus?.().then((value) => { if (active) setState(value) }).catch(() => {})
-    return () => { active = false }
+    if (typeof window.electronAPI?.getGrpcRealtimeStatus !== 'function') return
+    const lifecycle = { active: true, busy: false, version: 0 }
+    lifecycleRef.current = lifecycle
+    let pending = null
+    async function refreshStatus(force = false) {
+      if (!lifecycle.active || (lifecycle.busy && !force)) return
+      if (pending) {
+        if (force) { await pending; return refreshStatus(true) }
+        return
+      }
+      const version = lifecycle.version
+      pending = (async () => {
+        try {
+          const value = await window.electronAPI.getGrpcRealtimeStatus()
+          if (lifecycle.active && version === lifecycle.version) setState(value)
+        } catch {
+          if (lifecycle.active && version === lifecycle.version) setState((current) => ({
+            ...current, connectionStatus: 'error', lastErrorMessage: 'Local gRPC diagnostics unavailable.',
+          }))
+        }
+      })()
+      try { await pending } finally { pending = null }
+    }
+    refreshStatusRef.current = refreshStatus
+    refreshStatus()
+    const interval = setInterval(() => { refreshStatus() }, 3000)
+    return () => {
+      lifecycle.active = false
+      refreshStatusRef.current = null
+      clearInterval(interval)
+    }
   }, [])
   async function run(method) {
+    const lifecycle = lifecycleRef.current
+    lifecycle.busy = true
+    lifecycle.version++
     setBusy(true)
-    try { setState(await window.electronAPI[method]()) }
-    catch { setState((current) => ({ ...current, lastErrorMessage: 'Local gRPC diagnostics unavailable.' })) }
-    finally { setBusy(false) }
+    try {
+      const value = await window.electronAPI[method]()
+      if (lifecycle.active) setState(value)
+    } catch {
+      if (lifecycle.active) setState((current) => ({ ...current, connectionStatus: 'error', lastErrorMessage: 'Local gRPC diagnostics unavailable.' }))
+    } finally {
+      if (lifecycle.active) {
+        await refreshStatusRef.current?.(true)
+        lifecycle.busy = false
+        if (lifecycle.active) setBusy(false)
+      }
+    }
   }
   if (!state) return null
   return <section className="glass-card" aria-label="Experimental gRPC diagnostics">
