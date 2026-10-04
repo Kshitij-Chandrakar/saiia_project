@@ -35,6 +35,13 @@ export function createManualLiveSession({ sessionId, stream, manualSttProvider =
   backup.catch(() => {})
   const fail = () => {
     if (canceled || closing || failed || ['idle', 'error', 'generating'].includes(state.phase)) return
+    if (state.phase === 'finalizing' && getManualFinalTranscript(state)) {
+      closing = true
+      clearTimeout(connectTimer)
+      transport?.close(false)
+      finishWait?.()
+      return
+    }
     failed = true
     clearTimeout(connectTimer)
     transport?.close(false)

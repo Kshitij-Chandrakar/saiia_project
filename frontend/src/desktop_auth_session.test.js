@@ -2286,3 +2286,30 @@ test('known unavailable cloud state never sends stale generation bearer tokens',
     assert.equal(ctx.calls.length, 0)
   } finally { ctx.cleanup() }
 })
+
+test('ended session IDs retain same-user expiration but stay private during sign-in and clear on account switch/logout', async () => {
+  const ctx = createManager()
+  try {
+    await ctx.manager.startLogin()
+    await ctx.manager.handleAuthCallback(callbackUrlFor(ctx.manager, { code: 'auth-code' }))
+    ctx.manager.endedInterviewSessionUserId = 'user-1'
+    ctx.manager.endedInterviewSessionIds.add('ended-private')
+    assert.deepEqual(ctx.manager.getSafeState().endedInterviewSessionIds, ['ended-private'])
+    ctx.manager.status = AUTH_STATUSES.SIGNING_IN
+    assert.deepEqual(ctx.manager.getSafeState().endedInterviewSessionIds, [])
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    await ctx.manager._verifyAndBootstrap(ctx.manager.session)
+    assert.deepEqual(ctx.manager.getSafeState().endedInterviewSessionIds, ['ended-private'])
+    ctx.manager._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED)
+    assert.deepEqual(ctx.manager.getSafeState().endedInterviewSessionIds, ['ended-private'])
+    ctx.manager.fetchImpl = async (url) => jsonResponse(200, url.endsWith('/api/auth/me') ? { user_id: 'user-2', email: 'other@example.test' } : { ok: true })
+    ctx.manager.session = { access_token: 'synthetic', refresh_token: 'synthetic' }
+    await ctx.manager._verifyAndBootstrap(ctx.manager.session)
+    assert.deepEqual(ctx.manager.getSafeState().endedInterviewSessionIds, [])
+    assert.equal(ctx.manager.endedInterviewSessionIds.size, 0)
+    ctx.manager.endedInterviewSessionIds.add('user-2-ended')
+    await ctx.manager.logout()
+    assert.equal(ctx.manager.endedInterviewSessionIds.size, 0)
+    assert.deepEqual(ctx.manager.getSafeState().endedInterviewSessionIds, [])
+  } finally { ctx.cleanup() }
+})

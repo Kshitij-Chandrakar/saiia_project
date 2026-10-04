@@ -609,6 +609,22 @@ test('website legal controls show distinct unpublished notices without misleadin
   assert.match(login, /legalNotice && <p role="status">/)
 })
 
+test('credential errors are associated with both inputs and cleared when either credential changes', () => {
+  const login = readFileSync(new URL('./WebsiteLogin.jsx', import.meta.url), 'utf8')
+  assert.match(login, /id="website-login-credential-error" role="alert"/)
+  assert.equal((login.match(/aria-invalid=\{Boolean\(form.error\)\}/g) || []).length, 2)
+  assert.equal((login.match(/aria-errormessage=\{form.error \? 'website-login-credential-error' : undefined\}/g) || []).length, 2)
+  for (const field of ['Email', 'Password']) {
+    const handler = login.match(new RegExp(`onChange=\\{\\(event\\) => \\{ form.set${field}\\(event.target.value\\); form.setError\\(''\\) \\}\\}`))[0]
+    const body = handler.slice(handler.indexOf('{ form.') + 1, handler.lastIndexOf('}') - 1)
+    const updates = []
+    vm.runInNewContext(body, { event: { target: { value: 'updated' } }, form: {
+      [`set${field}`]: (value) => updates.push(value), setError: (value) => updates.push(value),
+    } })
+    assert.deepEqual(updates, ['updated', ''])
+  }
+})
+
 test('remember email stores only the opted-in email and delegates to the existing login handler', () => {
   const login = readFileSync(new URL('./WebsiteLogin.jsx', import.meta.url), 'utf8')
   const submitSource = login.slice(login.indexOf('  function handleSubmit'), login.indexOf('  async function handleGoogle'))

@@ -260,6 +260,7 @@ class DesktopAuthSessionManager {
     this.verificationCache = null
     this.cloudCache = this._emptyCloudCache()
     this.endedInterviewSessionIds = new Set()
+    this.endedInterviewSessionUserId = null
     this.activeInterviewSession = null
     this.interviewSessionCreatePromise = null
     this.interviewSessionCreateKey = ''
@@ -287,7 +288,10 @@ class DesktopAuthSessionManager {
       error_code: this.errorCode,
       safeStorageAvailable: this._canPersist(),
       activeInterviewSessionId: this.activeInterviewSession?.id || null,
-      endedInterviewSessionIds: [...this.endedInterviewSessionIds],
+      endedInterviewSessionIds: this.status !== AUTH_STATUSES.SIGNING_IN &&
+        this.status !== AUTH_STATUSES.SIGNED_OUT &&
+        (this.user?.user_id || (this.status === AUTH_STATUSES.TOKEN_EXPIRED ? this.endedInterviewSessionUserId : null)) === this.endedInterviewSessionUserId
+        ? [...this.endedInterviewSessionIds] : [],
     }
   }
 
@@ -687,6 +691,8 @@ class DesktopAuthSessionManager {
       this._clearVerificationCache()
       this._clearCloudCache()
     }
+    if (this.endedInterviewSessionUserId !== nextUser.user_id) this.endedInterviewSessionIds.clear()
+    this.endedInterviewSessionUserId = nextUser.user_id
     this.user = nextUser
     this.sessionGeneration += 1
     const bootstrapGeneration = this.sessionGeneration
@@ -991,6 +997,7 @@ class DesktopAuthSessionManager {
     }
     const record = safeInterviewSessionItem(response.payload)
     if (record?.id === normalizedSessionId && record.status === 'ended') {
+      this.endedInterviewSessionUserId = this.user?.user_id || null
       this.endedInterviewSessionIds.add(normalizedSessionId)
       // ponytail: retain 50 confirmed endings; older unknown IDs remain auth-gated.
       if (this.endedInterviewSessionIds.size > 50) this.endedInterviewSessionIds.delete(this.endedInterviewSessionIds.values().next().value)
@@ -1422,6 +1429,10 @@ class DesktopAuthSessionManager {
   }
 
   _clearLocalSession(status, message = '', errorCode = '') {
+    if (status === AUTH_STATUSES.SIGNED_OUT) {
+      this.endedInterviewSessionIds.clear()
+      this.endedInterviewSessionUserId = null
+    }
     this._abortActiveAnswerStreams()
     this.loginAttemptGeneration += 1
     this.sessionGeneration += 1

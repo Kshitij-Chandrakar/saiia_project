@@ -5899,7 +5899,13 @@ function MainWindow() {
             const pending = { text, displayQuestion: text, mode: 'manual', capturedHistoryEntryId: historyEntryId,
               recordingMs, uploadMs, transcriptionMs, pipelineStarted: performance.now() }
             pendingManualGenerationRef.current = pending
-            await classifyAndGenerate(pending)
+            try {
+              await classifyAndGenerate(pending)
+            } catch (error) {
+              setQuestionHistoryState((current) => updateQuestionHistoryEntry(current,
+                'answer', historyEntryId, { status: 'error' }))
+              throw error
+            }
             if (pendingManualGenerationRef.current === pending) pendingManualGenerationRef.current = null
           },
         })

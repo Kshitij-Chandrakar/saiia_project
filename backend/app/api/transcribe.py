@@ -57,7 +57,7 @@ async def transcribe_audio(file: UploadFile = File(...), mode: str = Form("manua
         upload_ms = max(0.0, round(total_request_ms - result.transcription_ms, 2))
 
         logger.info(
-            "Transcribed audio mode=%s provider=%s model=%s fallback_used=%s fallback_reason=%s no_speech=%s upload_ms=%s text='%s...'",
+            "Transcribed audio mode=%s provider=%s model=%s fallback_used=%s fallback_reason=%s no_speech=%s upload_ms=%s",
             mode,
             result.transcription_provider,
             result.transcription_model,
@@ -65,7 +65,6 @@ async def transcribe_audio(file: UploadFile = File(...), mode: str = Form("manua
             result.fallback_reason,
             result.no_speech,
             upload_ms,
-            result.text[:50],
         )
         return TranscribeResponse(
             text=result.text,

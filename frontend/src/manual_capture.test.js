@@ -46,6 +46,19 @@ test('manual live partials update Question while listening without generation or
   assert.equal(f.generations.length, 0)
 })
 
+test('socket closing during finalization preserves received final text without batch fallback', async () => {
+  const f = setup()
+  f.turn('What is React?', 0, true)
+  const stop = f.session.stop()
+  f.socket.onclose()
+  await stop
+  await f.session.stop()
+  assert.equal(f.transcriptions.length, 0)
+  assert.equal(f.counts().fallbackCount, 0)
+  assert.equal(f.generations.length, 1)
+  assert.equal(f.generations[0].text, 'What is React?')
+})
+
 test('second click waits for final words then generates exactly once for the same history ID', async () => {
   const f = setup()
   f.turn('What is')
@@ -310,7 +323,7 @@ function appManualHarness(manualConfig = { manual_stt_provider: 'openai_whisper'
       history = appendQuestionHistoryEntry(history, createQuestionHistoryEntry({ id: request.capturedHistoryEntryId, mode: 'answer', question: request.text, status: 'generating' }))
       history = updateQuestionHistoryEntry(history, 'answer', request.capturedHistoryEntryId, { fullAnswer: 'React answer', status: 'complete' })
     },
-    appendQuestionHistoryEntry, createQuestionHistoryEntry,
+    appendQuestionHistoryEntry, createQuestionHistoryEntry, updateQuestionHistoryEntry,
     setQuestionHistoryState: (fn) => { history = fn(history) },
     normalizePipelineError: (err) => err.message,
   }
@@ -546,3 +559,14 @@ test('empty final cannot trigger early completion or generation; empty batch sta
   assert.equal(f.states.at(-1).manual_question_detection_started_at, null)
   assert.equal(f.states.at(-1).stop_to_question_detection_ms, null)
 })
+
+ test('manual classification or profile failure marks the same history item as error', async () => {
+  const f = appManualHarness()
+  f.context.classifyAndGenerate = async () => { throw Error('Classification/profile unavailable') }
+  await f.click()
+  f.socket.onopen()
+  f.turn('What is React?', true)
+  await f.click()
+  assert.equal(f.history().answer.entries.length, 1)
+  assert.equal(f.history().answer.entries[0].status, 'error')
+ })
