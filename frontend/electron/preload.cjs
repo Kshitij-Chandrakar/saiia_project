@@ -1,6 +1,10 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 const electronAPI = {
+  getGrpcRealtimeStatus: () => ipcRenderer.invoke('grpcRealtime:getStatus'),
+  connectGrpcRealtime: () => ipcRenderer.invoke('grpcRealtime:connect'),
+  pingGrpcRealtime: () => ipcRenderer.invoke('grpcRealtime:ping'),
+  closeGrpcRealtime: () => ipcRenderer.invoke('grpcRealtime:close'),
   updateOverlayState: (state) => {
     ipcRenderer.send('overlay:update-state', state)
   },

@@ -21,6 +21,7 @@ const {
 } = require('./desktop_auth_session.cjs')
 const { createStartupWindowController } = require('./startup_window_controller.cjs')
 const { readNdjsonStream } = require('./answer_stream_protocol.cjs')
+const { GrpcRealtimeClient, registerGrpcRealtimeIpc } = require('./grpc_realtime_client.cjs')
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) {
@@ -400,9 +401,13 @@ const DESKTOP_AUTH_ENV_KEYS = new Set([
   'VITE_SAIIA_WEB_AUTH_URL',
   'SAIIA_WEB_DASHBOARD_URL',
   'VITE_SAIIA_WEB_DASHBOARD_URL',
+  'ELECTRON_GRPC_REALTIME_ENABLED',
+  'ELECTRON_GRPC_REALTIME_HOST',
+  'ELECTRON_GRPC_REALTIME_PORT',
 ])
 
 loadDesktopEnvFiles()
+const grpcRealtimeClient = new GrpcRealtimeClient()
 
 function loadDesktopEnvFiles() {
   const repoRoot = path.resolve(__dirname, '../..')
@@ -1957,6 +1962,8 @@ function validateTrustedRendererIpc(event) {
   throw errors[0] || new Error('Desktop IPC is not ready.')
 }
 
+registerGrpcRealtimeIpc(ipcMain, validateTrustedRendererIpc, grpcRealtimeClient)
+
 ipcMain.handle('auth:get-state', (event) => {
   validateTrustedRendererIpc(event)
   return desktopAuthSessionManager.getSafeState()
@@ -2224,6 +2231,7 @@ ipcMain.handle('screen:capture-active-window', async () => captureActiveWindowSo
 ipcMain.handle('screen:capture-active-window-sequence', async () => captureActiveWindowSequence())
 
 app.on('will-quit', () => {
+  grpcRealtimeClient.close()
   cancelAllAnswerStreams()
   stopForegroundWindowTracking()
   if (overlayBoundsSaveTimer) {

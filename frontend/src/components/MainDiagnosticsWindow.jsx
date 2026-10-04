@@ -26,6 +26,35 @@ function MetaRow({ label, value }) {
   )
 }
 
+function GrpcRealtimeDiagnostics() {
+  const [state, setState] = useState(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    let active = true
+    window.electronAPI?.getGrpcRealtimeStatus?.().then((value) => { if (active) setState(value) }).catch(() => {})
+    return () => { active = false }
+  }, [])
+  async function run(method) {
+    setBusy(true)
+    try { setState(await window.electronAPI[method]()) }
+    catch { setState((current) => ({ ...current, lastErrorMessage: 'Local gRPC diagnostics unavailable.' })) }
+    finally { setBusy(false) }
+  }
+  if (!state) return null
+  return <section className="glass-card" aria-label="Experimental gRPC diagnostics">
+    <p className="section-title">Experimental gRPC · handshake only</p>
+    <MetaRow label="Enabled" value={state.enabled ? 'yes' : 'no'} />
+    <MetaRow label="Connection" value={state.connectionStatus} />
+    <MetaRow label="Last ping" value={state.lastPingResult} />
+    <MetaRow label="Last error" value={state.lastErrorMessage || 'none'} />
+    {state.enabled && <div className="button-row">
+      <button type="button" disabled={busy} onClick={() => run('connectGrpcRealtime')}>Connect</button>
+      <button type="button" disabled={busy || state.connectionStatus !== 'connected'} onClick={() => run('pingGrpcRealtime')}>Ping</button>
+      <button type="button" disabled={busy} onClick={() => run('closeGrpcRealtime')}>Close</button>
+    </div>}
+  </section>
+}
+
 function DesktopAuthStatus({ onSignedOut }) {
   const [authState, setAuthState] = useState(() => getDesktopAuthViewModel())
   const [busyAction, setBusyAction] = useState('')
@@ -926,6 +955,7 @@ export default function MainDiagnosticsWindow(props) {
             )}
 
             <div className="diagnostics-grid">
+              <GrpcRealtimeDiagnostics />
               <div className="glass-card">
                 <p className="section-title">Live diagnostics</p>
                 <div className="meta-list">
