@@ -1,0 +1,102 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { createRequire } from 'node:module'
+import { EventEmitter } from 'node:events'
+import { readFileSync } from 'node:fs'
+const require = createRequire(import.meta.url)
+const { GrpcRealtimeClient, registerGrpcRealtimeIpc } = require('../electron/grpc_realtime_client.cjs')
+
+function fixture(env = {}, failure = false) {
+  const stream = new EventEmitter(), writes = []
+  let calls = 0, canceled = 0, closed = 0
+  stream.write = (event) => {
+    writes.push(event)
+    const kind = event.start_session ? 'ready' : event.ping ? 'pong' : 'status'
+    queueMicrotask(() => stream.emit('data', { request_id: event.request_id, [kind]: {} }))
+  }
+  stream.cancel = () => { canceled++ }
+  const client = new GrpcRealtimeClient({ env, timeoutMs: 30, transportFactory: () => {
+    calls++
+    return { waitForReady: (_, fn) => queueMicrotask(() => fn(failure ? Error('token private transcript audio secret') : null)),
+      StreamInterview: () => stream, close: () => { closed++ } }
+  } })
+  return { client, stream, writes, counts: () => ({ calls, canceled, closed }) }
+}
+const enabled = { ELECTRON_GRPC_REALTIME_ENABLED: 'true' }
+
+test('disabled gRPC never loads transport or connects', async () => {
+  const f = fixture()
+  await f.client.connect(); await f.client.ping()
+  assert.equal(f.counts().calls, 0)
+  assert.equal(f.client.getStatus().connectionStatus, 'disabled')
+})
+
+test('enabled loopback client handshakes, pings, and closes resources', async () => {
+  const f = fixture(enabled)
+  await Promise.all([f.client.connect(), f.client.connect()])
+  assert.equal(f.counts().calls, 1)
+  assert.equal(f.client.getStatus().connectionStatus, 'connected')
+  assert.equal((await f.client.ping()).lastPingResult, 'pong')
+  assert.deepEqual(Object.keys(f.client.getStatus()).sort(), ['connectionStatus', 'enabled', 'lastErrorMessage', 'lastPingResult'])
+  await f.client.endSession()
+  assert.deepEqual(f.counts(), { calls: 1, canceled: 1, closed: 1 })
+  assert.equal(f.client.pending.size, 0)
+  await f.client.connect()
+  await f.client.cancel()
+  assert.equal(f.client.getStatus().connectionStatus, 'disconnected')
+})
+
+test('non-loopback and invalid port are rejected before transport construction', async () => {
+  for (const host of ['0.0.0.0', 'example.test', '127.0.0.1.example.test']) {
+    const f = fixture({ ...enabled, ELECTRON_GRPC_REALTIME_HOST: host })
+    assert.equal((await f.client.connect()).connectionStatus, 'error')
+    assert.equal(f.counts().calls, 0)
+  }
+  const f = fixture({ ...enabled, ELECTRON_GRPC_REALTIME_PORT: 'invalid' })
+  await f.client.connect()
+  assert.equal(f.counts().calls, 0)
+})
+
+test('closing during a pending ping clears the timer without restoring stale error state', async () => {
+  const f = fixture(enabled)
+  await f.client.connect()
+  f.stream.write = () => {}
+  const pendingPing = f.client.ping()
+  assert.equal(f.client.pending.size, 1)
+  f.client.close()
+  await pendingPing
+  assert.equal(f.client.pending.size, 0)
+  assert.equal(f.client.getStatus().connectionStatus, 'disconnected')
+  assert.equal(f.client.getStatus().lastErrorMessage, '')
+})
+
+test('connection errors never expose upstream secrets and late stream errors stay safe', async () => {
+  const f = fixture(enabled, true)
+  const state = await f.client.connect()
+  assert.equal(state.connectionStatus, 'error')
+  assert.doesNotMatch(JSON.stringify(state), /token|transcript|audio|secret/)
+  assert.equal(f.counts().closed, 1)
+  const live = fixture(enabled)
+  await live.client.connect()
+  live.stream.emit('error', Error('private token'))
+  assert.equal(live.client.getStatus().connectionStatus, 'error')
+  assert.doesNotMatch(JSON.stringify(live.client.getStatus()), /private token/)
+})
+
+test('diagnostics IPC validates sender and exposes only four narrow methods', async () => {
+  const handlers = new Map(), f = fixture()
+  registerGrpcRealtimeIpc({ handle: (name, fn) => handlers.set(name, fn) }, (event) => { if (!event.trusted) throw Error('untrusted') }, f.client)
+  assert.deepEqual([...handlers.keys()], ['grpcRealtime:getStatus', 'grpcRealtime:connect', 'grpcRealtime:ping', 'grpcRealtime:close'])
+  await assert.rejects(handlers.get('grpcRealtime:connect')({ trusted: false }))
+  const status = await handlers.get('grpcRealtime:getStatus')({ trusted: true })
+  assert.deepEqual(status, f.client.getStatus())
+  assert.equal(f.counts().calls, 0)
+})
+
+test('packaged proto matches backend source of truth and preload exposes no arbitrary send', () => {
+  assert.equal(readFileSync(new URL('../electron/protos/interview_realtime.proto', import.meta.url), 'utf8'),
+    readFileSync(new URL('../../backend/protos/interview_realtime.proto', import.meta.url), 'utf8'))
+  const preload = readFileSync(new URL('../electron/preload.cjs', import.meta.url), 'utf8')
+  for (const channel of ['getStatus', 'connect', 'ping', 'close']) assert.ok(preload.includes(`grpcRealtime:${channel}`))
+  assert.equal(preload.includes('grpcRealtime:send'), false)
+})

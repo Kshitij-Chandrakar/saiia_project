@@ -10,9 +10,13 @@
     "electron:dev": "concurrently -k \"vite --port 5173 --strictPort\" \"set ELECTRON_RUN_AS_NODE=&& electron . --trace-warnings\"",
     "electron:build": "vite build && electron-builder",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "grpc:sync-proto": "node scripts/sync-grpc-proto.cjs",
+    "preelectron:build": "npm run grpc:sync-proto"
   },
   "dependencies": {
+    "@grpc/grpc-js": "1.14.5",
+    "@grpc/proto-loader": "0.8.1",
     "@supabase/supabase-js": "^2.111.0",
     "framer-motion": "^13.5.0",
     "lucide-react": "^1.21.0",

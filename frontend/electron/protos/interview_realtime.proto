@@ -1,0 +1,53 @@
+syntax = "proto3";
+package intervuai.realtime.v1;
+
+service InterviewRealtimeService {
+  rpc StreamInterview(stream InterviewClientEvent) returns (stream InterviewServerEvent);
+}
+
+message Empty {}
+message StartSession { string mode = 1; }
+message AudioChunk {
+  bytes audio = 1;
+  uint32 sample_rate = 2;
+  uint32 channels = 3;
+  string encoding = 4;
+}
+message Status { string code = 1; string message = 2; }
+message TextEvent { string text = 1; }
+message ErrorEvent { string code = 1; string message = 2; }
+
+message InterviewClientEvent {
+  string session_id = 1;
+  string request_id = 2;
+  uint64 sequence_number = 3;
+  uint64 timestamp_ms = 4;
+  string provider = 5;
+  oneof event {
+    StartSession start_session = 10;
+    AudioChunk audio_chunk = 11;
+    Empty manual_stop = 12;
+    Empty cancel = 13;
+    Empty end_session = 14;
+    Empty ping = 15;
+  }
+}
+
+message InterviewServerEvent {
+  string session_id = 1;
+  string request_id = 2;
+  uint64 sequence_number = 3;
+  uint64 timestamp_ms = 4;
+  string provider = 5;
+  oneof event {
+    Empty ready = 10;
+    Status status = 11;
+    TextEvent partial_transcript = 12;
+    TextEvent final_transcript = 13;
+    TextEvent question_detected = 14;
+    TextEvent answer_delta = 15;
+    TextEvent answer_done = 16;
+    ErrorEvent error = 17;
+    Empty pong = 18;
+  }
+}

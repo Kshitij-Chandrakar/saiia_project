@@ -26,6 +26,84 @@ function MetaRow({ label, value }) {
   )
 }
 
+function GrpcRealtimeDiagnostics() {
+  const [state, setState] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const refreshStatusRef = useRef(null)
+  const lifecycleRef = useRef({ active: false, busy: false, version: 0 })
+  const unavailableState = (current) => ({
+    ...current, enabled: current?.enabled ?? null, connectionStatus: 'unavailable',
+    lastErrorMessage: 'Local gRPC diagnostics unavailable.',
+  })
+  const safeStatus = (value) => ({
+    ...value,
+    lastErrorMessage: value?.lastErrorMessage ? 'Local gRPC request failed. Retry the connection.' : '',
+  })
+  useEffect(() => {
+    if (typeof window.electronAPI?.getGrpcRealtimeStatus !== 'function') return
+    const lifecycle = { active: true, busy: false, version: 0 }
+    lifecycleRef.current = lifecycle
+    let pending = null
+    async function refreshStatus(force = false) {
+      if (!lifecycle.active || (lifecycle.busy && !force)) return
+      if (pending) {
+        if (force) { await pending; return refreshStatus(true) }
+        return
+      }
+      const version = lifecycle.version
+      pending = (async () => {
+        try {
+          const value = await window.electronAPI.getGrpcRealtimeStatus()
+          if (lifecycle.active && version === lifecycle.version) setState(safeStatus(value))
+        } catch {
+          if (lifecycle.active && version === lifecycle.version) setState(unavailableState)
+        }
+      })()
+      try { await pending } finally { pending = null }
+    }
+    refreshStatusRef.current = refreshStatus
+    refreshStatus()
+    const interval = setInterval(() => { refreshStatus() }, 3000)
+    return () => {
+      lifecycle.active = false
+      refreshStatusRef.current = null
+      clearInterval(interval)
+    }
+  }, [])
+  async function run(method) {
+    const lifecycle = lifecycleRef.current
+    if (!lifecycle.active || lifecycle.busy || typeof window.electronAPI?.[method] !== 'function') return
+    lifecycle.busy = true
+    lifecycle.version++
+    setBusy(true)
+    try {
+      const value = await window.electronAPI[method]()
+      if (lifecycle.active) setState(safeStatus(value))
+    } catch {
+      if (lifecycle.active) setState(unavailableState)
+    } finally {
+      if (lifecycle.active) {
+        await refreshStatusRef.current?.(true)
+        lifecycle.busy = false
+        if (lifecycle.active) setBusy(false)
+      }
+    }
+  }
+  if (!state) return null
+  return <section className="glass-card" aria-label="Experimental gRPC diagnostics">
+    <p className="section-title">Experimental gRPC · handshake only</p>
+    <MetaRow label="Enabled" value={state.enabled == null ? 'unknown' : state.enabled ? 'yes' : 'no'} />
+    <MetaRow label="Connection" value={state.connectionStatus} />
+    <MetaRow label="Last ping" value={state.lastPingResult} />
+    <MetaRow label="Last error" value={state.lastErrorMessage || 'none'} />
+    {state.enabled !== false && <div className="button-row">
+      <button type="button" disabled={busy || typeof window.electronAPI?.connectGrpcRealtime !== 'function'} onClick={() => run('connectGrpcRealtime')}>Connect</button>
+      <button type="button" disabled={busy || typeof window.electronAPI?.pingGrpcRealtime !== 'function'} onClick={() => run('pingGrpcRealtime')}>Ping</button>
+      <button type="button" disabled={busy || typeof window.electronAPI?.closeGrpcRealtime !== 'function'} onClick={() => run('closeGrpcRealtime')}>Close</button>
+    </div>}
+  </section>
+}
+
 function DesktopAuthStatus({ onSignedOut }) {
   const [authState, setAuthState] = useState(() => getDesktopAuthViewModel())
   const [busyAction, setBusyAction] = useState('')
@@ -926,6 +1004,7 @@ export default function MainDiagnosticsWindow(props) {
             )}
 
             <div className="diagnostics-grid">
+              <GrpcRealtimeDiagnostics />
               <div className="glass-card">
                 <p className="section-title">Live diagnostics</p>
                 <div className="meta-list">

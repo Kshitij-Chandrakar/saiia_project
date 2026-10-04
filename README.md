@@ -446,3 +446,41 @@ Source: `backend/protos/interview_realtime.proto`; generated package:
 `backend/app/grpc_generated/`. The script fixes the generated sibling import for package use.
 G1 intentionally has no STT, generation, provider migration, auth integration, Electron client,
 or changes to existing provider defaults.
+
+### Experimental Electron gRPC client (G2)
+
+G2 adds a main-process `grpc-js`/`proto-loader` client and diagnostics-only IPC.
+It is disabled by default and never replaces REST/WebSocket or connects on startup.
+Set the following backend-only/main-process environment settings, then restart Electron:
+
+```dotenv
+ELECTRON_GRPC_REALTIME_ENABLED=true
+ELECTRON_GRPC_REALTIME_HOST=127.0.0.1
+ELECTRON_GRPC_REALTIME_PORT=50051
+```
+
+Start G1 in a separate PowerShell terminal:
+
+```powershell
+cd backend
+$env:GRPC_REALTIME_ENABLED = "true"
+python -m app.grpc_server --host 127.0.0.1 --port 50051
+```
+
+Open the existing runtime diagnostics panel. Under **Experimental gRPC ? handshake only**,
+click **Connect**, then **Ping**. Expect connection `connected` and last ping `pong`.
+**Close** releases the stream/channel. A stopped backend produces a generic safe error;
+no upstream metadata or session identifiers are exposed to the renderer.
+When disabled, the section shows status only and has no connect controls.
+Only `127.0.0.1`, `localhost`, and `::1` are allowed; remote access is intentionally unavailable
+until a future authenticated/TLS phase. This creates an isolated diagnostic session, not a
+cloud interview session. No credentials are sent or used by this skeleton.
+
+The backend proto remains the source of truth. `npm run grpc:sync-proto` (in `frontend`)
+automatically copies it into `electron/protos/` for packaging; `electron:build` runs this first.
+The checked-in copy is tested for equality. No generated or duplicated handwritten schema is required.
+
+IPC exposes only `grpcRealtime:getStatus`, `grpcRealtime:connect`, `grpcRealtime:ping`,
+and `grpcRealtime:close`, with existing trusted-renderer validation. Current limits are
+handshake/ping only: no microphone/system audio, STT, answer generation, provider migration,
+or Electron authentication changes.
