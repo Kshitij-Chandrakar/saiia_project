@@ -17,7 +17,8 @@ def test_proto_event_contract():
     server = pb.InterviewServerEvent.DESCRIPTOR.oneofs_by_name['event']
     assert {f.name for f in client.fields} == {'start_session', 'audio_chunk', 'manual_stop', 'cancel', 'end_session', 'ping'}
     assert {f.name for f in server.fields} == {'ready', 'status', 'partial_transcript', 'final_transcript',
-                                            'question_detected', 'answer_delta', 'answer_done', 'error', 'pong'}
+                                            'question_detected', 'answer_delta', 'answer_done', 'error', 'pong',
+                                            'answer_started', 'answer_completed', 'answer_error'}
     service = pb.DESCRIPTOR.services_by_name['InterviewRealtimeService']
     method = service.methods_by_name['StreamInterview']
     assert method.client_streaming and method.server_streaming

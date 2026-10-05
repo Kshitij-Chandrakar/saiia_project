@@ -1,5 +1,9 @@
-"""Experimental loopback-only realtime transport; optional STT, no generation."""
+"""Experimental loopback-only realtime transport; opt-in STT and answer diagnostics."""
 import argparse
+import hashlib
+import re
+from collections import deque
+from contextlib import aclosing
 import asyncio
 import ipaddress
 import json
@@ -21,6 +25,12 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
         total_chunks = total_audio_bytes = 0
         bridge = socket = receiver = None
         stt_enabled = settings.GRPC_STT_ENABLED
+        answer_enabled = stt_enabled and settings.GRPC_ANSWER_STREAM_ENABLED
+        questions = asyncio.Queue(maxsize=4)
+        seen = deque(maxlen=64)
+        seen_turns = deque(maxlen=64)
+        provider_epoch = 0
+        answer_task = None
         last_request_id = ""
         provider_started = asyncio.Event()
         final_received = asyncio.Event()
@@ -35,10 +45,72 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             return pb.InterviewServerEvent(
                 session_id=session_id or "", request_id=request_id,
                 sequence_number=sequence, timestamp_ms=int(time.time() * 1000),
-                provider="assemblyai_streaming" if stt_enabled else "none", **{kind: payload})
+                provider=(getattr(payload, "provider", "") or ("assemblyai_streaming" if stt_enabled else "none")), **{kind: payload})
 
         async def emit(request_id, kind, payload):
             await output.put(event(request_id, kind, payload))
+
+        async def answer_worker():
+            from app.grpc_answer_pipeline import stream_question_answer
+            while True:
+                text, request_id = await questions.get()
+                async def generate():
+                    answer = ""
+                    category = provider = ""
+                    question_seen = completed = False
+                    async with aclosing(stream_question_answer(text)) as pipeline:
+                        async for item in pipeline:
+                            kind = item.get("type")
+                            category = item.get("category") or category
+                            provider = item.get("provider") or provider
+                            if kind == "question":
+                                question_seen = True
+                                await emit(request_id, "question_detected", pb.TextEvent(text=item["text"], category=category))
+                            elif kind == "started":
+                                await emit(request_id, "answer_started", pb.TextEvent(category=category, provider=provider))
+                            elif kind == "delta":
+                                delta = str(item.get("text") or "")
+                                answer += delta
+                                if len(answer) > 262144:
+                                    raise RuntimeError("Answer limit exceeded.")
+                                await emit(request_id, "answer_delta", pb.TextEvent(text=delta, category=category, provider=provider))
+                            elif kind in ("replacement", "result") and item.get("text"):
+                                answer = str(item["text"])
+                                if len(answer) > 262144:
+                                    raise RuntimeError("Answer limit exceeded.")
+                            elif kind == "completed":
+                                if not answer.strip():
+                                    raise RuntimeError("Empty answer.")
+                                completed = True
+                                await emit(request_id, "answer_completed", pb.TextEvent(text=answer, category=category, provider=provider))
+                    if question_seen and not completed:
+                        raise RuntimeError("Answer stream ended prematurely.")
+                    # A non-question legitimately emits no events; never invent an answer.
+                try:
+                    await asyncio.wait_for(generate(), timeout=90)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    await emit(request_id, "answer_error", pb.ErrorEvent(
+                        code="answer_unavailable", message="Experimental answer unavailable or timed out. Retry."))
+                finally:
+                    questions.task_done()
+
+        async def queue_final(text, turn_order):
+            if not answer_enabled or len(text.split()) < 3:
+                return
+            fingerprint = hashlib.sha256(re.sub(r"[^\w]", "", text.casefold()).encode()).digest()
+            turn = (provider_epoch, turn_order) if isinstance(turn_order, int) else None
+            if fingerprint in seen or (turn is not None and turn in seen_turns):
+                return
+            try:
+                questions.put_nowait((text, last_request_id))
+                seen.append(fingerprint)
+                if turn is not None:
+                    seen_turns.append(turn)
+            except asyncio.QueueFull:
+                await emit(last_request_id, "answer_error", pb.ErrorEvent(
+                    code="answer_busy", message="Experimental answer queue is busy. Retry after the current answer."))
 
         async def receive_transcripts():
             nonlocal transcript_received, final_transcript_received, callbacks
@@ -59,6 +131,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                             await emit(last_request_id,
                                 "final_transcript" if message.get("end_of_turn") else "partial_transcript",
                                 pb.TextEvent(text=text[:65536]))
+                            if message.get("end_of_turn"):
+                                await queue_final(text[:65536], message.get("turn_order"))
                     elif kind == "Termination":
                         if not stopping_stt:
                             raise RuntimeError("provider terminated unexpectedly")
@@ -87,9 +161,10 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             socket = receiver = None
 
         async def open_stt():
-            nonlocal bridge, socket, receiver, transcript_received, final_transcript_received, stopping_stt
+            nonlocal bridge, socket, receiver, transcript_received, final_transcript_received, stopping_stt, provider_epoch
             from app.services.assemblyai_streaming import AssemblyAIStreamingBridge
             bridge = AssemblyAIStreamingBridge()
+            provider_epoch += 1
             # G3 PCM is always 16 kHz regardless of the production WS configuration.
             bridge.config.sample_rate = 16000
             socket = await asyncio.wait_for(bridge.connect(), timeout=5)
@@ -102,6 +177,11 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             # WebSocket upgrade alone is not provider readiness (Begin confirms it).
             await asyncio.wait_for(provider_started.wait(), timeout=3)
 
+        async def stop_answers():
+            if answer_task:
+                answer_task.cancel()
+                await asyncio.gather(answer_task, return_exceptions=True)
+
         async def process_requests():
             nonlocal session_id, total_chunks, total_audio_bytes, last_request_id, stopping_stt, stt_chunks, stt_bytes, non_silent_chunks
             canceled = False
@@ -112,6 +192,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                     if kind == "ping":
                         await emit(request.request_id, "pong", pb.Empty())
                     elif kind in ("cancel", "end_session"):
+                        await stop_answers()
                         await close_stt()
                         await emit(request.request_id, "status", pb.Status(
                             code="canceled" if kind == "cancel" else "ended", message="Stream closed."))
@@ -128,6 +209,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         await emit(request.request_id, "status", pb.Status(
                             code="stt_enabled" if stt_enabled else "foundation_only",
                             message="Experimental live STT ready." if stt_enabled else "Transport ready; transcription and generation are not implemented."))
+                        if answer_enabled:
+                            await emit(request.request_id, "status", pb.Status(code="answer_stream_enabled", message="Experimental answer streaming enabled."))
                     elif kind in ("audio_chunk", "manual_stop"):
                         if session_id is None or request.session_id != session_id:
                             await emit(request.request_id, "error", pb.ErrorEvent(
@@ -169,7 +252,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                                     code="no_transcript", message="No final speech transcript received. Check microphone input and retry."))
                         await emit(request.request_id, "status", pb.Status(
                             code="audio_chunk_received" if kind == "audio_chunk" else "audio_stopped",
-                            message="Audio accepted; no answer generation." if stt_enabled else "Audio counted only; transcription and generation are not implemented.",
+                            message=("Audio accepted; experimental answers enabled." if answer_enabled else "Audio accepted; no answer generation.") if stt_enabled else "Audio counted only; transcription and generation are not implemented.",
                             total_chunks=total_chunks, total_audio_bytes=total_audio_bytes,
                             stt_chunks_forwarded=stt_chunks, stt_bytes_forwarded=stt_bytes,
                             stt_bridge_connected=bool(socket and provider_started.is_set()),
@@ -190,6 +273,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 if not canceled:
                     await output.put(None)
 
+        if answer_enabled:
+            answer_task = asyncio.create_task(answer_worker())
         task = asyncio.create_task(process_requests())
         try:
             while True:
@@ -201,6 +286,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
             await close_stt()
+            await stop_answers()
 
 
 async def start_server(host="127.0.0.1", port=50051, max_message_mb=4):

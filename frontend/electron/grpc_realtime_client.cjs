@@ -28,6 +28,11 @@ class GrpcRealtimeClient {
     this.sttBridgeConnected = false
     this.sttStatus = 'idle'
     this.pcmDiagnostics = {}
+    this.answerStreamEnabled = false
+    this.questionsDetectedCount = this.answerStartedCount = this.answerDeltaCount = this.answerCompletedCount = 0
+    this.lastAnswerStatus = 'idle'
+    this.answerCategory = this.answerProvider = 'none'
+    this.currentQuestion = this.currentAnswer = ''
     this.host = env.ELECTRON_GRPC_REALTIME_HOST || '127.0.0.1'
     this.port = Number(env.ELECTRON_GRPC_REALTIME_PORT || 50051)
     this.transportFactory = transportFactory
@@ -48,7 +53,12 @@ class GrpcRealtimeClient {
       lastTranscriptEventType: this.lastTranscriptEventType, sttProvider: this.sttProvider, currentTranscript: this.currentTranscript,
       sttChunksForwarded: this.sttChunksForwarded, sttBytesForwarded: this.sttBytesForwarded,
       sttCallbackCount: this.sttCallbackCount, nonSilentChunks: this.nonSilentChunks,
-      sttBridgeConnected: this.sttBridgeConnected, sttStatus: this.sttStatus, pcmDiagnostics: this.pcmDiagnostics }
+      sttBridgeConnected: this.sttBridgeConnected, sttStatus: this.sttStatus, pcmDiagnostics: this.pcmDiagnostics,
+      answerStreamEnabled: this.answerStreamEnabled, questionsDetectedCount: this.questionsDetectedCount,
+      answerStartedCount: this.answerStartedCount, answerDeltaCount: this.answerDeltaCount,
+      answerCompletedCount: this.answerCompletedCount, lastAnswerStatus: this.lastAnswerStatus,
+      answerCategory: this.answerCategory, answerProvider: this.answerProvider,
+      currentQuestion: this.currentQuestion, currentAnswer: this.currentAnswer }
   }
 
   connect() {
@@ -89,6 +99,26 @@ class GrpcRealtimeClient {
             this.sttBridgeConnected = Boolean(event.status.stt_bridge_connected)
             this.sttStatus = ['stt_no_transcript_yet', 'stt_receiving', 'idle'].includes(event.status.stt_status) ? event.status.stt_status : 'unknown'
           }
+          if (event.status?.code === 'answer_stream_enabled') this.answerStreamEnabled = true
+          const answerKind = ['question_detected', 'answer_started', 'answer_delta', 'answer_completed', 'answer_error'].find(kind => event[kind])
+          if (answerKind) {
+            const payload = event[answerKind]
+            this.lastAnswerStatus = answerKind
+            if (['technical', 'behavioral', 'personal', 'general'].includes(payload.category)) this.answerCategory = payload.category
+            if (['openai', 'groq', 'ollama', 'local'].includes(payload.provider)) this.answerProvider = payload.provider
+            if (answerKind === 'question_detected') {
+              this.questionsDetectedCount++
+              this.currentQuestion = String(payload.text || '').slice(0, 65536)
+              this.currentAnswer = ''
+            } else if (answerKind === 'answer_started') this.answerStartedCount++
+            else if (answerKind === 'answer_delta') {
+              this.answerDeltaCount++
+              this.currentAnswer = (this.currentAnswer + String(payload.text || '')).slice(0, 262144)
+            } else if (answerKind === 'answer_completed') {
+              this.answerCompletedCount++
+              if (payload.text) this.currentAnswer = String(payload.text).slice(0, 262144)
+            } else this.lastError = 'Experimental answer unavailable. Retry.'
+          }
           const pending = this.pending.get(event.request_id)
           if (pending && event[pending.kind] !== undefined) {
             clearTimeout(pending.timer)
@@ -108,6 +138,11 @@ class GrpcRealtimeClient {
         this.lastTranscriptEventType = this.sttProvider = 'none'
         this.currentTranscript = ''
         this.pcmDiagnostics = {}
+        this.answerStreamEnabled = false
+        this.questionsDetectedCount = this.answerStartedCount = this.answerDeltaCount = this.answerCompletedCount = 0
+        this.lastAnswerStatus = 'idle'
+        this.answerCategory = this.answerProvider = 'none'
+        this.currentQuestion = this.currentAnswer = ''
         this.lastPcmAt = null
         this.sttChunksForwarded = this.sttBytesForwarded = this.sttCallbackCount = this.nonSilentChunks = 0
         this.sttBridgeConnected = false
@@ -233,6 +268,7 @@ class GrpcRealtimeClient {
     this.sessionId = null
     this.sttBridgeConnected = false
     this.currentTranscript = ''
+    this.currentQuestion = this.currentAnswer = ''
     this.connecting = null
     for (const item of this.pending.values()) { clearTimeout(item.timer); item.reject(Error('closed')) }
     this.pending.clear()

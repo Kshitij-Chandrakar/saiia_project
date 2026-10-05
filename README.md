@@ -537,3 +537,28 @@ Audio is limited to 64 KiB per chunk; output buffering is bounded. Transcripts
 are carried in transcript events and the current preview only, never logged.
 No answer generation or system audio is connected. REST/WebSocket remains the
 production path; its provider routing and defaults are unchanged.
+
+### G5 experimental local gRPC answer streaming
+
+Disabled by default (`GRPC_ANSWER_STREAM_ENABLED=false`). To test locally, run
+`python -m app.grpc_server --host 127.0.0.1 --port 50051` from `backend` with
+`GRPC_REALTIME_ENABLED=true`, `GRPC_STT_ENABLED=true`, and
+`GRPC_ANSWER_STREAM_ENABLED=true`. Keep the normal FastAPI backend running
+separately. Start Electron with `ELECTRON_GRPC_REALTIME_ENABLED=true` and
+`ELECTRON_GRPC_AUDIO_ENABLED=true`, then Connect/Ping/Start mic test in diagnostics.
+
+Final turns use the existing question detector/classifier and `/generate/stream`
+pipeline, including its answer planner, grounding and sanitization. True answer
+streaming must remain enabled in the existing generation configuration. The
+experimental protocol accepts no cloud resume/job/session IDs or auth tokens;
+cloud-owned contexts require the authenticated REST path. Its transport session
+ID is not an interview-session ID. Local profile loading and resume/job context use existing
+pipeline behavior; no personal profile is fabricated or copied from cloud state.
+
+Questions are processed serially with a four-item queue and a 90-second deadline.
+A bounded 64-entry fingerprint/turn cache prevents repeated final revisions from
+generating duplicate answers. Stop drains STT and leaves the connection open for
+answer deltas. Close/cancel/end cancels in-flight generation. Current question and
+answer previews appear only in experimental diagnostics; no production overlay
+routing is added. REST/WebSocket remains the default. No audio, prompts, resume
+chunks, transcripts or answers are logged by the diagnostic answer pipeline.

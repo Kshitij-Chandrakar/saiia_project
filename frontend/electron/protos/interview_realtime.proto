@@ -25,7 +25,7 @@ message Status {
   string stt_status = 9;
   uint64 non_silent_chunks = 10;
 }
-message TextEvent { string text = 1; }
+message TextEvent { string text = 1; string category = 2; string provider = 3; }
 message ErrorEvent { string code = 1; string message = 2; }
 
 message InterviewClientEvent {
@@ -60,5 +60,8 @@ message InterviewServerEvent {
     TextEvent answer_done = 16;
     ErrorEvent error = 17;
     Empty pong = 18;
+    TextEvent answer_started = 19;
+    TextEvent answer_completed = 20;
+    ErrorEvent answer_error = 21;
   }
 }

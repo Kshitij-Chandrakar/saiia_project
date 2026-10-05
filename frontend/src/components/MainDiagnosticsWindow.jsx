@@ -58,7 +58,7 @@ function GrpcRealtimeDiagnostics() {
       micTestRef.current?.close()
       setMicTesting(false)
     }
-    const safeErrors = ['No final speech transcript received. Check microphone input and retry.', 'Live STT unavailable. Check AssemblyAI configuration and retry.']
+    const safeErrors = ['Experimental answer unavailable. Retry.', 'No final speech transcript received. Check microphone input and retry.', 'Live STT unavailable. Check AssemblyAI configuration and retry.']
     setState({ ...value, lastErrorMessage: safeErrors.includes(value.lastErrorMessage) ? value.lastErrorMessage : value.lastErrorMessage ? 'Local gRPC diagnostics unavailable.' : '' })
   }
   function showUnavailable() {
@@ -152,6 +152,17 @@ function GrpcRealtimeDiagnostics() {
     <MetaRow label="STT status" value={state.sttStatus || 'idle'} />
     <MetaRow label="STT provider" value={state.sttProvider || 'none'} />
     {state.sttEnabled && state.currentTranscript && <p aria-label="Experimental live transcript" aria-live="polite">{state.currentTranscript}</p>}
+    <MetaRow label="Answer streaming enabled" value={state.answerStreamEnabled ? 'yes' : 'no'} />
+    <MetaRow label="Questions detected" value={state.questionsDetectedCount || 0} />
+    <MetaRow label="Answers started" value={state.answerStartedCount || 0} />
+    <MetaRow label="Answer deltas" value={state.answerDeltaCount || 0} />
+    <MetaRow label="Answers completed" value={state.answerCompletedCount || 0} />
+    <MetaRow label="Last answer status" value={state.lastAnswerStatus || 'idle'} />
+    <MetaRow label="Answer category" value={state.answerCategory || 'none'} />
+    <MetaRow label="Answer provider" value={state.answerProvider || 'none'} />
+    {state.answerStreamEnabled && <div aria-label="Experimental answer preview" aria-live="polite">
+      <p>{state.currentQuestion}</p><p style={{ whiteSpace: 'pre-wrap' }}>{state.currentAnswer}</p>
+    </div>}
     {state.audioEnabled && <div className="button-row">
       <button type="button" disabled={busy || micTesting || state.connectionStatus !== 'connected'} onClick={() => runMicTest(true)}>Start experimental gRPC mic test</button>
       <button type="button" disabled={busy || !micTesting} onClick={() => runMicTest(false)}>Stop gRPC mic test</button>
