@@ -401,6 +401,7 @@ const DESKTOP_AUTH_ENV_KEYS = new Set([
   'VITE_SAIIA_WEB_AUTH_URL',
   'SAIIA_WEB_DASHBOARD_URL',
   'VITE_SAIIA_WEB_DASHBOARD_URL',
+  'USE_GRPC_MANUAL_PIPELINE',
   'ELECTRON_GRPC_REALTIME_ENABLED',
   'ELECTRON_GRPC_AUDIO_ENABLED',
   'ELECTRON_GRPC_REALTIME_HOST',
@@ -1963,7 +1964,11 @@ function validateTrustedRendererIpc(event) {
   throw errors[0] || new Error('Desktop IPC is not ready.')
 }
 
-registerGrpcRealtimeIpc(ipcMain, validateTrustedRendererIpc, grpcRealtimeClient)
+registerGrpcRealtimeIpc(ipcMain, validateTrustedRendererIpc, grpcRealtimeClient, timing => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('grpcRealtime:uiTiming', timing)
+}, snapshot => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('grpcRealtime:manualEvent', snapshot)
+})
 
 ipcMain.handle('auth:get-state', (event) => {
   validateTrustedRendererIpc(event)

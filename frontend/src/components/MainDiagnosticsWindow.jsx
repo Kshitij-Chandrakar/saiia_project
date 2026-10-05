@@ -164,7 +164,7 @@ function GrpcRealtimeDiagnostics() {
       <p>{state.currentQuestion}</p><p style={{ whiteSpace: 'pre-wrap' }}>{state.currentAnswer}</p>
     </div>}
     {state.audioEnabled && <div className="button-row">
-      <button type="button" disabled={busy || micTesting || state.connectionStatus !== 'connected'} onClick={() => runMicTest(true)}>Start experimental gRPC mic test</button>
+      <button type="button" disabled={busy || micTesting || state.manualPipelineReady || state.connectionStatus !== 'connected'} onClick={() => runMicTest(true)}>Start experimental gRPC mic test</button>
       <button type="button" disabled={busy || !micTesting} onClick={() => runMicTest(false)}>Stop gRPC mic test</button>
     </div>}
     {state.enabled !== false && <div className="button-row">
@@ -1820,6 +1820,16 @@ export default function MainDiagnosticsWindow(props) {
                     <MetaRow key={field} label={field} value={manualLiveState?.[field] != null ? `${manualLiveState[field].toFixed(2)} ms` : 'n/a'} />
                   ))}
                   <MetaRow label="Manual phase" value={manualLiveState?.phase || 'idle'} />
+                  <MetaRow label="Manual transport" value={manualLiveState?.transport || 'REST/WebSocket'} />
+                  <MetaRow label="Pipeline" value={generationDiagnostics?.manualPipeline || 'REST/WebSocket (default)'} />
+                  <MetaRow label="Pipeline selection reason" value={generationDiagnostics?.manualPipelineReason || 'none'} />
+                  {['manual_start_at', 'manual_stop_at', 'first_transcript_at', 'question_detected_at', 'answer_started_at', 'first_answer_delta_at', 'answer_completed_at', 'first_main_ui_update_at', 'first_overlay_update_at'].map(field => (
+                    <MetaRow key={field} label={field} value={generationDiagnostics?.manualTimings?.[field] != null ? `${generationDiagnostics.manualTimings[field]} ms (epoch)` : 'n/a'} />
+                  ))}
+                  {['answer_started_at', 'first_answer_delta_at', 'first_main_ui_update_at', 'first_overlay_update_at', 'answer_completed_at'].map(field => (
+                    <MetaRow key={`latency-${field}`} label={`Stop to ${field}`} value={generationDiagnostics?.manualTimings?.manual_stop_at && generationDiagnostics?.manualTimings?.[field] ? `${generationDiagnostics.manualTimings[field] - generationDiagnostics.manualTimings.manual_stop_at} ms` : 'n/a'} />
+                  ))}
+                  <MetaRow label="First delta to main UI" value={generationDiagnostics?.manualTimings?.first_main_ui_update_at != null && generationDiagnostics?.manualTimings?.first_answer_delta_at != null ? `${generationDiagnostics.manualTimings.first_main_ui_update_at - generationDiagnostics.manualTimings.first_answer_delta_at} ms` : 'n/a'} />
                   <MetaRow label="Manual partial transcript" value={manualLiveState?.partialTranscript || 'n/a'} />
                   <MetaRow label="Manual final transcript" value={manualFinalTranscript || 'n/a'} />
                   <MetaRow label="Manual detected question" value={manualLiveState?.detectedQuestion || 'n/a'} />

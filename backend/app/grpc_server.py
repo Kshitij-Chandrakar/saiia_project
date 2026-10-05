@@ -29,6 +29,9 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
         questions = asyncio.Queue(maxsize=4)
         seen = deque(maxlen=64)
         seen_turns = deque(maxlen=64)
+        manual_mode = False
+        manual_stopped = False
+        manual_turns = {}
         provider_epoch = 0
         answer_task = None
         last_request_id = ""
@@ -85,6 +88,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                                 await emit(request_id, "answer_completed", pb.TextEvent(text=answer, category=category, provider=provider))
                     if question_seen and not completed:
                         raise RuntimeError("Answer stream ended prematurely.")
+                    if manual_mode and not question_seen:
+                        await emit(request_id, "status", pb.Status(code="manual_no_question", message="No clear question detected."))
                     # A non-question legitimately emits no events; never invent an answer.
                 try:
                     await asyncio.wait_for(generate(), timeout=90)
@@ -97,6 +102,14 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                     questions.task_done()
 
         async def queue_final(text, turn_order):
+            if manual_mode and not manual_stopped:
+                key = turn_order if isinstance(turn_order, int) else 0
+                if key not in manual_turns and len(manual_turns) >= 64:
+                    raise RuntimeError("Manual capture turn limit exceeded.")
+                manual_turns[key] = text
+                if sum(len(value) for value in manual_turns.values()) > 65536:
+                    raise RuntimeError("Manual capture text limit exceeded.")
+                return
             if not answer_enabled or len(text.split()) < 3:
                 return
             fingerprint = hashlib.sha256(re.sub(r"[^\w]", "", text.casefold()).encode()).digest()
@@ -128,10 +141,16 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                             if message.get("end_of_turn"):
                                 final_transcript_received = True
                                 final_received.set()
+                            preview = text[:65536]
+                            if manual_mode and not manual_stopped:
+                                if message.get("end_of_turn"):
+                                    await queue_final(preview, message.get("turn_order"))
+                                turns = {**manual_turns, message.get("turn_order", 0): preview}
+                                preview = " ".join(turns[key] for key in sorted(turns))[:65536]
                             await emit(last_request_id,
                                 "final_transcript" if message.get("end_of_turn") else "partial_transcript",
-                                pb.TextEvent(text=text[:65536]))
-                            if message.get("end_of_turn"):
+                                pb.TextEvent(text=preview))
+                            if message.get("end_of_turn") and not manual_mode:
                                 await queue_final(text[:65536], message.get("turn_order"))
                     elif kind == "Termination":
                         if not stopping_stt:
@@ -183,7 +202,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 await asyncio.gather(answer_task, return_exceptions=True)
 
         async def process_requests():
-            nonlocal session_id, total_chunks, total_audio_bytes, last_request_id, stopping_stt, stt_chunks, stt_bytes, non_silent_chunks
+            nonlocal manual_mode, manual_stopped, session_id, total_chunks, total_audio_bytes, last_request_id, stopping_stt, stt_chunks, stt_bytes, non_silent_chunks
             canceled = False
             try:
                 async for request in request_iterator:
@@ -202,9 +221,15 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                             await emit(request.request_id, "error", pb.ErrorEvent(
                                 code="invalid_session", message="A single valid session is required."))
                             return
+                        manual_mode = request.start_session.mode == "manual_pipeline"
+                        if manual_mode and not (settings.USE_GRPC_MANUAL_PIPELINE and answer_enabled):
+                            await emit(request.request_id, "error", pb.ErrorEvent(code="manual_unavailable", message="Manual gRPC pipeline is unavailable."))
+                            return
                         session_id = request.session_id
                         if stt_enabled:
                             await open_stt()
+                        if manual_mode:
+                            await emit(request.request_id, "status", pb.Status(code="manual_pipeline_ready", message="Experimental manual pipeline ready."))
                         await emit(request.request_id, "ready", pb.Empty())
                         await emit(request.request_id, "status", pb.Status(
                             code="stt_enabled" if stt_enabled else "foundation_only",
@@ -215,6 +240,9 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         if session_id is None or request.session_id != session_id:
                             await emit(request.request_id, "error", pb.ErrorEvent(
                                 code="invalid_session", message="Start the stream session first."))
+                            return
+                        if kind == "audio_chunk" and manual_mode and manual_stopped:
+                            await emit(request.request_id, "error", pb.ErrorEvent(code="manual_stopped", message="Start a new manual capture."))
                             return
                         if kind == "audio_chunk":
                             chunk = request.audio_chunk
@@ -250,6 +278,14 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                             if not final_transcript_received:
                                 await emit(request.request_id, "error", pb.ErrorEvent(
                                     code="no_transcript", message="No final speech transcript received. Check microphone input and retry."))
+                        if kind == "manual_stop" and manual_mode and not manual_stopped:
+                            manual_stopped = True
+                            text = " ".join(manual_turns[key] for key in sorted(manual_turns)).strip()
+                            if len(text.split()) >= 3:
+                                await emit(request.request_id, "status", pb.Status(code="manual_generation_committed", message="Detecting question."))
+                                await queue_final(text, None)
+                            else:
+                                await emit(request.request_id, "status", pb.Status(code="manual_no_question", message="No clear question detected."))
                         await emit(request.request_id, "status", pb.Status(
                             code="audio_chunk_received" if kind == "audio_chunk" else "audio_stopped",
                             message=("Audio accepted; experimental answers enabled." if answer_enabled else "Audio accepted; no answer generation.") if stt_enabled else "Audio counted only; transcription and generation are not implemented.",

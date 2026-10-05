@@ -7,6 +7,7 @@ load_dotenv()
 
 
 class Settings:
+    USE_GRPC_MANUAL_PIPELINE = os.getenv("USE_GRPC_MANUAL_PIPELINE", "false").strip().lower() == "true"
     GRPC_ANSWER_STREAM_ENABLED = os.getenv("GRPC_ANSWER_STREAM_ENABLED", "false").strip().lower() == "true"
     GRPC_STT_ENABLED = os.getenv("GRPC_STT_ENABLED", "false").strip().lower() == "true"
     GRPC_REALTIME_ENABLED = os.getenv("GRPC_REALTIME_ENABLED", "false").strip().lower() == "true"

@@ -16,6 +16,14 @@ class GrpcRealtimeClient {
   constructor({ env = process.env, transportFactory = createTransport, timeoutMs = 3000,
     protoPath = path.join(__dirname, 'protos', 'interview_realtime.proto') } = {}) {
     this.enabled = String(env.ELECTRON_GRPC_REALTIME_ENABLED || 'false').toLowerCase() === 'true'
+    this.manualPipelineEnabled = String(env.USE_GRPC_MANUAL_PIPELINE || "false").toLowerCase() === "true"
+    this.onManualEvent = () => {}
+    this.manualEventVersion = 0
+    this.manualRun = 0
+    this.manualTimings = {}
+    this.manualPipelineReady = false
+    this.manualStatus = "idle"
+    this.sessionMode = "diagnostics"
     this.audioEnabled = String(env.ELECTRON_GRPC_AUDIO_ENABLED || 'false').toLowerCase() === 'true'
     this.audioChunksSent = this.audioBytesSent = this.backendChunksReceived = this.backendBytesReceived = 0
     this.lastAudioStatus = 'idle'
@@ -46,7 +54,7 @@ class GrpcRealtimeClient {
   }
 
   getStatus() {
-    return { enabled: this.enabled, connectionStatus: this.status, lastPingResult: this.lastPing, lastErrorMessage: this.lastError,
+    return { manualEventVersion: this.manualEventVersion, manualRun: this.manualRun, manualTimings: { ...this.manualTimings }, manualPipelineEnabled: this.manualPipelineEnabled, manualPipelineReady: this.manualPipelineReady, manualStatus: this.manualStatus, enabled: this.enabled, connectionStatus: this.status, lastPingResult: this.lastPing, lastErrorMessage: this.lastError,
       audioEnabled: this.enabled && this.audioEnabled, audioChunksSent: this.audioChunksSent, audioBytesSent: this.audioBytesSent,
       backendChunksReceived: this.backendChunksReceived, backendBytesReceived: this.backendBytesReceived, lastAudioStatus: this.lastAudioStatus, sttEnabled: this.sttEnabled,
       partialTranscriptCount: this.partialTranscriptCount, finalTranscriptCount: this.finalTranscriptCount,
@@ -81,9 +89,12 @@ class GrpcRealtimeClient {
         stream.on('data', (event) => {
           if (epoch !== this.epoch) return
           if (event.provider === 'assemblyai_streaming') this.sttProvider = 'assemblyai_streaming'
+          if (event.status?.code === 'manual_pipeline_ready') this.manualPipelineReady = true
+          if (['manual_generation_committed', 'manual_no_question'].includes(event.status?.code)) this.manualStatus = event.status.code
           if (event.status?.code === 'stt_enabled') this.sttEnabled = true
           const transcriptKind = event.final_transcript ? 'final_transcript' : event.partial_transcript ? 'partial_transcript' : null
           if (transcriptKind) {
+            this.manualTimings.first_transcript_at ??= Date.now()
             this.sttEnabled = true
             this.sttProvider = event.provider === 'assemblyai_streaming' ? 'assemblyai_streaming' : 'unknown'
             this.lastTranscriptEventType = transcriptKind
@@ -103,6 +114,8 @@ class GrpcRealtimeClient {
           const answerKind = ['question_detected', 'answer_started', 'answer_delta', 'answer_completed', 'answer_error'].find(kind => event[kind])
           if (answerKind) {
             const payload = event[answerKind]
+            const timing = { question_detected: 'question_detected_at', answer_started: 'answer_started_at', answer_delta: 'first_answer_delta_at', answer_completed: 'answer_completed_at' }[answerKind]
+            if (timing) this.manualTimings[timing] ??= Date.now()
             this.lastAnswerStatus = answerKind
             if (['technical', 'behavioral', 'personal', 'general'].includes(payload.category)) this.answerCategory = payload.category
             if (['openai', 'groq', 'ollama', 'local'].includes(payload.provider)) this.answerProvider = payload.provider
@@ -119,13 +132,20 @@ class GrpcRealtimeClient {
               if (payload.text) this.currentAnswer = String(payload.text).slice(0, 262144)
             } else this.lastError = 'Experimental answer unavailable. Retry.'
           }
+          if (this.sessionMode === 'manual_pipeline' && this.manualPipelineEnabled && (answerKind || transcriptKind)) {
+            this.manualEventVersion++
+            // Only the bounded, whitelisted renderer snapshot crosses IPC, never raw provider events.
+            try { this.onManualEvent(this.getStatus()) } catch { /* Polling remains a safe delivery fallback. */ }
+          }
           const pending = this.pending.get(event.request_id)
           if (pending && event[pending.kind] !== undefined) {
             clearTimeout(pending.timer)
             this.pending.delete(event.request_id)
             pending.resolve(event)
           } else if (event.error) {
+            const emptyManual = this.sessionMode === 'manual_pipeline' && event.error.code === 'no_transcript'
             this.fail()
+            if (emptyManual) this.manualStatus = 'manual_no_question'
             this.lastError = event.error.code === 'no_transcript'
               ? 'No final speech transcript received. Check microphone input and retry.'
               : 'Live STT unavailable. Check AssemblyAI configuration and retry.'
@@ -174,7 +194,30 @@ class GrpcRealtimeClient {
     })
   }
 
-  startSession() { return this.request({ start_session: { mode: 'diagnostics' } }, 'ready') }
+  async connectManual() {
+    if (!this.enabled || !this.audioEnabled || !this.manualPipelineEnabled) return this.getStatus()
+    if (this.sessionMode === 'manual_pipeline' && ['connecting', 'connected'].includes(this.status)) return this.connect()
+    // Manual capture owns one fresh stream; diagnostic sessions never generate for it.
+    this.close()
+    this.manualEventVersion = 0
+    this.manualRun++
+    this.manualTimings = { manual_start_at: Date.now() }
+    this.sessionMode = 'manual_pipeline'
+    this.manualStatus = 'idle'
+    this.manualPipelineReady = false
+    return this.connect()
+  }
+
+  recordUiTiming(run, field, at) {
+    if (run !== this.manualRun || !Number.isInteger(run) || run < 1 ||
+      !['first_main_ui_update_at', 'first_overlay_update_at'].includes(field) ||
+      !Number.isFinite(at) || at < this.manualTimings.manual_start_at || at > Date.now() + 1000) return false
+    if (this.manualTimings[field] != null) return false
+    this.manualTimings[field] = at
+    return true
+  }
+
+  startSession() { return this.request({ start_session: { mode: this.sessionMode } }, 'ready') }
 
   async sendAudioChunk(data, metadata = {}) {
     if (!this.enabled || !this.audioEnabled || this.status !== 'connected') return this.getStatus()
@@ -226,6 +269,7 @@ class GrpcRealtimeClient {
   }
 
   async manualStop() {
+    if (this.sessionMode === 'manual_pipeline') this.manualTimings.manual_stop_at ??= Date.now()
     if (!this.enabled || !this.audioEnabled || this.status !== 'connected') return this.getStatus()
     const epoch = this.epoch
     try {
@@ -267,6 +311,8 @@ class GrpcRealtimeClient {
     this.client = null
     this.sessionId = null
     this.sttBridgeConnected = false
+    this.manualPipelineReady = false
+    this.sessionMode = "diagnostics"
     this.currentTranscript = ''
     this.currentQuestion = this.currentAnswer = ''
     this.connecting = null
@@ -281,10 +327,12 @@ class GrpcRealtimeClient {
   }
 }
 
-function registerGrpcRealtimeIpc(ipcMain, validateSender, client) {
-  for (const [channel, method] of [['getStatus', 'getStatus'], ['connect', 'connect'], ['ping', 'ping'], ['close', 'close']]) {
+function registerGrpcRealtimeIpc(ipcMain, validateSender, client, onUiTiming = () => {}, onManualEvent = () => {}) {
+  client.onManualEvent = onManualEvent
+  for (const [channel, method] of [['getStatus', 'getStatus'], ['connect', 'connect'], ['connectManual', 'connectManual'], ['ping', 'ping'], ['close', 'close']]) {
     ipcMain.handle(`grpcRealtime:${channel}`, async (event) => { validateSender(event); return client[method]() })
   }
+  ipcMain.handle('grpcRealtime:uiTiming', async (event, run, field, at) => { validateSender(event); if (client.recordUiTiming(run, field, at)) onUiTiming({ manualRun: client.manualRun, first_main_ui_update_at: client.manualTimings.first_main_ui_update_at, first_overlay_update_at: client.manualTimings.first_overlay_update_at }) })
   ipcMain.handle('grpcRealtime:audioChunk', async (event, data, metadata) => { validateSender(event); return client.sendAudioChunk(data, metadata) })
   ipcMain.handle('grpcRealtime:manualStop', async (event) => { validateSender(event); return client.manualStop() })
 }

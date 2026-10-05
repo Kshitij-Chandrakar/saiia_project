@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 import { createManualLiveSession, getManualFinalTranscript, isManualLiveEnabled } from './manual_live_session.js'
+import { canUseGrpcManual, createGrpcManualSession, getGrpcManualBlockReason } from './grpc_manual_session.js'
 import { createLiveMicTransport } from './live_mic_transport.js'
 import { appendQuestionHistoryEntry, createQuestionHistoryEntry, createQuestionHistoryState, updateQuestionHistoryEntry } from './question_history.js'
 
@@ -242,7 +243,7 @@ test('shared transport sends PCM only when active; pause permits endpoint contro
 })
 
 test('App manual callbacks use the batch endpoint only for fallback and the same history ID for generation', () => {
-  const manual = appSource.slice(appSource.indexOf('manualLiveSessionRef.current = createManualLiveSession('), appSource.indexOf("    setStatus('Stopping...')", appSource.indexOf('  const handleRecordToggle')))
+  const manual = appSource.slice(appSource.indexOf('        const manualOptions ='), appSource.indexOf("    setStatus('Stopping...')", appSource.indexOf('  const handleRecordToggle')))
   assert.match(manual, /transcribeAudioBlob\(blob, 'manual', isCurrent\)/)
   assert.match(manual, /capturedHistoryEntryId: historyEntryId/)
   assert.doesNotMatch(manual, /processAutoQuestion|startAutoCooldown|scheduleNextAutoCycle/)
@@ -300,6 +301,7 @@ function appManualHarness(manualConfig = { manual_stt_provider: 'openai_whisper'
   }
   const code = appSource.slice(appSource.indexOf('  const handleRecordToggle ='), appSource.indexOf('  useEffect(', appSource.indexOf('  const handleRecordToggle =')))
   const context = {
+    window: { electronAPI: {} }, startupSessionConfigRef: { current: {} }, canUseGrpcManual: () => false, getGrpcManualBlockReason,
     crypto: { randomUUID: () => 'app-session' }, Date, performance, console,
     audioSourcesRef: { current: { microphone: true, system: false } }, audioPipelineStatusRef: { current: 'idle' },
     pendingManualGenerationRef: { current: null }, manualLiveStartIdRef: { current: '' }, manualLiveSessionRef: { current: null }, streamRef: { current: null },
@@ -570,3 +572,36 @@ test('empty final cannot trigger early completion or generation; empty batch sta
   assert.equal(f.history().answer.entries.length, 1)
   assert.equal(f.history().answer.entries[0].status, 'error')
  })
+
+
+test('actual manual App controls use G6 and publish progressive answers to the same history/overlay state', async () => {
+  const f = appManualHarness()
+  let status = { manualPipelineEnabled: true, audioEnabled: true, manualPipelineReady: true, connectionStatus: 'connected' }
+  let stops = 0
+  f.context.window.electronAPI = {
+    getGrpcRealtimeStatus: async () => status,
+    connectGrpcManualPipeline: async () => status,
+    closeGrpcRealtime: async () => {},
+  }
+  f.context.canUseGrpcManual = canUseGrpcManual
+  f.context.createGrpcManualSession = options => createGrpcManualSession({ ...options, pollMs: 5,
+    createMic: () => ({ start: async () => {}, stop: async () => { stops++ }, close() {} }) })
+  await f.click()
+  assert.equal(f.values.setGenerationStarted, false)
+  assert.equal(f.values.setGenerationDiagnostics.manualPipeline, 'gRPC realtime')
+  const stopping = f.click()
+  status = { ...status, currentQuestion: 'Explain FastAPI', currentAnswer: 'First delta', lastAnswerStatus: 'answer_delta' }
+  await new Promise(resolve => setTimeout(resolve, 15))
+  assert.equal(f.values.setAnswer, 'First delta')
+  assert.equal(f.values.setFullAnswerState, 'First delta')
+  assert.equal(f.history().answer.entries.length, 0)
+  status = { ...status, currentAnswer: 'Completed answer', lastAnswerStatus: 'answer_completed' }
+  await stopping
+  assert.equal(f.values.setAnswer, 'Completed answer')
+  assert.equal(f.history().answer.entries.length, 1)
+  assert.equal(f.history().answer.entries[0].status, 'complete')
+  assert.equal(f.history().answer.entries[0].fullAnswer, 'Completed answer')
+  assert.equal(stops, 1)
+  assert.equal(f.generationRequests.length, 0)
+  assert.equal(f.batchRequests.length, 0)
+})

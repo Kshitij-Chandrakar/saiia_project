@@ -37,7 +37,7 @@ test('enabled loopback client handshakes, pings, and closes resources', async ()
   assert.equal(f.counts().calls, 1)
   assert.equal(f.client.getStatus().connectionStatus, 'connected')
   assert.equal((await f.client.ping()).lastPingResult, 'pong')
-  assert.deepEqual(Object.keys(f.client.getStatus()).sort(), ['audioBytesSent', 'audioChunksSent', 'audioEnabled', 'backendBytesReceived', 'backendChunksReceived', 'connectionStatus', 'currentTranscript', 'enabled', 'finalTranscriptCount', 'lastAudioStatus', 'lastErrorMessage', 'lastPingResult', 'lastTranscriptEventType', 'partialTranscriptCount', 'pcmDiagnostics', 'sttBridgeConnected', 'sttBytesForwarded', 'sttCallbackCount', 'sttChunksForwarded', 'sttEnabled', 'sttProvider', 'sttStatus', 'nonSilentChunks', 'answerStreamEnabled', 'questionsDetectedCount', 'answerStartedCount', 'answerDeltaCount', 'answerCompletedCount', 'lastAnswerStatus', 'answerCategory', 'answerProvider', 'currentQuestion', 'currentAnswer'].sort())
+  assert.deepEqual(Object.keys(f.client.getStatus()).sort(), ['manualEventVersion', 'manualRun', 'manualTimings', 'manualPipelineEnabled', 'manualPipelineReady', 'manualStatus', 'audioBytesSent', 'audioChunksSent', 'audioEnabled', 'backendBytesReceived', 'backendChunksReceived', 'connectionStatus', 'currentTranscript', 'enabled', 'finalTranscriptCount', 'lastAudioStatus', 'lastErrorMessage', 'lastPingResult', 'lastTranscriptEventType', 'partialTranscriptCount', 'pcmDiagnostics', 'sttBridgeConnected', 'sttBytesForwarded', 'sttCallbackCount', 'sttChunksForwarded', 'sttEnabled', 'sttProvider', 'sttStatus', 'nonSilentChunks', 'answerStreamEnabled', 'questionsDetectedCount', 'answerStartedCount', 'answerDeltaCount', 'answerCompletedCount', 'lastAnswerStatus', 'answerCategory', 'answerProvider', 'currentQuestion', 'currentAnswer'].sort())
   await f.client.endSession()
   assert.deepEqual(f.counts(), { calls: 1, canceled: 1, closed: 1 })
   assert.equal(f.client.pending.size, 0)
@@ -110,7 +110,7 @@ test('connection errors never expose upstream secrets and late stream errors sta
 test('diagnostics IPC validates sender and exposes only four narrow methods', async () => {
   const handlers = new Map(), f = fixture()
   registerGrpcRealtimeIpc({ handle: (name, fn) => handlers.set(name, fn) }, (event) => { if (!event.trusted) throw Error('untrusted') }, f.client)
-  assert.deepEqual([...handlers.keys()], ['grpcRealtime:getStatus', 'grpcRealtime:connect', 'grpcRealtime:ping', 'grpcRealtime:close', 'grpcRealtime:audioChunk', 'grpcRealtime:manualStop'])
+  assert.deepEqual([...handlers.keys()], ['grpcRealtime:getStatus', 'grpcRealtime:connect', 'grpcRealtime:connectManual', 'grpcRealtime:ping', 'grpcRealtime:close', 'grpcRealtime:uiTiming', 'grpcRealtime:audioChunk', 'grpcRealtime:manualStop'])
   await assert.rejects(handlers.get('grpcRealtime:connect')({ trusted: false }))
   const status = await handlers.get('grpcRealtime:getStatus')({ trusted: true })
   assert.deepEqual(status, f.client.getStatus())
@@ -218,4 +218,77 @@ test('G5 deltas update experimental preview before completion without production
   assert.doesNotMatch(f.client.getStatus().lastErrorMessage, /secret|token|prompt/)
   f.client.close()
   assert.equal(f.client.getStatus().currentAnswer, '')
+})
+
+
+test('G6 main flag fails closed and manual handshake uses a fresh explicitly acknowledged stream', async () => {
+  const disabled = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true' })
+  await disabled.client.connectManual()
+  assert.equal(disabled.counts().calls, 0)
+  const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_MANUAL_PIPELINE: 'true' })
+  await f.client.connect()
+  await f.client.connectManual()
+  assert.equal(f.writes.at(-1).start_session.mode, 'manual_pipeline')
+  assert.equal(f.counts().canceled, 1)
+  assert.equal(f.client.getStatus().manualPipelineReady, false)
+  f.stream.emit('data', { status: { code: 'manual_pipeline_ready' } })
+  assert.equal(f.client.getStatus().manualPipelineReady, true)
+  f.client.close()
+})
+
+
+test('manual timing IPC is numeric-only, sender-validated, run-scoped and first-update-only', async () => {
+  const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_MANUAL_PIPELINE: 'true' })
+  await f.client.connectManual()
+  const handlers = new Map(), updates = []
+  registerGrpcRealtimeIpc({ handle: (name, fn) => handlers.set(name, fn) }, event => {
+    if (!event.trusted) throw Error('untrusted')
+  }, f.client, timing => updates.push(timing))
+  const report = handlers.get('grpcRealtime:uiTiming'), run = f.client.getStatus().manualRun
+  const at = Date.now()
+  await assert.rejects(report({ trusted: false }, run, 'first_main_ui_update_at', at))
+  for (const [r, field, value] of [[run + 1, 'first_main_ui_update_at', at], [run, 'private_token', at], [run, 'first_main_ui_update_at', 'private'], [run, 'first_main_ui_update_at', at + 10000]]) {
+    await report({ trusted: true }, r, field, value)
+  }
+  assert.equal(updates.length, 0)
+  await report({ trusted: true }, run, 'first_main_ui_update_at', at)
+  await report({ trusted: true }, run, 'first_main_ui_update_at', at + 1)
+  assert.equal(updates.length, 1)
+  assert.equal(updates[0].first_main_ui_update_at, at)
+  assert.equal(f.client.getStatus().manualTimings.first_main_ui_update_at, at)
+  f.client.close()
+})
+
+
+test('manual answer events are pushed immediately through the narrow bridge without raw provider fields', async () => {
+  const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_MANUAL_PIPELINE: 'true' })
+  const pushed = []
+  registerGrpcRealtimeIpc({ handle() {} }, () => {}, f.client, undefined, snapshot => pushed.push(snapshot))
+  await f.client.connectManual()
+  f.stream.emit('data', { question_detected: { text: 'Question' }, private_header: 'secret-key' })
+  f.stream.emit('data', { answer_delta: { text: 'First' }, token: 'secret-token' })
+  assert.equal(pushed.length, 2)
+  assert.equal(pushed[1].currentAnswer, 'First')
+  assert.equal(pushed[1].lastAnswerStatus, 'answer_delta')
+  assert.equal(pushed[1].manualEventVersion, 2)
+  assert.equal(typeof pushed[1].manualTimings.first_answer_delta_at, 'number')
+  assert.equal(JSON.stringify(pushed).includes('secret-'), false)
+  f.stream.emit('data', { answer_completed: { text: 'Final' } })
+  assert.equal(pushed.length, 3)
+  assert.equal(pushed[1].currentAnswer, 'First')
+  assert.equal(pushed[2].currentAnswer, 'Final')
+  f.client.close()
+})
+
+test('diagnostic answer events keep existing counters/preview without enabling manual push', async () => {
+  const f = fixture({ ...enabled, USE_GRPC_MANUAL_PIPELINE: 'true' })
+  let pushes = 0
+  f.client.onManualEvent = () => pushes++
+  await f.client.connect()
+  f.stream.emit('data', { question_detected: { text: 'Question' } })
+  f.stream.emit('data', { answer_delta: { text: 'Diagnostic preview' } })
+  assert.equal(pushes, 0)
+  assert.equal(f.client.getStatus().answerDeltaCount, 1)
+  assert.equal(f.client.getStatus().currentAnswer, 'Diagnostic preview')
+  f.client.close()
 })

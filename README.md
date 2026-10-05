@@ -562,3 +562,66 @@ answer deltas. Close/cancel/end cancels in-flight generation. Current question a
 answer previews appear only in experimental diagnostics; no production overlay
 routing is added. REST/WebSocket remains the default. No audio, prompts, resume
 chunks, transcripts or answers are logged by the diagnostic answer pipeline.
+
+
+### G6: experimental manual interview pipeline (local only)
+
+`USE_GRPC_MANUAL_PIPELINE=false` is the default. REST/WebSocket remains the
+production manual transport. G6 reuses the G4 microphone PCM capture and G5
+question/answer pipeline only after explicit opt-in on **both** processes.
+It does not migrate providers or enable gRPC for auto mode or system audio.
+
+Run these commands in separate PowerShell terminals:
+
+```powershell
+# Terminal 1: experimental backend
+cd backend
+$env:GRPC_REALTIME_ENABLED = "true"
+$env:GRPC_STT_ENABLED = "true"
+$env:GRPC_ANSWER_STREAM_ENABLED = "true"
+$env:USE_GRPC_MANUAL_PIPELINE = "true"
+python -m app.grpc_server --host 127.0.0.1 --port 50051
+```
+
+```powershell
+# Terminal 2: existing production APIs (needed for fallback)
+cd backend
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+```powershell
+# Terminal 3: Electron
+cd frontend
+$env:ELECTRON_GRPC_REALTIME_ENABLED = "true"
+$env:ELECTRON_GRPC_AUDIO_ENABLED = "true"
+$env:USE_GRPC_MANUAL_PIPELINE = "true"
+$env:ELECTRON_GRPC_REALTIME_HOST = "127.0.0.1"
+$env:ELECTRON_GRPC_REALTIME_PORT = "50051"
+npm run electron:dev
+```
+
+The flag explicitly opts manual microphone capture into AssemblyAI live STT.
+Start opens a fresh local stream and shows live transcript preview. Stop drains
+PCM/STT, freezes revised final turns, detects one question, and streams one answer
+into the existing Answer/history/overlay state. No answers are generated while
+listening in this manual session mode. Diagnostics shows **Manual transport**.
+
+If connection/setup fails, the existing configured manual flow starts instead.
+If the live connection fails while listening, the existing batch recorder is
+retained and `/transcribe/` plus the existing generator runs once on Stop.
+If Stop has already been dispatched, an uncertain disconnect or generation error
+shows a safe retry message; it does **not** retry generation through REST because
+the server could already be generating. Cancel/close releases capture and stream.
+
+G5 does not carry authenticated cloud context. Active cloud interview sessions,
+selected resumes/jobs, and configured role/company/job context stay on the
+existing authenticated REST/WebSocket path, including when selected during
+capture. G6 never removes those resource IDs or bypasses authentication.
+
+Local retest: use normal manual mode, Start, speak a question, then Stop. Confirm
+live Question preview, progressive Answer, one history entry, existing overlay
+behavior, and `Manual transport = grpc`. Stop the gRPC server and repeat: connection
+failure should use the configured existing flow; a disconnect while listening
+should retain the batch backup. Physical microphone/overlay behavior still needs
+verification on the target Electron device. No audio is persisted by gRPC and no
+raw speech, answer, prompt, token, or key is logged by this integration.

@@ -1,7 +1,7 @@
 import { createPcmMicCapture } from './live_mic_transport.js'
 
-// Explicit diagnostic-only capture; never called by normal manual/auto recording.
-export function createGrpcMicTest({ api, getUserMedia = (constraints) => navigator.mediaDevices.getUserMedia(constraints), createCapture = createPcmMicCapture }) {
+// Shared experimental PCM capture for diagnostics and opt-in G6 manual sessions.
+export function createGrpcMicTest({ api, getUserMedia = (constraints) => navigator.mediaDevices.getUserMedia(constraints), createCapture = createPcmMicCapture, ownsStream = true }) {
   let capture, stream, running = false, pending = false, generation = 0, queued = 0, sending = Promise.resolve()
   const stopCapture = () => {
     generation++
@@ -9,7 +9,7 @@ export function createGrpcMicTest({ api, getUserMedia = (constraints) => navigat
     running = false
     capture?.close()
     capture = null
-    stream?.getTracks().forEach((track) => track.stop())
+    if (ownsStream) stream?.getTracks().forEach((track) => track.stop())
     stream = null
   }
   let tail = new Uint8Array(0), enqueue
@@ -19,8 +19,9 @@ export function createGrpcMicTest({ api, getUserMedia = (constraints) => navigat
       const status = await api.getGrpcRealtimeStatus()
       if (run !== generation) return
       if (!status.audioEnabled || status.connectionStatus !== 'connected') throw Error('unavailable')
+      if (ownsStream && status.manualPipelineReady) throw Error('manual capture active')
       const microphone = await getUserMedia(status.sttEnabled ? { audio: { channelCount: 1, sampleRate: 16000 } } : { audio: true })
-      if (run !== generation) { microphone.getTracks().forEach((track) => track.stop()); return }
+      if (run !== generation) { if (ownsStream) microphone.getTracks().forEach((track) => track.stop()); return }
       stream = microphone
       running = true
       const metadata = () => ({ inputSampleRate: capture?.audioContext?.sampleRate || 0,

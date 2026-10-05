@@ -1,3 +1,4 @@
+import { canUseGrpcManual, createGrpcManualSession, getGrpcManualBlockReason } from './grpc_manual_session.js'
 import React, { useEffect, useRef, useState } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import {
@@ -923,16 +924,37 @@ function getSafeGenerationSource(mode, source) {
 }
 
 function useElectronOverlaySync(state) {
+  const previousGrpcState = useRef(null)
   useEffect(() => {
     if (!window.electronAPI?.updateOverlayState) {
       return
     }
 
+    if (state.manualLiveState?.transport === 'grpc') {
+      // Timing-only renders must not resend the same answer to the overlay.
+      const viewState = { ...state }
+      delete viewState.generationDiagnostics
+      const previous = previousGrpcState.current
+      if (previous && Object.keys(viewState).every(key => Object.is(previous[key], viewState[key]))) return
+      previousGrpcState.current = viewState
+    } else previousGrpcState.current = null
     window.electronAPI.updateOverlayState({
       ...state,
       privacyMessage: OVERLAY_PRIVACY_MESSAGE,
     })
   }, [state])
+}
+
+function useGrpcFirstVisibleTiming(answerText, run, field, enabled = true) {
+  const measured = useRef(0)
+  useEffect(() => {
+    if (!enabled || !answerText || !run || measured.current === run || !window.electronAPI?.reportGrpcManualUiTiming) return
+    const frame = requestAnimationFrame(() => {
+      measured.current = run
+      void window.electronAPI.reportGrpcManualUiTiming(run, field, Date.now()).catch(() => {})
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [answerText, run, field, enabled])
 }
 
 function OverlayWindow() {
@@ -1045,6 +1067,7 @@ function OverlayWindow() {
     }
   }, [])
 
+  useGrpcFirstVisibleTiming(overlayState.answer, overlayState.generationDiagnostics?.manualGrpcRun, 'first_overlay_update_at', overlayState.visible !== false && document.visibilityState !== 'hidden')
   return <OverlayWindowView overlayState={overlayState} />
 }
 
@@ -1431,6 +1454,17 @@ function MainWindow() {
     }
   }
 
+  useGrpcFirstVisibleTiming(answer, generationDiagnostics.manualGrpcRun, 'first_main_ui_update_at')
+  useEffect(() => window.electronAPI?.onGrpcManualUiTiming?.(timing => {
+    setGenerationDiagnostics(current => {
+      if (current.manualGrpcRun !== timing?.manualRun) return current
+      const measured = {}
+      for (const field of ['first_main_ui_update_at', 'first_overlay_update_at']) {
+        if (Number.isFinite(timing[field])) measured[field] = timing[field]
+      }
+      return { ...current, manualTimings: { ...current.manualTimings, ...measured } }
+    })
+  }), [])
   const pendingManualGenerationRef = useRef(null)
   const generationRecoveryBusyRef = useRef(false)
 
@@ -5770,9 +5804,10 @@ function MainWindow() {
       setManualQuestionError('')
       setTranscript('')
 
+      const manualStartedAt = Date.now()
       const sessionId = crypto.randomUUID()
       pendingManualGenerationRef.current = null
-      setGenerationDiagnostics((current) => ({ ...current, generationRequestBlocked: false, generationBlockReason: '', generateRequestSent: false, generateStreamRequestSent: false, generateFallbackRequestSent: false, localWithoutSaving: false, generate_stream_request_sent: false, generate_non_stream_fallback_used: false, stream_fallback_reason: '', first_delta_received_ms: null, first_ui_update_ms: null, provider_streaming: false }))
+      setGenerationDiagnostics((current) => ({ ...current, generationRequestBlocked: false, generationBlockReason: '', generateRequestSent: false, generateStreamRequestSent: false, generateFallbackRequestSent: false, localWithoutSaving: false, manualGrpcRun: null, manualTimings: {}, manualPipeline: '', manualPipelineReason: '', generate_stream_request_sent: false, generate_non_stream_fallback_used: false, stream_fallback_reason: '', first_delta_received_ms: null, first_ui_update_ms: null, provider_streaming: false }))
       manualLiveStartIdRef.current = sessionId
       setAnswerDisplayMode('answer')
       setManualLiveState({ ...createManualLiveState(sessionId), phase: 'connecting' })
@@ -5789,15 +5824,19 @@ function MainWindow() {
           manualConfig = (await parseJsonResponse(response, 'Manual STT configuration unavailable.')) || manualConfig
         } catch { /* Fail closed to configured batch STT, never external preview. */ }
         if (!isCurrent()) return
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        let grpcStatus
+        try { grpcStatus = await window.electronAPI?.getGrpcRealtimeStatus?.() } catch { /* Existing flow remains available. */ }
+        if (!isCurrent()) return
+        const grpcEligible = canUseGrpcManual(grpcStatus, startupSessionConfigRef.current) && Boolean(window.electronAPI?.connectGrpcManualPipeline)
+        const stream = await navigator.mediaDevices.getUserMedia(grpcEligible ? { audio: { channelCount: 1, sampleRate: 16000 } } : { audio: true })
         if (!isCurrent()) { stream.getTracks().forEach((track) => track.stop()); return }
         streamRef.current = stream
         const liveAllowed = isManualLiveEnabled(manualConfig.manual_stt_provider, manualConfig.manual_live_stt_provider)
         setSttProvider(liveAllowed ? 'assemblyai_streaming' : manualConfig.manual_stt_provider)
         setSttFallbackUsed(false)
         setSttFallbackReason('')
-        manualLiveSessionRef.current = createManualLiveSession({
-          sessionId, stream,
+        const manualOptions = {
+          sessionId, stream, manualStartedAt,
           manualSttProvider: manualConfig.manual_stt_provider,
           manualLiveSttProvider: manualConfig.manual_live_stt_provider,
           createTransport: (micStream, isActive) => createLiveMicTransport({
@@ -5834,6 +5873,7 @@ function MainWindow() {
           },
           transcribe: async (blob) => {
             if (!isCurrent()) return { text: '' }
+            if (grpcStatus?.manualPipelineEnabled) setGenerationDiagnostics(current => ({ ...current, manualPipeline: 'batch fallback' }))
             const result = await transcribeAudioBlob(blob, 'manual', isCurrent)
             if (isCurrent()) {
               const liveFallback = liveAllowed
@@ -5868,7 +5908,53 @@ function MainWindow() {
             }
             if (pendingManualGenerationRef.current === pending) pendingManualGenerationRef.current = null
           },
-        })
+        }
+        if (!isCurrent()) { stream.getTracks().forEach(track => track.stop()); return }
+        if (grpcEligible) {
+          let historyCreated = false
+          const grpcSession = await createGrpcManualSession({
+            api: window.electronAPI, options: manualOptions, isCurrent,
+            canContinue: () => canUseGrpcManual(grpcStatus, startupSessionConfigRef.current),
+            onPipeline: (pipeline, reason) => {
+              if (isCurrent()) setGenerationDiagnostics(current => ({ ...current, manualPipeline: pipeline, manualPipelineReason: reason }))
+            },
+            onTiming: timings => {
+              if (isCurrent()) setGenerationDiagnostics(current => ({ ...current, manualTimings: timings }))
+            },
+            onStatus: text => { if (isCurrent()) setStatus(text) },
+            onCancel: historyEntryId => {
+              if (historyCreated) setQuestionHistoryState(current => updateQuestionHistoryEntry(current,
+                'answer', historyEntryId, { status: 'error' }))
+            },
+            onAnswer: ({ question, answer: text, category, provider, status: entryStatus, historyEntryId, manualRun }) => {
+              if (!isCurrent()) return
+              if (!historyCreated && question && entryStatus === 'complete') {
+                historyCreated = true
+                setQuestionHistoryState(current => appendQuestionHistoryEntry(current,
+                  createQuestionHistoryEntry({ id: historyEntryId, mode: 'answer', question,
+                    fullAnswer: text, displayedAnswer: text, status: 'complete', category, provider,
+                    completedAt: new Date().toISOString() })))
+              }
+              setTranscript(question)
+              setCategory(category || '')
+              setProvider(provider || '')
+              setSttProvider('assemblyai_streaming')
+              setFullAnswerState(text)
+              setAnswer(text)
+              setAnswerRevealActive(entryStatus === 'generating')
+              setGenerationDiagnostics(current => ({ ...current, manualTransport: 'grpc', manualGrpcRun: manualRun, provider_streaming: true }))
+              if (entryStatus === 'generating') setStatus('Generating answer...')
+            },
+          })
+          if (!isCurrent()) { grpcSession?.cancel(); return }
+          manualLiveSessionRef.current = grpcSession
+        } else {
+          manualLiveSessionRef.current = createManualLiveSession(manualOptions)
+          if (grpcStatus?.manualPipelineEnabled) {
+            setGenerationDiagnostics(current => ({ ...current, manualPipeline: 'REST/WebSocket fallback', manualPipelineReason: getGrpcManualBlockReason(grpcStatus, startupSessionConfigRef.current) || 'grpc_transport_unavailable' }))
+            setStatus('Listening... Using existing manual flow to preserve interview context.')
+          }
+        }
       } catch (err) {
         if (!isCurrent()) return
         stopActiveStream()
