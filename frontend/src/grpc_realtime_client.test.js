@@ -362,6 +362,7 @@ test('G8 expired or switched main auth cancels cloud audio forwarding', async ()
   const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'true', USE_GRPC_CLOUD_CONTEXT_PIPELINE: 'true' }, false,
     async () => ({ authorization: 'Bearer mock', isCurrent: () => current }))
   await f.client.connectAuto({ activeSessionId: '11111111-1111-4111-8111-111111111111' })
+  f.client.audioChunksSent = 1 // Backend may already have committed a question.
   current = false
   await f.client.sendAudioChunk(new Uint8Array([1, 0]))
   assert.equal(f.writes.filter(value => value.audio_chunk).length, 0)
@@ -444,4 +445,37 @@ test('visible Auto status uses safe separators', () => {
   assert.ok(app.includes('Auto Mode - gRPC realtime -'))
   assert.ok(!diagnostics.includes('16000 Hz ? mono ?'))
   assert.ok(!diagnostics.includes('Auto gRPC ? local test session'))
+})
+
+test('server unavailable before authorization is a transport failure', async () => {
+  const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'true', USE_GRPC_CLOUD_CONTEXT_PIPELINE: 'true' }, true)
+  const result = await f.client.connectAuto({ activeSessionId: '11111111-1111-4111-8111-111111111111' })
+  assert.equal(result.connectionStatus, 'error')
+  assert.notEqual(result.cloudAuthStatus, 'failed')
+  assert.equal(result.cloudBlockedReason, 'none')
+})
+test('fresh metadata reconnect preserves context before first audio', async () => {
+  let first = true
+  const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'true', USE_GRPC_CLOUD_CONTEXT_PIPELINE: 'true' }, false,
+    async () => ({ authorization: 'Bearer mock', isCurrent: first ? () => false : () => true }))
+  first = false
+  const context = { activeSessionId: '11111111-1111-4111-8111-111111111111', selectedResumeId: '22222222-2222-4222-8222-222222222222' }
+  await f.client.connectAuto(context)
+  f.client.cloudAuthCurrent = () => false
+  await f.client.sendAudioChunk(new Uint8Array([1, 0]))
+  assert.equal(f.counts().calls, 2)
+  assert.equal(f.writes.filter(e => e.start_session).at(-1).start_session.selected_resume_id, context.selectedResumeId)
+  assert.equal(f.client.getStatus().connectionStatus, 'connected')
+  f.client.close()
+})
+
+test('transport failure after metadata does not invalidate verified authorization', async () => {
+  const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'true', USE_GRPC_CLOUD_CONTEXT_PIPELINE: 'true' }, false,
+    async () => ({ authorization: 'Bearer mock', isCurrent: () => true }))
+  f.stream.write = () => { throw Error('transport unavailable') }
+  const result = await f.client.connectAuto({ activeSessionId: '11111111-1111-4111-8111-111111111111' })
+  assert.equal(result.connectionStatus, 'error')
+  assert.notEqual(result.cloudAuthStatus, 'failed')
+  assert.equal(result.cloudBlockedReason, 'none')
+  assert.equal(f.counts().closed, 1)
 })

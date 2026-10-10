@@ -26,15 +26,20 @@ export function createGrpcMicTest({ api, getUserMedia = (constraints) => navigat
       running = true
       const metadata = () => ({ inputSampleRate: capture?.audioContext?.sampleRate || 0,
         inputChannelCount: stream?.getAudioTracks?.()[0]?.getSettings?.().channelCount || 1 })
+      let nextSlot = 0
       enqueue = (data) => {
         pending = true
         queued++
         sending = sending.then(async () => {
           if (run !== generation) return null
-          const started = Date.now()
           const result = await api.sendGrpcRealtimeAudioChunk(data, metadata())
           // Keep G4 frames near realtime, including when one capture callback produces several frames.
-          if (status.sttEnabled) await new Promise(resolve => setTimeout(resolve, Math.max(0, 100 - (Date.now() - started))))
+          if (status.sttEnabled) {
+            const now = Date.now()
+            nextSlot = Math.max((nextSlot || now) + 100, now - 1000)
+            const wait = nextSlot - now
+            if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait))
+          }
           return result
         }).then((result) => {
           if (run === generation && result?.connectionStatus !== 'connected') stopCapture()

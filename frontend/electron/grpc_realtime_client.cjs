@@ -113,6 +113,7 @@ class GrpcRealtimeClient {
           if (!auth?.isCurrent?.()) throw Error('auth_unavailable')
           metadata = new (require('@grpc/grpc-js').Metadata)()
           metadata.set('authorization', auth.authorization)
+          this.cloudAuthStatus = 'authorized_pending_ready'
           this.cloudAuthCurrent = auth.isCurrent
         }
         const stream = metadata ? this.client.StreamInterview(metadata) : this.client.StreamInterview()
@@ -230,7 +231,7 @@ class GrpcRealtimeClient {
         await this.startSession()
         if (epoch === this.epoch) { this.status = 'connected'; this.lastError = '' }
       } catch {
-        if (epoch === this.epoch) { const cloud = Boolean(this.cloudStart?.cloud_context_requested); this.fail(); if (cloud) { this.cloudSessionVerified = this.cloudContextLoaded = false; this.cloudAuthStatus = 'failed'; if (this.cloudBlockedReason === 'none') this.cloudBlockedReason = 'auth_unavailable' } }
+        if (epoch === this.epoch) { const authFailed = Boolean(this.cloudStart?.cloud_context_requested) && this.cloudAuthStatus === 'verifying'; this.fail(); if (authFailed) { this.cloudSessionVerified = this.cloudContextLoaded = false; this.cloudAuthStatus = 'failed'; if (this.cloudBlockedReason === 'none') this.cloudBlockedReason = 'auth_unavailable' } }
       }
       return this.getStatus()
     })()
@@ -306,7 +307,20 @@ class GrpcRealtimeClient {
   startSession() { return this.request({ start_session: { mode: this.sessionMode, ...this.cloudStart } }, 'ready') }
 
   async sendAudioChunk(data, metadata = {}) {
-    if (this.cloudAuthCurrent && !this.cloudAuthCurrent()) { this.fail(); this.cloudSessionVerified = this.cloudContextLoaded = false; this.cloudAuthStatus = 'failed'; this.cloudBlockedReason = 'auth_unavailable'; return this.getStatus() }
+    if (this.cloudAuthCurrent && !this.cloudAuthCurrent()) {
+      const start = this.cloudStart
+      const safeReconnect = this.sessionMode === 'auto_pipeline' && this.audioChunksSent === 0 && this.questionsDetectedCount === 0
+      this.fail()
+      this.cloudSessionVerified = this.cloudContextLoaded = false
+      this.cloudAuthStatus = 'failed'
+      this.cloudBlockedReason = 'auth_unavailable'
+      if (safeReconnect && start) {
+        const status = await this.connectAuto({ activeSessionId: start.active_session_id || '',
+          selectedResumeId: start.selected_resume_id || '', jobContextId: start.selected_job_context_id || '', source: start.source })
+        if (status.connectionStatus === 'connected') return this.sendAudioChunk(data, metadata)
+      }
+      return this.getStatus()
+    }
     if (!this.enabled || !this.audioEnabled || this.status !== 'connected') return this.getStatus()
     if (!(data instanceof Uint8Array) && !(data instanceof ArrayBuffer)) {
       this.lastAudioStatus = 'invalid_chunk'; if (this.sttEnabled) this.sttStatus = 'invalid_pcm_format'; return this.getStatus()

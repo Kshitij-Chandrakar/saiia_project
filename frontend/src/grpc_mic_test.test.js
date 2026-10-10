@@ -125,3 +125,15 @@ test('G4 frames preserve PCM byte order and Stop pads and drains the final tail'
   assert.ok(joined.slice(6600).every(value => value === 0))
   assert.equal(f.counts().stops, 1)
 })
+
+test('fixed frame slots catch up after send jitter without adding another full interval', async () => {
+  const vm = await import('node:vm')
+  const source = readFileSync(new URL('./grpc_mic_test.js', import.meta.url), 'utf8')
+  const schedule = source.match(/nextSlot = Math.max[^\n]+/)[0]
+  const state = { nextSlot: 1000, now: 1250, Math }
+  vm.runInNewContext(schedule, state)
+  assert.equal(state.nextSlot - state.now, -150)
+  state.now = 4000
+  vm.runInNewContext(schedule, state)
+  assert.equal(state.nextSlot, 3000) // Catch-up remains bounded to one second.
+})

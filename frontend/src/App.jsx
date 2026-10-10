@@ -1164,6 +1164,8 @@ function MainWindow() {
   const [queuedQuestionProcessed, setQueuedQuestionProcessed] = useState(false)
   const [generationStarted, setGenerationStarted] = useState(false)
   const [generationDiagnostics, setGenerationDiagnostics] = useState({ generationRequestBlocked: false, generationBlockReason: '', activeSessionIdPresent: false, activeSessionEnded: false, authRequired: false, generateRequestSent: false })
+  const generationDiagnosticsRef = useRef(generationDiagnostics)
+  useEffect(() => { generationDiagnosticsRef.current = generationDiagnostics }, [generationDiagnostics])
   const [generationBlockedReason, setGenerationBlockedReason] = useState('')
   const [isCooldownListening, setIsCooldownListening] = useState(false)
   const [sttProvider, setSttProvider] = useState('')
@@ -4864,7 +4866,11 @@ function MainWindow() {
             }
             if (next.cloudAnswerSaveStatus === 'failed') setError('Answer generated, but it could not be saved to the cloud session. No automatic regeneration was attempted.')
           },
-          canContinue: () => !getGrpcAutoBlockReason(grpcStatus ? { ...grpcStatus, cloudAuthStatus: 'not_started', cloudAuthAvailable: undefined } : grpcStatus, { ...startupSessionConfigRef.current, authRequired: generationDiagnostics.authRequired, activeSessionIdPresent: generationDiagnostics.activeSessionIdPresent, activeSessionEnded: generationDiagnostics.activeSessionEnded }, sourceMode),
+          canContinue: () => {
+            const diag = generationDiagnosticsRef.current
+            return !getGrpcAutoBlockReason(grpcStatus ? { ...grpcStatus, cloudAuthStatus: 'not_started', cloudAuthAvailable: undefined } : grpcStatus,
+              { ...startupSessionConfigRef.current, authRequired: diag.authRequired, activeSessionIdPresent: diag.activeSessionIdPresent, activeSessionEnded: diag.activeSessionEnded }, sourceMode)
+          },
           onTranscript: text => { if (isCurrent()) setPartialAutoTranscript(text) },
           onPhase: phase => {
             if (!isCurrent()) return
