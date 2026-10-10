@@ -550,7 +550,8 @@ separately. Start Electron with `ELECTRON_GRPC_REALTIME_ENABLED=true` and
 Final turns use the existing question detector/classifier and `/generate/stream`
 pipeline, including its answer planner, grounding and sanitization. True answer
 streaming must remain enabled in the existing generation configuration. The
-experimental protocol accepts no cloud resume/job/session IDs or auth tokens;
+experimental local mode (`USE_GRPC_CLOUD_CONTEXT_PIPELINE=false`) accepts no
+cloud resume/job/session IDs or auth tokens;
 cloud-owned contexts require the authenticated REST path. Its transport session
 ID is not an interview-session ID. Local profile loading and resume/job context use existing
 pipeline behavior; no personal profile is fabricated or copied from cloud state.
@@ -613,7 +614,7 @@ If Stop has already been dispatched, an uncertain disconnect or generation error
 shows a safe retry message; it does **not** retry generation through REST because
 the server could already be generating. Cancel/close releases capture and stream.
 
-G5 does not carry authenticated cloud context. Active cloud interview sessions,
+With `USE_GRPC_CLOUD_CONTEXT_PIPELINE=false`, G5 does not carry authenticated cloud context. Active cloud interview sessions,
 selected resumes/jobs, and configured role/company/job context stay on the
 existing authenticated REST/WebSocket path, including when selected during
 capture. G6 never removes those resource IDs or bypasses authentication.
@@ -650,10 +651,38 @@ suppressed with bounded hashes/turn IDs; only the latest queued question is kept
 Answers use the existing main answer/overlay state, with one history entry saved
 on completion. Stop cancels capture, pending generation, and the stream.
 
-Diagnostics show pipeline, eligibility, and a safe blocked reason. Cloud sessions,
-selected cloud resume/job context, other interview context, and system audio use
-the existing authenticated path. System audio over gRPC is deferred. If connection
+Diagnostics show pipeline, eligibility, and a safe blocked reason. With
+`USE_GRPC_CLOUD_CONTEXT_PIPELINE=false`, cloud sessions and selected cloud
+resume/job context use the existing authenticated path. Unsupported interview
+context and system audio remain on the existing path regardless of that flag. System audio over gRPC is deferred. If connection
 or microphone setup fails before listening, startup falls back to WebSocket. A
 failure after listening stops safely with a recoverable error rather than retrying
 an ambiguously committed answer through REST. Restart Auto Mode to retry.
 No provider migration or default change is included.
+
+### G8: experimental authenticated cloud-context Auto Mode
+
+Disabled by default. Enable these flags for local testing:
+
+```powershell
+$env:GRPC_REALTIME_ENABLED = "true"
+$env:GRPC_STT_ENABLED = "true"
+$env:GRPC_ANSWER_STREAM_ENABLED = "true"
+$env:USE_GRPC_AUTO_PIPELINE = "true"
+$env:USE_GRPC_CLOUD_CONTEXT_PIPELINE = "true"
+```
+
+The backend needs the realtime/STT/answer flags; both backend and Electron need
+both pipeline flags. Electron also requires `ELECTRON_GRPC_REALTIME_ENABLED=true`
+and `ELECTRON_GRPC_AUDIO_ENABLED=true` as documented above.
+Electron attaches authorization metadata from the trusted desktop auth session;
+the renderer must never receive raw tokens. The backend verifies the JWT,
+session ownership, active session status, and selected context ownership.
+`StartSession` may include `active_session_id`, `selected_resume_id`,
+`selected_job_context_id`, and `cloud_context_requested`. These IDs do not
+provide authorization by themselves.
+
+Cloud answer saving is once-only/idempotent. System audio remains on the existing
+REST/WebSocket path; both-source mode is unsupported. REST/WebSocket fallback
+remains available before capture starts. After an ambiguous generation failure,
+Auto Mode stops safely rather than risking duplicate fallback generation.

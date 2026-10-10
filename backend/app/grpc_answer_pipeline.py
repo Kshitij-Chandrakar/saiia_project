@@ -119,6 +119,8 @@ async def stream_question_answer(transcript, cloud_context=None):
                 if item.get("incomplete"):
                     raise RuntimeError("Answer generation incomplete.")
                 completed = True
+                if not answer.strip():
+                    raise RuntimeError("Answer generation empty.")
                 if cloud_context:
                     yield {"type": "save_status", "code": "answer_save_pending"}
                     try:

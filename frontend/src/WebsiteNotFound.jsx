@@ -5,7 +5,8 @@ import './website-not-found.css'
 const websitePaths = new Set(['/', '/landing', '/auth/login', '/auth/signup', '/auth/forgot-password', '/auth/status', '/auth/dashboard', '/auth/resume'])
 let returnRoute = null
 
-// Remember only known website paths, never callback tokens or supplied redirect URLs.
+// Capture the previous known website path before the not-found screen renders.
+// Go back uses navigate(-1) to avoid duplicating that history entry; never retain tokens.
 export function WebsiteRouteHistory() {
   const location = useLocation()
   const previous = useRef(null)
@@ -33,6 +34,9 @@ export default function WebsiteNotFound() {
     <h1 id="website-not-found-title" tabIndex={-1} ref={heading}>Page not found</h1>
     <p>The page you requested does not exist.</p>
     <Link to="/">Return home</Link>
-    <button type="button" onClick={() => navigate(returnRoute?.key === location.key ? returnRoute.path : '/')}>Go back</button>
+    <button type="button" onClick={() => {
+      if (returnRoute?.key === location.key) navigate(-1)
+      else navigate('/', { replace: true })
+    }}>Go back</button>
   </main>
 }

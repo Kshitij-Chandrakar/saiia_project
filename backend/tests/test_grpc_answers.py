@@ -141,3 +141,33 @@ def test_adapter_reuses_detector_profile_and_stream_pipeline(monkeypatch, caplog
         assert calls[0].profile == {'name': 'Local candidate'}
         assert [e['type'] for e in events] == ['question', 'started', 'delta', 'result', 'completed']
     assert 'private prompt token' not in caplog.text
+
+@pytest.mark.parametrize('answer', ['', '   ', 'valid answer'])
+def test_adapter_done_requires_nonempty_answer_before_cloud_save(monkeypatch, answer):
+    from types import SimpleNamespace
+    from app.api import generate
+    saves, events = [], []
+    class Response:
+        def __init__(self): self.body_iterator = self.events()
+        async def events(self):
+            if answer: yield json.dumps({'type': 'delta', 'text': answer})
+            yield json.dumps({'type': 'done'})
+            yield json.dumps({'type': 'done'})
+    async def detect(text): return 'Explain SQL.', ''
+    async def stream(req, **kwargs): return Response()
+    monkeypatch.setattr(grpc_answer_pipeline, 'detect_intake_question', detect)
+    monkeypatch.setattr(generate, 'generate_answer_stream', stream)
+    context = SimpleNamespace(request=object(), load=lambda: {'profile': {}},
+                              save=lambda *args: saves.append(args))
+    async def exercise():
+        async for event in grpc_answer_pipeline.stream_question_answer('Explain SQL.', context):
+            events.append(event)
+    if answer.strip():
+        asyncio.run(exercise())
+        assert len(saves) == 1
+        assert sum(e['type'] == 'completed' for e in events) == 1
+    else:
+        with pytest.raises(RuntimeError, match='Answer generation empty.'):
+            asyncio.run(exercise())
+        assert not saves
+        assert not any(e['type'] in ('completed', 'save_status') for e in events)
