@@ -37,7 +37,7 @@ test('enabled loopback client handshakes, pings, and closes resources', async ()
   assert.equal(f.counts().calls, 1)
   assert.equal(f.client.getStatus().connectionStatus, 'connected')
   assert.equal((await f.client.ping()).lastPingResult, 'pong')
-  assert.deepEqual(Object.keys(f.client.getStatus()).sort(), ['manualEventVersion', 'manualRun', 'manualTimings', 'manualPipelineEnabled', 'manualPipelineReady', 'manualStatus', 'audioBytesSent', 'audioChunksSent', 'audioEnabled', 'backendBytesReceived', 'backendChunksReceived', 'connectionStatus', 'currentTranscript', 'enabled', 'finalTranscriptCount', 'lastAudioStatus', 'lastErrorMessage', 'lastPingResult', 'lastTranscriptEventType', 'partialTranscriptCount', 'pcmDiagnostics', 'sttBridgeConnected', 'sttBytesForwarded', 'sttCallbackCount', 'sttChunksForwarded', 'sttEnabled', 'sttProvider', 'sttStatus', 'nonSilentChunks', 'answerStreamEnabled', 'questionsDetectedCount', 'answerStartedCount', 'answerDeltaCount', 'answerCompletedCount', 'lastAnswerStatus', 'answerCategory', 'answerProvider', 'currentQuestion', 'currentAnswer'].sort())
+  assert.deepEqual(Object.keys(f.client.getStatus()).sort(), ['autoPipelineEnabled', 'autoPipelineReady', 'autoStatus', 'autoEventVersion', 'manualEventVersion', 'manualRun', 'manualTimings', 'manualPipelineEnabled', 'manualPipelineReady', 'manualStatus', 'audioBytesSent', 'audioChunksSent', 'audioEnabled', 'backendBytesReceived', 'backendChunksReceived', 'connectionStatus', 'currentTranscript', 'enabled', 'finalTranscriptCount', 'lastAudioStatus', 'lastErrorMessage', 'lastPingResult', 'lastTranscriptEventType', 'partialTranscriptCount', 'pcmDiagnostics', 'sttBridgeConnected', 'sttBytesForwarded', 'sttCallbackCount', 'sttChunksForwarded', 'sttEnabled', 'sttProvider', 'sttStatus', 'nonSilentChunks', 'answerStreamEnabled', 'questionsDetectedCount', 'answerStartedCount', 'answerDeltaCount', 'answerCompletedCount', 'lastAnswerStatus', 'answerCategory', 'answerProvider', 'currentQuestion', 'currentAnswer'].sort())
   await f.client.endSession()
   assert.deepEqual(f.counts(), { calls: 1, canceled: 1, closed: 1 })
   assert.equal(f.client.pending.size, 0)
@@ -110,7 +110,7 @@ test('connection errors never expose upstream secrets and late stream errors sta
 test('diagnostics IPC validates sender and exposes only four narrow methods', async () => {
   const handlers = new Map(), f = fixture()
   registerGrpcRealtimeIpc({ handle: (name, fn) => handlers.set(name, fn) }, (event) => { if (!event.trusted) throw Error('untrusted') }, f.client)
-  assert.deepEqual([...handlers.keys()], ['grpcRealtime:getStatus', 'grpcRealtime:connect', 'grpcRealtime:connectManual', 'grpcRealtime:ping', 'grpcRealtime:close', 'grpcRealtime:uiTiming', 'grpcRealtime:audioChunk', 'grpcRealtime:manualStop'])
+  assert.deepEqual([...handlers.keys()], ['grpcRealtime:getStatus', 'grpcRealtime:connect', 'grpcRealtime:connectManual', 'grpcRealtime:connectAuto', 'grpcRealtime:ping', 'grpcRealtime:close', 'grpcRealtime:uiTiming', 'grpcRealtime:audioChunk', 'grpcRealtime:manualStop'])
   await assert.rejects(handlers.get('grpcRealtime:connect')({ trusted: false }))
   const status = await handlers.get('grpcRealtime:getStatus')({ trusted: true })
   assert.deepEqual(status, f.client.getStatus())
@@ -291,4 +291,32 @@ test('diagnostic answer events keep existing counters/preview without enabling m
   assert.equal(f.client.getStatus().answerDeltaCount, 1)
   assert.equal(f.client.getStatus().currentAnswer, 'Diagnostic preview')
   f.client.close()
+})
+
+
+test('G7 Auto flag is independent, fresh handshake streams safe snapshots and PCM until closed', async () => {
+  const disabled = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true' })
+  await disabled.client.connectAuto()
+  assert.equal(disabled.counts().calls, 0)
+  const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'true' })
+  const write = f.stream.write
+  f.stream.write = event => {
+    if (event.start_session) f.stream.emit('data', { status: { code: 'auto_pipeline_ready' } })
+    write(event)
+  }
+  const snapshots = []
+  f.client.onAutoEvent = snapshot => snapshots.push(snapshot)
+  const state = await f.client.connectAuto()
+  assert.equal(state.autoPipelineReady, true)
+  assert.equal(f.writes[0].start_session.mode, 'auto_pipeline')
+  await f.client.sendAudioChunk(new Int16Array(1600).buffer)
+  f.stream.emit('data', { question_detected: { text: 'Explain REST APIs' } })
+  f.stream.emit('data', { answer_delta: { text: 'First delta' }, secret: 'private key' })
+  assert.equal(snapshots.at(-1).currentAnswer, 'First delta')
+  assert.equal(snapshots.at(-1).answerCompletedCount, 0)
+  assert.doesNotMatch(JSON.stringify(snapshots), /private key|sessionId|request_id/)
+  f.stream.emit('data', { answer_completed: { text: 'First delta complete' } })
+  assert.equal(f.client.getStatus().connectionStatus, 'connected')
+  f.client.close()
+  assert.equal(f.client.getStatus().autoPipelineReady, false)
 })

@@ -17,6 +17,11 @@ class GrpcRealtimeClient {
     protoPath = path.join(__dirname, 'protos', 'interview_realtime.proto') } = {}) {
     this.enabled = String(env.ELECTRON_GRPC_REALTIME_ENABLED || 'false').toLowerCase() === 'true'
     this.manualPipelineEnabled = String(env.USE_GRPC_MANUAL_PIPELINE || "false").toLowerCase() === "true"
+    this.autoPipelineEnabled = String(env.USE_GRPC_AUTO_PIPELINE || 'false').toLowerCase() === 'true'
+    this.autoPipelineReady = false
+    this.autoStatus = 'idle'
+    this.autoEventVersion = 0
+    this.onAutoEvent = () => {}
     this.onManualEvent = () => {}
     this.manualEventVersion = 0
     this.manualRun = 0
@@ -54,7 +59,7 @@ class GrpcRealtimeClient {
   }
 
   getStatus() {
-    return { manualEventVersion: this.manualEventVersion, manualRun: this.manualRun, manualTimings: { ...this.manualTimings }, manualPipelineEnabled: this.manualPipelineEnabled, manualPipelineReady: this.manualPipelineReady, manualStatus: this.manualStatus, enabled: this.enabled, connectionStatus: this.status, lastPingResult: this.lastPing, lastErrorMessage: this.lastError,
+    return { autoPipelineEnabled: this.autoPipelineEnabled, autoPipelineReady: this.autoPipelineReady, autoStatus: this.autoStatus, autoEventVersion: this.autoEventVersion, manualEventVersion: this.manualEventVersion, manualRun: this.manualRun, manualTimings: { ...this.manualTimings }, manualPipelineEnabled: this.manualPipelineEnabled, manualPipelineReady: this.manualPipelineReady, manualStatus: this.manualStatus, enabled: this.enabled, connectionStatus: this.status, lastPingResult: this.lastPing, lastErrorMessage: this.lastError,
       audioEnabled: this.enabled && this.audioEnabled, audioChunksSent: this.audioChunksSent, audioBytesSent: this.audioBytesSent,
       backendChunksReceived: this.backendChunksReceived, backendBytesReceived: this.backendBytesReceived, lastAudioStatus: this.lastAudioStatus, sttEnabled: this.sttEnabled,
       partialTranscriptCount: this.partialTranscriptCount, finalTranscriptCount: this.finalTranscriptCount,
@@ -89,6 +94,8 @@ class GrpcRealtimeClient {
         stream.on('data', (event) => {
           if (epoch !== this.epoch) return
           if (event.provider === 'assemblyai_streaming') this.sttProvider = 'assemblyai_streaming'
+          if (event.status?.code === 'auto_pipeline_ready') { this.autoPipelineReady = true; this.sttEnabled = true; this.answerStreamEnabled = true }
+          if (['auto_cooldown', 'auto_listening'].includes(event.status?.code)) this.autoStatus = event.status.code
           if (event.status?.code === 'manual_pipeline_ready') this.manualPipelineReady = true
           if (['manual_generation_committed', 'manual_no_question'].includes(event.status?.code)) this.manualStatus = event.status.code
           if (event.status?.code === 'stt_enabled') this.sttEnabled = true
@@ -117,6 +124,7 @@ class GrpcRealtimeClient {
             const timing = { question_detected: 'question_detected_at', answer_started: 'answer_started_at', answer_delta: 'first_answer_delta_at', answer_completed: 'answer_completed_at' }[answerKind]
             if (timing) this.manualTimings[timing] ??= Date.now()
             this.lastAnswerStatus = answerKind
+            if (this.sessionMode === 'auto_pipeline') this.autoStatus = answerKind === 'answer_completed' ? 'auto_cooldown' : 'generating'
             if (['technical', 'behavioral', 'personal', 'general'].includes(payload.category)) this.answerCategory = payload.category
             if (['openai', 'groq', 'ollama', 'local'].includes(payload.provider)) this.answerProvider = payload.provider
             if (answerKind === 'question_detected') {
@@ -136,6 +144,10 @@ class GrpcRealtimeClient {
             this.manualEventVersion++
             // Only the bounded, whitelisted renderer snapshot crosses IPC, never raw provider events.
             try { this.onManualEvent(this.getStatus()) } catch { /* Polling remains a safe delivery fallback. */ }
+          }
+          if (this.sessionMode === 'auto_pipeline' && (answerKind || transcriptKind || ['auto_cooldown', 'auto_listening'].includes(event.status?.code))) {
+            this.autoEventVersion++
+            try { this.onAutoEvent(this.getStatus()) } catch { /* Health polling remains available. */ }
           }
           const pending = this.pending.get(event.request_id)
           if (pending && event[pending.kind] !== undefined) {
@@ -192,6 +204,17 @@ class GrpcRealtimeClient {
       try { this.stream.write({ session_id: this.sessionId, request_id: requestId, ...payload }) }
       catch { clearTimeout(timer); this.pending.delete(requestId); reject(Error('transport unavailable')) }
     })
+  }
+
+  async connectAuto() {
+    if (!this.enabled || !this.audioEnabled || !this.autoPipelineEnabled) return this.getStatus()
+    if (this.sessionMode === 'auto_pipeline' && ['connecting', 'connected'].includes(this.status)) return this.connect()
+    this.close()
+    this.manualRun++
+    this.autoEventVersion = 0
+    this.autoStatus = 'idle'
+    this.sessionMode = 'auto_pipeline'
+    return this.connect()
   }
 
   async connectManual() {
@@ -312,6 +335,7 @@ class GrpcRealtimeClient {
     this.sessionId = null
     this.sttBridgeConnected = false
     this.manualPipelineReady = false
+    this.autoPipelineReady = false
     this.sessionMode = "diagnostics"
     this.currentTranscript = ''
     this.currentQuestion = this.currentAnswer = ''
@@ -327,9 +351,10 @@ class GrpcRealtimeClient {
   }
 }
 
-function registerGrpcRealtimeIpc(ipcMain, validateSender, client, onUiTiming = () => {}, onManualEvent = () => {}) {
+function registerGrpcRealtimeIpc(ipcMain, validateSender, client, onUiTiming = () => {}, onManualEvent = () => {}, onAutoEvent = () => {}) {
   client.onManualEvent = onManualEvent
-  for (const [channel, method] of [['getStatus', 'getStatus'], ['connect', 'connect'], ['connectManual', 'connectManual'], ['ping', 'ping'], ['close', 'close']]) {
+  client.onAutoEvent = onAutoEvent
+  for (const [channel, method] of [['getStatus', 'getStatus'], ['connect', 'connect'], ['connectManual', 'connectManual'], ['connectAuto', 'connectAuto'], ['ping', 'ping'], ['close', 'close']]) {
     ipcMain.handle(`grpcRealtime:${channel}`, async (event) => { validateSender(event); return client[method]() })
   }
   ipcMain.handle('grpcRealtime:uiTiming', async (event, run, field, at) => { validateSender(event); if (client.recordUiTiming(run, field, at)) onUiTiming({ manualRun: client.manualRun, first_main_ui_update_at: client.manualTimings.first_main_ui_update_at, first_overlay_update_at: client.manualTimings.first_overlay_update_at }) })

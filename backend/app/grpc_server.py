@@ -16,6 +16,9 @@ from app.grpc_generated import interview_realtime_pb2 as pb
 from app.grpc_generated import interview_realtime_pb2_grpc as rpc
 
 
+AUTO_COOLDOWN_SECONDS = 4.0
+
+
 class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
     async def StreamInterview(self, request_iterator, context):
         # Bounded output queue lets provider events arrive independently of audio input.
@@ -29,6 +32,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
         questions = asyncio.Queue(maxsize=4)
         seen = deque(maxlen=64)
         seen_turns = deque(maxlen=64)
+        auto_mode = False
+        auto_cooldown_until = 0.0
         manual_mode = False
         manual_stopped = False
         manual_turns = {}
@@ -54,10 +59,23 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             await output.put(event(request_id, kind, payload))
 
         async def answer_worker():
+            nonlocal auto_cooldown_until
             from app.grpc_answer_pipeline import stream_question_answer
             while True:
-                text, request_id = await questions.get()
+                text, request_id, fingerprint, turn = await questions.get()
+                if auto_mode and auto_cooldown_until > time.monotonic():
+                    await asyncio.sleep(auto_cooldown_until - time.monotonic())
+                    # Keep only the latest question heard during cooldown.
+                    while not questions.empty():
+                        questions.task_done()
+                        text, request_id, fingerprint, turn = questions.get_nowait()
+                    await emit(request_id, "status", pb.Status(code="auto_listening"))
+                if auto_mode:
+                    seen.append(fingerprint)
+                    if turn is not None:
+                        seen_turns.append(turn)
                 async def generate():
+                    nonlocal auto_cooldown_until
                     answer = ""
                     category = provider = ""
                     question_seen = completed = False
@@ -86,6 +104,9 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                                     raise RuntimeError("Empty answer.")
                                 completed = True
                                 await emit(request_id, "answer_completed", pb.TextEvent(text=answer, category=category, provider=provider))
+                                if auto_mode:
+                                    auto_cooldown_until = time.monotonic() + AUTO_COOLDOWN_SECONDS
+                                    await emit(request_id, "status", pb.Status(code="auto_cooldown"))
                     if question_seen and not completed:
                         raise RuntimeError("Answer stream ended prematurely.")
                     if manual_mode and not question_seen:
@@ -117,10 +138,15 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             if fingerprint in seen or (turn is not None and turn in seen_turns):
                 return
             try:
-                questions.put_nowait((text, last_request_id))
-                seen.append(fingerprint)
-                if turn is not None:
-                    seen_turns.append(turn)
+                if auto_mode:
+                    while not questions.empty():
+                        questions.get_nowait()
+                        questions.task_done()
+                questions.put_nowait((text, last_request_id, fingerprint, turn))
+                if not auto_mode:
+                    seen.append(fingerprint)
+                    if turn is not None:
+                        seen_turns.append(turn)
             except asyncio.QueueFull:
                 await emit(last_request_id, "answer_error", pb.ErrorEvent(
                     code="answer_busy", message="Experimental answer queue is busy. Retry after the current answer."))
@@ -202,7 +228,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 await asyncio.gather(answer_task, return_exceptions=True)
 
         async def process_requests():
-            nonlocal manual_mode, manual_stopped, session_id, total_chunks, total_audio_bytes, last_request_id, stopping_stt, stt_chunks, stt_bytes, non_silent_chunks
+            nonlocal auto_mode, manual_mode, manual_stopped, session_id, total_chunks, total_audio_bytes, last_request_id, stopping_stt, stt_chunks, stt_bytes, non_silent_chunks
             canceled = False
             try:
                 async for request in request_iterator:
@@ -221,6 +247,10 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                             await emit(request.request_id, "error", pb.ErrorEvent(
                                 code="invalid_session", message="A single valid session is required."))
                             return
+                        auto_mode = request.start_session.mode == "auto_pipeline"
+                        if auto_mode and not (settings.USE_GRPC_AUTO_PIPELINE and answer_enabled and stt_enabled):
+                            await emit(request.request_id, "error", pb.ErrorEvent(code="auto_unavailable", message="Auto gRPC pipeline is unavailable."))
+                            return
                         manual_mode = request.start_session.mode == "manual_pipeline"
                         if manual_mode and not (settings.USE_GRPC_MANUAL_PIPELINE and answer_enabled):
                             await emit(request.request_id, "error", pb.ErrorEvent(code="manual_unavailable", message="Manual gRPC pipeline is unavailable."))
@@ -228,6 +258,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         session_id = request.session_id
                         if stt_enabled:
                             await open_stt()
+                        if auto_mode:
+                            await emit(request.request_id, "status", pb.Status(code="auto_pipeline_ready", message="Experimental Auto pipeline ready."))
                         if manual_mode:
                             await emit(request.request_id, "status", pb.Status(code="manual_pipeline_ready", message="Experimental manual pipeline ready."))
                         await emit(request.request_id, "ready", pb.Empty())

@@ -625,3 +625,35 @@ failure should use the configured existing flow; a disconnect while listening
 should retain the batch backup. Physical microphone/overlay behavior still needs
 verification on the target Electron device. No audio is persisted by gRPC and no
 raw speech, answer, prompt, token, or key is logged by this integration.
+
+
+### G7: experimental Auto Mode over gRPC (local only)
+
+`USE_GRPC_AUTO_PIPELINE=false` is the default; existing Auto Mode remains on
+REST/WebSocket. Manual Mode has its separate G6 flag and is unchanged.
+
+For local microphone testing, start the standalone backend from `backend` with
+`GRPC_REALTIME_ENABLED=true`, `GRPC_STT_ENABLED=true`,
+`GRPC_ANSWER_STREAM_ENABLED=true`, and `USE_GRPC_AUTO_PIPELINE=true`:
+`python -m app.grpc_server --host 127.0.0.1 --port 50051`.
+Run FastAPI separately as usual. Start Electron from `frontend` with
+`ELECTRON_GRPC_REALTIME_ENABLED=true`, `ELECTRON_GRPC_AUDIO_ENABLED=true`,
+`USE_GRPC_AUTO_PIPELINE=true`, `ELECTRON_GRPC_REALTIME_HOST=127.0.0.1`,
+`ELECTRON_GRPC_REALTIME_PORT=50051`, then `npm run electron:dev`.
+These environment variables must be set in the respective process terminals;
+restart processes after changing flags.
+
+Select microphone and start normal Auto Mode. Final turns trigger existing
+question detection and streamed answers; partials only update preview. Listening
+continues through generation and the four-second cooldown. Repeated finals are
+suppressed with bounded hashes/turn IDs; only the latest queued question is kept.
+Answers use the existing main answer/overlay state, with one history entry saved
+on completion. Stop cancels capture, pending generation, and the stream.
+
+Diagnostics show pipeline, eligibility, and a safe blocked reason. Cloud sessions,
+selected cloud resume/job context, other interview context, and system audio use
+the existing authenticated path. System audio over gRPC is deferred. If connection
+or microphone setup fails before listening, startup falls back to WebSocket. A
+failure after listening stops safely with a recoverable error rather than retrying
+an ambiguously committed answer through REST. Restart Auto Mode to retry.
+No provider migration or default change is included.

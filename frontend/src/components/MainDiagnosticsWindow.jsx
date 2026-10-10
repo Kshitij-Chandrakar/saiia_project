@@ -518,6 +518,28 @@ function extractCodeBlock(text) {
   }
 }
 
+function LocalTestSessionControls({ localTestSession, activeSessionSuspended, reason, busy, onToggle, diagnostics }) {
+  return <section className="glass-card" aria-label="Auto gRPC local test session">
+    <p className="section-title">Auto gRPC ? local test session</p>
+    <div className="toolbar-actions">
+      <button className="btn btn-secondary" type="button" disabled={Boolean(reason || busy || localTestSession)} onClick={onToggle}>Use local test session</button>
+      <button className="btn btn-secondary" type="button" disabled={Boolean(reason || busy || !localTestSession)} onClick={onToggle}>Restore cloud session</button>
+    </div>
+    <p className="diagnostics-note">{reason || (busy ? 'Stop the active operation before changing sessions.' : 'Local runtime only. Cloud data and sign-in are preserved.')}</p>
+    <div className="meta-list">
+      <MetaRow label="Local test session" value={localTestSession ? 'on' : 'off'} />
+      <MetaRow label="Active session suspended" value={activeSessionSuspended ? 'yes' : 'no'} />
+      <MetaRow label="Active session ID present" value={String(Boolean(diagnostics?.activeSessionIdPresent))} />
+      <MetaRow label="Generation auth required" value={String(Boolean(diagnostics?.authRequired))} />
+      <MetaRow label="Local without saving" value={String(Boolean(diagnostics?.localWithoutSaving))} />
+      <MetaRow label="Auto gRPC flag enabled" value={diagnostics?.autoGrpcFlagEnabled ? 'yes' : 'no'} />
+      <MetaRow label="Auto gRPC eligibility" value={diagnostics?.autoGrpcEligible ? 'yes' : 'no'} />
+      <MetaRow label="Auto gRPC blocked reason" value={diagnostics?.autoGrpcBlockedReason || 'unknown'} />
+      <MetaRow label="Auto Mode pipeline" value={diagnostics?.autoModePipeline || 'existing_default'} />
+    </div>
+  </section>
+}
+
 export default function MainDiagnosticsWindow(props) {
   const {
     isCollapsed,
@@ -572,6 +594,11 @@ export default function MainDiagnosticsWindow(props) {
     cooldownQueueReason,
     queuedQuestionProcessed,
     generationDiagnostics,
+    localTestSession,
+    onToggleLocalTestSession,
+    localTestSessionBusy,
+    localTestSessionDisabledReason,
+    activeSessionSuspended,
     generationStarted,
     generationBlockedReason,
     isCooldownListening,
@@ -791,6 +818,8 @@ export default function MainDiagnosticsWindow(props) {
     return (
       <StartupSessionSetupScreen
         initialConfig={startupSessionConfig}
+        authenticatedEmail={startupAuthenticatedEmail}
+        onSignedOut={resetStartupAuthentication}
         onBack={() => {
           resizeStartupWindow('home')
           setStartupScreen('session-choice')
@@ -909,6 +938,9 @@ export default function MainDiagnosticsWindow(props) {
               display.
             </p>
 
+            <LocalTestSessionControls localTestSession={localTestSession} activeSessionSuspended={activeSessionSuspended}
+              reason={localTestSessionDisabledReason} busy={localTestSessionBusy}
+              onToggle={onToggleLocalTestSession} diagnostics={generationDiagnostics} />
             <DesktopAuthStatus onSignedOut={resetStartupAuthentication} />
 
             <div className={`glass-card runtime-guide runtime-guide--${runtimeGuidance.tone}`}>
@@ -1821,7 +1853,11 @@ export default function MainDiagnosticsWindow(props) {
                   ))}
                   <MetaRow label="Manual phase" value={manualLiveState?.phase || 'idle'} />
                   <MetaRow label="Manual transport" value={manualLiveState?.transport || 'REST/WebSocket'} />
-                  <MetaRow label="Pipeline" value={generationDiagnostics?.manualPipeline || 'REST/WebSocket (default)'} />
+                  <MetaRow label="Auto Mode pipeline" value={generationDiagnostics?.autoModePipeline || 'existing_default'} />
+                  <MetaRow label="Auto gRPC flag enabled" value={generationDiagnostics?.autoGrpcFlagEnabled ? 'yes' : 'no'} />
+                  <MetaRow label="Auto gRPC eligibility" value={generationDiagnostics?.autoGrpcEligible ? 'yes' : 'no'} />
+                  <MetaRow label="Auto gRPC blocked reason" value={generationDiagnostics?.autoGrpcBlockedReason || 'unknown'} />
+                  <MetaRow label="Pipeline" value={generationDiagnostics?.autoModePipeline === 'grpc_realtime' ? 'gRPC realtime' : generationDiagnostics?.manualPipeline || 'REST/WebSocket (default)'} />
                   <MetaRow label="Pipeline selection reason" value={generationDiagnostics?.manualPipelineReason || 'none'} />
                   {['manual_start_at', 'manual_stop_at', 'first_transcript_at', 'question_detected_at', 'answer_started_at', 'first_answer_delta_at', 'answer_completed_at', 'first_main_ui_update_at', 'first_overlay_update_at'].map(field => (
                     <MetaRow key={field} label={field} value={generationDiagnostics?.manualTimings?.[field] != null ? `${generationDiagnostics.manualTimings[field]} ms (epoch)` : 'n/a'} />

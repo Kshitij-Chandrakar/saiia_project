@@ -19,7 +19,7 @@ export function createGrpcMicTest({ api, getUserMedia = (constraints) => navigat
       const status = await api.getGrpcRealtimeStatus()
       if (run !== generation) return
       if (!status.audioEnabled || status.connectionStatus !== 'connected') throw Error('unavailable')
-      if (ownsStream && status.manualPipelineReady) throw Error('manual capture active')
+      if (ownsStream && (status.manualPipelineReady || status.autoPipelineReady)) throw Error('manual capture active')
       const microphone = await getUserMedia(status.sttEnabled ? { audio: { channelCount: 1, sampleRate: 16000 } } : { audio: true })
       if (run !== generation) { if (ownsStream) microphone.getTracks().forEach((track) => track.stop()); return }
       stream = microphone
