@@ -17,6 +17,7 @@ from app.grpc_generated import interview_realtime_pb2_grpc as rpc
 
 
 AUTO_COOLDOWN_SECONDS = 4.0
+STABLE_PARTIAL_SECONDS = 1.2
 
 
 class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
@@ -32,6 +33,11 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
         questions = asyncio.Queue(maxsize=4)
         seen = deque(maxlen=64)
         seen_turns = deque(maxlen=64)
+        audio_source = 'microphone'
+        system_capture = system_session = system_reader = system_sender = None
+        system_metrics = {}
+        system_queue = asyncio.Queue(maxsize=3)
+        cloud_context = None
         auto_mode = False
         auto_cooldown_until = 0.0
         manual_mode = False
@@ -46,6 +52,17 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
         final_transcript_received = False
         stopping_stt = False
         stt_chunks = stt_bytes = callbacks = non_silent_chunks = 0
+        intake = {key: 0 for key in ('final_transcripts_received', 'final_transcripts_ignored', 'detection_attempts', 'detection_successes', 'detection_rejections', 'cooldown_rejections', 'dedupe_rejections', 'too_short_rejections')}
+        intake.update(last_ignored_transcript='', last_ignored_reason='', pending_question=False, pending_reason='')
+        from app.grpc_utterance_buffer import UtteranceBuffer, ENDPOINT_SECONDS
+        utterance = UtteranceBuffer()
+        endpoint_task = None
+        for key in ('merged_final_count', 'topic_prompt_accepted_count', 'buffered_transcripts_count', 'incomplete_final_wait_count', 'completed_from_buffer_count'): intake[key] = 0
+        intake.update(last_buffer_action='', last_detection_source='')
+        queued_fingerprints = set()
+        generation_active = False
+        stable_partial = None
+        stable_partial_key = None
 
         def event(request_id, kind, payload):
             nonlocal sequence
@@ -56,20 +73,50 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 provider=(getattr(payload, "provider", "") or ("assemblyai_streaming" if stt_enabled else "none")), **{kind: payload})
 
         async def emit(request_id, kind, payload):
+            if audio_source == 'system':
+                field = {'partial_transcript': 'system_first_stt_partial_at', 'final_transcript': 'system_first_stt_final_at', 'question_detected': 'system_question_detected_at', 'answer_started': 'system_answer_started_at', 'answer_delta': 'system_first_answer_delta_at'}.get(kind)
+                if field and not system_metrics.get(field):
+                    system_metrics[field] = time.time() * 1000
+                    for target, end, start in (
+                        ('system_capture_to_partial_ms','system_first_stt_partial_at','system_capture_started_at'),
+                        ('system_partial_to_question_ms','system_question_detected_at','system_first_stt_partial_at'),
+                        ('system_question_to_first_delta_ms','system_first_answer_delta_at','system_question_detected_at'),
+                        ('system_total_question_to_answer_ms','system_first_answer_delta_at','system_first_stt_partial_at')):
+                        if system_metrics.get(end) and system_metrics.get(start): system_metrics[target] = max(0, system_metrics[end]-system_metrics[start])
+                    await output.put(event(request_id, 'status', pb.Status(code='system_audio_metrics', system_audio=pb.SystemAudioDiagnostics(**system_metrics))))
             await output.put(event(request_id, kind, payload))
 
+        async def intake_status():
+            if auto_mode:
+                intake.update(utterance.snapshot())
+                await emit(last_request_id, 'status', pb.Status(code='question_intake', question_intake=pb.QuestionIntake(**intake)))
+
+        async def ignored(text, reason, final=True):
+            if final: intake['final_transcripts_ignored'] += 1
+            intake['last_ignored_transcript'] = text[:256]
+            intake['last_ignored_reason'] = reason
+            field = {'duplicate': 'dedupe_rejections', 'too_short': 'too_short_rejections'}.get(reason)
+            if field: intake[field] += 1
+            await intake_status()
+
         async def answer_worker():
-            nonlocal auto_cooldown_until
+            nonlocal auto_cooldown_until, generation_active
             from app.grpc_answer_pipeline import stream_question_answer
             while True:
-                text, request_id, fingerprint, turn = await questions.get()
+                text, request_id, fingerprint, turn, is_final = await questions.get()
                 if auto_mode and auto_cooldown_until > time.monotonic():
                     await asyncio.sleep(auto_cooldown_until - time.monotonic())
                     # Keep only the latest question heard during cooldown.
                     while not questions.empty():
+                        await ignored(text, 'cooldown_active', is_final)
+                        queued_fingerprints.discard(fingerprint)
                         questions.task_done()
-                        text, request_id, fingerprint, turn = questions.get_nowait()
+                        text, request_id, fingerprint, turn, is_final = questions.get_nowait()
                     await emit(request_id, "status", pb.Status(code="auto_listening"))
+                generation_active = True
+                intake['pending_question'] = False
+                intake['pending_reason'] = ''
+                await intake_status()
                 if auto_mode:
                     seen.append(fingerprint)
                     if turn is not None:
@@ -79,12 +126,17 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                     answer = ""
                     category = provider = ""
                     question_seen = completed = False
-                    async with aclosing(stream_question_answer(text)) as pipeline:
+                    async with aclosing(stream_question_answer(text, cloud_context=cloud_context) if cloud_context else stream_question_answer(text)) as pipeline:
                         async for item in pipeline:
                             kind = item.get("type")
                             category = item.get("category") or category
                             provider = item.get("provider") or provider
-                            if kind == "question":
+                            if kind == "rejected":
+                                intake['detection_rejections'] += 1
+                                await ignored(text, item.get('reason') or 'not_question', is_final)
+                            elif kind == "save_status":
+                                await emit(request_id, "status", pb.Status(code=item["code"]))
+                            elif kind == "question":
                                 question_seen = True
                                 await emit(request_id, "question_detected", pb.TextEvent(text=item["text"], category=category))
                             elif kind == "started":
@@ -116,13 +168,23 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                     await asyncio.wait_for(generate(), timeout=90)
                 except asyncio.CancelledError:
                     raise
-                except Exception:
+                except Exception as exc:
+                    from app.grpc_cloud_context import CloudContextRejected
+                    if cloud_context and isinstance(exc, CloudContextRejected):
+                        await ignored(text, 'blocked_by_auth', is_final)
+                        await emit(request_id, "error", pb.ErrorEvent(code=exc.code, message="Cloud context is no longer available. Stop and reconnect."))
+                        await output.put(None)
+                        return
+                    await ignored(text, 'unknown', is_final)
                     await emit(request_id, "answer_error", pb.ErrorEvent(
                         code="answer_unavailable", message="Experimental answer unavailable or timed out. Retry."))
                 finally:
+                    generation_active = False
+                    queued_fingerprints.discard(fingerprint)
                     questions.task_done()
 
-        async def queue_final(text, turn_order):
+        async def queue_final(text, turn_order, final=True, endpoint=False):
+            nonlocal endpoint_task
             if manual_mode and not manual_stopped:
                 key = turn_order if isinstance(turn_order, int) else 0
                 if key not in manual_turns and len(manual_turns) >= 64:
@@ -131,18 +193,78 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 if sum(len(value) for value in manual_turns.values()) > 65536:
                     raise RuntimeError("Manual capture text limit exceeded.")
                 return
-            if not answer_enabled or len(text.split()) < 3:
+            if not answer_enabled:
+                return
+            if auto_mode:
+                if final and not endpoint: intake['final_transcripts_received'] += 1
+                if not text.strip():
+                    await ignored(text, 'empty_final', final)
+                    return
+                from app.grpc_answer_pipeline import detect_intake_question
+                if endpoint_task and not endpoint:
+                    endpoint_task.cancel()
+                    endpoint_task = None
+                merged = False
+                if not endpoint:
+                    text, merged = utterance.assemble(text, turn_order)
+                    intake['last_detection_source'] = 'merged_buffer' if merged else 'final' if final else 'stable_partial'
+                    if merged:
+                        if final: intake['merged_final_count'] += 1
+                        intake['last_buffer_action'] = 'merged_short_final'
+                intake['detection_attempts'] += 1
+                try:
+                    question, reason = await detect_intake_question(text, allow_topics=True)
+                except Exception:
+                    question, reason = None, 'unknown'
+                topic_accepted = reason == 'topic_prompt_accepted'
+                if topic_accepted:
+                    intake['last_buffer_action'] = reason
+                    intake['last_detection_source'] = 'topic_prompt'
+                    text = question
+                    reason = ''
+                if reason and not endpoint and reason in ('too_short', 'not_question') and len(text.split()) <= 8:
+                    from app.grpc_utterance_buffer import NOISE
+                    if not NOISE.search(text):
+                        utterance.hold(text)
+                        intake['buffered_transcripts_count'] += 1
+                        intake['incomplete_final_wait_count'] += 1
+                        intake['last_buffer_action'] = 'buffered_until_complete'
+                        async def finish_fragment(value=text, turn=turn_order):
+                            await asyncio.sleep(ENDPOINT_SECONDS)
+                            utterance.pending = ''
+                            await queue_final(value, turn, final=final, endpoint=True)
+                        endpoint_task = asyncio.create_task(finish_fragment())
+                        await intake_status()
+                        return
+                if reason:
+                    intake['detection_rejections'] += 1
+                    await ignored(text, reason, final)
+                    return
+                utterance.pending_at = 0
+                if merged: intake['completed_from_buffer_count'] += 1
+                intake['detection_successes'] += 1
+            elif len(text.split()) < 3:
                 return
             fingerprint = hashlib.sha256(re.sub(r"[^\w]", "", text.casefold()).encode()).digest()
             turn = (provider_epoch, turn_order) if isinstance(turn_order, int) else None
-            if fingerprint in seen or (turn is not None and turn in seen_turns):
+            if fingerprint in seen or fingerprint in queued_fingerprints or (turn is not None and turn in seen_turns):
+                await ignored(text, 'duplicate', final)
                 return
             try:
                 if auto_mode:
+                    if topic_accepted: intake['topic_prompt_accepted_count'] += 1
+                    if generation_active or auto_cooldown_until > time.monotonic():
+                        intake['pending_question'] = True
+                        intake['pending_reason'] = 'generation_in_progress' if generation_active else 'cooldown_active'
+                        if auto_cooldown_until > time.monotonic(): intake['cooldown_rejections'] += 1
                     while not questions.empty():
-                        questions.get_nowait()
+                        old = questions.get_nowait()
+                        await ignored(old[0], 'generation_in_progress' if generation_active else 'cooldown_active', old[4])
+                        queued_fingerprints.discard(old[2])
                         questions.task_done()
-                questions.put_nowait((text, last_request_id, fingerprint, turn))
+                questions.put_nowait((text, last_request_id, fingerprint, turn, final))
+                queued_fingerprints.add(fingerprint)
+                await intake_status()
                 if not auto_mode:
                     seen.append(fingerprint)
                     if turn is not None:
@@ -152,7 +274,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                     code="answer_busy", message="Experimental answer queue is busy. Retry after the current answer."))
 
         async def receive_transcripts():
-            nonlocal transcript_received, final_transcript_received, callbacks
+            nonlocal transcript_received, final_transcript_received, callbacks, stable_partial, stable_partial_key
             try:
                 async for raw in socket:
                     message = json.loads(raw)
@@ -162,6 +284,15 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         provider_started.set()
                     elif kind == "Turn":
                         text = message.get("transcript", "")
+                        partial_key = (str(text or '')[:65536], message.get('turn_order'))
+                        if message.get('end_of_turn') or partial_key != stable_partial_key:
+                            if stable_partial: stable_partial.cancel()
+                            stable_partial = None
+                            stable_partial_key = partial_key
+                        if message.get('end_of_turn') and auto_mode and not str(text or '').strip():
+                            await queue_final('', message.get('turn_order'))
+                        if auto_mode and isinstance(text, str) and text.strip() and not message.get('end_of_turn'):
+                            utterance.partial_update(text, message.get('turn_order'))
                         if isinstance(text, str) and text.strip():
                             transcript_received = True
                             if message.get("end_of_turn"):
@@ -178,6 +309,14 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                                 pb.TextEvent(text=preview))
                             if message.get("end_of_turn") and not manual_mode:
                                 await queue_final(text[:65536], message.get("turn_order"))
+                            elif auto_mode and not generation_active:
+                                from app.grpc_answer_pipeline import looks_like_interview_question
+                                if stable_partial is None and looks_like_interview_question(text):
+                                    async def stable_question(value=text[:65536], turn=message.get('turn_order')):
+                                        await asyncio.sleep(STABLE_PARTIAL_SECONDS)
+                                        if not generation_active and not stopping_stt:
+                                            await queue_final(value, turn, final=False)
+                                    stable_partial = asyncio.create_task(stable_question())
                     elif kind == "Termination":
                         if not stopping_stt:
                             raise RuntimeError("provider terminated unexpectedly")
@@ -192,12 +331,83 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                     code="stt_unavailable", message="Live STT unavailable. Check provider configuration and retry."))
                 await output.put(None)
 
+        async def open_system_capture():
+            nonlocal system_capture, system_session, system_reader, system_sender
+            from app.services.system_audio_capture import SystemAudioCaptureService
+            from starlette.concurrency import run_in_threadpool
+            system_capture = SystemAudioCaptureService()
+            system_metrics.update(system_capture_started_at=time.time()*1000, active_audio_source='system', transcript_source='system', question_source='system', answer_source_audio='system', system_target_rate=16000, system_dropped_chunks=0)
+            system_session = await run_in_threadpool(system_capture.open_streaming_loopback_session, target_sample_rate=16000, chunk_ms=100, debug_save_enabled=False)
+            async def capture():
+                tail = b''
+                try:
+                    while True:
+                        chunk = await asyncio.wait_for(run_in_threadpool(system_capture.read_streaming_pcm_chunk, system_session),timeout=2)
+                        now = time.time()*1000
+                        if not system_metrics.get('system_first_pcm_chunk_at'): system_metrics['system_first_pcm_chunk_at'] = now
+                        if chunk.rms_level > .005 and not system_metrics.get('system_first_non_silent_chunk_at'): system_metrics['system_first_non_silent_chunk_at'] = now
+                        if not chunk.pcm_bytes: system_metrics['system_dropped_chunks'] += 1
+                        if len(chunk.pcm_bytes) % 2: raise RuntimeError('invalid PCM')
+                        tail += chunk.pcm_bytes
+                        system_metrics.update(system_sample_rate=chunk.input_sample_rate, system_rms=chunk.rms_level, system_peak=chunk.peak_level,
+                            system_resample_latency_ms=chunk.resample_latency_ms)
+                        while len(tail) >= 3200:
+                            frame, tail = tail[:3200], tail[3200:]
+                            if system_queue.full():
+                                system_queue.get_nowait()
+                                system_metrics['system_dropped_chunks'] += 1
+                            system_queue.put_nowait(frame)
+                        if len(tail) > 65536: raise RuntimeError('capture buffer exceeded')
+                except asyncio.CancelledError: raise
+                except Exception:
+                    await emit(last_request_id,'error',pb.ErrorEvent(code='system_audio_unavailable',message='System audio capture unavailable. Stop and retry the existing flow.'))
+                    await output.put(None)
+            async def send():
+                nonlocal total_chunks, total_audio_bytes, stt_chunks, stt_bytes, non_silent_chunks
+                try:
+                    while True:
+                        frame = await system_queue.get()
+                        system_metrics.update(system_chunk_bytes=len(frame),system_pcm_duration_ms=len(frame)/32,system_buffer_queue_depth=system_queue.qsize(),
+                            system_silence_ratio=sum(frame[i:i+2] == b'\0\0' for i in range(0,len(frame),2))/(len(frame)//2))
+                        if not system_metrics.get('system_first_chunk_sent_to_grpc_at'): system_metrics['system_first_chunk_sent_to_grpc_at'] = time.time()*1000
+                        await asyncio.wait_for(socket.send(frame),timeout=2)
+                        total_chunks += 1; total_audio_bytes += len(frame); stt_chunks += 1; stt_bytes += len(frame)
+                        if any(frame): non_silent_chunks += 1
+                        await emit(last_request_id,'status',pb.Status(code='system_audio_metrics',total_chunks=total_chunks,total_audio_bytes=total_audio_bytes,
+                            stt_chunks_forwarded=stt_chunks,stt_bytes_forwarded=stt_bytes,stt_bridge_connected=True,
+                            system_audio=pb.SystemAudioDiagnostics(**system_metrics),question_intake=pb.QuestionIntake(**{**intake,**utterance.snapshot()})))
+                except asyncio.CancelledError: raise
+                except Exception:
+                    await emit(last_request_id,'error',pb.ErrorEvent(code='system_audio_unavailable',message='System audio stream unavailable. Stop and retry.'))
+                    await output.put(None)
+            system_reader = asyncio.create_task(capture())
+            system_sender = asyncio.create_task(send())
+            await emit(last_request_id,'status',pb.Status(code='system_audio_metrics',system_audio=pb.SystemAudioDiagnostics(**system_metrics)))
+
+        async def close_system_capture():
+            nonlocal system_session
+            for task in (system_reader, system_sender):
+                if task: task.cancel()
+            await asyncio.gather(*(task for task in (system_reader,system_sender) if task),return_exceptions=True)
+            if system_session:
+                from starlette.concurrency import run_in_threadpool
+                await run_in_threadpool(system_capture.close_streaming_loopback_session,system_session)
+                system_session = None
+
         async def close_stt():
-            nonlocal socket, receiver
+            nonlocal socket, receiver, stable_partial, endpoint_task
             if receiver and not receiver.done():
                 receiver.cancel()
             if receiver:
                 await asyncio.gather(receiver, return_exceptions=True)
+            if stable_partial:
+                stable_partial.cancel()
+                await asyncio.gather(stable_partial, return_exceptions=True)
+                stable_partial = None
+            if endpoint_task:
+                endpoint_task.cancel()
+                await asyncio.gather(endpoint_task, return_exceptions=True)
+                endpoint_task = None
             if socket:
                 try:
                     await asyncio.wait_for(socket.close(), timeout=2)
@@ -228,7 +438,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 await asyncio.gather(answer_task, return_exceptions=True)
 
         async def process_requests():
-            nonlocal auto_mode, manual_mode, manual_stopped, session_id, total_chunks, total_audio_bytes, last_request_id, stopping_stt, stt_chunks, stt_bytes, non_silent_chunks
+            nonlocal audio_source, cloud_context, auto_mode, manual_mode, manual_stopped, session_id, total_chunks, total_audio_bytes, last_request_id, stopping_stt, stt_chunks, stt_bytes, non_silent_chunks
             canceled = False
             try:
                 async for request in request_iterator:
@@ -238,6 +448,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         await emit(request.request_id, "pong", pb.Empty())
                     elif kind in ("cancel", "end_session"):
                         await stop_answers()
+                        await close_system_capture()
                         await close_stt()
                         await emit(request.request_id, "status", pb.Status(
                             code="canceled" if kind == "cancel" else "ended", message="Stream closed."))
@@ -256,10 +467,35 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                             await emit(request.request_id, "error", pb.ErrorEvent(code="manual_unavailable", message="Manual gRPC pipeline is unavailable."))
                             return
                         session_id = request.session_id
+                        start = request.start_session
+                        audio_source = start.source or 'microphone'
+                        if audio_source not in ('microphone','system') or (audio_source == 'system' and not auto_mode):
+                            await emit(request.request_id,'error',pb.ErrorEvent(code='unsupported_source',message='Audio source is unavailable.'))
+                            return
+                        if start.cloud_context_requested:
+                            if not settings.USE_GRPC_CLOUD_CONTEXT_PIPELINE or not auto_mode or start.source not in ("microphone", "system"):
+                                await emit(request.request_id, "error", pb.ErrorEvent(code="cloud_context_flag_disabled", message="Cloud realtime context unavailable."))
+                                return
+                            from app.grpc_cloud_context import GrpcCloudContext, CloudContextRejected
+                            from starlette.concurrency import run_in_threadpool
+                            await emit(request.request_id, "status", pb.Status(code="auth_verifying"))
+                            try:
+                                cloud_context = await asyncio.wait_for(run_in_threadpool(
+                                    GrpcCloudContext.authorize, start, context.invocation_metadata()), timeout=15)
+                            except Exception as exc:
+                                code = exc.code if isinstance(exc, CloudContextRejected) else "cloud_context_rejected"
+                                await emit(request.request_id, "error", pb.ErrorEvent(code=code, message="Cloud realtime context could not be verified. Use the authenticated fallback."))
+                                return
+                            for code in ("auth_verified", "cloud_session_verified", "cloud_context_loaded"):
+                                await emit(request.request_id, "status", pb.Status(code=code))
+                        elif start.active_session_id or start.selected_resume_id or start.selected_job_context_id:
+                            await emit(request.request_id, "error", pb.ErrorEvent(code="auth_context_required", message="Cloud context requires verified authentication."))
+                            return
                         if stt_enabled:
                             await open_stt()
+                        if audio_source == 'system': await open_system_capture()
                         if auto_mode:
-                            await emit(request.request_id, "status", pb.Status(code="auto_pipeline_ready", message="Experimental Auto pipeline ready."))
+                            await emit(request.request_id, "status", pb.Status(code="auto_pipeline_ready", message="Experimental Auto pipeline ready.", system_audio=pb.SystemAudioDiagnostics(active_audio_source=audio_source, transcript_source=audio_source, question_source=audio_source, answer_source_audio=audio_source)))
                         if manual_mode:
                             await emit(request.request_id, "status", pb.Status(code="manual_pipeline_ready", message="Experimental manual pipeline ready."))
                         await emit(request.request_id, "ready", pb.Empty())
@@ -277,6 +513,9 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                             await emit(request.request_id, "error", pb.ErrorEvent(code="manual_stopped", message="Start a new manual capture."))
                             return
                         if kind == "audio_chunk":
+                            if audio_source == 'system':
+                                await emit(request.request_id,'error',pb.ErrorEvent(code='unsupported_source',message='System capture owns the audio stream.'))
+                                return
                             chunk = request.audio_chunk
                             if not chunk.audio or len(chunk.audio) > 65536 or len(chunk.audio) % 2 or chunk.sample_rate != 16000 or chunk.channels != 1 or chunk.encoding != "linear16":
                                 await emit(request.request_id, "error", pb.ErrorEvent(
@@ -321,6 +560,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         await emit(request.request_id, "status", pb.Status(
                             code="audio_chunk_received" if kind == "audio_chunk" else "audio_stopped",
                             message=("Audio accepted; experimental answers enabled." if answer_enabled else "Audio accepted; no answer generation.") if stt_enabled else "Audio counted only; transcription and generation are not implemented.",
+                            question_intake=pb.QuestionIntake(**{**intake, **utterance.snapshot()}) if auto_mode else None,
                             total_chunks=total_chunks, total_audio_bytes=total_audio_bytes,
                             stt_chunks_forwarded=stt_chunks, stt_bytes_forwarded=stt_bytes,
                             stt_bridge_connected=bool(socket and provider_started.is_set()),
@@ -353,6 +593,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+            await close_system_capture()
             await close_stt()
             await stop_answers()
 

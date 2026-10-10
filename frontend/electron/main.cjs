@@ -404,6 +404,7 @@ const DESKTOP_AUTH_ENV_KEYS = new Set([
   'VITE_SAIIA_WEB_DASHBOARD_URL',
   'USE_GRPC_MANUAL_PIPELINE',
   'USE_GRPC_AUTO_PIPELINE',
+  'USE_GRPC_CLOUD_CONTEXT_PIPELINE',
   'ELECTRON_GRPC_REALTIME_ENABLED',
   'ELECTRON_GRPC_AUDIO_ENABLED',
   'ELECTRON_GRPC_REALTIME_HOST',
@@ -411,7 +412,7 @@ const DESKTOP_AUTH_ENV_KEYS = new Set([
 ])
 
 loadDesktopEnvFiles()
-const grpcRealtimeClient = new GrpcRealtimeClient()
+const grpcRealtimeClient = new GrpcRealtimeClient({ getCloudAuthorization: () => desktopAuthSessionManager.getGrpcCloudAuthorization(), getCloudAuthAvailable: () => Boolean(desktopAuthSessionManager?.isGrpcCloudAuthAvailable()) })
 
 function loadDesktopEnvFiles() {
   const repoRoot = path.resolve(__dirname, '../..')
@@ -2002,6 +2003,7 @@ ipcMain.handle('auth:start-login', async (event) => {
 
 ipcMain.handle('auth:logout', async (event) => {
   validateAuthIpc(event)
+  grpcRealtimeClient.close()
   const state = await desktopAuthSessionManager.logout()
   if (state.status === 'signed-out' || state.status === 'token-expired') {
     resetStartupFlow()

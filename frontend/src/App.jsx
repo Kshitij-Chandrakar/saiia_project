@@ -1513,9 +1513,16 @@ function MainWindow() {
       (!window.electronAPI?.connectGrpcAutoPipeline ? 'grpc_unavailable' : '')
     setGenerationDiagnostics(current => ({ ...current,
       autoGrpcFlagEnabled: Boolean(autoGrpcStatus?.autoPipelineEnabled),
+      autoGrpcCloudContextFlagEnabled: Boolean(autoGrpcStatus?.cloudContextPipelineEnabled),
+      cloudGrpcAuthStatus: reason === 'system_audio_selected' ? 'not_applicable' : autoGrpcStatus?.cloudAuthStatus || 'not_started',
+      cloudSessionVerified: autoGrpcStatus?.cloudAuthStatus === 'verified' && Boolean(autoGrpcStatus?.cloudSessionVerified),
+      cloudContextLoaded: autoGrpcStatus?.cloudAuthStatus === 'verified' && Boolean(autoGrpcStatus?.cloudSessionVerified && autoGrpcStatus?.cloudContextLoaded),
+      cloudAnswerSaveStatus: autoGrpcStatus?.cloudAnswerSaveStatus || 'n/a',
+      questionIntake: autoGrpcStatus?.questionIntake || {},
+      systemAudio: autoGrpcStatus?.systemAudio || {},
       autoGrpcEligible: !reason && !(current.autoPipeline === 'REST/WebSocket fallback' && ['grpc_unavailable', 'unknown'].includes(current.autoGrpcBlockedReason)),
       autoGrpcBlockedReason: reason || (current.autoPipeline === 'REST/WebSocket fallback' && ['grpc_unavailable', 'unknown'].includes(current.autoGrpcBlockedReason) ? current.autoGrpcBlockedReason : 'none'),
-      autoModePipeline: current.autoPipeline === 'gRPC realtime' ? 'grpc_realtime' :
+      autoModePipeline: reason === 'system_audio_selected' ? 'existing_default' : current.autoPipeline === 'gRPC realtime' ? 'grpc_realtime' :
         current.autoPipeline === 'REST/WebSocket fallback' ? 'fallback' : 'existing_default',
     }))
   }, [autoGrpcStatus, startupSessionConfig, autoModeSource, autoMode, audioSources, generationDiagnostics.authRequired, generationDiagnostics.activeSessionIdPresent, generationDiagnostics.activeSessionEnded, generationDiagnostics.autoPipeline])
@@ -4838,12 +4845,26 @@ function MainWindow() {
       try { grpcStatus = await window.electronAPI?.getGrpcRealtimeStatus?.() } catch { /* Preserve existing startup. */ }
       if (!autoModeRef.current || autoModeRunIdRef.current !== runId) return
       setAutoGrpcStatus(grpcStatus || null)
-      const blockedReason = getGrpcAutoBlockReason(grpcStatus, { ...startupSessionConfigRef.current, authRequired: generationDiagnostics.authRequired, activeSessionIdPresent: generationDiagnostics.activeSessionIdPresent, activeSessionEnded: generationDiagnostics.activeSessionEnded }, sourceMode) || (!window.electronAPI?.connectGrpcAutoPipeline ? 'grpc_unavailable' : '')
-      setGenerationDiagnostics(current => ({ ...current, autoPipeline: grpcStatus?.autoPipelineEnabled ? 'REST/WebSocket fallback' : 'existing default', autoGrpcEligible: !blockedReason, autoGrpcBlockedReason: blockedReason, manualGrpcRun: null }))
+      const blockedReason = getGrpcAutoBlockReason(grpcStatus ? { ...grpcStatus, cloudAuthStatus: 'not_started', cloudAuthAvailable: undefined } : grpcStatus, { ...startupSessionConfigRef.current, authRequired: generationDiagnostics.authRequired, activeSessionIdPresent: generationDiagnostics.activeSessionIdPresent, activeSessionEnded: generationDiagnostics.activeSessionEnded }, sourceMode) || (!window.electronAPI?.connectGrpcAutoPipeline ? 'grpc_unavailable' : '')
+      setGenerationDiagnostics(current => ({ ...current, autoPipeline: grpcStatus?.autoPipelineEnabled && blockedReason !== 'system_audio_selected' ? 'REST/WebSocket fallback' : 'existing default', autoGrpcEligible: !blockedReason, autoGrpcBlockedReason: blockedReason, manualGrpcRun: null }))
       if (!blockedReason && window.electronAPI?.connectGrpcAutoPipeline) {
         const isCurrent = () => autoModeRef.current && autoModeRunIdRef.current === runId
-        const session = await createGrpcAutoSession({ api: window.electronAPI, stream: streamRef.current, isCurrent,
-          canContinue: () => !getGrpcAutoBlockReason(grpcStatus, { ...startupSessionConfigRef.current, authRequired: generationDiagnostics.authRequired, activeSessionIdPresent: generationDiagnostics.activeSessionIdPresent, activeSessionEnded: generationDiagnostics.activeSessionEnded }, sourceMode),
+        const session = await createGrpcAutoSession({ api: window.electronAPI, stream: streamRef.current, source: sourceMode, isCurrent,
+          context: startupSessionConfigRef.current || {},
+          onCloudStatus: next => {
+            if (!isCurrent()) return
+            setAutoGrpcStatus(next)
+            if (sourceMode === 'system' && next.systemAudio) {
+              setSystemAudioRmsLevel(next.systemAudio.system_rms ?? null)
+              setSystemAudioPeakLevel(next.systemAudio.system_peak ?? null)
+              setSystemAudioInputSampleRate(next.systemAudio.system_sample_rate || null)
+              setSystemAudioSampleRate(next.systemAudio.system_target_rate || null)
+              setSystemAudioChunkBytesSent(next.backendBytesReceived || 0)
+              setSystemAudioDroppedSilenceChunks(next.systemAudio.system_dropped_chunks || 0)
+            }
+            if (next.cloudAnswerSaveStatus === 'failed') setError('Answer generated, but it could not be saved to the cloud session. No automatic regeneration was attempted.')
+          },
+          canContinue: () => !getGrpcAutoBlockReason(grpcStatus ? { ...grpcStatus, cloudAuthStatus: 'not_started', cloudAuthAvailable: undefined } : grpcStatus, { ...startupSessionConfigRef.current, authRequired: generationDiagnostics.authRequired, activeSessionIdPresent: generationDiagnostics.activeSessionIdPresent, activeSessionEnded: generationDiagnostics.activeSessionEnded }, sourceMode),
           onTranscript: text => { if (isCurrent()) setPartialAutoTranscript(text) },
           onPhase: phase => {
             if (!isCurrent()) return
@@ -4888,8 +4909,8 @@ function MainWindow() {
         if (session) {
           autoGrpcSessionRef.current = session
           setAutoStreamingConnected(true)
-          setMicStreamingState('listening')
-          setActiveAudioSource('microphone')
+          setMicStreamingState(sourceMode === 'microphone' ? 'listening' : 'off')
+          setActiveAudioSource(sourceMode)
           setAudioPipelineStatus('recording')
           setSttProvider('assemblyai_streaming')
           setGenerationDiagnostics(current => ({ ...current, autoPipeline: 'gRPC realtime', autoModePipeline: 'grpc_realtime', autoGrpcFlagEnabled: true, autoGrpcEligible: true, autoGrpcBlockedReason: 'none', provider_streaming: true }))

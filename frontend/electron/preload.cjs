@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 const electronAPI = {
   sendGrpcRealtimeAudioChunk: (data, metadata) => ipcRenderer.invoke('grpcRealtime:audioChunk', data, metadata),
   stopGrpcRealtimeAudio: () => ipcRenderer.invoke('grpcRealtime:manualStop'),
-  connectGrpcAutoPipeline: () => ipcRenderer.invoke('grpcRealtime:connectAuto'),
+  connectGrpcAutoPipeline: (context) => ipcRenderer.invoke('grpcRealtime:connectAuto', context),
   onGrpcAutoEvent: (callback) => {
     const listener = (_event, snapshot) => callback(snapshot)
     ipcRenderer.on('grpcRealtime:autoEvent', listener)

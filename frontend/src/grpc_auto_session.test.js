@@ -104,7 +104,7 @@ test('G7 watchdog polling never overlaps and Stop removes polling', async () => 
 })
 
 test('G7 precise eligibility priorities never detach cloud ownership', () => {
-  assert.equal(getGrpcAutoBlockReason(enabled,{activeSessionId:'owned',authRequired:true,selectedResumeId:'owned'},'system'),'cloud_session_active')
+  assert.equal(getGrpcAutoBlockReason(enabled,{activeSessionId:'owned',authRequired:true,selectedResumeId:'owned'},'system'),'system_audio_selected')
   assert.equal(getGrpcAutoBlockReason({...enabled,enabled:false},{activeSessionId:'owned'}),'cloud_session_active')
   assert.equal(getGrpcAutoBlockReason(enabled,{generationAuthRequired:true}),'auth_context_required')
   assert.equal(getGrpcAutoBlockReason(enabled,{},'both'),'system_audio_selected')
@@ -147,4 +147,32 @@ test('local test action suspends context in memory, restores it, and refuses act
   assert.equal(getGrpcAutoBlockReason(enabled, cloud), 'cloud_session_active')
   assert.equal(context.cloudTestSnapshotRef.current, null)
   assert.match(source, /onToggleLocalTestSession=\{import\.meta\.env\.DEV && autoGrpcStatus\?\.autoPipelineEnabled/)
+})
+
+test('G8 allows verified cloud Auto only behind both flags and keeps exact rejected reason', () => {
+  const cloud = { activeSessionId: 'session', authRequired: true, selectedResumeId: 'resume' }
+  assert.equal(getGrpcAutoBlockReason(enabled, cloud), 'cloud_session_active')
+  const status = { ...enabled, cloudContextPipelineEnabled: true, cloudAuthStatus: 'verified' }
+  assert.equal(getGrpcAutoBlockReason(status, cloud), '')
+  assert.equal(getGrpcAutoBlockReason({ ...status, cloudAuthAvailable: false }, cloud), 'auth_unavailable')
+  assert.equal(getGrpcAutoBlockReason({ ...status, cloudAuthStatus: 'failed', cloudBlockedReason: 'cloud_session_ended' }, cloud), 'cloud_session_ended')
+  assert.equal(getGrpcAutoBlockReason(status, cloud, 'system'), 'system_audio_selected')
+  assert.equal(getGrpcAutoBlockReason({ ...status, autoPipelineEnabled: false }, cloud), 'config_disabled')
+})
+
+test('system Auto intentionally stays on existing path even with cloud auth failure', async () => {
+  let connections = 0
+  const status = { ...enabled, systemAudioPipelineSupported: true, cloudContextPipelineEnabled: true,
+    cloudAuthStatus: 'failed', cloudBlockedReason: 'unknown' }
+  assert.equal(getGrpcAutoBlockReason(status, { activeSessionId: 'session', authRequired: true }, 'system'), 'system_audio_selected')
+  assert.equal(getGrpcAutoBlockReason(status, {}, 'both'), 'system_audio_selected')
+  const f = fixture({ connectGrpcAutoPipeline: async () => { connections++; return status } })
+  assert.equal(await createGrpcAutoSession({ ...f.options, source: 'system' }), null)
+  assert.equal(connections, 0)
+  assert.equal(f.counts().captures, 0)
+})
+test('intentional system routing diagnostics do not report cloud auth failure or fallback', () => {
+  const source = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
+  assert.match(source, /cloudGrpcAuthStatus: reason === 'system_audio_selected' \? 'not_applicable'/)
+  assert.match(source, /autoModePipeline: reason === 'system_audio_selected' \? 'existing_default'/)
 })

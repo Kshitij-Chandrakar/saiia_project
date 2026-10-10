@@ -7,6 +7,7 @@ load_dotenv()
 
 
 class Settings:
+    USE_GRPC_CLOUD_CONTEXT_PIPELINE = os.getenv("USE_GRPC_CLOUD_CONTEXT_PIPELINE", "false").strip().lower() == "true"
     USE_GRPC_AUTO_PIPELINE = os.getenv("USE_GRPC_AUTO_PIPELINE", "false").strip().lower() == "true"
     USE_GRPC_MANUAL_PIPELINE = os.getenv("USE_GRPC_MANUAL_PIPELINE", "false").strip().lower() == "true"
     GRPC_ANSWER_STREAM_ENABLED = os.getenv("GRPC_ANSWER_STREAM_ENABLED", "false").strip().lower() == "true"

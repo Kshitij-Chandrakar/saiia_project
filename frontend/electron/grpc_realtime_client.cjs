@@ -13,11 +13,20 @@ function createTransport(address, protoPath) {
 }
 
 class GrpcRealtimeClient {
-  constructor({ env = process.env, transportFactory = createTransport, timeoutMs = 3000,
+  constructor({ env = process.env, transportFactory = createTransport, timeoutMs = 3000, getCloudAuthorization = async () => { throw Error('auth_unavailable') }, getCloudAuthAvailable = () => false,
     protoPath = path.join(__dirname, 'protos', 'interview_realtime.proto') } = {}) {
     this.enabled = String(env.ELECTRON_GRPC_REALTIME_ENABLED || 'false').toLowerCase() === 'true'
     this.manualPipelineEnabled = String(env.USE_GRPC_MANUAL_PIPELINE || "false").toLowerCase() === "true"
     this.autoPipelineEnabled = String(env.USE_GRPC_AUTO_PIPELINE || 'false').toLowerCase() === 'true'
+    this.cloudContextPipelineEnabled = String(env.USE_GRPC_CLOUD_CONTEXT_PIPELINE || 'false').toLowerCase() === 'true'
+    this.getCloudAuthAvailable = getCloudAuthAvailable
+    this.getCloudAuthorization = getCloudAuthorization
+    this.cloudAuthStatus = 'not_started'
+    this.cloudSessionVerified = this.cloudContextLoaded = false
+    this.cloudAnswerSaveStatus = 'n/a'
+    this.cloudBlockedReason = 'none'
+    this.cloudStart = null
+    this.cloudAuthCurrent = null
     this.autoPipelineReady = false
     this.autoStatus = 'idle'
     this.autoEventVersion = 0
@@ -40,6 +49,8 @@ class GrpcRealtimeClient {
     this.sttChunksForwarded = this.sttBytesForwarded = this.sttCallbackCount = this.nonSilentChunks = 0
     this.sttBridgeConnected = false
     this.sttStatus = 'idle'
+    this.systemAudio = {}
+    this.questionIntake = {}
     this.pcmDiagnostics = {}
     this.answerStreamEnabled = false
     this.questionsDetectedCount = this.answerStartedCount = this.answerDeltaCount = this.answerCompletedCount = 0
@@ -59,7 +70,9 @@ class GrpcRealtimeClient {
   }
 
   getStatus() {
-    return { autoPipelineEnabled: this.autoPipelineEnabled, autoPipelineReady: this.autoPipelineReady, autoStatus: this.autoStatus, autoEventVersion: this.autoEventVersion, manualEventVersion: this.manualEventVersion, manualRun: this.manualRun, manualTimings: { ...this.manualTimings }, manualPipelineEnabled: this.manualPipelineEnabled, manualPipelineReady: this.manualPipelineReady, manualStatus: this.manualStatus, enabled: this.enabled, connectionStatus: this.status, lastPingResult: this.lastPing, lastErrorMessage: this.lastError,
+    return { systemAudioPipelineSupported: true, systemAudio: { ...this.systemAudio }, questionIntake: { ...this.questionIntake, low_audio_warning: this.sttStatus === 'mic_audio_too_low', mic_rms_level: this.pcmDiagnostics.rms || 0, mic_peak_level: this.pcmDiagnostics.peak || 0 }, cloudAuthAvailable: Boolean(this.getCloudAuthAvailable()), cloudContextPipelineEnabled: this.cloudContextPipelineEnabled, cloudAuthStatus: this.cloudAuthStatus,
+      cloudSessionVerified: this.cloudSessionVerified, cloudContextLoaded: this.cloudContextLoaded,
+      cloudAnswerSaveStatus: this.cloudAnswerSaveStatus, cloudBlockedReason: this.cloudBlockedReason, autoPipelineEnabled: this.autoPipelineEnabled, autoPipelineReady: this.autoPipelineReady, autoStatus: this.autoStatus, autoEventVersion: this.autoEventVersion, manualEventVersion: this.manualEventVersion, manualRun: this.manualRun, manualTimings: { ...this.manualTimings }, manualPipelineEnabled: this.manualPipelineEnabled, manualPipelineReady: this.manualPipelineReady, manualStatus: this.manualStatus, enabled: this.enabled, connectionStatus: this.status, lastPingResult: this.lastPing, lastErrorMessage: this.lastError,
       audioEnabled: this.enabled && this.audioEnabled, audioChunksSent: this.audioChunksSent, audioBytesSent: this.audioBytesSent,
       backendChunksReceived: this.backendChunksReceived, backendBytesReceived: this.backendBytesReceived, lastAudioStatus: this.lastAudioStatus, sttEnabled: this.sttEnabled,
       partialTranscriptCount: this.partialTranscriptCount, finalTranscriptCount: this.finalTranscriptCount,
@@ -89,10 +102,38 @@ class GrpcRealtimeClient {
         this.client = this.transportFactory(address, this.protoPath)
         await new Promise((resolve, reject) => this.client.waitForReady(Date.now() + this.timeoutMs, (error) => error ? reject(error) : resolve()))
         if (epoch !== this.epoch) return this.getStatus()
-        const stream = this.client.StreamInterview()
+        let metadata
+        if (this.cloudStart?.cloud_context_requested) {
+          this.cloudAuthStatus = 'verifying'
+          let timer
+          const auth = await Promise.race([this.getCloudAuthorization(), new Promise((_, reject) => {
+            timer = setTimeout(() => reject(Error('auth_unavailable')), 10000)
+          })]).finally(() => clearTimeout(timer))
+          if (epoch !== this.epoch || !auth.isCurrent()) return this.getStatus()
+          metadata = new (require('@grpc/grpc-js').Metadata)()
+          metadata.set('authorization', auth.authorization)
+          this.cloudAuthCurrent = auth.isCurrent
+        }
+        const stream = metadata ? this.client.StreamInterview(metadata) : this.client.StreamInterview()
         this.stream = stream
         stream.on('data', (event) => {
           if (epoch !== this.epoch) return
+          if (this.cloudAuthCurrent && !this.cloudAuthCurrent()) { this.fail(); this.cloudSessionVerified = this.cloudContextLoaded = false; this.cloudAuthStatus = 'failed'; this.cloudBlockedReason = 'auth_unavailable'; return }
+          if (event.status?.system_audio) {
+            this.systemAudio = { ...event.status.system_audio }
+            this.backendChunksReceived = Number(event.status.total_chunks || this.backendChunksReceived)
+            this.backendBytesReceived = Number(event.status.total_audio_bytes || this.backendBytesReceived)
+          }
+          if (event.status?.question_intake) this.questionIntake = { ...event.status.question_intake }
+          const code = event.status?.code
+          if (code === 'auth_verified') this.cloudAuthStatus = 'verified'
+          if (code === 'cloud_session_verified') this.cloudSessionVerified = true
+          if (code === 'cloud_context_loaded') this.cloudContextLoaded = true
+          if (['answer_save_pending', 'answer_saved', 'answer_save_failed'].includes(code)) this.cloudAnswerSaveStatus = { answer_save_pending: 'pending', answer_saved: 'saved', answer_save_failed: 'failed' }[code]
+          if (event.error && this.cloudStart?.cloud_context_requested) {
+            this.cloudSessionVerified = this.cloudContextLoaded = false; this.cloudAuthStatus = 'failed'
+            this.cloudBlockedReason = ['auth_unavailable', 'auth_invalid', 'token_expired', 'session_owner_mismatch', 'cloud_session_invalid', 'cloud_session_ended', 'selected_context_forbidden', 'cloud_context_flag_disabled', 'auth_context_required'].includes(event.error.code) ? event.error.code : 'unknown'
+          }
           if (event.provider === 'assemblyai_streaming') this.sttProvider = 'assemblyai_streaming'
           if (event.status?.code === 'auto_pipeline_ready') { this.autoPipelineReady = true; this.sttEnabled = true; this.answerStreamEnabled = true }
           if (['auto_cooldown', 'auto_listening'].includes(event.status?.code)) this.autoStatus = event.status.code
@@ -145,7 +186,7 @@ class GrpcRealtimeClient {
             // Only the bounded, whitelisted renderer snapshot crosses IPC, never raw provider events.
             try { this.onManualEvent(this.getStatus()) } catch { /* Polling remains a safe delivery fallback. */ }
           }
-          if (this.sessionMode === 'auto_pipeline' && (answerKind || transcriptKind || ['auto_cooldown', 'auto_listening'].includes(event.status?.code))) {
+          if (this.sessionMode === 'auto_pipeline' && (answerKind || transcriptKind || ['auto_cooldown', 'auto_listening', 'answer_save_pending', 'answer_saved', 'answer_save_failed', 'question_intake'].includes(event.status?.code))) {
             this.autoEventVersion++
             try { this.onAutoEvent(this.getStatus()) } catch { /* Health polling remains available. */ }
           }
@@ -169,6 +210,8 @@ class GrpcRealtimeClient {
         this.partialTranscriptCount = this.finalTranscriptCount = 0
         this.lastTranscriptEventType = this.sttProvider = 'none'
         this.currentTranscript = ''
+        this.systemAudio = {}
+        this.questionIntake = {}
         this.pcmDiagnostics = {}
         this.answerStreamEnabled = false
         this.questionsDetectedCount = this.answerStartedCount = this.answerDeltaCount = this.answerCompletedCount = 0
@@ -184,7 +227,7 @@ class GrpcRealtimeClient {
         await this.startSession()
         if (epoch === this.epoch) { this.status = 'connected'; this.lastError = '' }
       } catch {
-        if (epoch === this.epoch) this.fail()
+        if (epoch === this.epoch) { const cloud = Boolean(this.cloudStart?.cloud_context_requested); this.fail(); if (cloud) { this.cloudSessionVerified = this.cloudContextLoaded = false; this.cloudAuthStatus = 'failed'; if (this.cloudBlockedReason === 'none') this.cloudBlockedReason = 'auth_unavailable' } }
       }
       return this.getStatus()
     })()
@@ -198,7 +241,7 @@ class GrpcRealtimeClient {
     const requestId = randomUUID()
     return new Promise((resolve, reject) => {
       // Optional provider setup/drain has its own bounded budget beyond the transport handshake.
-      const deadlineMs = this.timeoutMs + (kind === 'ready' || this.sttEnabled ? 5000 : 0)
+      const deadlineMs = this.timeoutMs + (this.cloudStart?.cloud_context_requested && kind === 'ready' ? 20000 : kind === 'ready' || this.sttEnabled ? 5000 : 0)
       const timer = setTimeout(() => { this.pending.delete(requestId); reject(Error('timeout')) }, deadlineMs)
       this.pending.set(requestId, { kind, resolve, reject, timer })
       try { this.stream.write({ session_id: this.sessionId, request_id: requestId, ...payload }) }
@@ -206,13 +249,30 @@ class GrpcRealtimeClient {
     })
   }
 
-  async connectAuto() {
+  async connectAuto(context = {}) {
+    const keys = ['activeSessionId', 'selectedResumeId', 'jobContextId', 'source']
+    if (!context || typeof context !== 'object' || Object.keys(context).some(key => !keys.includes(key))) throw Error('invalid context')
+    for (const key of keys.slice(0, 3)) {
+      if (context[key] != null && (typeof context[key] !== 'string' || (context[key] && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(context[key])))) throw Error('invalid context')
+    }
+    if (context.source && !['microphone','system'].includes(context.source)) throw Error('invalid source')
+    const cloud = Boolean(context.activeSessionId || context.selectedResumeId || context.jobContextId)
+    if (cloud && (!this.cloudContextPipelineEnabled || !context.activeSessionId)) {
+      this.cloudBlockedReason = this.cloudContextPipelineEnabled ? 'cloud_session_invalid' : 'cloud_context_flag_disabled'
+      return this.getStatus()
+    }
     if (!this.enabled || !this.audioEnabled || !this.autoPipelineEnabled) return this.getStatus()
-    if (this.sessionMode === 'auto_pipeline' && ['connecting', 'connected'].includes(this.status)) return this.connect()
+    if (this.sessionMode === 'auto_pipeline' && ['connecting', 'connected'].includes(this.status) && this.cloudAuthStatus !== 'failed' && (this.cloudStart?.active_session_id || '') === (context.activeSessionId || '') && (this.cloudStart?.selected_resume_id || '') === (context.selectedResumeId || '') && (this.cloudStart?.selected_job_context_id || '') === (context.jobContextId || '') && (this.cloudStart?.source || 'microphone') === (context.source || 'microphone')) return this.connect()
     this.close()
     this.manualRun++
     this.autoEventVersion = 0
     this.autoStatus = 'idle'
+    this.cloudAuthStatus = 'not_started'
+    this.cloudSessionVerified = this.cloudContextLoaded = false
+    this.cloudAnswerSaveStatus = 'n/a'
+    this.cloudBlockedReason = 'none'
+    this.cloudStart = cloud ? { source: context.source || 'microphone', cloud_context_requested: true,
+      active_session_id: context.activeSessionId, selected_resume_id: context.selectedResumeId || '', selected_job_context_id: context.jobContextId || '' } : { source: context.source || 'microphone' }
     this.sessionMode = 'auto_pipeline'
     return this.connect()
   }
@@ -240,9 +300,10 @@ class GrpcRealtimeClient {
     return true
   }
 
-  startSession() { return this.request({ start_session: { mode: this.sessionMode } }, 'ready') }
+  startSession() { return this.request({ start_session: { mode: this.sessionMode, ...this.cloudStart } }, 'ready') }
 
   async sendAudioChunk(data, metadata = {}) {
+    if (this.cloudAuthCurrent && !this.cloudAuthCurrent()) { this.fail(); this.cloudSessionVerified = this.cloudContextLoaded = false; this.cloudAuthStatus = 'failed'; this.cloudBlockedReason = 'auth_unavailable'; return this.getStatus() }
     if (!this.enabled || !this.audioEnabled || this.status !== 'connected') return this.getStatus()
     if (!(data instanceof Uint8Array) && !(data instanceof ArrayBuffer)) {
       this.lastAudioStatus = 'invalid_chunk'; if (this.sttEnabled) this.sttStatus = 'invalid_pcm_format'; return this.getStatus()
@@ -330,6 +391,8 @@ class GrpcRealtimeClient {
   close() {
     this.epoch++
     const stream = this.stream, client = this.client
+    this.cloudStart = null
+    this.cloudAuthCurrent = null
     this.stream = null
     this.client = null
     this.sessionId = null
@@ -355,7 +418,7 @@ function registerGrpcRealtimeIpc(ipcMain, validateSender, client, onUiTiming = (
   client.onManualEvent = onManualEvent
   client.onAutoEvent = onAutoEvent
   for (const [channel, method] of [['getStatus', 'getStatus'], ['connect', 'connect'], ['connectManual', 'connectManual'], ['connectAuto', 'connectAuto'], ['ping', 'ping'], ['close', 'close']]) {
-    ipcMain.handle(`grpcRealtime:${channel}`, async (event) => { validateSender(event); return client[method]() })
+    ipcMain.handle(`grpcRealtime:${channel}`, async (event, context) => { validateSender(event); return method === 'connectAuto' ? client[method](context) : client[method]() })
   }
   ipcMain.handle('grpcRealtime:uiTiming', async (event, run, field, at) => { validateSender(event); if (client.recordUiTiming(run, field, at)) onUiTiming({ manualRun: client.manualRun, first_main_ui_update_at: client.manualTimings.first_main_ui_update_at, first_overlay_update_at: client.manualTimings.first_overlay_update_at }) })
   ipcMain.handle('grpcRealtime:audioChunk', async (event, data, metadata) => { validateSender(event); return client.sendAudioChunk(data, metadata) })

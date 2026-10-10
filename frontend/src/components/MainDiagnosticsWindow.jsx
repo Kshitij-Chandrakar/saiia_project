@@ -533,8 +533,17 @@ function LocalTestSessionControls({ localTestSession, activeSessionSuspended, re
       <MetaRow label="Generation auth required" value={String(Boolean(diagnostics?.authRequired))} />
       <MetaRow label="Local without saving" value={String(Boolean(diagnostics?.localWithoutSaving))} />
       <MetaRow label="Auto gRPC flag enabled" value={diagnostics?.autoGrpcFlagEnabled ? 'yes' : 'no'} />
+      <MetaRow label="Auto gRPC cloud context flag enabled" value={diagnostics?.autoGrpcCloudContextFlagEnabled ? 'yes' : 'no'} />
+      <MetaRow label="Cloud gRPC auth status" value={diagnostics?.cloudGrpcAuthStatus || 'not_started'} />
+      <MetaRow label="Cloud session verified" value={diagnostics?.cloudSessionVerified ? 'yes' : 'no'} />
+      <MetaRow label="Cloud context loaded" value={diagnostics?.cloudContextLoaded ? 'yes' : 'no'} />
+      <MetaRow label="Cloud answer save status" value={diagnostics?.cloudAnswerSaveStatus || 'n/a'} />
       <MetaRow label="Auto gRPC eligibility" value={diagnostics?.autoGrpcEligible ? 'yes' : 'no'} />
       <MetaRow label="Auto gRPC blocked reason" value={diagnostics?.autoGrpcBlockedReason || 'unknown'} />
+      {['final_transcripts_received', 'final_transcripts_ignored', 'last_ignored_transcript', 'last_ignored_reason', 'detection_attempts', 'detection_successes', 'detection_rejections', 'cooldown_rejections', 'dedupe_rejections', 'too_short_rejections', 'utterance_buffer_text', 'utterance_buffer_age_ms', 'merged_final_count', 'topic_prompt_accepted_count', 'buffered_transcripts_count', 'incomplete_final_wait_count', 'completed_from_buffer_count', 'last_buffer_action', 'last_detection_source', 'pending_question', 'pending_reason', 'low_audio_warning', 'mic_rms_level', 'mic_peak_level'].map(field =>
+        <MetaRow key={field} label={field} value={String(diagnostics?.questionIntake?.[field] ?? 'n/a')} />)}
+      {diagnostics?.questionIntake?.low_audio_warning && <p role="status" className="diagnostics-note">Mic input is too low. Move closer or increase microphone gain. Mic is low; question buffering is active.</p>}
+      {Object.entries(diagnostics?.systemAudio || {}).map(([field, value]) => <MetaRow key={field} label={field} value={String(value)} />)}
       <MetaRow label="Auto Mode pipeline" value={diagnostics?.autoModePipeline || 'existing_default'} />
     </div>
   </section>

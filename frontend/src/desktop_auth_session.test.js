@@ -2313,3 +2313,16 @@ test('ended session IDs retain same-user expiration but stay private during sign
     assert.deepEqual(ctx.manager.getSafeState().endedInterviewSessionIds, [])
   } finally { ctx.cleanup() }
 })
+
+test('desktop session creation rejects blank company before any upstream request', async () => {
+  const ctx = createManager()
+  try {
+    const before = ctx.calls.length
+    for (const company_name of ['', '   ', null]) {
+      const result = await ctx.manager.createInterviewSession({company_name}, {idempotencyKey:'mock-key'})
+      assert.equal(result.session, null)
+      assert.equal(result.error, 'Enter a company name.')
+    }
+    assert.equal(ctx.calls.length, before)
+  } finally { ctx.cleanup() }
+})

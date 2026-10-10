@@ -135,7 +135,7 @@ def test_adapter_reuses_detector_profile_and_stream_pipeline(monkeypatch, caplog
     async def exercise(): return [event async for event in grpc_answer_pipeline.stream_question_answer(question)]
     with caplog.at_level(logging.DEBUG): events = asyncio.run(exercise())
     if question.startswith('Thank'):
-        assert not calls and not events
+        assert not calls and events == [{'type': 'rejected', 'reason': 'not_question'}]
     else:
         assert calls[0].session_id is None and calls[0].selected_resume_id is None and calls[0].job_context_id is None
         assert calls[0].profile == {'name': 'Local candidate'}

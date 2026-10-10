@@ -6,21 +6,22 @@ import { readFileSync } from 'node:fs'
 const require = createRequire(import.meta.url)
 const { GrpcRealtimeClient, registerGrpcRealtimeIpc } = require('../electron/grpc_realtime_client.cjs')
 
-function fixture(env = {}, failure = false) {
+function fixture(env = {}, failure = false, getCloudAuthorization) {
   const stream = new EventEmitter(), writes = []
   let calls = 0, canceled = 0, closed = 0
+  const metadata = []
   stream.write = (event) => {
     writes.push(event)
     const kind = event.start_session ? 'ready' : event.ping ? 'pong' : 'status'
     queueMicrotask(() => stream.emit('data', { request_id: event.request_id, [kind]: kind === 'status' ? { code: event.audio_chunk ? 'audio_chunk_received' : 'audio_stopped', total_chunks: writes.filter(x => x.audio_chunk).length, total_audio_bytes: writes.filter(x => x.audio_chunk).reduce((n,x) => n + x.audio_chunk.audio.length, 0) } : {} }))
   }
   stream.cancel = () => { canceled++ }
-  const client = new GrpcRealtimeClient({ env, timeoutMs: 30, transportFactory: () => {
+  const client = new GrpcRealtimeClient({ env, getCloudAuthorization, timeoutMs: 30, transportFactory: () => {
     calls++
     return { waitForReady: (_, fn) => queueMicrotask(() => fn(failure ? Error('token private transcript audio secret') : null)),
-      StreamInterview: () => stream, close: () => { closed++ } }
+      StreamInterview: value => { metadata.push(value); return stream }, close: () => { closed++ } }
   } })
-  return { client, stream, writes, counts: () => ({ calls, canceled, closed }) }
+  return { client, stream, writes, metadata, counts: () => ({ calls, canceled, closed }) }
 }
 const enabled = { ELECTRON_GRPC_REALTIME_ENABLED: 'true' }
 
@@ -37,7 +38,7 @@ test('enabled loopback client handshakes, pings, and closes resources', async ()
   assert.equal(f.counts().calls, 1)
   assert.equal(f.client.getStatus().connectionStatus, 'connected')
   assert.equal((await f.client.ping()).lastPingResult, 'pong')
-  assert.deepEqual(Object.keys(f.client.getStatus()).sort(), ['autoPipelineEnabled', 'autoPipelineReady', 'autoStatus', 'autoEventVersion', 'manualEventVersion', 'manualRun', 'manualTimings', 'manualPipelineEnabled', 'manualPipelineReady', 'manualStatus', 'audioBytesSent', 'audioChunksSent', 'audioEnabled', 'backendBytesReceived', 'backendChunksReceived', 'connectionStatus', 'currentTranscript', 'enabled', 'finalTranscriptCount', 'lastAudioStatus', 'lastErrorMessage', 'lastPingResult', 'lastTranscriptEventType', 'partialTranscriptCount', 'pcmDiagnostics', 'sttBridgeConnected', 'sttBytesForwarded', 'sttCallbackCount', 'sttChunksForwarded', 'sttEnabled', 'sttProvider', 'sttStatus', 'nonSilentChunks', 'answerStreamEnabled', 'questionsDetectedCount', 'answerStartedCount', 'answerDeltaCount', 'answerCompletedCount', 'lastAnswerStatus', 'answerCategory', 'answerProvider', 'currentQuestion', 'currentAnswer'].sort())
+  assert.deepEqual(Object.keys(f.client.getStatus()).sort(), ['systemAudio', 'systemAudioPipelineSupported', 'questionIntake', 'cloudAuthAvailable', 'cloudContextPipelineEnabled', 'cloudAuthStatus', 'cloudSessionVerified', 'cloudContextLoaded', 'cloudAnswerSaveStatus', 'cloudBlockedReason', 'autoPipelineEnabled', 'autoPipelineReady', 'autoStatus', 'autoEventVersion', 'manualEventVersion', 'manualRun', 'manualTimings', 'manualPipelineEnabled', 'manualPipelineReady', 'manualStatus', 'audioBytesSent', 'audioChunksSent', 'audioEnabled', 'backendBytesReceived', 'backendChunksReceived', 'connectionStatus', 'currentTranscript', 'enabled', 'finalTranscriptCount', 'lastAudioStatus', 'lastErrorMessage', 'lastPingResult', 'lastTranscriptEventType', 'partialTranscriptCount', 'pcmDiagnostics', 'sttBridgeConnected', 'sttBytesForwarded', 'sttCallbackCount', 'sttChunksForwarded', 'sttEnabled', 'sttProvider', 'sttStatus', 'nonSilentChunks', 'answerStreamEnabled', 'questionsDetectedCount', 'answerStartedCount', 'answerDeltaCount', 'answerCompletedCount', 'lastAnswerStatus', 'answerCategory', 'answerProvider', 'currentQuestion', 'currentAnswer'].sort())
   await f.client.endSession()
   assert.deepEqual(f.counts(), { calls: 1, canceled: 1, closed: 1 })
   assert.equal(f.client.pending.size, 0)
@@ -181,12 +182,16 @@ test('G4 signed little-endian numeric levels detect silence, clipping, and inval
   assert.equal(d.durationMs, 100)
   assert.equal(d.backendEvenByteLength, true)
   assert.equal(f.client.getStatus().sttStatus, 'mic_audio_too_low')
+  assert.equal(f.client.getStatus().questionIntake.low_audio_warning, true)
+  assert.equal(f.client.getStatus().questionIntake.mic_rms_level, 0)
+  assert.equal(f.client.getStatus().questionIntake.mic_peak_level, 0)
   const pcm = new Uint8Array([0, 128, 0, 0, 255, 127])
   await f.client.sendAudioChunk(pcm)
   d = f.client.getStatus().pcmDiagnostics
   assert.equal(d.min, -32768)
   assert.equal(d.max, 32767)
   assert.equal(d.peak, 1)
+  assert.equal(f.client.getStatus().questionIntake.mic_peak_level, 1)
   assert.ok(d.rms > 0.8)
   assert.equal(d.clippedRatio, 2 / 3)
   assert.equal(d.zeroRatio, 1 / 3)
@@ -319,4 +324,85 @@ test('G7 Auto flag is independent, fresh handshake streams safe snapshots and PC
   assert.equal(f.client.getStatus().connectionStatus, 'connected')
   f.client.close()
   assert.equal(f.client.getStatus().autoPipelineReady, false)
+})
+
+test('G8 attaches main-owned metadata only to cloud Auto, with no token in status', async () => {
+  const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'true', USE_GRPC_CLOUD_CONTEXT_PIPELINE: 'true' }, false,
+    async () => ({ authorization: 'Bearer mock-private-token', isCurrent: () => true }))
+  await f.client.connectAuto({ activeSessionId: '11111111-1111-4111-8111-111111111111', source: 'microphone' })
+  assert.deepEqual(f.metadata[0].get('authorization'), ['Bearer mock-private-token'])
+  assert.equal(f.writes[0].start_session.cloud_context_requested, true)
+  for (const code of ['auth_verified', 'cloud_session_verified', 'cloud_context_loaded', 'answer_saved']) f.stream.emit('data', { status: { code } })
+  const status = f.client.getStatus()
+  assert.equal(status.cloudAuthStatus, 'verified')
+  assert.equal(status.cloudSessionVerified, true)
+  assert.equal(status.cloudContextLoaded, true)
+  assert.equal(status.cloudAnswerSaveStatus, 'saved')
+  assert.doesNotMatch(JSON.stringify(status), /mock-private-token|authorization|Bearer/)
+  f.stream.emit('data', { error: { code: 'cloud_session_invalid' } })
+  assert.equal(f.client.getStatus().cloudSessionVerified, false)
+  assert.equal(f.client.getStatus().cloudContextLoaded, false)
+  assert.equal(f.client.getStatus().cloudBlockedReason, 'cloud_session_invalid')
+  f.client.close()
+})
+test('G8 flag off and unavailable auth cannot create a cloud stream', async () => {
+  const args = { activeSessionId: '11111111-1111-4111-8111-111111111111', source: 'microphone' }
+  const off = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'true' })
+  assert.equal((await off.client.connectAuto(args)).cloudBlockedReason, 'cloud_context_flag_disabled')
+  assert.equal(off.counts().calls, 0)
+  const missing = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'true', USE_GRPC_CLOUD_CONTEXT_PIPELINE: 'true' })
+  const result = await missing.client.connectAuto(args)
+  assert.equal(result.cloudAuthStatus, 'failed')
+  assert.equal(result.cloudBlockedReason, 'auth_unavailable')
+  assert.equal(missing.metadata.length, 0)
+  await assert.rejects(missing.client.connectAuto({ ...args, token: 'untrusted' }), /invalid context/)
+})
+test('G8 expired or switched main auth cancels cloud audio forwarding', async () => {
+  let current = true
+  const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'true', USE_GRPC_CLOUD_CONTEXT_PIPELINE: 'true' }, false,
+    async () => ({ authorization: 'Bearer mock', isCurrent: () => current }))
+  await f.client.connectAuto({ activeSessionId: '11111111-1111-4111-8111-111111111111' })
+  current = false
+  await f.client.sendAudioChunk(new Uint8Array([1, 0]))
+  assert.equal(f.writes.filter(value => value.audio_chunk).length, 0)
+  assert.equal(f.client.getStatus().cloudBlockedReason, 'auth_unavailable')
+  assert.equal(f.counts().closed, 1)
+})
+
+test('trusted G8 authorization refuses signing-in and preserves current-account guard', async () => {
+  const { DesktopAuthSessionManager } = require('../electron/desktop_auth_session.cjs')
+  const method = DesktopAuthSessionManager.prototype.getGrpcCloudAuthorization
+  await assert.rejects(method.call({ status: 'signing-in', session: { access_token: 'private' } }), /auth_unavailable/)
+  let current = true
+  const account = { status: 'connected', session: { access_token: 'private' }, user: { user_id: 'owner' },
+    _hasFreshVerification: () => true, captureCloudRequestContext: () => ({}), _cloudRequestStillCurrent: () => current }
+  const auth = await method.call(account)
+  assert.equal(auth.isCurrent(), true)
+  current = false
+  assert.equal(auth.isCurrent(), false)
+})
+
+test('Auto intake counters and bounded last rejection reach renderer without affecting save state', async () => {
+  const f = fixture(enabled)
+  await f.client.connect()
+  f.stream.emit('data', { status: { code: 'question_intake', question_intake: {
+    final_transcripts_received: '4', final_transcripts_ignored: '1', last_ignored_reason: 'duplicate',
+    detection_attempts: '4', pending_question: true,
+  } } })
+  assert.equal(f.client.getStatus().questionIntake.last_ignored_reason, 'duplicate')
+  assert.equal(f.client.getStatus().questionIntake.pending_question, true)
+  assert.equal(f.client.getStatus().cloudAnswerSaveStatus, 'n/a')
+  f.client.close()
+})
+
+test('system timing and quality status reaches diagnostics without mic data or credentials', async () => {
+  const f = fixture(enabled)
+  await f.client.connect()
+  f.stream.emit('data', { status: { system_audio: { system_chunk_bytes: 3200, system_pcm_duration_ms: 100,
+    system_rms: .1, system_first_pcm_chunk_at: 1000, active_audio_source: 'system' }, total_chunks: '3', total_audio_bytes: '9600' } })
+  assert.equal(f.client.getStatus().systemAudio.system_chunk_bytes, 3200)
+  assert.equal(f.client.getStatus().backendChunksReceived, 3)
+  assert.equal(f.client.getStatus().audioChunksSent, 0)
+  assert.doesNotMatch(JSON.stringify(f.client.getStatus()), /Bearer|access_token|refresh_token/)
+  f.client.close()
 })
