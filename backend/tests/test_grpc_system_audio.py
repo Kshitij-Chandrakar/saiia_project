@@ -15,13 +15,18 @@ def test_system_gRPC_frames_shared_intake_metrics_and_cleanup(monkeypatch,caplog
     for name in ['USE_GRPC_AUTO_PIPELINE','GRPC_STT_ENABLED','GRPC_ANSWER_STREAM_ENABLED']: monkeypatch.setattr(grpc_server.settings,name,True)
     monkeypatch.setattr(grpc_server,'STABLE_PARTIAL_SECONDS',.02)
     sent,closed,opened=[],[],[]
+    reading = []
     class Capture:
         def open_streaming_loopback_session(self,**kwargs):
             opened.append(kwargs);return NS(sample_rate=48000)
         def read_streaming_pcm_chunk(self,session):
+            reading.append(True)
             time.sleep(.02)
+            reading.pop()
             return NS(pcm_bytes=b'\x00\x10'*1600,rms_level=.125,peak_level=.125,input_sample_rate=48000,resample_latency_ms=.3)
-        def close_streaming_loopback_session(self,session): closed.append('capture')
+        def close_streaming_loopback_session(self,session):
+            assert not reading, 'Device closed while native read was active'
+            closed.append('capture')
     class Socket:
         def __init__(self):self.events=asyncio.Queue()
         def __aiter__(self):return self

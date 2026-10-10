@@ -20,6 +20,8 @@ AUTO_COOLDOWN_SECONDS = 4.0
 STABLE_PARTIAL_SECONDS = 1.2
 
 
+_system_cleanup_tasks = set()
+
 class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
     async def StreamInterview(self, request_iterator, context):
         # Bounded output queue lets provider events arrive independently of audio input.
@@ -34,7 +36,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
         seen = deque(maxlen=64)
         seen_turns = deque(maxlen=64)
         audio_source = 'microphone'
-        system_capture = system_session = system_reader = system_sender = None
+        system_capture = system_session = system_reader = system_sender = read_future = None
         system_metrics = {}
         system_queue = asyncio.Queue(maxsize=3)
         cloud_context = None
@@ -339,10 +341,12 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             system_metrics.update(system_capture_started_at=time.time()*1000, active_audio_source='system', transcript_source='system', question_source='system', answer_source_audio='system', system_target_rate=16000, system_dropped_chunks=0)
             system_session = await run_in_threadpool(system_capture.open_streaming_loopback_session, target_sample_rate=16000, chunk_ms=100, debug_save_enabled=False)
             async def capture():
+                nonlocal read_future
                 tail = b''
                 try:
                     while True:
-                        chunk = await asyncio.wait_for(run_in_threadpool(system_capture.read_streaming_pcm_chunk, system_session),timeout=2)
+                        read_future = asyncio.ensure_future(run_in_threadpool(system_capture.read_streaming_pcm_chunk, system_session))
+                        chunk = await asyncio.wait_for(asyncio.shield(read_future), timeout=2)
                         now = time.time()*1000
                         if not system_metrics.get('system_first_pcm_chunk_at'): system_metrics['system_first_pcm_chunk_at'] = now
                         if chunk.rms_level > .005 and not system_metrics.get('system_first_non_silent_chunk_at'): system_metrics['system_first_non_silent_chunk_at'] = now
@@ -389,10 +393,24 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             for task in (system_reader, system_sender):
                 if task: task.cancel()
             await asyncio.gather(*(task for task in (system_reader,system_sender) if task),return_exceptions=True)
+            if read_future and not read_future.done():
+                await asyncio.wait({read_future}, timeout=1)
             if system_session:
                 from starlette.concurrency import run_in_threadpool
-                await run_in_threadpool(system_capture.close_streaming_loopback_session,system_session)
+                session = system_session
                 system_session = None
+                if read_future and not read_future.done():
+                    # A timed-out native read still owns the device. Defer close,
+                    # rather than race it or block RPC shutdown indefinitely.
+                    async def deferred_close():
+                        await asyncio.gather(read_future, return_exceptions=True)
+                        await run_in_threadpool(system_capture.close_streaming_loopback_session, session)
+                    task = asyncio.create_task(deferred_close())
+                    _system_cleanup_tasks.add(task)
+                    task.add_done_callback(_system_cleanup_tasks.discard)
+                else:
+                    if read_future: await asyncio.gather(read_future, return_exceptions=True)
+                    await run_in_threadpool(system_capture.close_streaming_loopback_session, session)
 
         async def close_stt():
             nonlocal socket, receiver, stable_partial, endpoint_task

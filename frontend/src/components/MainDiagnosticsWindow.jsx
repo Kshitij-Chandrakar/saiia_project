@@ -58,7 +58,7 @@ function GrpcRealtimeDiagnostics() {
       micTestRef.current?.close()
       setMicTesting(false)
     }
-    const safeErrors = ['Experimental answer unavailable. Retry.', 'No final speech transcript received. Check microphone input and retry.', 'Live STT unavailable. Check AssemblyAI configuration and retry.']
+    const safeErrors = ['Cloud session unavailable. Sign in again or restart the session.', 'Experimental answer unavailable. Retry.', 'No final speech transcript received. Check microphone input and retry.', 'Live STT unavailable. Check AssemblyAI configuration and retry.']
     setState({ ...value, lastErrorMessage: safeErrors.includes(value.lastErrorMessage) ? value.lastErrorMessage : value.lastErrorMessage ? 'Local gRPC diagnostics unavailable.' : '' })
   }
   function showUnavailable() {

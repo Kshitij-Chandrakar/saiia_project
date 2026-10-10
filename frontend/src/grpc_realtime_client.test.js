@@ -454,7 +454,7 @@ test('server unavailable before authorization is a transport failure', async () 
   assert.notEqual(result.cloudAuthStatus, 'failed')
   assert.equal(result.cloudBlockedReason, 'none')
 })
-test('fresh metadata reconnect preserves context before first audio', async () => {
+test('stale metadata fails before first audio without hidden reconnect', async () => {
   let first = true
   const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'true', USE_GRPC_CLOUD_CONTEXT_PIPELINE: 'true' }, false,
     async () => ({ authorization: 'Bearer mock', isCurrent: first ? () => false : () => true }))
@@ -463,9 +463,10 @@ test('fresh metadata reconnect preserves context before first audio', async () =
   await f.client.connectAuto(context)
   f.client.cloudAuthCurrent = () => false
   await f.client.sendAudioChunk(new Uint8Array([1, 0]))
-  assert.equal(f.counts().calls, 2)
-  assert.equal(f.writes.filter(e => e.start_session).at(-1).start_session.selected_resume_id, context.selectedResumeId)
-  assert.equal(f.client.getStatus().connectionStatus, 'connected')
+  assert.equal(f.counts().calls, 1)
+  assert.equal(f.client.getStatus().connectionStatus, 'error')
+  assert.equal(f.client.getStatus().cloudBlockedReason, 'auth_unavailable')
+  assert.equal(f.writes.filter(e => e.audio_chunk).length, 0)
   f.client.close()
 })
 
@@ -478,4 +479,15 @@ test('transport failure after metadata does not invalidate verified authorizatio
   assert.notEqual(result.cloudAuthStatus, 'failed')
   assert.equal(result.cloudBlockedReason, 'none')
   assert.equal(f.counts().closed, 1)
+})
+
+test('cloud errors use cloud guidance while provider errors keep STT guidance', async () => {
+  for (const code of ['token_expired', 'cloud_session_ended', 'session_owner_mismatch', 'stt_unavailable']) {
+    const f = fixture(enabled)
+    await f.client.connect()
+    f.stream.emit('data', { error: { code } })
+    assert.equal(f.client.getStatus().lastErrorMessage, code === 'stt_unavailable'
+      ? 'Live STT unavailable. Check AssemblyAI configuration and retry.'
+      : 'Cloud session unavailable. Sign in again or restart the session.')
+  }
 })

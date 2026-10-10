@@ -205,7 +205,9 @@ class GrpcRealtimeClient {
             if (emptyManual) this.manualStatus = 'manual_no_question'
             this.lastError = event.error.code === 'no_transcript'
               ? 'No final speech transcript received. Check microphone input and retry.'
-              : 'Live STT unavailable. Check AssemblyAI configuration and retry.'
+              : cloudAuthCodes.includes(event.error.code)
+                ? 'Cloud session unavailable. Sign in again or restart the session.'
+                : 'Live STT unavailable. Check AssemblyAI configuration and retry.'
           }
         })
         stream.on('error', () => { if (epoch === this.epoch) this.fail() })
@@ -308,17 +310,10 @@ class GrpcRealtimeClient {
 
   async sendAudioChunk(data, metadata = {}) {
     if (this.cloudAuthCurrent && !this.cloudAuthCurrent()) {
-      const start = this.cloudStart
-      const safeReconnect = this.sessionMode === 'auto_pipeline' && this.audioChunksSent === 0 && this.questionsDetectedCount === 0
       this.fail()
       this.cloudSessionVerified = this.cloudContextLoaded = false
       this.cloudAuthStatus = 'failed'
       this.cloudBlockedReason = 'auth_unavailable'
-      if (safeReconnect && start) {
-        const status = await this.connectAuto({ activeSessionId: start.active_session_id || '',
-          selectedResumeId: start.selected_resume_id || '', jobContextId: start.selected_job_context_id || '', source: start.source })
-        if (status.connectionStatus === 'connected') return this.sendAudioChunk(data, metadata)
-      }
       return this.getStatus()
     }
     if (!this.enabled || !this.audioEnabled || this.status !== 'connected') return this.getStatus()
