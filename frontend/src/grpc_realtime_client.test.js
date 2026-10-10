@@ -373,12 +373,11 @@ test('trusted G8 authorization refuses signing-in and preserves current-account 
   const { DesktopAuthSessionManager } = require('../electron/desktop_auth_session.cjs')
   const method = DesktopAuthSessionManager.prototype.getGrpcCloudAuthorization
   await assert.rejects(method.call({ status: 'signing-in', session: { access_token: 'private' } }), /auth_unavailable/)
-  let current = true
   const account = { status: 'connected', session: { access_token: 'private' }, user: { user_id: 'owner' },
-    _hasFreshVerification: () => true, captureCloudRequestContext: () => ({}), _cloudRequestStillCurrent: () => current }
+    _hasFreshVerification: () => true }
   const auth = await method.call(account)
   assert.equal(auth.isCurrent(), true)
-  current = false
+  account.user.user_id = 'changed-owner'
   assert.equal(auth.isCurrent(), false)
 })
 
@@ -405,4 +404,44 @@ test('system timing and quality status reaches diagnostics without mic data or c
   assert.equal(f.client.getStatus().audioChunksSent, 0)
   assert.doesNotMatch(JSON.stringify(f.client.getStatus()), /Bearer|access_token|refresh_token/)
   f.client.close()
+})
+
+test('routine reverification retains main-only cloud authorization until token, user or connection changes', async () => {
+  const { DesktopAuthSessionManager, AUTH_STATUSES } = require('../electron/desktop_auth_session.cjs')
+  const manager = Object.create(DesktopAuthSessionManager.prototype)
+  manager.status = AUTH_STATUSES.CONNECTED
+  manager.session = { access_token: 'mock-private' }; manager.user = { user_id: 'owner' }
+  manager._hasFreshVerification = () => true
+  const auth = await manager.getGrpcCloudAuthorization()
+  manager.session_generation = 999
+  assert.equal(auth.isCurrent(), true)
+  manager.session.access_token = 'changed'; assert.equal(auth.isCurrent(), false)
+  manager.session.access_token = 'mock-private'; manager.user.user_id = 'other'; assert.equal(auth.isCurrent(), false)
+  manager.user.user_id = 'owner'; manager.status = AUTH_STATUSES.SIGNED_OUT; assert.equal(auth.isCurrent(), false)
+})
+test('stale or missing authorization closes connecting transport safely', async () => {
+  for (const auth of [undefined, { isCurrent: () => false }]) {
+    const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'true', USE_GRPC_CLOUD_CONTEXT_PIPELINE: 'true' }, false, async () => auth)
+    const result = await f.client.connectAuto({ activeSessionId: '11111111-1111-4111-8111-111111111111' })
+    assert.equal(result.connectionStatus, 'error'); assert.equal(result.cloudAuthStatus, 'failed')
+    assert.equal(result.cloudBlockedReason, 'auth_unavailable'); assert.equal(f.counts().closed, 1)
+    assert.equal(f.metadata.length, 0)
+  }
+})
+test('non-auth provider error preserves verified cloud diagnostics', async () => {
+  const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'true', USE_GRPC_CLOUD_CONTEXT_PIPELINE: 'true' }, false, async () => ({ authorization: 'Bearer mock', isCurrent: () => true }))
+  await f.client.connectAuto({ activeSessionId: '11111111-1111-4111-8111-111111111111' })
+  for (const code of ['auth_verified', 'cloud_session_verified', 'cloud_context_loaded']) f.stream.emit('data', { status: { code } })
+  f.stream.emit('data', { error: { code: 'stt_unavailable' } })
+  const status = f.client.getStatus()
+  assert.equal(status.cloudAuthStatus, 'verified'); assert.equal(status.cloudSessionVerified, true)
+  assert.equal(status.cloudContextLoaded, true); assert.equal(status.cloudBlockedReason, 'none')
+  f.client.close()
+})
+test('visible Auto status uses safe separators', () => {
+  const app = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
+  const diagnostics = readFileSync(new URL('./components/MainDiagnosticsWindow.jsx', import.meta.url), 'utf8')
+  assert.ok(app.includes('Auto Mode - gRPC realtime -'))
+  assert.ok(!diagnostics.includes('16000 Hz ? mono ?'))
+  assert.ok(!diagnostics.includes('Auto gRPC ? local test session'))
 })

@@ -1077,9 +1077,11 @@ class DesktopAuthSessionManager {
     if (this.status !== AUTH_STATUSES.CONNECTED || !this.session?.access_token) throw Error('auth_unavailable')
     if (!this._hasFreshVerification(this.session)) await this._verifyAndBootstrap(this.session)
     if (this.status !== AUTH_STATUSES.CONNECTED || !this.session?.access_token || !this.user?.user_id) throw Error('auth_unavailable')
-    const captured = this.captureCloudRequestContext()
-    return { authorization: `Bearer ${this.session.access_token}`,
-      isCurrent: () => this.status === AUTH_STATUSES.CONNECTED && this._cloudRequestStillCurrent(captured) }
+    const token = this.session.access_token
+    const userId = this.user.user_id
+    return { authorization: `Bearer ${token}`,
+      isCurrent: () => this.status === AUTH_STATUSES.CONNECTED &&
+        this.session?.access_token === token && this.user?.user_id === userId }
   }
 
   async generateAnswer(body) {

@@ -1,0 +1,16 @@
+.not-found {
+  box-sizing: border-box;
+  min-height: 100vh;
+  display: grid;
+  place-content: center;
+  gap: 0.75rem;
+  text-align: center;
+  padding: 2rem;
+  overflow-wrap: anywhere;
+}
+.not-found h1, .not-found p { margin: 0; }
+.not-found button { font: inherit; cursor: pointer; }
+.not-found a:focus-visible, .not-found button:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 3px;
+}

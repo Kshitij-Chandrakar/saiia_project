@@ -109,7 +109,8 @@ class GrpcRealtimeClient {
           const auth = await Promise.race([this.getCloudAuthorization(), new Promise((_, reject) => {
             timer = setTimeout(() => reject(Error('auth_unavailable')), 10000)
           })]).finally(() => clearTimeout(timer))
-          if (epoch !== this.epoch || !auth.isCurrent()) return this.getStatus()
+          if (epoch !== this.epoch) return this.getStatus()
+          if (!auth?.isCurrent?.()) throw Error('auth_unavailable')
           metadata = new (require('@grpc/grpc-js').Metadata)()
           metadata.set('authorization', auth.authorization)
           this.cloudAuthCurrent = auth.isCurrent
@@ -130,9 +131,11 @@ class GrpcRealtimeClient {
           if (code === 'cloud_session_verified') this.cloudSessionVerified = true
           if (code === 'cloud_context_loaded') this.cloudContextLoaded = true
           if (['answer_save_pending', 'answer_saved', 'answer_save_failed'].includes(code)) this.cloudAnswerSaveStatus = { answer_save_pending: 'pending', answer_saved: 'saved', answer_save_failed: 'failed' }[code]
-          if (event.error && this.cloudStart?.cloud_context_requested) {
-            this.cloudSessionVerified = this.cloudContextLoaded = false; this.cloudAuthStatus = 'failed'
-            this.cloudBlockedReason = ['auth_unavailable', 'auth_invalid', 'token_expired', 'session_owner_mismatch', 'cloud_session_invalid', 'cloud_session_ended', 'selected_context_forbidden', 'cloud_context_flag_disabled', 'auth_context_required'].includes(event.error.code) ? event.error.code : 'unknown'
+          const cloudAuthCodes = ['auth_unavailable', 'auth_invalid', 'token_expired', 'session_owner_mismatch', 'cloud_session_invalid', 'cloud_session_ended', 'selected_context_forbidden', 'cloud_context_flag_disabled', 'auth_context_required']
+          if (this.cloudStart?.cloud_context_requested && cloudAuthCodes.includes(event.error?.code)) {
+            this.cloudSessionVerified = this.cloudContextLoaded = false
+            this.cloudAuthStatus = 'failed'
+            this.cloudBlockedReason = event.error.code
           }
           if (event.provider === 'assemblyai_streaming') this.sttProvider = 'assemblyai_streaming'
           if (event.status?.code === 'auto_pipeline_ready') { this.autoPipelineReady = true; this.sttEnabled = true; this.answerStreamEnabled = true }

@@ -146,7 +146,7 @@ function GrpcRealtimeDiagnostics() {
     <MetaRow label="Non-silent chunks" value={state.nonSilentChunks || 0} />
     <MetaRow label="Frontend sample rate" value={state.pcmDiagnostics?.inputSampleRate || 'unknown'} />
     <MetaRow label="Frontend channels" value={state.pcmDiagnostics?.inputChannelCount || 'unknown'} />
-    <MetaRow label="PCM output" value="16000 Hz ? mono ? signed Int16 LE" />
+    <MetaRow label="PCM output" value="16000 Hz · mono · signed Int16 LE" />
     {['byteLength', 'durationMs', 'cadenceMs', 'min', 'max', 'rms', 'peak', 'clippedRatio', 'zeroRatio', 'evenByteLength', 'backendEvenByteLength'].map(key =>
       <MetaRow key={key} label={`PCM ${key}`} value={typeof state.pcmDiagnostics?.[key] === 'number' ? Number(state.pcmDiagnostics[key].toFixed(6)) : String(state.pcmDiagnostics?.[key] ?? 'unknown')} />)}
     <MetaRow label="STT status" value={state.sttStatus || 'idle'} />
@@ -520,7 +520,7 @@ function extractCodeBlock(text) {
 
 function LocalTestSessionControls({ localTestSession, activeSessionSuspended, reason, busy, onToggle, diagnostics }) {
   return <section className="glass-card" aria-label="Auto gRPC local test session">
-    <p className="section-title">Auto gRPC ? local test session</p>
+    <p className="section-title">Auto gRPC · local test session</p>
     <div className="toolbar-actions">
       <button className="btn btn-secondary" type="button" disabled={Boolean(reason || busy || localTestSession)} onClick={onToggle}>Use local test session</button>
       <button className="btn btn-secondary" type="button" disabled={Boolean(reason || busy || !localTestSession)} onClick={onToggle}>Restore cloud session</button>

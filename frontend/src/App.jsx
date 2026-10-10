@@ -4878,7 +4878,7 @@ function MainWindow() {
             setAnswerPipelineState(phase === 'generating' ? 'generating' : phase === 'cooldown' ? 'cooldown' : 'idle')
             setAutoProcessing(phase === 'generating')
             setGenerationStarted(phase === 'generating')
-            setStatus(`Auto Mode ? gRPC realtime ? ${phase === 'cooldown' ? 'Cooldown, still listening...' : phase === 'generating' ? 'Generating answer...' : 'Listening...'}`)
+            setStatus(`Auto Mode - gRPC realtime - ${phase === 'cooldown' ? 'Cooldown, still listening...' : phase === 'generating' ? 'Generating answer...' : 'Listening...'}`)
             if (phase === 'cooldown') startAutoCooldown(runId)
           },
           onAnswer: entry => {
