@@ -291,8 +291,9 @@ const STARTUP_WINDOW_LAYOUTS = Object.freeze({
   auth: Object.freeze({ width: 504, height: 462, minWidth: 426, minHeight: 384 }),
   home: Object.freeze({ width: 428, height: 462, minWidth: 428, minHeight: 384 }),
   history: Object.freeze({ width: 428, height: 514, minWidth: 428, minHeight: 384 }),
-  setup: Object.freeze({ width: 504, height: 462, minWidth: 426, minHeight: 384 }),
+  setup: Object.freeze({ width: 421, height: 484, minWidth: 421, minHeight: 484 }),
 })
+let startupWindowView = 'login'
 const STARTUP_MASCOT_LAYOUT = Object.freeze({ width: 144, height: 144, minWidth: 144, minHeight: 144 })
 const startupWindowController = createStartupWindowController({ screen, mascotLayout: STARTUP_MASCOT_LAYOUT })
 
@@ -401,13 +402,17 @@ const DESKTOP_AUTH_ENV_KEYS = new Set([
   'VITE_SAIIA_WEB_AUTH_URL',
   'SAIIA_WEB_DASHBOARD_URL',
   'VITE_SAIIA_WEB_DASHBOARD_URL',
+  'USE_GRPC_MANUAL_PIPELINE',
+  'USE_GRPC_AUTO_PIPELINE',
+  'USE_GRPC_CLOUD_CONTEXT_PIPELINE',
   'ELECTRON_GRPC_REALTIME_ENABLED',
+  'ELECTRON_GRPC_AUDIO_ENABLED',
   'ELECTRON_GRPC_REALTIME_HOST',
   'ELECTRON_GRPC_REALTIME_PORT',
 ])
 
 loadDesktopEnvFiles()
-const grpcRealtimeClient = new GrpcRealtimeClient()
+const grpcRealtimeClient = new GrpcRealtimeClient({ getCloudAuthorization: () => desktopAuthSessionManager.getGrpcCloudAuthorization(), getCloudAuthAvailable: () => Boolean(desktopAuthSessionManager?.isGrpcCloudAuthAvailable()) })
 
 function loadDesktopEnvFiles() {
   const repoRoot = path.resolve(__dirname, '../..')
@@ -1295,7 +1300,11 @@ function collapseStartupWindow() {
 }
 
 function restoreStartupWindow() {
-  return startupWindowController.restore(mainWindow)
+  const result = startupWindowController.restore(mainWindow)
+  if (result.ok && startupWindowView === 'setup' && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setContentSize(STARTUP_WINDOW_LAYOUTS.setup.width, STARTUP_WINDOW_LAYOUTS.setup.height)
+  }
+  return result
 }
 
 function resizeStartupWindow(view) {
@@ -1303,6 +1312,7 @@ function resizeStartupWindow(view) {
     return { ok: false, reason: 'invalid-startup-view' }
   }
   const layout = STARTUP_WINDOW_LAYOUTS[view]
+  startupWindowView = view
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (startupWindowController.isCollapsed()) {
       const restoreResult = restoreStartupWindow()
@@ -1310,8 +1320,19 @@ function resizeStartupWindow(view) {
         return restoreResult
       }
     }
-    mainWindow.setMinimumSize(layout.minWidth, layout.minHeight)
-    mainWindow.setSize(layout.width, layout.height)
+    if (view === 'setup') {
+      // Minimum bounds use native size; the Figma frame specifies content size.
+      const [outerWidth, outerHeight] = mainWindow.getSize()
+      const [contentWidth, contentHeight] = mainWindow.getContentSize()
+      mainWindow.setMinimumSize(
+        Math.max(1, layout.minWidth + outerWidth - contentWidth),
+        Math.max(1, layout.minHeight + outerHeight - contentHeight),
+      )
+      mainWindow.setContentSize(layout.width, layout.height)
+    } else {
+      mainWindow.setMinimumSize(layout.minWidth, layout.minHeight)
+      mainWindow.setSize(layout.width, layout.height)
+    }
     mainWindow.center()
   }
   return { ok: true, view }
@@ -1962,7 +1983,13 @@ function validateTrustedRendererIpc(event) {
   throw errors[0] || new Error('Desktop IPC is not ready.')
 }
 
-registerGrpcRealtimeIpc(ipcMain, validateTrustedRendererIpc, grpcRealtimeClient)
+registerGrpcRealtimeIpc(ipcMain, validateTrustedRendererIpc, grpcRealtimeClient, timing => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('grpcRealtime:uiTiming', timing)
+}, snapshot => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('grpcRealtime:manualEvent', snapshot)
+}, snapshot => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('grpcRealtime:autoEvent', snapshot)
+})
 
 ipcMain.handle('auth:get-state', (event) => {
   validateTrustedRendererIpc(event)
@@ -1976,6 +2003,7 @@ ipcMain.handle('auth:start-login', async (event) => {
 
 ipcMain.handle('auth:logout', async (event) => {
   validateAuthIpc(event)
+  grpcRealtimeClient.close()
   const state = await desktopAuthSessionManager.logout()
   if (state.status === 'signed-out' || state.status === 'token-expired') {
     resetStartupFlow()

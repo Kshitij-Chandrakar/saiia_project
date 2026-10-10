@@ -484,3 +484,205 @@ IPC exposes only `grpcRealtime:getStatus`, `grpcRealtime:connect`, `grpcRealtime
 and `grpcRealtime:close`, with existing trusted-renderer validation. Current limits are
 handshake/ping only: no microphone/system audio, STT, answer generation, provider migration,
 or Electron authentication changes.
+
+### Experimental gRPC microphone transport (G3)
+
+G3 extends G2 with an explicit diagnostics-only microphone test. It is disabled by default:
+`ELECTRON_GRPC_AUDIO_ENABLED=false`. To test, start the standalone G1/G3 server using the
+command above, keep FastAPI running separately as usual, and launch Electron with:
+
+```powershell
+cd frontend
+$env:ELECTRON_GRPC_REALTIME_ENABLED = "true"
+$env:ELECTRON_GRPC_AUDIO_ENABLED = "true"
+$env:ELECTRON_GRPC_REALTIME_HOST = "127.0.0.1"
+$env:ELECTRON_GRPC_REALTIME_PORT = "50051"
+npm run electron:dev
+```
+
+In runtime diagnostics, Connect, verify Ping, then click **Start experimental gRPC mic test**.
+Grant microphone permission. **Stop gRPC mic test** closes local capture and sends `manual_stop`.
+Close/unmount/disconnection also releases microphone tracks and Web Audio resources.
+Do not run the diagnostic test concurrently with normal microphone capture.
+
+The test reuses the existing mono 16 kHz linear16 PCM capture/conversion. Main validates chunks
+(up to 64 KiB, even byte length) and accepts them only with both flags enabled and a connected
+session. Only one chunk is awaiting acknowledgement; incoming chunks are skipped under
+backpressure instead of accumulating audio. Counts reflect acknowledged chunks/bytes,
+not all microphone samples. Server totals are scoped to each gRPC stream. Polling shows
+sent/received counts and fixed safe status/error messages. No audio is logged or written to disk.
+G3 adds narrowly validated `grpcRealtime:audioChunk` and `grpcRealtime:manualStop` IPC;
+it does not expose arbitrary gRPC messages or credentials.
+
+Audio reaches the backend for validation/counting only. There is no STT, answer generation,
+system audio, provider migration, or replacement of REST/WebSocket/manual/auto flows.
+Sarvam and AssemblyAI integrations are unchanged. Regenerate Python bindings and run
+`npm run grpc:sync-proto` after changing the source proto.
+
+### G4 experimental gRPC microphone STT
+
+Disabled by default (`GRPC_STT_ENABLED=false`). Start the standalone backend with
+`GRPC_REALTIME_ENABLED=true` and `GRPC_STT_ENABLED=true`, using
+`python -m app.grpc_server --host 127.0.0.1 --port 50051` from `backend`.
+Configure the existing backend-only `ASSEMBLYAI_API_KEY`. This opt-in test sends
+microphone PCM to AssemblyAI through the existing streaming bridge.
+
+Enable `ELECTRON_GRPC_REALTIME_ENABLED=true` and `ELECTRON_GRPC_AUDIO_ENABLED=true`
+for Electron. Connect in Experimental gRPC diagnostics, then start the mic test.
+The panel shows provider, partial/final counts, and only the current transcript.
+Stop sends ForceEndpoint/Terminate, drains for up to 1.5 seconds, and closes the
+provider connection. A later mic test starts a fresh provider connection.
+
+Audio is limited to 64 KiB per chunk; output buffering is bounded. Transcripts
+are carried in transcript events and the current preview only, never logged.
+No answer generation or system audio is connected. REST/WebSocket remains the
+production path; its provider routing and defaults are unchanged.
+
+### G5 experimental local gRPC answer streaming
+
+Disabled by default (`GRPC_ANSWER_STREAM_ENABLED=false`). To test locally, run
+`python -m app.grpc_server --host 127.0.0.1 --port 50051` from `backend` with
+`GRPC_REALTIME_ENABLED=true`, `GRPC_STT_ENABLED=true`, and
+`GRPC_ANSWER_STREAM_ENABLED=true`. Keep the normal FastAPI backend running
+separately. Start Electron with `ELECTRON_GRPC_REALTIME_ENABLED=true` and
+`ELECTRON_GRPC_AUDIO_ENABLED=true`, then Connect/Ping/Start mic test in diagnostics.
+
+Final turns use the existing question detector/classifier and `/generate/stream`
+pipeline, including its answer planner, grounding and sanitization. True answer
+streaming must remain enabled in the existing generation configuration. The
+experimental local mode (`USE_GRPC_CLOUD_CONTEXT_PIPELINE=false`) accepts no
+cloud resume/job/session IDs or auth tokens;
+cloud-owned contexts require the authenticated REST path. Its transport session
+ID is not an interview-session ID. Local profile loading and resume/job context use existing
+pipeline behavior; no personal profile is fabricated or copied from cloud state.
+
+Questions are processed serially with a four-item queue and a 90-second deadline.
+A bounded 64-entry fingerprint/turn cache prevents repeated final revisions from
+generating duplicate answers. Stop drains STT and leaves the connection open for
+answer deltas. Close/cancel/end cancels in-flight generation. Current question and
+answer previews appear only in experimental diagnostics; no production overlay
+routing is added. REST/WebSocket remains the default. No audio, prompts, resume
+chunks, transcripts or answers are logged by the diagnostic answer pipeline.
+
+
+### G6: experimental manual interview pipeline (local only)
+
+`USE_GRPC_MANUAL_PIPELINE=false` is the default. REST/WebSocket remains the
+production manual transport. G6 reuses the G4 microphone PCM capture and G5
+question/answer pipeline only after explicit opt-in on **both** processes.
+It does not migrate providers or enable gRPC for auto mode or system audio.
+
+Run these commands in separate PowerShell terminals:
+
+```powershell
+# Terminal 1: experimental backend
+cd backend
+$env:GRPC_REALTIME_ENABLED = "true"
+$env:GRPC_STT_ENABLED = "true"
+$env:GRPC_ANSWER_STREAM_ENABLED = "true"
+$env:USE_GRPC_MANUAL_PIPELINE = "true"
+python -m app.grpc_server --host 127.0.0.1 --port 50051
+```
+
+```powershell
+# Terminal 2: existing production APIs (needed for fallback)
+cd backend
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+```powershell
+# Terminal 3: Electron
+cd frontend
+$env:ELECTRON_GRPC_REALTIME_ENABLED = "true"
+$env:ELECTRON_GRPC_AUDIO_ENABLED = "true"
+$env:USE_GRPC_MANUAL_PIPELINE = "true"
+$env:ELECTRON_GRPC_REALTIME_HOST = "127.0.0.1"
+$env:ELECTRON_GRPC_REALTIME_PORT = "50051"
+npm run electron:dev
+```
+
+The flag explicitly opts manual microphone capture into AssemblyAI live STT.
+Start opens a fresh local stream and shows live transcript preview. Stop drains
+PCM/STT, freezes revised final turns, detects one question, and streams one answer
+into the existing Answer/history/overlay state. No answers are generated while
+listening in this manual session mode. Diagnostics shows **Manual transport**.
+
+If connection/setup fails, the existing configured manual flow starts instead.
+If the live connection fails while listening, the existing batch recorder is
+retained and `/transcribe/` plus the existing generator runs once on Stop.
+If Stop has already been dispatched, an uncertain disconnect or generation error
+shows a safe retry message; it does **not** retry generation through REST because
+the server could already be generating. Cancel/close releases capture and stream.
+
+With `USE_GRPC_CLOUD_CONTEXT_PIPELINE=false`, G5 does not carry authenticated cloud context. Active cloud interview sessions,
+selected resumes/jobs, and configured role/company/job context stay on the
+existing authenticated REST/WebSocket path, including when selected during
+capture. G6 never removes those resource IDs or bypasses authentication.
+
+Local retest: use normal manual mode, Start, speak a question, then Stop. Confirm
+live Question preview, progressive Answer, one history entry, existing overlay
+behavior, and `Manual transport = grpc`. Stop the gRPC server and repeat: connection
+failure should use the configured existing flow; a disconnect while listening
+should retain the batch backup. Physical microphone/overlay behavior still needs
+verification on the target Electron device. No audio is persisted by gRPC and no
+raw speech, answer, prompt, token, or key is logged by this integration.
+
+
+### G7: experimental Auto Mode over gRPC (local only)
+
+`USE_GRPC_AUTO_PIPELINE=false` is the default; existing Auto Mode remains on
+REST/WebSocket. Manual Mode has its separate G6 flag and is unchanged.
+
+For local microphone testing, start the standalone backend from `backend` with
+`GRPC_REALTIME_ENABLED=true`, `GRPC_STT_ENABLED=true`,
+`GRPC_ANSWER_STREAM_ENABLED=true`, and `USE_GRPC_AUTO_PIPELINE=true`:
+`python -m app.grpc_server --host 127.0.0.1 --port 50051`.
+Run FastAPI separately as usual. Start Electron from `frontend` with
+`ELECTRON_GRPC_REALTIME_ENABLED=true`, `ELECTRON_GRPC_AUDIO_ENABLED=true`,
+`USE_GRPC_AUTO_PIPELINE=true`, `ELECTRON_GRPC_REALTIME_HOST=127.0.0.1`,
+`ELECTRON_GRPC_REALTIME_PORT=50051`, then `npm run electron:dev`.
+These environment variables must be set in the respective process terminals;
+restart processes after changing flags.
+
+Select microphone and start normal Auto Mode. Final turns trigger existing
+question detection and streamed answers; partials only update preview. Listening
+continues through generation and the four-second cooldown. Repeated finals are
+suppressed with bounded hashes/turn IDs; only the latest queued question is kept.
+Answers use the existing main answer/overlay state, with one history entry saved
+on completion. Stop cancels capture, pending generation, and the stream.
+
+Diagnostics show pipeline, eligibility, and a safe blocked reason. With
+`USE_GRPC_CLOUD_CONTEXT_PIPELINE=false`, cloud sessions and selected cloud
+resume/job context use the existing authenticated path. Unsupported interview
+context and system audio remain on the existing path regardless of that flag. System audio over gRPC is deferred. If connection
+or microphone setup fails before listening, startup falls back to WebSocket. A
+failure after listening stops safely with a recoverable error rather than retrying
+an ambiguously committed answer through REST. Restart Auto Mode to retry.
+No provider migration or default change is included.
+
+### G8: experimental authenticated cloud-context Auto Mode
+
+Disabled by default. Enable these flags for local testing:
+
+```powershell
+$env:GRPC_REALTIME_ENABLED = "true"
+$env:GRPC_STT_ENABLED = "true"
+$env:GRPC_ANSWER_STREAM_ENABLED = "true"
+$env:USE_GRPC_AUTO_PIPELINE = "true"
+$env:USE_GRPC_CLOUD_CONTEXT_PIPELINE = "true"
+```
+
+The backend needs the realtime/STT/answer flags; both backend and Electron need
+both pipeline flags. Electron also requires `ELECTRON_GRPC_REALTIME_ENABLED=true`
+and `ELECTRON_GRPC_AUDIO_ENABLED=true` as documented above.
+Electron attaches authorization metadata from the trusted desktop auth session;
+the renderer must never receive raw tokens. The backend verifies the JWT,
+session ownership, active session status, and selected context ownership.
+`StartSession` may include `active_session_id`, `selected_resume_id`,
+`selected_job_context_id`, and `cloud_context_requested`. These IDs do not
+provide authorization by themselves.
+
+Cloud answer saving is once-only/idempotent. System audio remains on the existing
+REST/WebSocket path; both-source mode is unsupported. REST/WebSocket fallback
+remains available before capture starts. After an ambiguous generation failure,
+Auto Mode stops safely rather than risking duplicate fallback generation.

@@ -6,15 +6,87 @@ service InterviewRealtimeService {
 }
 
 message Empty {}
-message StartSession { string mode = 1; }
+message StartSession {
+  string mode = 1;
+  string source = 2;
+  string active_session_id = 3;
+  string selected_resume_id = 4;
+  string selected_job_context_id = 5;
+  bool cloud_context_requested = 6;
+}
 message AudioChunk {
   bytes audio = 1;
   uint32 sample_rate = 2;
   uint32 channels = 3;
   string encoding = 4;
 }
-message Status { string code = 1; string message = 2; }
-message TextEvent { string text = 1; }
+message QuestionIntake {
+  uint64 final_transcripts_received = 1;
+  uint64 final_transcripts_ignored = 2;
+  string last_ignored_transcript = 3;
+  string last_ignored_reason = 4;
+  uint64 detection_attempts = 5;
+  uint64 detection_successes = 6;
+  uint64 detection_rejections = 7;
+  uint64 cooldown_rejections = 8;
+  uint64 dedupe_rejections = 9;
+  uint64 too_short_rejections = 10;
+  bool pending_question = 11;
+  string pending_reason = 12;
+  string utterance_buffer_text = 13;
+  uint64 utterance_buffer_age_ms = 14;
+  uint64 merged_final_count = 15;
+  uint64 topic_prompt_accepted_count = 16;
+  uint64 buffered_transcripts_count = 17;
+  uint64 incomplete_final_wait_count = 18;
+  uint64 completed_from_buffer_count = 19;
+  string last_buffer_action = 20;
+  string last_detection_source = 21;
+}
+message SystemAudioDiagnostics {
+  double system_capture_started_at = 1;
+  double system_first_pcm_chunk_at = 2;
+  double system_first_non_silent_chunk_at = 3;
+  double system_first_chunk_sent_to_grpc_at = 4;
+  double system_first_stt_partial_at = 5;
+  double system_first_stt_final_at = 6;
+  double system_question_detected_at = 7;
+  double system_answer_started_at = 8;
+  double system_first_answer_delta_at = 9;
+  double system_total_question_to_answer_ms = 10;
+  double system_capture_to_partial_ms = 11;
+  double system_partial_to_question_ms = 12;
+  double system_question_to_first_delta_ms = 13;
+  double system_sample_rate = 14;
+  double system_target_rate = 15;
+  double system_pcm_duration_ms = 16;
+  double system_chunk_bytes = 17;
+  double system_rms = 18;
+  double system_peak = 19;
+  double system_silence_ratio = 20;
+  double system_dropped_chunks = 21;
+  double system_resample_latency_ms = 22;
+  double system_buffer_queue_depth = 23;
+  string active_audio_source = 24;
+  string transcript_source = 25;
+  string question_source = 26;
+  string answer_source_audio = 27;
+}
+message Status {
+  string code = 1;
+  string message = 2;
+  uint64 total_chunks = 3;
+  uint64 total_audio_bytes = 4;
+  uint64 stt_chunks_forwarded = 5;
+  uint64 stt_bytes_forwarded = 6;
+  bool stt_bridge_connected = 7;
+  uint64 stt_callback_count = 8;
+  string stt_status = 9;
+  uint64 non_silent_chunks = 10;
+  QuestionIntake question_intake = 11;
+  SystemAudioDiagnostics system_audio = 12;
+}
+message TextEvent { string text = 1; string category = 2; string provider = 3; }
 message ErrorEvent { string code = 1; string message = 2; }
 
 message InterviewClientEvent {
@@ -49,5 +121,8 @@ message InterviewServerEvent {
     TextEvent answer_done = 16;
     ErrorEvent error = 17;
     Empty pong = 18;
+    TextEvent answer_started = 19;
+    TextEvent answer_completed = 20;
+    ErrorEvent answer_error = 21;
   }
 }

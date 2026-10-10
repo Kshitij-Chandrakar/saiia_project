@@ -4,6 +4,7 @@ import { extractCopyableCode } from '../screen_mode_state.js'
 import StartupLoginScreen, { shouldShowStartupLogin } from './StartupLoginScreen.jsx'
 import StartupSessionChoiceScreen from './StartupSessionChoiceScreen.jsx'
 import StartupSessionSetupScreen from './StartupSessionSetupScreen.jsx'
+import { createGrpcMicTest } from '../grpc_mic_test.js'
 
 function formatTimeLabel(value) {
   if (!value) {
@@ -31,14 +32,44 @@ function GrpcRealtimeDiagnostics() {
   const [busy, setBusy] = useState(false)
   const refreshStatusRef = useRef(null)
   const lifecycleRef = useRef({ active: false, busy: false, version: 0 })
-  const unavailableState = (current) => ({
-    ...current, enabled: current?.enabled ?? null, connectionStatus: 'unavailable',
-    lastErrorMessage: 'Local gRPC diagnostics unavailable.',
-  })
-  const safeStatus = (value) => ({
-    ...value,
-    lastErrorMessage: value?.lastErrorMessage ? 'Local gRPC request failed. Retry the connection.' : '',
-  })
+  const micTestRef = useRef(null)
+  const [micTesting, setMicTesting] = useState(false)
+  async function runMicTest(start) {
+    setBusy(true)
+    try {
+      if (start) {
+        micTestRef.current?.close()
+        micTestRef.current = createGrpcMicTest({ api: window.electronAPI })
+        await micTestRef.current.start()
+        if (lifecycleRef.current.active) setMicTesting(true)
+      } else {
+        await micTestRef.current?.stop()
+        if (lifecycleRef.current.active) setMicTesting(false)
+      }
+    } catch {
+      if (lifecycleRef.current.active) { setMicTesting(false); showUnavailable() }
+    } finally {
+      await refreshStatusRef.current?.(true)
+      if (lifecycleRef.current.active) setBusy(false)
+    }
+  }
+  function applyStatus(value) {
+    if (value.connectionStatus !== 'connected') {
+      micTestRef.current?.close()
+      setMicTesting(false)
+    }
+    const safeErrors = ['Cloud session unavailable. Sign in again or restart the session.', 'Experimental answer unavailable. Retry.', 'No final speech transcript received. Check microphone input and retry.', 'Live STT unavailable. Check AssemblyAI configuration and retry.']
+    setState({ ...value, lastErrorMessage: safeErrors.includes(value.lastErrorMessage) ? value.lastErrorMessage : value.lastErrorMessage ? 'Local gRPC diagnostics unavailable.' : '' })
+  }
+  function showUnavailable() {
+    micTestRef.current?.close()
+    setMicTesting(false)
+    setState((current) => ({
+      ...current, enabled: current?.enabled ?? null, connectionStatus: 'unavailable',
+      lastPingResult: current?.lastPingResult || 'not sent',
+      lastErrorMessage: 'Local gRPC diagnostics unavailable.',
+    }))
+  }
   useEffect(() => {
     if (typeof window.electronAPI?.getGrpcRealtimeStatus !== 'function') return
     const lifecycle = { active: true, busy: false, version: 0 }
@@ -54,9 +85,9 @@ function GrpcRealtimeDiagnostics() {
       pending = (async () => {
         try {
           const value = await window.electronAPI.getGrpcRealtimeStatus()
-          if (lifecycle.active && version === lifecycle.version) setState(safeStatus(value))
+          if (lifecycle.active && version === lifecycle.version) applyStatus(value)
         } catch {
-          if (lifecycle.active && version === lifecycle.version) setState(unavailableState)
+          if (lifecycle.active && version === lifecycle.version) showUnavailable()
         }
       })()
       try { await pending } finally { pending = null }
@@ -66,11 +97,13 @@ function GrpcRealtimeDiagnostics() {
     const interval = setInterval(() => { refreshStatus() }, 3000)
     return () => {
       lifecycle.active = false
+      micTestRef.current?.close()
       refreshStatusRef.current = null
       clearInterval(interval)
     }
   }, [])
   async function run(method) {
+    if (method === 'closeGrpcRealtime') { micTestRef.current?.close(); setMicTesting(false) }
     const lifecycle = lifecycleRef.current
     if (!lifecycle.active || lifecycle.busy || typeof window.electronAPI?.[method] !== 'function') return
     lifecycle.busy = true
@@ -78,9 +111,9 @@ function GrpcRealtimeDiagnostics() {
     setBusy(true)
     try {
       const value = await window.electronAPI[method]()
-      if (lifecycle.active) setState(safeStatus(value))
+      if (lifecycle.active) applyStatus(value)
     } catch {
-      if (lifecycle.active) setState(unavailableState)
+      if (lifecycle.active) showUnavailable()
     } finally {
       if (lifecycle.active) {
         await refreshStatusRef.current?.(true)
@@ -91,11 +124,49 @@ function GrpcRealtimeDiagnostics() {
   }
   if (!state) return null
   return <section className="glass-card" aria-label="Experimental gRPC diagnostics">
-    <p className="section-title">Experimental gRPC · handshake only</p>
+    <p className="section-title">Experimental gRPC · transport diagnostics</p>
     <MetaRow label="Enabled" value={state.enabled == null ? 'unknown' : state.enabled ? 'yes' : 'no'} />
     <MetaRow label="Connection" value={state.connectionStatus} />
     <MetaRow label="Last ping" value={state.lastPingResult} />
     <MetaRow label="Last error" value={state.lastErrorMessage || 'none'} />
+    <MetaRow label="gRPC audio enabled" value={state.audioEnabled ? 'yes' : 'no'} />
+    <MetaRow label="Audio chunks sent" value={state.audioChunksSent || 0} />
+    <MetaRow label="Audio bytes sent" value={state.audioBytesSent || 0} />
+    <MetaRow label="Backend chunks received" value={state.backendChunksReceived || 0} />
+    <MetaRow label="Backend bytes received" value={state.backendBytesReceived || 0} />
+    <MetaRow label="Last audio status" value={state.lastAudioStatus || 'idle'} />
+    <MetaRow label="STT enabled" value={state.sttEnabled ? 'yes' : 'no'} />
+    <MetaRow label="Partial transcripts" value={state.partialTranscriptCount || 0} />
+    <MetaRow label="Final transcripts" value={state.finalTranscriptCount || 0} />
+    <MetaRow label="Last transcript event" value={state.lastTranscriptEventType || 'none'} />
+    <MetaRow label="STT chunks forwarded" value={state.sttChunksForwarded || 0} />
+    <MetaRow label="STT bytes forwarded" value={state.sttBytesForwarded || 0} />
+    <MetaRow label="STT bridge connected" value={state.sttBridgeConnected ? 'yes' : 'no'} />
+    <MetaRow label="STT callbacks" value={state.sttCallbackCount || 0} />
+    <MetaRow label="Non-silent chunks" value={state.nonSilentChunks || 0} />
+    <MetaRow label="Frontend sample rate" value={state.pcmDiagnostics?.inputSampleRate || 'unknown'} />
+    <MetaRow label="Frontend channels" value={state.pcmDiagnostics?.inputChannelCount || 'unknown'} />
+    <MetaRow label="PCM output" value="16000 Hz · mono · signed Int16 LE" />
+    {['byteLength', 'durationMs', 'cadenceMs', 'min', 'max', 'rms', 'peak', 'clippedRatio', 'zeroRatio', 'evenByteLength', 'backendEvenByteLength'].map(key =>
+      <MetaRow key={key} label={`PCM ${key}`} value={typeof state.pcmDiagnostics?.[key] === 'number' ? Number(state.pcmDiagnostics[key].toFixed(6)) : String(state.pcmDiagnostics?.[key] ?? 'unknown')} />)}
+    <MetaRow label="STT status" value={state.sttStatus || 'idle'} />
+    <MetaRow label="STT provider" value={state.sttProvider || 'none'} />
+    {state.sttEnabled && state.currentTranscript && <p aria-label="Experimental live transcript" aria-live="polite">{state.currentTranscript}</p>}
+    <MetaRow label="Answer streaming enabled" value={state.answerStreamEnabled ? 'yes' : 'no'} />
+    <MetaRow label="Questions detected" value={state.questionsDetectedCount || 0} />
+    <MetaRow label="Answers started" value={state.answerStartedCount || 0} />
+    <MetaRow label="Answer deltas" value={state.answerDeltaCount || 0} />
+    <MetaRow label="Answers completed" value={state.answerCompletedCount || 0} />
+    <MetaRow label="Last answer status" value={state.lastAnswerStatus || 'idle'} />
+    <MetaRow label="Answer category" value={state.answerCategory || 'none'} />
+    <MetaRow label="Answer provider" value={state.answerProvider || 'none'} />
+    {state.answerStreamEnabled && <div aria-label="Experimental answer preview" aria-live="polite">
+      <p>{state.currentQuestion}</p><p style={{ whiteSpace: 'pre-wrap' }}>{state.currentAnswer}</p>
+    </div>}
+    {state.audioEnabled && <div className="button-row">
+      <button type="button" disabled={busy || micTesting || state.manualPipelineReady || state.connectionStatus !== 'connected'} onClick={() => runMicTest(true)}>Start experimental gRPC mic test</button>
+      <button type="button" disabled={busy || !micTesting} onClick={() => runMicTest(false)}>Stop gRPC mic test</button>
+    </div>}
     {state.enabled !== false && <div className="button-row">
       <button type="button" disabled={busy || typeof window.electronAPI?.connectGrpcRealtime !== 'function'} onClick={() => run('connectGrpcRealtime')}>Connect</button>
       <button type="button" disabled={busy || typeof window.electronAPI?.pingGrpcRealtime !== 'function'} onClick={() => run('pingGrpcRealtime')}>Ping</button>
@@ -447,6 +518,37 @@ function extractCodeBlock(text) {
   }
 }
 
+function LocalTestSessionControls({ localTestSession, activeSessionSuspended, reason, busy, onToggle, diagnostics }) {
+  return <section className="glass-card" aria-label="Auto gRPC local test session">
+    <p className="section-title">Auto gRPC · local test session</p>
+    <div className="toolbar-actions">
+      <button className="btn btn-secondary" type="button" disabled={Boolean(reason || busy || localTestSession)} onClick={onToggle}>Use local test session</button>
+      <button className="btn btn-secondary" type="button" disabled={Boolean(reason || busy || !localTestSession)} onClick={onToggle}>Restore cloud session</button>
+    </div>
+    <p className="diagnostics-note">{reason || (busy ? 'Stop the active operation before changing sessions.' : 'Local runtime only. Cloud data and sign-in are preserved.')}</p>
+    <div className="meta-list">
+      <MetaRow label="Local test session" value={localTestSession ? 'on' : 'off'} />
+      <MetaRow label="Active session suspended" value={activeSessionSuspended ? 'yes' : 'no'} />
+      <MetaRow label="Active session ID present" value={String(Boolean(diagnostics?.activeSessionIdPresent))} />
+      <MetaRow label="Generation auth required" value={String(Boolean(diagnostics?.authRequired))} />
+      <MetaRow label="Local without saving" value={String(Boolean(diagnostics?.localWithoutSaving))} />
+      <MetaRow label="Auto gRPC flag enabled" value={diagnostics?.autoGrpcFlagEnabled ? 'yes' : 'no'} />
+      <MetaRow label="Auto gRPC cloud context flag enabled" value={diagnostics?.autoGrpcCloudContextFlagEnabled ? 'yes' : 'no'} />
+      <MetaRow label="Cloud gRPC auth status" value={diagnostics?.cloudGrpcAuthStatus || 'not_started'} />
+      <MetaRow label="Cloud session verified" value={diagnostics?.cloudSessionVerified ? 'yes' : 'no'} />
+      <MetaRow label="Cloud context loaded" value={diagnostics?.cloudContextLoaded ? 'yes' : 'no'} />
+      <MetaRow label="Cloud answer save status" value={diagnostics?.cloudAnswerSaveStatus || 'n/a'} />
+      <MetaRow label="Auto gRPC eligibility" value={diagnostics?.autoGrpcEligible ? 'yes' : 'no'} />
+      <MetaRow label="Auto gRPC blocked reason" value={diagnostics?.autoGrpcBlockedReason || 'unknown'} />
+      {['final_transcripts_received', 'final_transcripts_ignored', 'last_ignored_transcript', 'last_ignored_reason', 'detection_attempts', 'detection_successes', 'detection_rejections', 'cooldown_rejections', 'dedupe_rejections', 'too_short_rejections', 'utterance_buffer_text', 'utterance_buffer_age_ms', 'merged_final_count', 'topic_prompt_accepted_count', 'buffered_transcripts_count', 'incomplete_final_wait_count', 'completed_from_buffer_count', 'last_buffer_action', 'last_detection_source', 'pending_question', 'pending_reason', 'low_audio_warning', 'mic_rms_level', 'mic_peak_level'].map(field =>
+        <MetaRow key={field} label={field} value={String(diagnostics?.questionIntake?.[field] ?? 'n/a')} />)}
+      {diagnostics?.questionIntake?.low_audio_warning && <p role="status" className="diagnostics-note">Mic input is too low. Move closer or increase microphone gain. Mic is low; question buffering is active.</p>}
+      {Object.entries(diagnostics?.systemAudio || {}).map(([field, value]) => <MetaRow key={field} label={field} value={String(value)} />)}
+      <MetaRow label="Auto Mode pipeline" value={diagnostics?.autoModePipeline || 'existing_default'} />
+    </div>
+  </section>
+}
+
 export default function MainDiagnosticsWindow(props) {
   const {
     isCollapsed,
@@ -501,6 +603,11 @@ export default function MainDiagnosticsWindow(props) {
     cooldownQueueReason,
     queuedQuestionProcessed,
     generationDiagnostics,
+    localTestSession,
+    onToggleLocalTestSession,
+    localTestSessionBusy,
+    localTestSessionDisabledReason,
+    activeSessionSuspended,
     generationStarted,
     generationBlockedReason,
     isCooldownListening,
@@ -720,6 +827,8 @@ export default function MainDiagnosticsWindow(props) {
     return (
       <StartupSessionSetupScreen
         initialConfig={startupSessionConfig}
+        authenticatedEmail={startupAuthenticatedEmail}
+        onSignedOut={resetStartupAuthentication}
         onBack={() => {
           resizeStartupWindow('home')
           setStartupScreen('session-choice')
@@ -838,6 +947,9 @@ export default function MainDiagnosticsWindow(props) {
               display.
             </p>
 
+            <LocalTestSessionControls localTestSession={localTestSession} activeSessionSuspended={activeSessionSuspended}
+              reason={localTestSessionDisabledReason} busy={localTestSessionBusy}
+              onToggle={onToggleLocalTestSession} diagnostics={generationDiagnostics} />
             <DesktopAuthStatus onSignedOut={resetStartupAuthentication} />
 
             <div className={`glass-card runtime-guide runtime-guide--${runtimeGuidance.tone}`}>
@@ -1749,6 +1861,20 @@ export default function MainDiagnosticsWindow(props) {
                     <MetaRow key={field} label={field} value={manualLiveState?.[field] != null ? `${manualLiveState[field].toFixed(2)} ms` : 'n/a'} />
                   ))}
                   <MetaRow label="Manual phase" value={manualLiveState?.phase || 'idle'} />
+                  <MetaRow label="Manual transport" value={manualLiveState?.transport || 'REST/WebSocket'} />
+                  <MetaRow label="Auto Mode pipeline" value={generationDiagnostics?.autoModePipeline || 'existing_default'} />
+                  <MetaRow label="Auto gRPC flag enabled" value={generationDiagnostics?.autoGrpcFlagEnabled ? 'yes' : 'no'} />
+                  <MetaRow label="Auto gRPC eligibility" value={generationDiagnostics?.autoGrpcEligible ? 'yes' : 'no'} />
+                  <MetaRow label="Auto gRPC blocked reason" value={generationDiagnostics?.autoGrpcBlockedReason || 'unknown'} />
+                  <MetaRow label="Pipeline" value={generationDiagnostics?.autoModePipeline === 'grpc_realtime' ? 'gRPC realtime' : generationDiagnostics?.manualPipeline || 'REST/WebSocket (default)'} />
+                  <MetaRow label="Pipeline selection reason" value={generationDiagnostics?.manualPipelineReason || 'none'} />
+                  {['manual_start_at', 'manual_stop_at', 'first_transcript_at', 'question_detected_at', 'answer_started_at', 'first_answer_delta_at', 'answer_completed_at', 'first_main_ui_update_at', 'first_overlay_update_at'].map(field => (
+                    <MetaRow key={field} label={field} value={generationDiagnostics?.manualTimings?.[field] != null ? `${generationDiagnostics.manualTimings[field]} ms (epoch)` : 'n/a'} />
+                  ))}
+                  {['answer_started_at', 'first_answer_delta_at', 'first_main_ui_update_at', 'first_overlay_update_at', 'answer_completed_at'].map(field => (
+                    <MetaRow key={`latency-${field}`} label={`Stop to ${field}`} value={generationDiagnostics?.manualTimings?.manual_stop_at && generationDiagnostics?.manualTimings?.[field] ? `${generationDiagnostics.manualTimings[field] - generationDiagnostics.manualTimings.manual_stop_at} ms` : 'n/a'} />
+                  ))}
+                  <MetaRow label="First delta to main UI" value={generationDiagnostics?.manualTimings?.first_main_ui_update_at != null && generationDiagnostics?.manualTimings?.first_answer_delta_at != null ? `${generationDiagnostics.manualTimings.first_main_ui_update_at - generationDiagnostics.manualTimings.first_answer_delta_at} ms` : 'n/a'} />
                   <MetaRow label="Manual partial transcript" value={manualLiveState?.partialTranscript || 'n/a'} />
                   <MetaRow label="Manual final transcript" value={manualFinalTranscript || 'n/a'} />
                   <MetaRow label="Manual detected question" value={manualLiveState?.detectedQuestion || 'n/a'} />

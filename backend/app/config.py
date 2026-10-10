@@ -7,6 +7,11 @@ load_dotenv()
 
 
 class Settings:
+    USE_GRPC_CLOUD_CONTEXT_PIPELINE = os.getenv("USE_GRPC_CLOUD_CONTEXT_PIPELINE", "false").strip().lower() == "true"
+    USE_GRPC_AUTO_PIPELINE = os.getenv("USE_GRPC_AUTO_PIPELINE", "false").strip().lower() == "true"
+    USE_GRPC_MANUAL_PIPELINE = os.getenv("USE_GRPC_MANUAL_PIPELINE", "false").strip().lower() == "true"
+    GRPC_ANSWER_STREAM_ENABLED = os.getenv("GRPC_ANSWER_STREAM_ENABLED", "false").strip().lower() == "true"
+    GRPC_STT_ENABLED = os.getenv("GRPC_STT_ENABLED", "false").strip().lower() == "true"
     GRPC_REALTIME_ENABLED = os.getenv("GRPC_REALTIME_ENABLED", "false").strip().lower() == "true"
     GRPC_REALTIME_HOST = os.getenv("GRPC_REALTIME_HOST", "127.0.0.1").strip()
     GRPC_REALTIME_PORT = int(os.getenv("GRPC_REALTIME_PORT", "50051"))

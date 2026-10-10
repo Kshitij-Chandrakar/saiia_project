@@ -1,3 +1,6 @@
+import WebsiteNotFound, { WebsiteRouteHistory } from './WebsiteNotFound'
+import { createGrpcAutoSession, getGrpcAutoBlockReason } from './grpc_auto_session.js'
+import { canUseGrpcManual, createGrpcManualSession, getGrpcManualBlockReason } from './grpc_manual_session.js'
 import React, { useEffect, useRef, useState } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import {
@@ -19,7 +22,7 @@ import OverlayWindowView from './components/OverlayWindow'
 import LandingPage from './landing/LandingPage'
 import { markChatTiming, readNdjsonStream, stripInternalControlMarkers } from './answer_stream'
 import { isCurrentRequest } from './request_state'
-import { createLiveMicTransport } from './live_mic_transport'
+import { createLiveMicTransport, downsampleToInt16Mono } from './live_mic_transport'
 import { createManualLiveSession, createManualLiveState, getManualFinalTranscript, isManualLiveEnabled } from './manual_live_session'
 import { prepareGenerationRequest } from './generation_auth'
 import { normalizeScreenResponse } from './screen_intelligence_contract'
@@ -68,46 +71,6 @@ function getBackendWebSocketUrl(path) {
   return `${base}${path}`
 }
 
-function downsampleToInt16Mono(float32Array, inputSampleRate, outputSampleRate = 16000) {
-  if (!float32Array?.length) {
-    return new Int16Array(0)
-  }
-
-  if (inputSampleRate === outputSampleRate) {
-    const direct = new Int16Array(float32Array.length)
-    for (let index = 0; index < float32Array.length; index += 1) {
-      const sample = Math.max(-1, Math.min(1, float32Array[index]))
-      direct[index] = sample < 0 ? sample * 0x8000 : sample * 0x7fff
-    }
-    return direct
-  }
-
-  const ratio = inputSampleRate / outputSampleRate
-  const nextLength = Math.max(1, Math.round(float32Array.length / ratio))
-  const result = new Int16Array(nextLength)
-  let offsetResult = 0
-  let offsetBuffer = 0
-
-  while (offsetResult < result.length) {
-    const nextOffsetBuffer = Math.min(
-      float32Array.length,
-      Math.round((offsetResult + 1) * ratio)
-    )
-    let accumulator = 0
-    let count = 0
-    for (let sampleIndex = offsetBuffer; sampleIndex < nextOffsetBuffer; sampleIndex += 1) {
-      accumulator += float32Array[sampleIndex]
-      count += 1
-    }
-    const sample = count ? accumulator / count : 0
-    const normalized = Math.max(-1, Math.min(1, sample))
-    result[offsetResult] = normalized < 0 ? normalized * 0x8000 : normalized * 0x7fff
-    offsetResult += 1
-    offsetBuffer = nextOffsetBuffer
-  }
-
-  return result
-}
 
 function getPreferredRecorderMimeType() {
   const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
@@ -963,16 +926,41 @@ function getSafeGenerationSource(mode, source) {
 }
 
 function useElectronOverlaySync(state) {
+  const previousGrpcState = useRef(null)
   useEffect(() => {
     if (!window.electronAPI?.updateOverlayState) {
       return
     }
 
+    if (state.manualLiveState?.transport === 'grpc' || state.generationDiagnostics?.autoPipeline === 'gRPC realtime') {
+      // Timing-only renders must not resend the same answer to the overlay.
+      const viewState = { ...state }
+      delete viewState.generationDiagnostics
+      if (state.generationDiagnostics?.autoPipeline === 'gRPC realtime') {
+        delete viewState.cooldownRemainingMs
+        delete viewState.pendingCooldownQuestionAgeMs
+      }
+      const previous = previousGrpcState.current
+      if (previous && Object.keys(viewState).every(key => Object.is(previous[key], viewState[key]))) return
+      previousGrpcState.current = viewState
+    } else previousGrpcState.current = null
     window.electronAPI.updateOverlayState({
       ...state,
       privacyMessage: OVERLAY_PRIVACY_MESSAGE,
     })
   }, [state])
+}
+
+function useGrpcFirstVisibleTiming(answerText, run, field, enabled = true) {
+  const measured = useRef(0)
+  useEffect(() => {
+    if (!enabled || !answerText || !run || measured.current === run || !window.electronAPI?.reportGrpcManualUiTiming) return
+    const frame = requestAnimationFrame(() => {
+      measured.current = run
+      void window.electronAPI.reportGrpcManualUiTiming(run, field, Date.now()).catch(() => {})
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [answerText, run, field, enabled])
 }
 
 function OverlayWindow() {
@@ -1085,6 +1073,7 @@ function OverlayWindow() {
     }
   }, [])
 
+  useGrpcFirstVisibleTiming(overlayState.answer, overlayState.generationDiagnostics?.manualGrpcRun, 'first_overlay_update_at', overlayState.visible !== false && document.visibilityState !== 'hidden')
   return <OverlayWindowView overlayState={overlayState} />
 }
 
@@ -1175,6 +1164,8 @@ function MainWindow() {
   const [queuedQuestionProcessed, setQueuedQuestionProcessed] = useState(false)
   const [generationStarted, setGenerationStarted] = useState(false)
   const [generationDiagnostics, setGenerationDiagnostics] = useState({ generationRequestBlocked: false, generationBlockReason: '', activeSessionIdPresent: false, activeSessionEnded: false, authRequired: false, generateRequestSent: false })
+  const generationDiagnosticsRef = useRef(generationDiagnostics)
+  useEffect(() => { generationDiagnosticsRef.current = generationDiagnostics }, [generationDiagnostics])
   const [generationBlockedReason, setGenerationBlockedReason] = useState('')
   const [isCooldownListening, setIsCooldownListening] = useState(false)
   const [sttProvider, setSttProvider] = useState('')
@@ -1261,6 +1252,9 @@ function MainWindow() {
   const [isDiagnosticsCollapsed, setIsDiagnosticsCollapsed] = useState(false)
   const [sessionStartedAt] = useState(() => Date.now())
   const [startupSessionConfig, setStartupSessionConfig] = useState(null)
+  const [localTestSession, setLocalTestSession] = useState(false)
+  const cloudTestSnapshotRef = useRef(null)
+  const [autoGrpcStatus, setAutoGrpcStatus] = useState(null)
   const [recordingStartedAt, setRecordingStartedAt] = useState(null)
 
   const mediaRecorderRef = useRef(null)
@@ -1279,6 +1273,9 @@ function MainWindow() {
   const autoGenerationInFlightRef = useRef(false)
   const assemblyAiFallbackWarningShownRef = useRef(false)
   const lastCheckedAutoCandidateRef = useRef('')
+  const autoStartTokenRef = useRef(0)
+  const autoStartingRef = useRef(false)
+  const autoGrpcSessionRef = useRef(null)
   const autoStreamingSocketRef = useRef(null)
   const autoStreamingClosingRef = useRef(false)
   const autoStreamingAudioContextRef = useRef(null)
@@ -1317,8 +1314,29 @@ function MainWindow() {
   const manualRecordingCancelledRef = useRef(false)
 
   const applyStartupSessionConfig = (nextConfig) => {
+    cloudTestSnapshotRef.current = null
+    setLocalTestSession(false)
     startupSessionConfigRef.current = nextConfig
     setStartupSessionConfig(nextConfig)
+  }
+
+  const toggleLocalTestSession = () => {
+    if (!import.meta.env.DEV || !autoGrpcStatus?.autoPipelineEnabled ||
+        autoMode || autoProcessing || recording || manualProcessing || isManualGenerating || ocrProcessing) return
+    const restoring = localTestSession
+    const nextConfig = restoring ? cloudTestSnapshotRef.current : { localTestWithoutSaving: true }
+    cloudTestSnapshotRef.current = restoring ? null : startupSessionConfigRef.current
+    startupSessionConfigRef.current = nextConfig
+    setStartupSessionConfig(nextConfig)
+    setLocalTestSession(!restoring)
+    profileCacheRef.current = null
+    setGenerationDiagnostics(current => ({ ...current,
+      activeSessionIdPresent: Boolean(nextConfig?.activeSessionId), activeSessionEnded: false,
+      authRequired: Boolean(nextConfig?.activeSessionId || nextConfig?.selectedResumeId || nextConfig?.jobContextId),
+      generationAuthRequired: Boolean(nextConfig?.activeSessionId || nextConfig?.selectedResumeId || nextConfig?.jobContextId),
+      localWithoutSaving: !restoring, autoPipeline: 'existing default',
+    }))
+    setStatus(restoring ? 'Cloud session restored.' : 'Local test session. Cloud saving and selected context are disabled.')
   }
 
   const beginScreenOperation = (sourceType) => {
@@ -1471,6 +1489,56 @@ function MainWindow() {
     }
   }
 
+  useEffect(() => {
+    if (!window.electronAPI?.getGrpcRealtimeStatus) return
+    let active = true
+    let inFlight = false
+    const refreshStatus = async () => {
+      if (!active || inFlight) return
+      inFlight = true
+      try {
+        const status = await window.electronAPI.getGrpcRealtimeStatus()
+        if (active) setAutoGrpcStatus(status || null)
+      } catch {
+        // Keep the last verified configuration; retry without exposing IPC errors.
+      } finally {
+        inFlight = false
+      }
+    }
+    refreshStatus()
+    const interval = setInterval(refreshStatus, 3000)
+    return () => { active = false; clearInterval(interval) }
+  }, [])
+  useEffect(() => {
+    const context = { ...startupSessionConfig, authRequired: generationDiagnostics.authRequired, activeSessionIdPresent: generationDiagnostics.activeSessionIdPresent, activeSessionEnded: generationDiagnostics.activeSessionEnded }
+    const reason = getGrpcAutoBlockReason(autoGrpcStatus, context, autoMode ? autoModeSource : getSelectedAudioSourceLabel(audioSources)) ||
+      (!window.electronAPI?.connectGrpcAutoPipeline ? 'grpc_unavailable' : '')
+    setGenerationDiagnostics(current => ({ ...current,
+      autoGrpcFlagEnabled: Boolean(autoGrpcStatus?.autoPipelineEnabled),
+      autoGrpcCloudContextFlagEnabled: Boolean(autoGrpcStatus?.cloudContextPipelineEnabled),
+      cloudGrpcAuthStatus: reason === 'system_audio_selected' ? 'not_applicable' : autoGrpcStatus?.cloudAuthStatus || 'not_started',
+      cloudSessionVerified: autoGrpcStatus?.cloudAuthStatus === 'verified' && Boolean(autoGrpcStatus?.cloudSessionVerified),
+      cloudContextLoaded: autoGrpcStatus?.cloudAuthStatus === 'verified' && Boolean(autoGrpcStatus?.cloudSessionVerified && autoGrpcStatus?.cloudContextLoaded),
+      cloudAnswerSaveStatus: autoGrpcStatus?.cloudAnswerSaveStatus || 'n/a',
+      questionIntake: autoGrpcStatus?.questionIntake || {},
+      systemAudio: autoGrpcStatus?.systemAudio || {},
+      autoGrpcEligible: !reason && !(current.autoPipeline === 'REST/WebSocket fallback' && ['grpc_unavailable', 'unknown'].includes(current.autoGrpcBlockedReason)),
+      autoGrpcBlockedReason: reason || (current.autoPipeline === 'REST/WebSocket fallback' && ['grpc_unavailable', 'unknown'].includes(current.autoGrpcBlockedReason) ? current.autoGrpcBlockedReason : 'none'),
+      autoModePipeline: reason === 'system_audio_selected' ? 'existing_default' : current.autoPipeline === 'gRPC realtime' ? 'grpc_realtime' :
+        current.autoPipeline === 'REST/WebSocket fallback' ? 'fallback' : 'existing_default',
+    }))
+  }, [autoGrpcStatus, startupSessionConfig, autoModeSource, autoMode, audioSources, generationDiagnostics.authRequired, generationDiagnostics.activeSessionIdPresent, generationDiagnostics.activeSessionEnded, generationDiagnostics.autoPipeline])
+  useGrpcFirstVisibleTiming(answer, generationDiagnostics.manualGrpcRun, 'first_main_ui_update_at')
+  useEffect(() => window.electronAPI?.onGrpcManualUiTiming?.(timing => {
+    setGenerationDiagnostics(current => {
+      if (current.manualGrpcRun !== timing?.manualRun) return current
+      const measured = {}
+      for (const field of ['first_main_ui_update_at', 'first_overlay_update_at']) {
+        if (Number.isFinite(timing[field])) measured[field] = timing[field]
+      }
+      return { ...current, manualTimings: { ...current.manualTimings, ...measured } }
+    })
+  }), [])
   const pendingManualGenerationRef = useRef(null)
   const generationRecoveryBusyRef = useRef(false)
 
@@ -1481,7 +1549,7 @@ function MainWindow() {
     historyMode = '',
     historyEntryId = '',
     pipelineStarted = null,
-    localWithoutSaving = false,
+    localWithoutSaving = Boolean(startupSessionConfigRef.current?.localTestWithoutSaving),
   }) => {
     activeGenerateAbortControllerRef.current?.abort()
     const controller = new AbortController()
@@ -1939,6 +2007,11 @@ function MainWindow() {
       if (generatingWatchdogTimeoutRef.current) {
         clearTimeout(generatingWatchdogTimeoutRef.current)
       }
+      autoStartTokenRef.current++
+      autoStartingRef.current = false
+      autoModeRef.current = false
+      autoGrpcSessionRef.current?.close()
+      autoGrpcSessionRef.current = null
       if (autoStreamingSocketRef.current) {
         autoStreamingSocketRef.current.close()
         autoStreamingSocketRef.current = null
@@ -2098,7 +2171,7 @@ function MainWindow() {
   }
 
   const isContinuousMicAutoActive = () =>
-    Boolean(autoModeRef.current && autoModeSourceRef.current === 'microphone' && autoStreamingSocketRef.current)
+    Boolean(autoModeRef.current && autoModeSourceRef.current === 'microphone' && (autoStreamingSocketRef.current || autoGrpcSessionRef.current))
 
   const keepMicAutoListeningVisual = () => {
     if (!isContinuousMicAutoActive()) {
@@ -2148,6 +2221,8 @@ function MainWindow() {
   }
 
   const stopAutoStreamingBridge = (sendTerminate = true) => {
+    autoGrpcSessionRef.current?.close()
+    autoGrpcSessionRef.current = null
     autoStreamingClosingRef.current = true
     const socket = autoStreamingSocketRef.current
     autoStreamingSocketRef.current = null
@@ -2968,10 +3043,10 @@ function MainWindow() {
     source = '',
     screenQuestionType = 'none',
     forceTechnical = false,
-    suppressProfileContext = false,
+    suppressProfileContext = Boolean(startupSessionConfigRef.current?.localTestWithoutSaving),
     logicalRequestId = null,
     capturedHistoryEntryId = '',
-    localWithoutSaving = false,
+    localWithoutSaving = Boolean(startupSessionConfigRef.current?.localTestWithoutSaving),
   }) => {
     const requestId = logicalRequestId || Date.now() + Math.random()
     latestGenerationRequestIdRef.current = requestId
@@ -4665,7 +4740,7 @@ function MainWindow() {
   }
 
   const startAutoMode = async () => {
-    if (manualLiveStartIdRef.current) return
+    if (manualLiveStartIdRef.current || autoModeRef.current || autoStartingRef.current) return
     const sourceMode = getSelectedAudioSourceLabel(audioSourcesRef.current)
     setAutoStartClicked(true)
     logAutoModeDebug('auto start clicked', {
@@ -4743,9 +4818,12 @@ function MainWindow() {
     setAutoModeStatus('listening')
     setStatus(sourceMode === 'microphone' ? 'Preparing microphone...' : 'Preparing system audio...')
 
+    const startToken = ++autoStartTokenRef.current
+    autoStartingRef.current = true
     try {
       if (sourceMode === 'microphone') {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        if (startToken !== autoStartTokenRef.current) { stream.getTracks().forEach(track => track.stop()); return }
         manualRecordingCancelledRef.current = false
         streamRef.current = stream
       } else {
@@ -4754,6 +4832,7 @@ function MainWindow() {
           throw new Error('System audio capture is not available yet. Use microphone or configure system audio capture.')
         }
       }
+      if (startToken !== autoStartTokenRef.current) return
       const runId = `${Date.now()}-${Math.random().toString(16).slice(2)}`
       autoModeRef.current = true
       autoModeRunIdRef.current = runId
@@ -4764,12 +4843,98 @@ function MainWindow() {
       setAutoMode(true)
       setAutoProcessing(false)
       setStatus('Listening...')
+      let grpcStatus
+      try { grpcStatus = await window.electronAPI?.getGrpcRealtimeStatus?.() } catch { /* Preserve existing startup. */ }
+      if (!autoModeRef.current || autoModeRunIdRef.current !== runId) return
+      setAutoGrpcStatus(grpcStatus || null)
+      const startDiag = generationDiagnosticsRef.current
+      const blockedReason = getGrpcAutoBlockReason(grpcStatus ? { ...grpcStatus, cloudAuthStatus: 'not_started', cloudAuthAvailable: undefined } : grpcStatus, { ...startupSessionConfigRef.current, authRequired: startDiag.authRequired, activeSessionIdPresent: startDiag.activeSessionIdPresent, activeSessionEnded: startDiag.activeSessionEnded }, sourceMode) || (!window.electronAPI?.connectGrpcAutoPipeline ? 'grpc_unavailable' : '')
+      setGenerationDiagnostics(current => ({ ...current, autoPipeline: grpcStatus?.autoPipelineEnabled && blockedReason !== 'system_audio_selected' ? 'REST/WebSocket fallback' : 'existing default', autoGrpcEligible: !blockedReason, autoGrpcBlockedReason: blockedReason, manualGrpcRun: null }))
+      if (!blockedReason && window.electronAPI?.connectGrpcAutoPipeline) {
+        const isCurrent = () => autoModeRef.current && autoModeRunIdRef.current === runId
+        const session = await createGrpcAutoSession({ api: window.electronAPI, stream: streamRef.current, source: sourceMode, isCurrent,
+          context: startupSessionConfigRef.current || {},
+          onCloudStatus: next => {
+            if (!isCurrent()) return
+            setAutoGrpcStatus(next)
+            if (sourceMode === 'system' && next.systemAudio) {
+              setSystemAudioRmsLevel(next.systemAudio.system_rms ?? null)
+              setSystemAudioPeakLevel(next.systemAudio.system_peak ?? null)
+              setSystemAudioInputSampleRate(next.systemAudio.system_sample_rate || null)
+              setSystemAudioSampleRate(next.systemAudio.system_target_rate || null)
+              setSystemAudioChunkBytesSent(next.backendBytesReceived || 0)
+              setSystemAudioDroppedSilenceChunks(next.systemAudio.system_dropped_chunks || 0)
+            }
+            if (next.cloudAnswerSaveStatus === 'failed') setError('Answer generated, but it could not be saved to the cloud session. No automatic regeneration was attempted.')
+          },
+          canContinue: () => {
+            const diag = generationDiagnosticsRef.current
+            return !getGrpcAutoBlockReason(grpcStatus ? { ...grpcStatus, cloudAuthStatus: 'not_started', cloudAuthAvailable: undefined } : grpcStatus,
+              { ...startupSessionConfigRef.current, authRequired: diag.authRequired, activeSessionIdPresent: diag.activeSessionIdPresent, activeSessionEnded: diag.activeSessionEnded }, sourceMode)
+          },
+          onTranscript: text => { if (isCurrent()) setPartialAutoTranscript(text) },
+          onPhase: phase => {
+            if (!isCurrent()) return
+            if (phase !== 'cooldown') {
+              clearInterval(autoCooldownIntervalRef.current)
+              autoCooldownIntervalRef.current = null
+              setCooldownRemainingMs(0)
+              setIsCooldownListening(false)
+            }
+            setAutoModeStatus(phase)
+            setAnswerPipelineState(phase === 'generating' ? 'generating' : phase === 'cooldown' ? 'cooldown' : 'idle')
+            setAutoProcessing(phase === 'generating')
+            setGenerationStarted(phase === 'generating')
+            setStatus(`Auto Mode - gRPC realtime - ${phase === 'cooldown' ? 'Cooldown, still listening...' : phase === 'generating' ? 'Generating answer...' : 'Listening...'}`)
+            if (phase === 'cooldown') startAutoCooldown(runId)
+          },
+          onAnswer: entry => {
+            if (!isCurrent()) return
+            setTranscript(entry.question)
+            setAcceptedAutoQuestion(entry.question)
+            setLastDetectedQuestion(entry.question)
+            setIsQuestionDetected(true)
+            setCategory(entry.category || '')
+            setProvider(entry.provider || '')
+            setFullAnswerState(entry.answer)
+            setAnswer(entry.answer)
+            setAnswerRevealActive(entry.status === 'generating')
+            if (entry.status === 'complete') setQuestionHistoryState(current => appendQuestionHistoryEntry(current,
+              createQuestionHistoryEntry({ id: entry.historyEntryId, mode: 'auto', question: entry.question,
+                fullAnswer: entry.answer, displayedAnswer: entry.answer, category: entry.category, provider: entry.provider,
+                status: 'complete', completedAt: new Date().toISOString() })))
+          },
+          onError: message => {
+            if (!isCurrent()) return
+            stopAutoMode()
+            setError(message)
+            setStatus('Auto Mode stopped safely. Restart to retry.')
+            setGenerationDiagnostics(current => ({ ...current, autoGrpcEligible: false, autoModePipeline: 'fallback', autoGrpcBlockedReason: 'unknown' }))
+          },
+        })
+        if (!isCurrent()) { session?.close(); return }
+        if (session) {
+          autoGrpcSessionRef.current = session
+          setAutoStreamingConnected(true)
+          setMicStreamingState(sourceMode === 'microphone' ? 'listening' : 'off')
+          setActiveAudioSource(sourceMode)
+          setAudioPipelineStatus('recording')
+          setSttProvider('assemblyai_streaming')
+          setGenerationDiagnostics(current => ({ ...current, autoPipeline: 'gRPC realtime', autoModePipeline: 'grpc_realtime', autoGrpcFlagEnabled: true, autoGrpcEligible: true, autoGrpcBlockedReason: 'none', provider_streaming: true }))
+          return
+        }
+        setGenerationDiagnostics(current => ({ ...current, autoGrpcEligible: false, autoModePipeline: 'fallback', autoGrpcBlockedReason: 'grpc_unavailable' }))
+        setStatus('Auto Mode: REST/WebSocket fallback. Connecting...')
+      }
       if (sourceMode === 'microphone') {
         await startAutoStreamingMic(runId, streamRef.current)
       } else {
         await startAutoStreamingSystem(runId)
       }
     } catch (err) {
+      if (startToken !== autoStartTokenRef.current) return
+      stopAutoStreamingBridge()
+      stopActiveStream()
       console.error('Auto Mode start error', err)
       logAutoModeDebug(
         'auto start failed',
@@ -4784,14 +4949,19 @@ function MainWindow() {
       setActiveAudioSource('none')
       setError(normalizePipelineError(err, 'Could not start Auto Mode.'))
       setStatus(sourceMode === 'microphone' ? 'Microphone unavailable.' : 'System audio unavailable.')
+    } finally {
+      if (startToken === autoStartTokenRef.current) autoStartingRef.current = false
     }
   }
 
   const stopAutoMode = () => {
-    logAutoModeDebug('auto mode stopping', {
+    autoStartTokenRef.current++
+    autoStartingRef.current = false
+    if (!autoGrpcSessionRef.current) logAutoModeDebug('auto mode stopping', {
       runId: autoModeRunIdRef.current || 'none',
       source: autoModeSourceRef.current || 'none',
     })
+    if (autoGrpcSessionRef.current) setAnswerRevealActive(false)
     autoModeRef.current = false
     autoModeRunIdRef.current = ''
     clearCurrentAutoQuestionRun()
@@ -5810,9 +5980,10 @@ function MainWindow() {
       setManualQuestionError('')
       setTranscript('')
 
+      const manualStartedAt = Date.now()
       const sessionId = crypto.randomUUID()
       pendingManualGenerationRef.current = null
-      setGenerationDiagnostics((current) => ({ ...current, generationRequestBlocked: false, generationBlockReason: '', generateRequestSent: false, generateStreamRequestSent: false, generateFallbackRequestSent: false, localWithoutSaving: false, generate_stream_request_sent: false, generate_non_stream_fallback_used: false, stream_fallback_reason: '', first_delta_received_ms: null, first_ui_update_ms: null, provider_streaming: false }))
+      setGenerationDiagnostics((current) => ({ ...current, generationRequestBlocked: false, generationBlockReason: '', generateRequestSent: false, generateStreamRequestSent: false, generateFallbackRequestSent: false, localWithoutSaving: Boolean(current.localWithoutSaving), manualGrpcRun: null, manualTimings: {}, manualPipeline: '', manualPipelineReason: '', generate_stream_request_sent: false, generate_non_stream_fallback_used: false, stream_fallback_reason: '', first_delta_received_ms: null, first_ui_update_ms: null, provider_streaming: false }))
       manualLiveStartIdRef.current = sessionId
       setAnswerDisplayMode('answer')
       setManualLiveState({ ...createManualLiveState(sessionId), phase: 'connecting' })
@@ -5829,15 +6000,19 @@ function MainWindow() {
           manualConfig = (await parseJsonResponse(response, 'Manual STT configuration unavailable.')) || manualConfig
         } catch { /* Fail closed to configured batch STT, never external preview. */ }
         if (!isCurrent()) return
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        let grpcStatus
+        try { grpcStatus = await window.electronAPI?.getGrpcRealtimeStatus?.() } catch { /* Existing flow remains available. */ }
+        if (!isCurrent()) return
+        const grpcEligible = canUseGrpcManual(grpcStatus, startupSessionConfigRef.current) && Boolean(window.electronAPI?.connectGrpcManualPipeline)
+        const stream = await navigator.mediaDevices.getUserMedia(grpcEligible ? { audio: { channelCount: 1, sampleRate: 16000 } } : { audio: true })
         if (!isCurrent()) { stream.getTracks().forEach((track) => track.stop()); return }
         streamRef.current = stream
         const liveAllowed = isManualLiveEnabled(manualConfig.manual_stt_provider, manualConfig.manual_live_stt_provider)
         setSttProvider(liveAllowed ? 'assemblyai_streaming' : manualConfig.manual_stt_provider)
         setSttFallbackUsed(false)
         setSttFallbackReason('')
-        manualLiveSessionRef.current = createManualLiveSession({
-          sessionId, stream,
+        const manualOptions = {
+          sessionId, stream, manualStartedAt,
           manualSttProvider: manualConfig.manual_stt_provider,
           manualLiveSttProvider: manualConfig.manual_live_stt_provider,
           createTransport: (micStream, isActive) => createLiveMicTransport({
@@ -5874,6 +6049,7 @@ function MainWindow() {
           },
           transcribe: async (blob) => {
             if (!isCurrent()) return { text: '' }
+            if (grpcStatus?.manualPipelineEnabled) setGenerationDiagnostics(current => ({ ...current, manualPipeline: 'batch fallback' }))
             const result = await transcribeAudioBlob(blob, 'manual', isCurrent)
             if (isCurrent()) {
               const liveFallback = liveAllowed
@@ -5908,7 +6084,53 @@ function MainWindow() {
             }
             if (pendingManualGenerationRef.current === pending) pendingManualGenerationRef.current = null
           },
-        })
+        }
+        if (!isCurrent()) { stream.getTracks().forEach(track => track.stop()); return }
+        if (grpcEligible) {
+          let historyCreated = false
+          const grpcSession = await createGrpcManualSession({
+            api: window.electronAPI, options: manualOptions, isCurrent,
+            canContinue: () => canUseGrpcManual(grpcStatus, startupSessionConfigRef.current),
+            onPipeline: (pipeline, reason) => {
+              if (isCurrent()) setGenerationDiagnostics(current => ({ ...current, manualPipeline: pipeline, manualPipelineReason: reason }))
+            },
+            onTiming: timings => {
+              if (isCurrent()) setGenerationDiagnostics(current => ({ ...current, manualTimings: timings }))
+            },
+            onStatus: text => { if (isCurrent()) setStatus(text) },
+            onCancel: historyEntryId => {
+              if (historyCreated) setQuestionHistoryState(current => updateQuestionHistoryEntry(current,
+                'answer', historyEntryId, { status: 'error' }))
+            },
+            onAnswer: ({ question, answer: text, category, provider, status: entryStatus, historyEntryId, manualRun }) => {
+              if (!isCurrent()) return
+              if (!historyCreated && question && entryStatus === 'complete') {
+                historyCreated = true
+                setQuestionHistoryState(current => appendQuestionHistoryEntry(current,
+                  createQuestionHistoryEntry({ id: historyEntryId, mode: 'answer', question,
+                    fullAnswer: text, displayedAnswer: text, status: 'complete', category, provider,
+                    completedAt: new Date().toISOString() })))
+              }
+              setTranscript(question)
+              setCategory(category || '')
+              setProvider(provider || '')
+              setSttProvider('assemblyai_streaming')
+              setFullAnswerState(text)
+              setAnswer(text)
+              setAnswerRevealActive(entryStatus === 'generating')
+              setGenerationDiagnostics(current => ({ ...current, manualTransport: 'grpc', manualGrpcRun: manualRun, provider_streaming: true }))
+              if (entryStatus === 'generating') setStatus('Generating answer...')
+            },
+          })
+          if (!isCurrent()) { grpcSession?.cancel(); return }
+          manualLiveSessionRef.current = grpcSession
+        } else {
+          manualLiveSessionRef.current = createManualLiveSession(manualOptions)
+          if (grpcStatus?.manualPipelineEnabled) {
+            setGenerationDiagnostics(current => ({ ...current, manualPipeline: 'REST/WebSocket fallback', manualPipelineReason: getGrpcManualBlockReason(grpcStatus, startupSessionConfigRef.current) || 'grpc_transport_unavailable' }))
+            setStatus('Listening... Using existing manual flow to preserve interview context.')
+          }
+        }
       } catch (err) {
         if (!isCurrent()) return
         stopActiveStream()
@@ -6285,6 +6507,13 @@ function MainWindow() {
       cooldownQueueReason={cooldownQueueReason}
       queuedQuestionProcessed={queuedQuestionProcessed}
       generationDiagnostics={generationDiagnostics}
+      localTestSession={localTestSession}
+      activeSessionSuspended={localTestSession && Boolean(cloudTestSnapshotRef.current?.activeSessionId)}
+      localTestSessionDisabledReason={!window.electronAPI?.connectGrpcAutoPipeline ? 'not running in Electron' :
+        !import.meta.env.DEV ? 'available only in development' :
+        !autoGrpcStatus?.autoPipelineEnabled ? 'USE_GRPC_AUTO_PIPELINE is disabled' : ''}
+      onToggleLocalTestSession={import.meta.env.DEV && autoGrpcStatus?.autoPipelineEnabled ? toggleLocalTestSession : undefined}
+      localTestSessionBusy={autoMode || autoProcessing || recording || manualProcessing || isManualGenerating || ocrProcessing}
       generationStarted={generationStarted}
       generationBlockedReason={generationBlockedReason}
       micStreamingState={micStreamingState}
@@ -6512,6 +6741,8 @@ export default function App() {
   }
 
   return (
+    <>
+    {!window.electronAPI && <WebsiteRouteHistory />}
     <Routes>
       <Route path="/auth/signup" element={<AuthSignupPage backendUrl={BACKEND_URL} />} />
       <Route path="/auth/login" element={<AuthLoginPage backendUrl={BACKEND_URL} />} />
@@ -6529,6 +6760,8 @@ export default function App() {
       <Route path="/landing" element={<LandingPage />} />
       <Route path="/desktop" element={<MainWindow />} />
       <Route path="/profile-setup" element={<ProfileSetupForm />} />
+      {!window.electronAPI && <Route path="*" element={<WebsiteNotFound />} />}
     </Routes>
+    </>
   )
 }

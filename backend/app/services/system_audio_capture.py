@@ -88,6 +88,7 @@ class StreamingChunkResult:
     target_sample_rate: int
     input_channels: int
     quality_event: dict[str, Any] | None = None
+    resample_latency_ms: float = 0.0
 
 
 class SystemAudioCaptureService:
@@ -449,12 +450,14 @@ class SystemAudioCaptureService:
 
     def read_streaming_pcm_chunk(self, session: StreamingLoopbackSession) -> StreamingChunkResult:
         raw_bytes = session.stream.read(session.frames_per_buffer, exception_on_overflow=False)
+        conversion_started = time.perf_counter()
         pcm_bytes, rms_level, peak_level, clipping_detected, effective_gain = self._convert_loopback_bytes_to_pcm16_mono(
             raw_bytes,
             source_channels=session.channels,
             source_sample_rate=session.sample_rate,
             target_sample_rate=session.target_sample_rate,
         )
+        resample_latency_ms = (time.perf_counter() - conversion_started) * 1000
         dropped_silence = False
         if not pcm_bytes:
             session.stats_dropped_chunks += 1
@@ -509,6 +512,7 @@ class SystemAudioCaptureService:
             session.stats_clipping_detected = False
 
         return StreamingChunkResult(
+            resample_latency_ms=resample_latency_ms,
             pcm_bytes=pcm_bytes,
             rms_level=rms_level,
             peak_level=peak_level,

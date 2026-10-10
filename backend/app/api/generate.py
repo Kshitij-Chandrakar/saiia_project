@@ -1264,6 +1264,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
         raise HTTPException(status_code=400, detail="`question` field cannot be empty.")
     if not req.category or not req.category.strip():
         raise HTTPException(status_code=400, detail="`category` field cannot be empty.")
+    cloud_context_only = bool(request and getattr(getattr(request, "state", None), "grpc_cloud_context_only", False))
     request_id = req.request_id = _stream_request_id(req.request_id)
     req.source = str(req.source or "").strip().lower()
     request_started = time.perf_counter()
@@ -1415,10 +1416,9 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
         )
         try:
             context_started = time.perf_counter()
-            saved_job_context = await run_in_threadpool(
-                _generation_job_context,
-                req,
-                use_job_context=use_job_context,
+            saved_job_context = (
+                _session_job_context(req) if cloud_context_only and use_job_context
+                else await run_in_threadpool(_generation_job_context, req, use_job_context=use_job_context)
             )
             retrieval = await run_in_threadpool(
                 _retrieve_resume_context,

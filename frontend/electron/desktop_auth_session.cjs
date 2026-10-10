@@ -854,6 +854,9 @@ class DesktopAuthSessionManager {
   }
 
   async createInterviewSession(payload, options = {}) {
+    if (typeof payload?.company_name !== 'string' || !payload.company_name.trim()) {
+      return { session: null, replayed: false, error: 'Enter a company name.' }
+    }
     if (!this.session?.access_token) {
       return { session: null, replayed: false, error: 'Log in to start a cloud interview session.' }
     }
@@ -877,7 +880,7 @@ class DesktopAuthSessionManager {
       selected_resume_id: typeof payload?.selected_resume_id === 'string' ? payload.selected_resume_id : null,
       job_context_id: typeof payload?.job_context_id === 'string' ? payload.job_context_id : null,
       target_role: typeof payload?.target_role === 'string' ? payload.target_role : '',
-      company_name: typeof payload?.company_name === 'string' ? payload.company_name : '',
+      company_name: payload.company_name.trim(),
       job_description: typeof payload?.job_description === 'string' ? payload.job_description : '',
     }
     const captured = this.captureCloudRequestContext()
@@ -1064,6 +1067,21 @@ class DesktopAuthSessionManager {
     if (response.status === 0 || response.status === 503) return { answer: null, error: 'Cloud temporarily unavailable. Please try again.' }
     if (!response.ok) return { answer: null, error: safeErrorMessage(response.payload?.detail, 'Unable to save My Answer.') }
     return { answer: safeMyAnswer(response.payload), error: '' }
+  }
+
+  isGrpcCloudAuthAvailable() {
+    return Boolean(this.status === AUTH_STATUSES.CONNECTED && this.session?.access_token && this.user?.user_id)
+  }
+
+  async getGrpcCloudAuthorization() {
+    if (this.status !== AUTH_STATUSES.CONNECTED || !this.session?.access_token) throw Error('auth_unavailable')
+    if (!this._hasFreshVerification(this.session)) await this._verifyAndBootstrap(this.session)
+    if (this.status !== AUTH_STATUSES.CONNECTED || !this.session?.access_token || !this.user?.user_id) throw Error('auth_unavailable')
+    const token = this.session.access_token
+    const userId = this.user.user_id
+    return { authorization: `Bearer ${token}`,
+      isCurrent: () => this.status === AUTH_STATUSES.CONNECTED &&
+        this.session?.access_token === token && this.user?.user_id === userId }
   }
 
   async generateAnswer(body) {
