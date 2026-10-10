@@ -264,6 +264,7 @@ class GrpcRealtimeClient {
     if (context.source && !['microphone','system'].includes(context.source)) throw Error('invalid source')
     const cloud = Boolean(context.activeSessionId || context.selectedResumeId || context.jobContextId)
     if (cloud && (!this.cloudContextPipelineEnabled || !context.activeSessionId)) {
+      if (this.sessionMode === 'auto_pipeline') this.close()
       this.cloudBlockedReason = this.cloudContextPipelineEnabled ? 'cloud_session_invalid' : 'cloud_context_flag_disabled'
       return this.getStatus()
     }

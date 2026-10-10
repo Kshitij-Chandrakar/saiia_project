@@ -4847,7 +4847,8 @@ function MainWindow() {
       try { grpcStatus = await window.electronAPI?.getGrpcRealtimeStatus?.() } catch { /* Preserve existing startup. */ }
       if (!autoModeRef.current || autoModeRunIdRef.current !== runId) return
       setAutoGrpcStatus(grpcStatus || null)
-      const blockedReason = getGrpcAutoBlockReason(grpcStatus ? { ...grpcStatus, cloudAuthStatus: 'not_started', cloudAuthAvailable: undefined } : grpcStatus, { ...startupSessionConfigRef.current, authRequired: generationDiagnostics.authRequired, activeSessionIdPresent: generationDiagnostics.activeSessionIdPresent, activeSessionEnded: generationDiagnostics.activeSessionEnded }, sourceMode) || (!window.electronAPI?.connectGrpcAutoPipeline ? 'grpc_unavailable' : '')
+      const startDiag = generationDiagnosticsRef.current
+      const blockedReason = getGrpcAutoBlockReason(grpcStatus ? { ...grpcStatus, cloudAuthStatus: 'not_started', cloudAuthAvailable: undefined } : grpcStatus, { ...startupSessionConfigRef.current, authRequired: startDiag.authRequired, activeSessionIdPresent: startDiag.activeSessionIdPresent, activeSessionEnded: startDiag.activeSessionEnded }, sourceMode) || (!window.electronAPI?.connectGrpcAutoPipeline ? 'grpc_unavailable' : '')
       setGenerationDiagnostics(current => ({ ...current, autoPipeline: grpcStatus?.autoPipelineEnabled && blockedReason !== 'system_audio_selected' ? 'REST/WebSocket fallback' : 'existing default', autoGrpcEligible: !blockedReason, autoGrpcBlockedReason: blockedReason, manualGrpcRun: null }))
       if (!blockedReason && window.electronAPI?.connectGrpcAutoPipeline) {
         const isCurrent = () => autoModeRef.current && autoModeRunIdRef.current === runId

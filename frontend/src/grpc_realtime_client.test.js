@@ -491,3 +491,28 @@ test('cloud errors use cloud guidance while provider errors keep STT guidance', 
       : 'Cloud session unavailable. Sign in again or restart the session.')
   }
 })
+
+test('blocked cloud Auto closes a ready local stream without reusing it', async () => {
+  for (const cloudEnabled of [false, true]) {
+    const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'true', USE_GRPC_CLOUD_CONTEXT_PIPELINE: String(cloudEnabled) })
+    await f.client.connectAuto({})
+    f.stream.emit('data', { status: { code: 'auto_pipeline_ready' } })
+    assert.equal(f.client.getStatus().autoPipelineReady, true)
+    const context = cloudEnabled ? { selectedResumeId: '22222222-2222-4222-8222-222222222222' }
+      : { activeSessionId: '11111111-1111-4111-8111-111111111111' }
+    const result = await f.client.connectAuto(context)
+    assert.equal(result.connectionStatus, 'disconnected')
+    assert.equal(result.autoPipelineReady, false)
+    assert.equal(result.cloudBlockedReason, cloudEnabled ? 'cloud_session_invalid' : 'cloud_context_flag_disabled')
+    assert.equal(f.counts().closed, 1)
+    assert.equal(f.counts().calls, 1)
+  }
+})
+test('Auto startup block check reads current diagnostics rather than captured state', () => {
+  const source = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
+  const startup = source.split('const startDiag = generationDiagnosticsRef.current')[1].split('setGenerationDiagnostics')[0]
+  for (const field of ['authRequired', 'activeSessionIdPresent', 'activeSessionEnded']) {
+    assert.ok(startup.includes(`startDiag.${field}`))
+    assert.ok(!startup.includes(`generationDiagnostics.${field}`))
+  }
+})
