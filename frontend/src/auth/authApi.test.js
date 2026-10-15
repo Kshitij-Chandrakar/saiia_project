@@ -8,6 +8,7 @@ import {
   confirmCloudResume,
   createDesktopHandoff,
   deleteCloudResume,
+  deleteInterviewTranscriptEntries,
   downloadInterviewTranscript,
   extractCloudResume,
   fetchInterviewAskAIMessages,
@@ -15,6 +16,7 @@ import {
   fetchInterviewTranscriptEntries,
   fetchInterviewSessions,
   fetchCloudResumeStatus,
+  fetchCloudResumeList,
   fetchCurrentCloudResume,
   fetchCurrentUser,
   fetchReviewCandidate,
@@ -25,6 +27,21 @@ import {
   uploadCloudResume,
 } from './authApi.js'
 import { getSupabaseAuthConfig, hasSupabaseAuthConfig } from './supabaseClient.js'
+
+test('transcript deletion uses bearer authentication, selected session only and propagates failure', async () => {
+  let request
+  assert.deepEqual(await deleteInterviewTranscriptEntries('verified-token', 'selected-session', {
+    backendUrl:'https://backend.test', fetchImpl:async (url, options)=>{
+      request={url,...options};return new Response(JSON.stringify({deleted_count:2}),{status:200})
+    },
+  }), {deleted_count:2})
+  assert.equal(request.method,'DELETE')
+  assert.equal(request.headers.Authorization,'Bearer verified-token')
+  assert.equal(request.body,undefined)
+  assert.equal(request.url,'https://backend.test/api/interview-sessions/selected-session/transcript-entries')
+  await assert.rejects(deleteInterviewTranscriptEntries('verified-token','selected-session',{fetchImpl:async ()=>new Response(JSON.stringify({detail:'Deletion unavailable'}),{status:503})}),/Deletion unavailable/)
+  await assert.rejects(deleteInterviewTranscriptEntries('','selected-session'),/token/i)
+})
 
 
 test('Supabase auth config reports missing frontend-safe env', () => {
@@ -813,7 +830,7 @@ for (const type of ['email', 'recovery']) {
         } },
       })
       assert.equal(result.status, 'error')
-      assert.equal(result.message, type === 'email' ? 'This verification link is expired or already used.' : 'This password reset link is expired or already used.')
+      assert.equal(result.message, type === 'email' ? 'Secure link verification is unavailable. Please try again later.' : 'This password reset link is expired or already used.')
       assert.equal(result.href, type === 'email' ? '/auth/login' : '/auth/forgot-password')
       assert.doesNotMatch(JSON.stringify(result), /synthetic-token/)
     })
@@ -837,4 +854,36 @@ test('verified email without a session continues to login', async () => {
   const result = await verifyAuthEmailAction('?token_hash=synthetic-token&type=email', { auth: { verifyOtp: async () => ({ data: { session: null } }) } })
   assert.equal(result.status, 'verified')
   assert.equal(result.href, '/auth/login')
+})
+
+for (const [error, reason, message] of [
+  [{ code: 'otp_expired' }, 'email_link_expired', 'This verification link is expired or already used.'],
+  [{ status: 429 }, undefined, 'Too many verification attempts. Please wait before trying again.'],
+  [{ code: 'unexpected_failure', message: 'private provider text' }, undefined, 'Secure link verification is unavailable. Please try again later.'],
+]) test(`verification classifies only known expiry: ${error.code || error.status}`, async () => {
+  const result = await verifyAuthEmailAction('?token_hash=mock-only&type=email', {
+    auth: { verifyOtp: async () => ({ error }) },
+  })
+  assert.equal(result.reason, reason)
+  assert.equal(result.message, message)
+  assert.equal(result.href, '/auth/login')
+  assert.doesNotMatch(JSON.stringify(result), /private provider text|mock-only/)
+})
+
+
+test('resume list preserves server readiness, authorization and cancellation without private storage fields', async () => {
+  const controller = new AbortController()
+  const records = await fetchCloudResumeList('synthetic-token', {
+    backendUrl: 'https://backend.example', signal: controller.signal,
+    fetchImpl: async (url, options) => {
+      assert.equal(url, 'https://backend.example/api/resumes')
+      assert.equal(options.headers.Authorization, 'Bearer synthetic-token')
+      assert.equal(options.signal, controller.signal)
+      return {ok:true, json:async () => ({items:[{id:'resume-1',status:'extracting',readiness_reason:'processing',original_filename:'profile.pdf',storage_path:'private/path',raw_text:'private content'}]})}
+    },
+  })
+  assert.equal(records[0].readiness_reason, 'processing')
+  assert.equal(records[0].original_filename, 'profile.pdf')
+  assert.equal(records[0].storage_path, undefined)
+  assert.equal(records[0].raw_text, undefined)
 })

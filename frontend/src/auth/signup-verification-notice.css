@@ -1,0 +1,12 @@
+﻿.signup-verification-notice{box-sizing:border-box;width:374px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);padding:0;border:1px solid #f3f4f6;border-radius:16px;background:white;color:#1f2937;box-shadow:0 1px 2px #0000000d,0 16px 48px #0f172a14;overflow:auto;font-family:'Website Inter',sans-serif;animation:signup-notice-enter .2s ease-out both;color-scheme:light}
+.signup-verification-notice::backdrop{background:#0f172a66;animation:signup-notice-backdrop .2s ease-out both}
+.signup-verification-notice__content{display:flex;flex-direction:column;align-items:center;padding:36px 28px 32px;text-align:center}
+.signup-verification-notice__content>img{display:block;width:112px;height:auto;max-width:100%;margin-bottom:24px}
+.signup-verification-notice h2{margin:0;font-size:18px;font-weight:500;line-height:28px;letter-spacing:-.45px}
+.signup-verification-notice p{margin:8px 0 0;font-size:14px;font-weight:400;line-height:20px;color:#71717a;overflow-wrap:anywhere}
+.signup-verification-notice button{box-sizing:border-box;width:100%;min-height:48px;margin-top:28px;padding:12px 16px;border:0;border-radius:12px;background:#2563eb;color:white;font:600 16px/24px 'Website Inter',sans-serif;box-shadow:0 4px 10px #2563eb20;cursor:pointer;transition:background .15s,box-shadow .15s}
+.signup-verification-notice button:hover{background:#1d4ed8;box-shadow:0 5px 14px #2563eb30}
+.signup-verification-notice button:focus-visible{outline:3px solid #2563eb80;outline-offset:3px}
+@keyframes signup-notice-enter{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes signup-notice-backdrop{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){.signup-verification-notice,.signup-verification-notice::backdrop,.signup-verification-notice button{animation:none;transition:none}}

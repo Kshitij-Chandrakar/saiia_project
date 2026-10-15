@@ -1,0 +1,2 @@
+import { defineConfig } from '@playwright/test'
+export default defineConfig({outputDir:'./test-results/password-reset',testDir:'./tests/e2e',testMatch:'password-reset.spec.js',fullyParallel:true,workers:2,reporter:'list',use:{baseURL:'http://127.0.0.1:5173',trace:'off',video:'off',screenshot:'off'},webServer:{command:'npm run dev -- --host 127.0.0.1',url:'http://127.0.0.1:5173',reuseExistingServer:true}})
