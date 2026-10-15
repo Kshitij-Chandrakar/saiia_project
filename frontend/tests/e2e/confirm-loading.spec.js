@@ -19,6 +19,7 @@ for(const authenticated of [true,false])test(`compact success preserves Continue
 
 test('expired card geometry, accessible return action and session retention', async ({page})=>{
  await mock(page,{invalid:true});await page.emulateMedia({reducedMotion:'reduce'});await mkdir(output,{recursive:true});
+ await page.route('**/api/**',route=>route.fulfill({json:{user_id:'existing-user',email:'person@example.test',items:[],ready:false,resume:null}}));
  await page.addInitScript(()=>{window.__session={access_token:'mock-only',user:{id:'existing-user'}}});
  for(const [width,height] of [[1366,768],[1280,720],[390,844],[360,800]]){
  await page.setViewportSize({width,height});await open(page);await page.evaluate(()=>window.__finish());
@@ -30,7 +31,7 @@ test('expired card geometry, accessible return action and session retention', as
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  await page.screenshot({path:path.join(output,`unavailable-${width}x${height}.png`),fullPage:false});
  }
- await page.evaluate(()=>document.body.style.zoom='2');const button=page.getByRole('link',{name:'Back to sign in',exact:true});await button.scrollIntoViewIfNeeded();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await button.focus();await expect(button).toBeFocused();await page.evaluate(()=>document.body.style.zoom='1');await button.click();await expect(page).toHaveURL(/\/auth\/login$/);expect(await page.evaluate(()=>window.__session.user.id)).toBe('existing-user');expect(await page.evaluate(()=>window.__verifyCalls)).toBe(1);
+ await page.evaluate(()=>document.body.style.zoom='2');const button=page.getByRole('link',{name:'Back to sign in',exact:true});await button.scrollIntoViewIfNeeded();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await button.focus();await expect(button).toBeFocused();await expect(button).toHaveAttribute('href','/auth/login');await page.evaluate(()=>document.body.style.zoom='1');await button.click();await expect(page).toHaveURL(/\/auth\/dashboard$/);expect(await page.evaluate(()=>window.__session.user.id)).toBe('existing-user');expect(await page.evaluate(()=>window.__verifyCalls)).toBe(1);
 })
 for(const kind of ['network','rate-limit','unrelated'])test(`verification ${kind} is not expiry`,async({page})=>{
  await mock(page);await page.route('**/src/auth/supabaseClient.js*',r=>r.fulfill({contentType:'application/javascript',body:`export function getSupabaseAuthConfig(){return {}};export const supabase={auth:{getSession:async()=>({data:{session:null}}),onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}}),verifyOtp:async()=>{${kind==='network'?"throw new Error('private detail')":"return {error:{status:"+(kind==='rate-limit'?'429':'500')+",code:'unexpected_failure',message:'private detail'}}"}}}}`}));
