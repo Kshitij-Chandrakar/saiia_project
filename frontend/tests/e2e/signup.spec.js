@@ -138,16 +138,16 @@ async function beginOAuth(page, marketing=null, email='') {
   await page.addInitScript(()=>{window.__session={access_token:'mock-only',user:{id:'mock-user',email:'verified@example.test'}}});return url
 }
 for(const [marketing,email] of [[null,''],[true,'invalid'],[false,'different@example.test']])test(`Google without credentials ${marketing}/${email}`,async({page})=>{
-  const url=await beginOAuth(page,marketing,email);await page.goto(url.href);await expect(page.getByText('Your consent preferences were saved.')).toBeVisible()
+  const url=await beginOAuth(page,marketing,email);await page.goto(url.href);await expect(page).toHaveURL(/\/auth\/dashboard$/)
   expect(await page.evaluate(()=>window.__bootstrap.length)).toBe(1);expect(await page.evaluate(()=>window.__bootstrap[0])).toEqual({terms_accepted:true,privacy_accepted:true,marketing_email_opt_in:marketing,consent_source:'signup',consent_version:'c10.6a-v1'})
-  expect(await page.evaluate(()=>sessionStorage.getItem('intervuai.googleSignupAttempt'))).toBeNull();await page.reload();await expect(page.getByText(/Signup preferences were not saved/)).toBeVisible();expect(await page.evaluate(()=>window.__bootstrap.length)).toBe(0)
+  expect(await page.evaluate(()=>sessionStorage.getItem('intervuai.googleSignupAttempt'))).toBeNull();await page.goto(url.href);await expect(page.getByText(/Signup preferences were not saved/)).toBeVisible();expect(await page.evaluate(()=>window.__bootstrap.length)).toBe(0)
 })
-test('ordinary login ignores signup choices',async({page})=>{await beginOAuth(page,true);await page.goto('/auth/callback');await expect(page.getByText('Signed in as person@example.test.')).toBeVisible();expect(await page.evaluate(()=>window.__bootstrap.length)).toBe(0)})
+test('ordinary login ignores signup choices',async({page})=>{await beginOAuth(page,true);await page.goto('/auth/callback');await expect(page).toHaveURL(/\/auth\/dashboard$/);expect(await page.evaluate(()=>window.__bootstrap.length)).toBe(0)})
 test('failed persistence retries with authenticated ownership',async({page})=>{
   const url=await beginOAuth(page,false);await page.route('**/api/auth/profile/bootstrap',r=>r.fulfill({status:503,json:{detail:'not ready'}}));await page.goto(url.href);await expect(page.getByText(/Signup preferences were not saved/)).toBeVisible()
   expect(await page.evaluate(()=>sessionStorage.getItem('intervuai.googleSignupAttempt'))).not.toBeNull();await page.unroute('**/api/auth/profile/bootstrap')
   await page.route('**/api/auth/profile/bootstrap',async r=>{expect(r.request().headers().authorization).toBe('Bearer mock-only');const body=r.request().postDataJSON();expect(body.user_id).toBeUndefined();await page.evaluate(x=>window.__bootstrap.push(x),body);await r.fulfill({json:{user_id:'mock-user'}})})
-  await page.getByRole('button',{name:'Retry saving signup preferences'}).click();await expect(page.getByText('Your consent preferences were saved.')).toBeVisible();expect(await page.evaluate(()=>window.__bootstrap.length)).toBe(1)
+  await page.getByRole('button',{name:'Retry saving signup preferences'}).click();await expect(page).toHaveURL(/\/auth\/dashboard$/);expect(await page.evaluate(()=>window.__bootstrap.length)).toBe(1)
 })
 for(const reason of ['cancelled','expired','missing-session'])test(`OAuth ${reason} safely discards consent`,async({page})=>{
   const url=await beginOAuth(page);if(reason==='cancelled')url.searchParams.set('error','access_denied');if(reason==='expired')await page.evaluate(()=>{const key='intervuai.googleSignupAttempt';const x=JSON.parse(sessionStorage.getItem(key));x.createdAt-=600001;sessionStorage.setItem(key,JSON.stringify(x))});if(reason==='missing-session')await page.addInitScript(()=>{window.__session=null})

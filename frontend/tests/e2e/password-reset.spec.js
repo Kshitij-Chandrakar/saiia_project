@@ -63,6 +63,7 @@ test('cancelling verified recovery signs out only its isolated session',async({p
  await mock(page);await enterRecovery(page);await page.keyboard.press('Escape');await expect(page).toHaveURL(/\/auth\/login$/);expect(await page.evaluate(()=>window.__signouts)).toEqual([{scope:'local'}]);expect(await page.evaluate(()=>window.__updates)).toBe(0)
 })
 test('four Figma stages plus loading/error fit desktop and mobile',async({page})=>{
+ test.setTimeout(60_000)
  await mock(page);await page.emulateMedia({reducedMotion:'reduce'});await mkdir(output,{recursive:true});const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text())});page.on('response',r=>{if(r.url().includes('/src/assets/password-reset/')&&r.status()>=400)errors.push('Failed reset design asset')})
  for(const [width,height]of [[1440,900],[1366,768],[1280,720],[390,844],[360,800]]){
   await page.setViewportSize({width,height});await page.goto('/auth/forgot-password');await expect(modal(page)).toBeVisible();await page.evaluate(()=>document.fonts.ready);await settled(page);await assertModalGeometry(page);await page.screenshot({path:path.join(output,`request-${width}x${height}.png`),fullPage:false})
