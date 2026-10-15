@@ -99,6 +99,11 @@ class FakeTranscriptService:
         self.create_calls: list[dict[str, object]] = []
         self.list_calls: list[dict[str, object]] = []
         self.export_calls: list[dict[str, object]] = []
+        self.delete_calls: list[dict[str, object]] = []
+
+    def delete_transcript_entries(self, *, user_id: str, session_id: str):
+        self.delete_calls.append({"user_id": user_id, "session_id": session_id})
+        return 0 if len(self.delete_calls) > 1 else 2
 
     def create_transcript_entry(self, *, user_id: str, session_id: str, payload: dict):
         self.create_calls.append({"user_id": user_id, "session_id": session_id, "payload": payload})
@@ -136,6 +141,27 @@ def test_transcript_routes_require_jwt(client: TestClient) -> None:
 
     assert response.status_code == 401
     assert response.json() == {"detail": AUTH_ERROR_DETAIL}
+
+
+def test_delete_requires_authentication_and_is_repeatable(client: TestClient, fake_service: FakeTranscriptService) -> None:
+    url = f"/api/interview-sessions/{SESSION_ID}/transcript-entries"
+    assert client.delete(url).status_code == 401
+    assert fake_service.delete_calls == []
+    headers = {"Authorization": f"Bearer {_token()}"}
+    assert client.delete(url, headers=headers).json() == {"deleted_count": 2}
+    assert client.delete(url, headers=headers).json() == {"deleted_count": 0}
+    assert fake_service.delete_calls == [{"user_id": TEST_USER_ID, "session_id": SESSION_ID}] * 2
+
+
+def test_delete_rejects_non_owner_before_mutation(client: TestClient, fake_service: FakeTranscriptService) -> None:
+    class OwnedSessions:
+        def get_session(self, *, user_id, session_id):
+            if user_id != TEST_USER_ID:
+                raise CloudInterviewSessionNotFoundError('Interview session was not found.')
+    client.app.dependency_overrides[interview_sessions_api.get_cloud_interview_session_service] = lambda: OwnedSessions()
+    response = client.delete(f"/api/interview-sessions/{SESSION_ID}/transcript-entries", headers={"Authorization": f"Bearer {_token(subject='00000000-0000-4000-8000-000000000002')}"})
+    assert response.status_code == 404
+    assert fake_service.delete_calls == []
 
 
 def test_create_transcript_route_uses_verified_user(client: TestClient, fake_service: FakeTranscriptService) -> None:
