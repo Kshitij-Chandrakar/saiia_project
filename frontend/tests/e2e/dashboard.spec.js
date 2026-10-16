@@ -60,6 +60,7 @@ async function mock(page, { signedIn = true, current = null, candidate = null, l
       const reply=/follow[ -]up email/i.test(question) ? `Subject: Thank you for the interview - ${record?.target_role || '[Position]'} - [Your Name]\n\nDear [Interviewer Name],\n\nThank you for the opportunity to interview for the ${record?.target_role || '[Position]'} position at ${record?.company_name || '[Company]'}. I appreciate your time and look forward to the next steps.\n\nBest regards,\n[Your Name]\n[Your Phone Number]` : 'Synthetic follow-up response'
       return route.fulfill({json:{user_message:{id:'q1',session_id:endpoint.split('/')[3],role:'user',turn_index:1,message_text:question},assistant_message:{id:'a1',session_id:endpoint.split('/')[3],role:'assistant',turn_index:2,message_text:reply},answer_text:reply}})
     }
+    if (endpoint === '/api/onboarding') return route.fulfill({json:{onboarding_current_step:1,onboarding_completed_at:'2026-10-16T00:00:00Z'}})
     if (endpoint === '/api/resumes/current') return route.fulfill(state.resumeFailure ? {status:503,json:{detail:'Synthetic resume failure'}} : {json:{ready:Boolean(state.current?.is_active),resume:state.current}})
     if (endpoint === '/api/resumes/review-candidate') return route.fulfill({json:{has_candidate:Boolean(state.candidate),resume:state.candidate}})
     if (endpoint === '/api/resumes' && method === 'GET') return route.fulfill({json:{items:state.resumeItems}})

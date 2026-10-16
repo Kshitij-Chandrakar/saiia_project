@@ -1,3 +1,4 @@
+import { DashboardOnboardingGate } from './DashboardOnboarding'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { Eye, EyeOff, FileText, LogOut, Upload } from 'lucide-react'
@@ -1570,7 +1571,7 @@ function RequireAuth({ backendUrl, children }) {
 
 
 export function AuthDashboardPage({ backendUrl, page = 'dashboard' }) {
-  return <RequireAuth backendUrl={backendUrl}>{(user) => <WebsiteDashboardContent key={user.user_id + page} user={user} backendUrl={backendUrl} page={page} />}</RequireAuth>
+  return <RequireAuth backendUrl={backendUrl}>{(user) => <DashboardOnboardingGate key={user.user_id} backendUrl={backendUrl}><WebsiteDashboardContent key={user.user_id + page} user={user} backendUrl={backendUrl} page={page} /></DashboardOnboardingGate>}</RequireAuth>
 }
 
 function WebsiteDashboardContent({ backendUrl, user, page }) {
