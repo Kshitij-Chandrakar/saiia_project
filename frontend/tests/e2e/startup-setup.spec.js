@@ -1,9 +1,35 @@
 import {test,expect,_electron} from '@playwright/test'
 import {mkdir,writeFile} from 'node:fs/promises'
 import path from 'node:path'
+
+for (const outcome of ['signed-out','token-expired','failure']) test(`logout ${outcome} after a tab unmount reaches the parent exactly once on success`, async ({page}) => {
+ await openSetup(page,null,false,'choice')
+ await page.evaluate(()=>{
+  window.saiia.listInterviewSessions=async()=>({items:[{id:'cached-session',status:'ended',company_name:'Synthetic cached company',target_role:'Synthetic role',started_at:'2026-10-01T10:00:00Z'}]})
+ })
+ await page.getByRole('tab',{name:'Past Sessions',exact:true}).click()
+ await expect(page.getByText('Synthetic cached company',{exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'Account menu'}).click()
+ await page.evaluate(outcome=>{window.logoutPending=true;window.logoutFail=outcome==='failure';window.logoutResult=outcome},outcome)
+ await page.getByRole('menuitem',{name:'Log out',exact:true}).click()
+ await expect(page.getByRole('menuitem',{name:'Signing out...',exact:true})).toBeDisabled()
+ await page.getByRole('tab',{name:'Create',exact:true}).click()
+ await expect(page.getByRole('menu')).toHaveCount(0)
+ await page.evaluate(()=>window.finishLogout())
+ if (outcome==='failure') {
+  await page.getByRole('tab',{name:'Past Sessions',exact:true}).click()
+  await expect(page.getByText('Synthetic cached company',{exact:true})).toBeVisible()
+  expect(await page.evaluate(()=>window.signedOutCount||0)).toBe(0)
+ } else {
+  await expect(page.getByRole('heading',{name:'Signed out',exact:true})).toBeVisible()
+  await expect(page.getByText('Synthetic cached company',{exact:true})).toHaveCount(0)
+  expect(await page.evaluate(()=>window.signedOutCount)).toBe(1)
+ }
+ expect(await page.evaluate(()=>window.logoutCalls)).toBe(1)
+})
 async function openSetup(page, balance=null, blocked=false, screen='setup'){
  page.on('pageerror',e=>console.log(e.message));page.on('console',m=>{if(m.type()==='error')console.log(m.text())});
- await page.route('**/src/main.jsx*',r=>r.fulfill({contentType:'application/javascript',body:`import React from '/node_modules/.vite/deps/react.js';import ReactDOM from'/node_modules/.vite/deps/react-dom_client.js';import Setup from '/src/components/StartupSessionSetupScreen.jsx';import Choice from '/src/components/StartupSessionChoiceScreen.jsx';import '/src/index.css';import '/src/styles/glass.css';window.calls=[];window.quotaChecks=0;window.saiia={getCloudStartupContext:async()=>{window.quotaChecks++;await new Promise((r,j)=>{window.quotaFinish=r;window.quotaReject=j})},refreshCloudStartupContext:async()=>{window.quotaChecks++;await new Promise((r,j)=>{window.quotaFinish=r;window.quotaReject=j})},listCloudResumes:async()=>({items:window.resumeItems||[{id:'resume-1',display_name:'Ready resume.pdf',can_generate:true}],error:window.resumeError||''}),createInterviewSession:async(body)=>{window.calls.push(body);if(window.fail)return {error:'Please retry'};if(window.pending)await new Promise(r=>window.finish=r);return {session:{id:'mock-session',status:'active'}}},endInterviewSession:async()=>{},openDashboard:async()=>{window.dashboardCalls=(window.dashboardCalls||0)+1;return {ok:true}},logoutAuth:async()=>{window.logoutCalls=(window.logoutCalls||0)+1;if(window.logoutPending)await new Promise(r=>window.finishLogout=r);if(window.logoutFail)throw new Error('mock-only');return {status:'signed-out'}}};window.electronAPI={completeStartup:async()=>({ok:true}),closeStartupWindow:async()=>{window.closeCalled=true},collapseStartupWindow:async()=>({ok:true}),restoreStartupWindow:async()=>({ok:true})};ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(function Harness(){const[email,setEmail]=React.useState(window.testEmail??'person@example.test');window.setMenuEmail=setEmail;return React.createElement(${screen==='choice'?'Choice':'Setup'},{key:email,onSignedOut:()=>{window.signedOut=true},onBack:()=>window.back=true,onStartSession:c=>window.config=c,authenticatedEmail:email,remainingMinutes:${balance?.remaining ?? 'null'},totalMinutes:${balance?.total ?? 'null'}});}));`}));
+ await page.route('**/src/main.jsx*',r=>r.fulfill({contentType:'application/javascript',body:`import React from '/node_modules/.vite/deps/react.js';import ReactDOM from'/node_modules/.vite/deps/react-dom_client.js';import Setup from '/src/components/StartupSessionSetupScreen.jsx';import Choice from '/src/components/StartupSessionChoiceScreen.jsx';import '/src/index.css';import '/src/styles/glass.css';window.calls=[];window.quotaChecks=0;window.saiia={getCloudStartupContext:async()=>{window.quotaChecks++;await new Promise((r,j)=>{window.quotaFinish=r;window.quotaReject=j})},refreshCloudStartupContext:async()=>{window.quotaChecks++;await new Promise((r,j)=>{window.quotaFinish=r;window.quotaReject=j})},listCloudResumes:async()=>({items:window.resumeItems||[{id:'resume-1',display_name:'Ready resume.pdf',can_generate:true}],error:window.resumeError||''}),createInterviewSession:async(body)=>{window.calls.push(body);if(window.fail)return {error:'Please retry'};if(window.pending)await new Promise(r=>window.finish=r);return {session:{id:'mock-session',status:'active'}}},endInterviewSession:async()=>{},openDashboard:async()=>{window.dashboardCalls=(window.dashboardCalls||0)+1;return {ok:true}},logoutAuth:async()=>{window.logoutCalls=(window.logoutCalls||0)+1;if(window.logoutPending)await new Promise(r=>window.finishLogout=r);if(window.logoutFail)throw new Error('mock-only');return {status:window.logoutResult||'signed-out'}}};window.electronAPI={completeStartup:async()=>({ok:true}),closeStartupWindow:async()=>{window.closeCalled=true},collapseStartupWindow:async()=>({ok:true}),restoreStartupWindow:async()=>({ok:true})};ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(function Harness(){const[email,setEmail]=React.useState(window.testEmail??'person@example.test');const[authenticated,setAuthenticated]=React.useState(true);window.setMenuEmail=setEmail;if(!authenticated)return React.createElement('h1',null,'Signed out');return React.createElement(${screen==='choice'?'Choice':'Setup'},{key:email,onSignedOut:()=>{window.signedOut=true;window.signedOutCount=(window.signedOutCount||0)+1;setAuthenticated(false)},onBack:()=>window.back=true,onStartSession:c=>window.config=c,authenticatedEmail:email,remainingMinutes:${balance?.remaining ?? 'null'},totalMinutes:${balance?.total ?? 'null'}});}));`}));
  await page.setViewportSize(screen==='choice'?{width:504,height:462}:{width:421,height:484});await page.goto('/');if(screen==='choice')return;if(blocked)await expect(page.getByRole('button',{name:'Start Session',exact:true})).toBeDisabled();else await expect(page.getByRole('button',{name:'Start Session',exact:true})).toBeEnabled()
 }
 test('compact setup scrolls centrally, validates company, retains fields and starts once',async({page})=>{

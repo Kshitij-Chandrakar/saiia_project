@@ -29,7 +29,7 @@ export default function WebsiteCallbackLoading({ error, nextRoute, canRetry, onR
   }, [error])
 
   return <div className={`website-callback${error ? '' : ' website-callback--pending'}`}>
-    <div inert="" aria-hidden="true"><WebsiteLogin form={backgroundForm} configured blocked presentationOnly onSubmit={noop} onGoogleLogin={noop} /></div>
+    <div inert aria-hidden="true"><WebsiteLogin form={backgroundForm} configured blocked presentationOnly onSubmit={noop} onGoogleLogin={noop} /></div>
     {error ? <div className="website-callback__recovery">
       <section className="website-callback__card website-callback__error" aria-labelledby="callback-error-title" aria-describedby="callback-error-message">
         <span className="website-callback__label">SIGN-IN UNAVAILABLE</span>

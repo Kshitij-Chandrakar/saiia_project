@@ -81,6 +81,93 @@ class Workspace {
   async settled() { await this.page.evaluate(()=>document.fonts.ready); await expect.poll(()=>this.page.locator('.website-dashboard img').evaluateAll(images=>images.every(i=>i.complete&&i.naturalWidth>0))).toBe(true) }
 }
 
+test('downloads preserve cached session identity; opening and deleting B use only B entries', async ({page}) => {
+  await mock(page)
+  let bReads = 0, bDeleted = false
+  await page.route('**/api/interview-sessions/session-2/transcript-entries?*', route => {
+    bReads++
+    return route.fulfill({json:{items:bDeleted ? [] : [{id:'b-entry',session_id:'session-2',turn_index:1,question_text:'B question only',answer_text:'B answer only'}]}})
+  })
+  await page.route('**/api/interview-sessions/session-2/transcript-entries', route => {
+    expect(route.request().method()).toBe('DELETE'); bDeleted = true
+    return route.fulfill({json:{deleted_count:1}})
+  })
+  const workspace = new Workspace(page)
+  await workspace.goto('/auth/sessions','Call Sessions')
+  await workspace.row('Platform engineering discussion').getByRole('button',{name:'View Transcript'}).click()
+  await expect(page.getByText('Question for session-1',{exact:false})).toBeVisible()
+  await workspace.menu('Design systems discussion')
+  const downloaded = page.waitForEvent('download')
+  await page.getByRole('menuitem',{name:'Download .txt',exact:true}).click(); await downloaded
+  await workspace.menu('Platform engineering discussion'); await page.getByRole('menuitem',{name:'Ask AI',exact:true}).click()
+  let viewer = page.getByRole('dialog',{name:'Platform engineering discussion',exact:true})
+  await viewer.getByRole('button',{name:'Transcript',exact:true}).click()
+  await expect(viewer.getByText('Question for session-1',{exact:false})).toBeVisible()
+  expect(await page.evaluate(()=>window.__requests.filter(r=>r.endpoint==='/api/interview-sessions/session-1/transcript-entries'&&r.method==='GET').length)).toBe(1)
+  expect(bReads).toBe(0)
+  await workspace.menu('Design systems discussion'); await page.getByRole('menuitem',{name:'Ask AI',exact:true}).click()
+  viewer = page.getByRole('dialog',{name:'Design systems discussion',exact:true})
+  await viewer.getByRole('button',{name:'Transcript',exact:true}).click()
+  await expect(viewer.getByText('B question only',{exact:false})).toBeVisible()
+  await expect(viewer.getByText('Question for session-1',{exact:false})).toHaveCount(0)
+  expect(bReads).toBe(1)
+  await viewer.getByRole('button',{name:'Clear Transcript',exact:true}).click()
+  await page.getByRole('dialog',{name:'Clear Transcript?',exact:true}).getByRole('button',{name:'Delete Transcript',exact:true}).click()
+  await expect(viewer.getByText('Transcript deleted.',{exact:true})).toBeVisible()
+  expect(bDeleted).toBe(true)
+  expect(await page.evaluate(()=>window.__requests.filter(r=>r.method==='DELETE').length)).toBe(0)
+})
+
+test('downloading B never fences A pending transcript read or clears its loading state', async ({page}) => {
+  await mock(page)
+  const held = await holdRequest(page,'**/api/interview-sessions/session-1/transcript-entries?*')
+  const workspace = new Workspace(page)
+  await workspace.goto('/auth/sessions','Call Sessions')
+  await workspace.row('Platform engineering discussion').getByRole('button',{name:'View Transcript'}).click(); await held.requested
+  await workspace.menu('Design systems discussion')
+  const downloaded = page.waitForEvent('download')
+  await page.getByRole('menuitem',{name:'Download .md',exact:true}).click(); await downloaded
+  await workspace.menu('Platform engineering discussion'); await page.getByRole('menuitem',{name:'Ask AI',exact:true}).click()
+  const viewer = page.getByRole('dialog',{name:'Platform engineering discussion',exact:true})
+  await viewer.getByRole('button',{name:'Transcript',exact:true}).click()
+  await expect(page.getByRole('status',{name:'Loading transcript...'})).toBeVisible()
+  await expect(viewer.getByRole('button',{name:'Clear Transcript',exact:true})).toBeDisabled()
+  await held.release()
+  await expect(viewer.getByText('Question for session-1',{exact:false})).toBeVisible()
+})
+
+test('mismatched transcript response is rejected before rendering or deletion', async ({page}) => {
+  await mock(page)
+  await page.route('**/api/interview-sessions/session-2/transcript-entries?*',route=>route.fulfill({json:{items:[{id:'wrong-entry',session_id:'session-1',turn_index:1,question_text:'Wrong session content',answer_text:'Must not render'}]}}))
+  const workspace = new Workspace(page); await workspace.goto('/auth/sessions','Call Sessions')
+  await workspace.row('Design systems discussion').getByRole('button',{name:'View Transcript'}).click()
+  const viewer = page.getByRole('dialog',{name:'Design systems discussion',exact:true})
+  await expect(viewer.getByRole('alert')).toContainText('Could not load transcript entries.')
+  await expect(viewer.getByText('Wrong session content',{exact:false})).toHaveCount(0)
+  await expect(viewer.getByRole('button',{name:'Clear Transcript',exact:true})).toBeDisabled()
+  expect(await page.evaluate(()=>window.__requests.filter(r=>r.method==='DELETE').length)).toBe(0)
+})
+
+test('missing Supabase configuration settles the resume panel without a TypeError or retry loop', async ({page}) => {
+  await page.route('**/src/auth/supabaseClient.js*',route=>route.fulfill({contentType:'application/javascript',body:'export const supabase=null;'}))
+  await page.route('**/src/main.jsx*',async route=>{
+    const source = await page.request.get(new URL('/src/auth/DashboardOverview.jsx',route.request().url()).href)
+    // Use Vite's exact URL so the harness and Link share one router context.
+    const router = (await source.text()).match(/from ["']([^"']*react-router-dom[^"']*)["']/)[1]
+    return route.fulfill({contentType:'application/javascript',body:`
+    import React from '/node_modules/.vite/deps/react.js';import ReactDOM from '/node_modules/.vite/deps/react-dom_client.js';
+    import {BrowserRouter} from '${router}';import Overview from '/src/auth/DashboardOverview.jsx';
+    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(BrowserRouter,null,React.createElement(Overview,{user:{user_id:'synthetic-user'},sessions:[],loading:false})));`})
+  })
+  const errors = [], requests = []
+  page.on('pageerror',error=>errors.push(error.message)); page.on('request',request=>{if(request.url().includes('/api/'))requests.push(request.url())})
+  await page.goto('/')
+  expect(errors).toEqual([])
+  await expect(page.getByRole('region',{name:'Resume overview'})).toContainText('Authentication is unavailable.')
+  await expect(page.getByRole('button',{name:'Retry resume status'})).toHaveCount(0)
+  expect(errors).toEqual([]); expect(requests).toEqual([])
+})
+
 test('Ask AI suggestions, editable follow-up draft, nested confirmations and temporary chat clearing', async ({page}) => {
   await mock(page);const workspace=new Workspace(page)
   const saved=[{id:'saved-q',session_id:'session-1',role:'user',turn_index:1,message_text:'What can improve?'},{id:'saved-a',session_id:'session-1',role:'assistant',turn_index:2,message_text:'Use concrete examples.'}]

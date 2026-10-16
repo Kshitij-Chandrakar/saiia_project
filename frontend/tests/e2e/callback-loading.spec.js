@@ -99,6 +99,14 @@ test('terminal failure stops motion, releases scroll lock, and keeps safe recove
   await expect(pending(page)).toBeVisible(); await page.evaluate(()=>window.__release())
   await expect(pending(page)).toHaveCount(0)
   await expect(page.getByRole('link',{name:'Back to sign in'})).toBeFocused()
+  const background = page.locator('.website-callback > [aria-hidden="true"]')
+  await expect(background).toHaveJSProperty('inert',true)
+  for (let index=0; index<5; index++) {
+    await page.keyboard.press('Tab')
+    expect(await background.evaluate(node=>node.contains(document.activeElement))).toBe(false)
+  }
+  await page.locator('.website-login input[type="email"]').evaluate(node=>node.focus())
+  expect(await background.evaluate(node=>node.contains(document.activeElement))).toBe(false)
   await expect(page.locator('.website-callback__spinner')).toHaveCount(0)
   expect(await page.evaluate(()=>document.body.style.overflow)).not.toBe('hidden')
   await expect(page.getByRole('link',{name:'Back to sign in'})).toHaveAttribute('href','/auth/login?next=%2Fauth%2Fsessions')

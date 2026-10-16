@@ -1589,10 +1589,12 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
   const transcriptEpoch = useRef(0)
   const notesRequest = useRef(0)
   const [transcriptEntries, setTranscriptEntries] = useState([])
+  const [loadedTranscriptSessionId, setLoadedTranscriptSessionId] = useState('')
   const [transcriptLoading, setTranscriptLoading] = useState(false)
   const [transcriptError, setTranscriptError] = useState('')
   const [transcriptDeletedSessionId, setTranscriptDeletedSessionId] = useState('')
   const [transcriptDownloadKey, setTranscriptDownloadKey] = useState('')
+  const [transcriptDownloadError, setTranscriptDownloadError] = useState(null)
   const [openNotesSessionId, setOpenNotesSessionId] = useState('')
   const [sessionNotes, setSessionNotes] = useState(null)
   const [notesLoading, setNotesLoading] = useState(false)
@@ -1790,8 +1792,10 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
         page: 1,
       })
       if (!activeRef.current || request !== transcriptRequest.current) return
+      if (result.items.some(entry => entry.session_id !== normalizedSessionId)) throw new Error('Transcript session mismatch.')
       setOpenTranscriptSessionId(normalizedSessionId)
       setTranscriptEntries(result.items)
+      setLoadedTranscriptSessionId(normalizedSessionId)
     } catch {
       if (!activeRef.current || request !== transcriptRequest.current) return
       setOpenTranscriptSessionId(normalizedSessionId)
@@ -1810,20 +1814,18 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
     if (!normalizedSessionId || !normalizedFormat || transcriptDownloadKey) {
       return
     }
-    transcriptRequest.current += 1
-    setTranscriptLoading(false)
-    setOpenTranscriptSessionId(normalizedSessionId)
     setTranscriptDownloadKey(`${normalizedSessionId}:${normalizedFormat}`)
-    setTranscriptError('')
+    setTranscriptDownloadError(null)
+    const downloadError = message => { if (activeRef.current && epoch === transcriptEpoch.current) setTranscriptDownloadError({ sessionId:normalizedSessionId, message }) }
     try {
       if (!supabase) {
-        setTranscriptError('Transcript download is unavailable until auth is ready.')
+        downloadError('Transcript download is unavailable until auth is ready.')
         return false
       }
       const { data, error: sessionError } = await supabase.auth.getSession()
       if (!activeRef.current) return false
       if (sessionError || !data.session?.access_token) {
-        setTranscriptError('Could not verify transcript download access. Please sign in again.')
+        downloadError('Could not verify transcript download access. Please sign in again.')
         return false
       }
       const download = await downloadInterviewTranscript(data.session.access_token, normalizedSessionId, normalizedFormat, {
@@ -1833,20 +1835,25 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
       return true
     } catch {
       if (!activeRef.current || epoch !== transcriptEpoch.current) return false
-      setTranscriptError('Could not download the transcript. Please try again.')
+      downloadError('Could not download the transcript. Please try again.')
       return false
     } finally {
-      setTranscriptDownloadKey('')
+      if (activeRef.current && epoch === transcriptEpoch.current) setTranscriptDownloadKey('')
     }
   }
 
   async function handleTranscriptDelete(sessionId) {
     if (transcriptDeletion.current) throw new Error('Transcript deletion is already pending.')
+    if (sessionId !== openTranscriptSessionId || sessionId !== loadedTranscriptSessionId || !transcriptEntries.length || transcriptEntries.some(entry => entry.session_id !== sessionId)) {
+      throw new Error('Load the selected session transcript before deleting it.')
+    }
     transcriptDeletion.current = true
     // Fence all previously started transcript reads and downloads before mutation.
     transcriptRequest.current += 1
     transcriptEpoch.current += 1
     setTranscriptLoading(false)
+    setTranscriptDownloadKey('')
+    setTranscriptDownloadError(null)
     try {
       if (!supabase) throw new Error('Authentication is unavailable. Please sign in again.')
       const { data, error } = await supabase.auth.getSession()
@@ -2172,7 +2179,7 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
               preview={page === 'dashboard'}
               page={sessionPage}
               onPageChange={setSessionPage}
-              viewerData={{transcriptSessionId:openTranscriptSessionId,entries:transcriptEntries,transcriptLoading,askSessionId:openAskAISessionId,messages:askAIMessages,askLoading:askAILoading,downloadLoading:Boolean(transcriptDownloadKey),onDeleteTranscript:handleTranscriptDelete}}
+              viewerData={{transcriptSessionId:loadedTranscriptSessionId,entries:transcriptEntries,transcriptLoading,askSessionId:openAskAISessionId,messages:askAIMessages,askLoading:askAILoading,downloadLoading:Boolean(transcriptDownloadKey),onDeleteTranscript:handleTranscriptDelete}}
               onTranscript={handleTranscriptToggle}
               transcriptDisabled={() => false}
               sectionDisabled={(id, section) => section === 'notes' && Boolean(notesGenerateKey) && openNotesSessionId !== id}
@@ -2204,6 +2211,7 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
                     Ended: {session.ended_at ? formatSessionTime(session.ended_at) : 'Not ended yet'}
                   </p>
                   </>}
+                  {viewerSection === 'transcript' && transcriptDownloadError?.sessionId === session.id && <p role="alert" className="auth-message error">{transcriptDownloadError.message}</p>}
                   {viewerSection === 'transcript' && openTranscriptSessionId === session.id ? (
                     <div className="auth-session-history__transcript" aria-busy={transcriptLoading}>
                       {transcriptDeletedSessionId === session.id && <p role="status">Transcript deleted.</p>}

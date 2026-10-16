@@ -113,13 +113,12 @@ export default function StartupAccountMenu({ authenticatedEmail = '', onSignedOu
     setAccountMenuError('')
     try {
       const result = await logoutAuth()
-      if (!mountedRef.current) return
       if (result?.status === 'signed-out' || result?.status === 'token-expired') {
-        setAccountMenuOpen(false)
+        if (mountedRef.current) setAccountMenuOpen(false)
         onSignedOut?.(result)
         return
       }
-      setAccountMenuError('We could not sign you out. Please try again.')
+      if (mountedRef.current) setAccountMenuError('We could not sign you out. Please try again.')
     } catch {
       if (mountedRef.current) setAccountMenuError('We could not sign you out. Please try again.')
     } finally {

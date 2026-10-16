@@ -80,7 +80,7 @@ export default function WebsiteSessionTable({ sessions, loading = false, preview
       if (section) show(open, section)
       const version = viewerVersion.current
       const result = await action.onClick()
-      if (action.label.startsWith('Download') && result === false && version === viewerVersion.current) show(open, 'transcript')
+      if (action.label.startsWith('Download') && result === false && version === viewerVersion.current) { show(open, 'transcript'); onTranscript(open, {reload:true}) }
     }}))} close={close} />}
     {selectedSession && <WebsiteSessionViewer key={selectedSession.id} data={viewerData} onDownload={format => actionsFor(selectedSession.id).find(action => action.label === `Download .${format}`)?.onClick()} session={selectedSession} section={viewer.section} sectionDisabled={section => sectionDisabled(selectedSession.id, section)} onClose={closeViewer} onSection={section => { show(selectedSession.id, section); onSection(selectedSession.id, section) }}>{presentation => renderDetails(selectedSession, viewer.section, presentation)}</WebsiteSessionViewer>}
   </section>

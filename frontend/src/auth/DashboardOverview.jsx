@@ -17,6 +17,7 @@ export default function DashboardOverview({ user, backendUrl, sessions, loading,
       setResumeLoading(true)
       setResumeError(false)
       try {
+        if (!supabase) throw new Error('Authentication is unavailable.')
         const { data } = await supabase.auth.getSession()
         if (controller.signal.aborted) return
         if (!data.session?.access_token || data.session.user?.id !== user.user_id) throw new Error()
@@ -38,7 +39,7 @@ export default function DashboardOverview({ user, backendUrl, sessions, loading,
   const state = initialResumeLoading ? 'loading' : resumeError ? 'unavailable' : resume?.ready ? 'ready' : !record ? 'missing' : record.readiness_reason || 'unknown'
   const presentation = {
     loading: ['Loading…', 'Checking your resume status.', 'Please wait while we load the current status.'],
-    unavailable: ['Unavailable', 'Resume status is unavailable.', 'Try again or visit Resumes to check its status.'],
+    unavailable: ['Unavailable', 'Resume status is unavailable.', supabase ? 'Try again or visit Resumes to check its status.' : 'Authentication is unavailable. Check the website configuration.'],
     ready: ['Ready', 'Review your resume and recent conversations.', 'Manage your resume or revisit transcripts and AI notes from your sessions.'],
     missing: ['No resume', 'Add your resume to your workspace.', 'Upload and review your resume through the Resumes page.'],
     processing: ['Processing', 'Your resume is processing.', 'Visit Resumes to check extraction and indexing progress.'],
@@ -60,7 +61,7 @@ export default function DashboardOverview({ user, backendUrl, sessions, loading,
         <small>{initialResumeLoading ? <><span className="wd-sr-only" role="status">Loading resume status.</span><Skeleton width="70%" height={18} /></> : (!resumeError && record?.original_filename) || 'Manage your resume to review its status.'}</small>
       </section>
     </div>
-    <section className="wd-banner" aria-label="Resume overview" aria-busy={resumeLoading}><div><h2>{initialResumeLoading ? <><span className="wd-sr-only">{presentation[1]}</span><Skeleton width="80%" height={32} /></> : presentation[1]}</h2><p>{initialResumeLoading ? <Skeleton width="95%" height={21} /> : presentation[2]}</p><Link className="wd-primary" to="/auth/resume">{state === 'missing' ? 'Upload Resume' : 'Manage Resumes'}</Link>{resumeError && <button type="button" onClick={() => setAttempt(value => value + 1)}>Retry resume status</button>}</div><span className="wd-banner-icon"><FileText size={40} aria-hidden="true" /></span></section>
+    <section className="wd-banner" aria-label="Resume overview" aria-busy={resumeLoading}><div><h2>{initialResumeLoading ? <><span className="wd-sr-only">{presentation[1]}</span><Skeleton width="80%" height={32} /></> : presentation[1]}</h2><p>{initialResumeLoading ? <Skeleton width="95%" height={21} /> : presentation[2]}</p><Link className="wd-primary" to="/auth/resume">{state === 'missing' ? 'Upload Resume' : 'Manage Resumes'}</Link>{resumeError && supabase && <button type="button" onClick={() => setAttempt(value => value + 1)}>Retry resume status</button>}</div><span className="wd-banner-icon"><FileText size={40} aria-hidden="true" /></span></section>
     <div className="wd-section-heading"><h2>Recent sessions</h2><Link to="/auth/sessions">View All Sessions →</Link></div>{children}
   </>
 }

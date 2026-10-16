@@ -1,5 +1,4 @@
 -- Apply before deploying the permanent Clear Transcript API/UI.
-begin;
 
 -- A real-time guard also covers transactions started before the late-write
 -- deadline. It uses the same lock as the C7 create RPC and deletion RPC.
@@ -58,4 +57,3 @@ $$;
 
 revoke all on function public.delete_interview_session_transcript_entries(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.delete_interview_session_transcript_entries(uuid, uuid) to service_role;
-commit;

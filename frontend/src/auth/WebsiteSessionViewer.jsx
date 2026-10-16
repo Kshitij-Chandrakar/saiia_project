@@ -12,10 +12,11 @@ export default function WebsiteSessionViewer({ session, section, onSection, sect
   const [deleteError, setDeleteError] = useState('')
   const [hiddenMessages, setHiddenMessages] = useState(new Set())
   const [confirmation, setConfirmation] = useState(null)
-  const entries = data.transcriptSessionId === session.id ? data.entries : []
+  const transcriptMatches = data.transcriptSessionId === session.id && data.entries.every(entry => entry.session_id === session.id)
+  const entries = transcriptMatches ? data.entries : []
   const messages = data.askSessionId === session.id ? data.messages : []
   const visibleEntries = entries
-  const deleteEligible = ['ended', 'abandoned'].includes(session.status) && Number.isFinite(Date.parse(session.ended_at)) && Date.parse(session.ended_at) + 300000 <= Date.now()
+  const deleteEligible = transcriptMatches && ['ended', 'abandoned'].includes(session.status) && Number.isFinite(Date.parse(session.ended_at)) && Date.parse(session.ended_at) + 300000 <= Date.now()
   const visibleMessages = messages.filter(message=>!hiddenMessages.has(message.id))
   const dialog = useRef(null)
   const close = useRef(null)

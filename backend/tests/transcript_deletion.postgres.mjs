@@ -21,8 +21,12 @@ await db.exec(`
   insert into auth.users values ('${owner}'),('${other}');
   insert into public.interview_sessions values ('${selected}','${owner}','active',null,'Preserved session'),('${second}','${owner}','active',null,'Other session');
 `)
-for(const name of ['20260829103000_add_interview_session_transcript_storage.sql','20260829170000_lock_down_transcript_entry_inserts.sql','20261011120000_add_permanent_transcript_deletion.sql'])
-  await db.exec(await readFile(new URL(`../../supabase/migrations/${name}`,import.meta.url),'utf8'))
+for(const name of ['20260829103000_add_interview_session_transcript_storage.sql','20260829170000_lock_down_transcript_entry_inserts.sql','20261011120000_add_permanent_transcript_deletion.sql']) {
+  const sql = await readFile(new URL(`../../supabase/migrations/${name}`,import.meta.url),'utf8')
+  // Match the migration runner: it owns the transaction, not the SQL file.
+  if (name.startsWith('20261011120000')) assert.doesNotMatch(sql, /^\s*(?:begin|commit)\s*;/im)
+  await db.transaction(tx => tx.exec(sql))
+}
 const create=id=>db.query(`select * from public.create_interview_session_transcript_entry($1,$2,'retry-1','chat','Saved question','Saved answer',null,null,null,null,'{}')`,[owner,id])
 const clear=(user=owner,id=selected)=>db.query('select public.delete_interview_session_transcript_entries($1,$2) as count',[user,id])
 await create(selected);await create(second)
