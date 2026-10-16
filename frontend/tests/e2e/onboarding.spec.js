@@ -117,3 +117,32 @@ test('desktop is step five across refresh, Back, Next and completion',async({pag
  expect(f.state.onboarding_completed_at).toBe('saved')
  expect(f.writes.filter(r=>r.path.endsWith('/complete'))).toHaveLength(1)
 })
+
+for (const status of ['active', 'ended', 'abandoned', null]) test(`session status ${status} only reuses active sessions`,async({page})=>{
+ await mock(page,{step:4});let creates=0
+ await page.route('**/api/interview-sessions**',route=>{
+  if(route.request().method()==='POST'){creates++;return route.fulfill({json:{session:{id:'new-session',status:'active',target_role:'New role'}}})}
+  return route.fulfill({json:{items:status?[{id:'old-session',status,target_role:'Old role'}]:[]}})
+ })
+ await page.goto('/auth/onboarding');const start=page.getByRole('button',{name:'Start Session',exact:true});await expect(start).toBeEnabled();await start.click()
+ if(status==='active'){await expect(page.getByRole('status')).toContainText('Your existing session is ready in Call Sessions.');expect(creates).toBe(0)}
+ else {await expect(page.getByText('New role',{exact:true})).toBeVisible();expect(creates).toBe(1)}
+ await start.click();expect(creates).toBe(status==='active'?0:1)
+})
+test('document replacement and editor cancellation require new consent',async({page})=>{
+ await mock(page,{step:3});await page.goto('/auth/onboarding')
+ const open=page.getByRole('button',{name:'Upload Document',exact:true})
+ await open.click()
+ const file=page.getByLabel('Document',{exact:true}),consent=page.getByRole('checkbox'),extract=page.getByRole('button',{name:'Extract document'})
+ const doc=name=>({name,mimeType:'text/plain',buffer:Buffer.from('Synthetic document')})
+ await file.setInputFiles(doc('A.txt'));await consent.check();await expect(extract).toBeEnabled()
+ await file.setInputFiles(doc('B.txt'));await expect(consent).not.toBeChecked();await expect(extract).toBeDisabled()
+ await consent.check();await expect(extract).toBeEnabled();await page.getByRole('button',{name:'Cancel',exact:true}).click()
+ await open.click();await expect(consent).not.toBeChecked();await expect(file).toHaveValue('');await expect(extract).toBeDisabled()
+ await file.setInputFiles(doc('A.txt'));await consent.check();await extract.click()
+ await expect(page.getByRole('heading',{name:'Add Job Description',exact:true})).toBeVisible()
+ await page.getByRole('button',{name:'Cancel',exact:true}).click();await open.click()
+ await expect(consent).not.toBeChecked();await expect(file).toHaveValue('');await expect(extract).toBeDisabled()
+ await file.setInputFiles(doc('B.txt'));await expect(extract).toBeDisabled();await consent.check();await expect(extract).toBeEnabled()
+ await page.keyboard.press('Escape');await open.click();await expect(consent).not.toBeChecked();await expect(file).toHaveValue('')
+})
