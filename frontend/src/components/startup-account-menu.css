@@ -1,0 +1,8 @@
+/* Both startup headers share the same menu; no runtime or website selectors. */
+.startup-choice-header .startup-choice-account-menu-shell{position:static;-webkit-app-region:no-drag;flex:none}
+.startup-choice-header .startup-choice-account-menu{z-index:20;top:55px;right:8px;max-height:calc(100vh - 63px);overflow-y:auto}
+.startup-choice-header .startup-choice-account-trigger{-webkit-app-region:no-drag}
+.startup-session-setup .startup-choice-account-trigger{display:grid;place-items:center;width:28px;height:28px;padding:0;border:1px solid #e2e8f0;border-radius:8px;background:white;cursor:pointer}
+.startup-session-setup .startup-choice-account-trigger img{width:3px;height:12px}
+.startup-choice-header .startup-choice-account-menu__identity-copy span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.startup-choice-window--home .startup-choice-header,.startup-choice-window--history .startup-choice-header{gap:8px;padding-inline:14px}.startup-choice-window--home .startup-choice-header__actions,.startup-choice-window--history .startup-choice-header__actions{gap:4px}.startup-choice-window--home .startup-choice-time,.startup-choice-window--history .startup-choice-time{padding-inline:8px}

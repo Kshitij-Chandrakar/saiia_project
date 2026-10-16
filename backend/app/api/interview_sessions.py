@@ -590,6 +590,21 @@ def create_interview_transcript_entry(
     return _transcript_entry_response(result.record)
 
 
+@router.delete("/{session_id}/transcript-entries")
+def delete_interview_transcript_entries(
+    session_id: UUID,
+    current_user: CurrentUserDep,
+    session_service: CloudInterviewSessionServiceDep,
+    service: CloudInterviewTranscriptServiceDep,
+) -> dict[str, int]:
+    try:
+        session_service.get_session(user_id=current_user.user_id, session_id=str(session_id))
+        deleted_count = service.delete_transcript_entries(user_id=current_user.user_id, session_id=str(session_id))
+    except Exception as exc:
+        raise _handle_cloud_error(exc) from exc
+    return {"deleted_count": deleted_count}
+
+
 @router.get("/{session_id}/transcript-entries", response_model=InterviewTranscriptEntryListResponse)
 def list_interview_transcript_entries(
     session_id: UUID,

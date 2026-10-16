@@ -8,6 +8,7 @@ import {
   confirmCloudResume,
   createDesktopHandoff,
   deleteCloudResume,
+  deleteInterviewTranscriptEntries,
   downloadInterviewTranscript,
   extractCloudResume,
   fetchInterviewAskAIMessages,
@@ -15,6 +16,7 @@ import {
   fetchInterviewTranscriptEntries,
   fetchInterviewSessions,
   fetchCloudResumeStatus,
+  fetchCloudResumeList,
   fetchCurrentCloudResume,
   fetchCurrentUser,
   fetchReviewCandidate,
@@ -28,7 +30,22 @@ import {
 import authLogo from '../assets/startup-login/login-logo.svg'
 import { supabase } from './supabaseClient'
 import './auth.css'
+import DashboardLayout from './DashboardLayout'
+import DashboardLoading from './DashboardLoading'
+import WebsiteResumes from './WebsiteResumes'
+import DashboardOverview from './DashboardOverview'
+import WebsiteSessionTable from './WebsiteSessionTable'
+import SessionSuggestions, { SessionEmailDraft } from './SessionSuggestions'
+import WebsiteSkeleton from './WebsiteSkeleton'
 import WebsiteLogin from './WebsiteLogin'
+import WebsiteSessionLossDialog from './WebsiteSessionLossDialog'
+import WebsiteCallbackLoading from './WebsiteCallbackLoading'
+import { signOutWebsite, watchWebsiteLogoutIntent, clearCompletedWebsiteLogout, createWebsiteSessionLoss, validWebsiteSessionLoss } from './websiteSessionLoss'
+import WebsiteSignup from './WebsiteSignup'
+import WebsiteConfirmLoading from './WebsiteConfirmLoading'
+import WebsitePasswordResetPage, { PasswordResetDialog } from './WebsitePasswordReset'
+import { isWebsiteRecoveryEntry } from './passwordRecovery'
+import { beginGoogleSignupConsent, readGoogleSignupConsent, clearGoogleSignupConsent } from './signup_oauth_consent'
 
 
 const AUTH_CALLBACK_URL = 'http://localhost:5173/auth/callback'
@@ -38,7 +55,7 @@ const UNSUBSCRIBE_TRANSACTIONAL_NOTICE = 'You may still receive important accoun
 const UNSUBSCRIBE_MISSING_MESSAGE = 'This unsubscribe link is missing or invalid. Your preferences were not changed.'
 const UNSUBSCRIBE_FAILURE_MESSAGE = 'Unable to update your promotional email preference right now. Please try again later.'
 const DEFAULT_LOGIN_NEXT_ROUTE = '/auth/dashboard'
-const LOGIN_REQUIRED_MESSAGE = 'Session expired or signed out. Please log in.'
+const LOGIN_REQUIRED_MESSAGE = 'Please sign in to continue.'
 const DESKTOP_CALLBACK_URL = 'saiia://auth/callback'
 const PENDING_SIGNUP_CONSENT_STORAGE_KEY = 'intervuai.pendingSignupConsent'
 const SIGNUP_CONSENT_VERSION = 'c10.6a-v1'
@@ -313,14 +330,14 @@ function getAuthRedirectUrl(desktopState = '', nextRoute = '') {
 }
 
 
-async function startGoogleLogin(desktopState = '', nextRoute = '') {
+async function startGoogleLogin(desktopState = '', nextRoute = '', signupAttempt = '') {
   if (!supabase) {
     return { error: new Error('Supabase auth is not configured for this build.') }
   }
   return supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: getAuthRedirectUrl(desktopState, nextRoute),
+      redirectTo: signupAttempt ? `${getAuthRedirectUrl(desktopState, nextRoute)}&signup_attempt=${encodeURIComponent(signupAttempt)}` : getAuthRedirectUrl(desktopState, nextRoute),
     },
   })
 }
@@ -613,6 +630,7 @@ function useAuthForm() {
 
 export function AuthSignupPage({ backendUrl, desktopState = '' }) {
   const form = useAuthForm()
+  const [verificationNoticeOpen, setVerificationNoticeOpen] = useState(false)
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [marketingEmailOptIn, setMarketingEmailOptIn] = useState(null)
   const location = useLocation()
@@ -622,6 +640,13 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
     ? desktopLoginRoute(safeDesktopState)
     : getSafeAuthNextRoute(searchParams.get('next') || location.state?.next)
   const checkingSession = useRedirectAuthenticatedUser(safeNextRoute)
+
+  function clearWebsiteSignupFields() {
+    if (safeDesktopState || window.electronAPI) return
+    form.setEmail('')
+    form.setPassword('')
+    form.setError('')
+  }
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -640,6 +665,7 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
     form.setLoading(true)
     form.setError('')
     form.setMessage('')
+    setVerificationNoticeOpen(false)
     const consent = buildSignupConsent(form.email, marketingEmailOptIn)
     if (!rememberSignupConsent(form.email, marketingEmailOptIn)) {
       form.setLoading(false)
@@ -650,7 +676,7 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
       email: form.email,
       password: form.password,
       options: {
-        emailRedirectTo: getAuthRedirectUrl(safeDesktopState),
+        emailRedirectTo: getAuthRedirectUrl(safeDesktopState, safeDesktopState || window.electronAPI ? '' : safeNextRoute),
         data: consent.consent,
       },
     })
@@ -669,7 +695,9 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
           form.setMessage('Login successful. You can return to intervuAI.')
         } else {
           form.setMessage('Account created. Your consent preferences were saved.')
+          clearWebsiteSignupFields()
         }
+        return true
       } catch (signupSetupError) {
         form.setError(signupSetupError?.message || 'Account setup could not be completed. Please sign in again.')
       } finally {
@@ -680,7 +708,13 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
 
     form.setLoading(false)
 
-    form.setMessage('Check your email to verify your account.')
+    if (!safeDesktopState && !window.electronAPI) {
+      clearWebsiteSignupFields()
+      setVerificationNoticeOpen(true)
+    } else {
+      form.setMessage('Check your email to verify your account.')
+    }
+    return true
   }
 
   async function handleGoogleLogin() {
@@ -693,18 +727,30 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
       form.setError(CONSENT_SETUP_UNAVAILABLE)
       return
     }
-    if (!rememberSignupConsent(form.email, marketingEmailOptIn)) {
-      form.setError('Unable to save signup preferences. Please try again.')
-      return
-    }
+    let attempt = ''
     try {
-      const { error } = await startGoogleLogin(safeDesktopState)
+      if (!safeDesktopState && !window.electronAPI) {
+        attempt = beginGoogleSignupConsent(buildSignupConsent('', marketingEmailOptIn).consent)
+      } else if (!rememberSignupConsent(form.email, marketingEmailOptIn)) {
+        throw new Error('Consent storage unavailable')
+      }
+      const { error } = await startGoogleLogin(safeDesktopState, safeDesktopState || window.electronAPI ? '' : safeNextRoute, attempt)
       if (error) {
-        form.setError(error.message || 'Google login could not be started.')
+        if (attempt) clearGoogleSignupConsent(attempt)
+        form.setError(attempt ? 'Google login could not be started. Please try again.' : error.message || 'Google login could not be started.')
       }
     } catch {
-      form.setError('Google login could not be started.')
+      if (attempt) clearGoogleSignupConsent(attempt)
+      form.setError('Google login could not be started. Please try again.')
     }
+  }
+
+  if (!safeDesktopState && !window.electronAPI) {
+    return <WebsiteSignup form={form} checkingSession={checkingSession} configured={Boolean(supabase)}
+      termsAccepted={termsAccepted} setTermsAccepted={setTermsAccepted}
+      marketingEmailOptIn={marketingEmailOptIn} setMarketingEmailOptIn={setMarketingEmailOptIn}
+      onSubmit={handleSubmit} onGoogleLogin={handleGoogleLogin}
+      verificationNoticeOpen={verificationNoticeOpen} onDismissVerificationNotice={() => setVerificationNoticeOpen(false)} />
   }
 
   if (checkingSession) {
@@ -775,12 +821,37 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
 
 export function AuthLoginPage({ backendUrl, desktopState = '', desktopError = '', desktopChecking = false, desktopBlocked = false }) {
   const form = useAuthForm()
+  const [recoveryOpen, setRecoveryOpen] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const safeDesktopState = getSafeDesktopState(desktopState)
   const safeNextRoute = getSafeAuthNextRoute(searchParams.get('next') || location.state?.next)
-  const checkingSession = useRedirectAuthenticatedUser(safeDesktopState || desktopBlocked ? '' : safeNextRoute)
+  const websiteLogin = location.pathname === '/auth/login' && !window.electronAPI
+  const emailRef = useRef(null)
+  const [sessionLoss, setSessionLoss] = useState(() => websiteLogin ? validWebsiteSessionLoss(location.state?.sessionLoss) : null)
+  const checkingSession = useRedirectAuthenticatedUser(safeDesktopState || desktopBlocked || recoveryOpen ? '' : safeNextRoute)
+
+  useEffect(() => {
+    const notice = websiteLogin ? validWebsiteSessionLoss(location.state?.sessionLoss) : null
+    if (!notice) return
+    setSessionLoss(notice)
+    const state = { ...location.state }
+    delete state.sessionLoss
+    // Consume the display-only notice immediately; refresh/back cannot replay it.
+    navigate(location.pathname + location.search + location.hash, { replace:true, state })
+  }, [location, navigate, websiteLogin])
+
+  useEffect(() => {
+    if (!websiteLogin || !supabase) return
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      if (['SIGNED_IN', 'TOKEN_REFRESHED'].includes(event) && session?.access_token) {
+        clearCompletedWebsiteLogout()
+        if (sessionLoss) navigate(safeNextRoute, { replace:true })
+      }
+    })
+    return () => data.subscription.unsubscribe()
+  }, [websiteLogin, sessionLoss, navigate, safeNextRoute])
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -834,6 +905,7 @@ export function AuthLoginPage({ backendUrl, desktopState = '', desktopError = ''
   }
 
   return (
+    <>
     <WebsiteLogin
       form={form}
       checkingSession={checkingSession || desktopChecking}
@@ -844,7 +916,12 @@ export function AuthLoginPage({ backendUrl, desktopState = '', desktopError = ''
       onSubmit={handleSubmit}
       onGoogleLogin={handleGoogleLogin}
       authMessage={location.state?.authMessage || ''}
+      emailRef={emailRef}
+      onForgotPassword={!safeDesktopState && !window.electronAPI ? () => { if (!form.loading && !checkingSession) setRecoveryOpen(true) } : undefined}
     />
+    {recoveryOpen && <PasswordResetDialog onClose={() => setRecoveryOpen(false)} />}
+    {websiteLogin && sessionLoss && !checkingSession && !recoveryOpen && <WebsiteSessionLossDialog reason={sessionLoss.reason} emailRef={emailRef} onDismiss={() => setSessionLoss(null)} />}
+    </>
   )
 }
 
@@ -904,6 +981,10 @@ export function AuthDesktopLoginPage({ backendUrl }) {
 
 
 export function AuthForgotPasswordPage() {
+  return !window.electronAPI ? <WebsitePasswordResetPage initialStage="request" /> : <DesktopForgotPasswordPage />
+}
+
+function DesktopForgotPasswordPage() {
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
@@ -958,6 +1039,11 @@ export function AuthForgotPasswordPage() {
 
 
 export function AuthConfirmPage({ backendUrl }) {
+  const [recovery] = useState(() => !window.electronAPI && (isWebsiteRecoveryEntry(new URL(window.location.href)) || (window.history.state?.websiteRecovery === true && !window.location.search)))
+  return recovery ? <WebsitePasswordResetPage initialStage="verify" /> : <EmailConfirmationPage backendUrl={backendUrl} />
+}
+
+function EmailConfirmationPage({ backendUrl }) {
   const operation = useRef(null)
   const [result, setResult] = useState(null)
 
@@ -975,6 +1061,7 @@ export function AuthConfirmPage({ backendUrl }) {
     return () => { active = false }
   }, [])
 
+  if (!window.electronAPI && (!result || result.status === 'verified' || result.reason === 'email_link_expired')) return <WebsiteConfirmLoading result={result} />
   if (result?.status === 'recovery') return <AuthResetPasswordPage />
   return (
     <AuthShell title={result?.status === 'verified' ? 'Email verified' : result ? 'Secure link unavailable' : 'Checking your secure link…'}>
@@ -989,6 +1076,10 @@ export function AuthConfirmPage({ backendUrl }) {
 
 
 export function AuthResetPasswordPage() {
+  return !window.electronAPI ? <WebsitePasswordResetPage initialStage="verify" /> : <DesktopResetPasswordPage />
+}
+
+function DesktopResetPasswordPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
@@ -1041,61 +1132,94 @@ export function AuthResetPasswordPage() {
 
 
 export function AuthCallbackPage({ backendUrl }) {
+  const operation = useRef(null)
+  const verification = useRef(null)
+  const websiteCallback = !window.electronAPI
+  const callbackError = useRef(new URLSearchParams(window.location.search).has('error') || new URLSearchParams(window.location.hash.slice(1)).has('error'))
+  const verifiedAccount = useRef(null)
+  const [retry, setRetry] = useState(0)
+  const [canRetry, setCanRetry] = useState(false)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const nextRoute = searchParams.has('next') ? getSafeAuthNextRoute(searchParams.get('next')) : ''
+  const nextRoute = websiteCallback || searchParams.has('next') ? getSafeAuthNextRoute(searchParams.get('next')) : ''
+  const attempt = !window.electronAPI ? searchParams.get('signup_attempt') || '' : ''
   const [status, setStatus] = useState('Finishing sign in...')
   const [error, setError] = useState('')
 
   useEffect(() => {
-    let ignore = false
-
+    let active = true
     async function finishCallback() {
+      setCanRetry(false)
+      setError('')
+      setStatus('Finishing sign in...')
       if (!supabase) {
-        setStatus('Supabase auth is not configured for this build.')
+        if (websiteCallback) { setStatus(''); setError('Sign-in is unavailable. Please return to sign in.') }
+        else setStatus('Supabase auth is not configured for this build.')
         return
       }
-
-      const { data, error: sessionError } = await supabase.auth.getSession()
-      if (ignore) {
-        return
-      }
-
-      if (sessionError || !data.session?.access_token) {
-        setError(sessionError?.message || 'No active auth session was found.')
-        setStatus('')
-        return
-      }
-
       try {
-        const user = await fetchCurrentUser(data.session.access_token, { backendUrl })
-        if (!ignore) {
-          setStatus(`Signed in as ${user.email || user.user_id}.`)
+        // Supabase owns URL capture, exchange and cleanup. Share verification
+        // across Strict Mode effect restarts without replaying backend requests.
+        const verificationKey = `${backendUrl}:${attempt}:${nextRoute}:${retry}`
+        if (verification.current?.key !== verificationKey) {
+          verification.current = { key: verificationKey, promise: (async () => {
+            if ((websiteCallback && callbackError.current) || (attempt && (searchParams.has('error') || new URLSearchParams(window.location.hash.slice(1)).has('error')))) {
+              clearGoogleSignupConsent(attempt)
+              throw new Error('cancelled')
+            }
+            const { data, error: sessionError } = await supabase.auth.getSession()
+            if (sessionError || !data.session?.access_token) {
+              if (attempt) clearGoogleSignupConsent(attempt)
+              throw new Error('No active auth session was found. Please sign in again.')
+            }
+            const user = await fetchCurrentUser(data.session.access_token, { backendUrl })
+            if (attempt) {
+              if (!CONSENT_FEATURE_ENABLED) throw new Error(CONSENT_SETUP_UNAVAILABLE)
+              // Only this OAuth signup attempt can consume these preferences. Identity
+              // and authorization come exclusively from the verified bearer session.
+              if (verifiedAccount.current && verifiedAccount.current !== user.user_id) {
+                clearGoogleSignupConsent(attempt)
+                throw new Error('account changed')
+              }
+              verifiedAccount.current = user.user_id
+              if (operation.current?.attempt !== attempt) {
+                const pending = readGoogleSignupConsent(attempt)
+                if (!pending) throw new Error('expired')
+                operation.current = { attempt, promise: bootstrapProfile(data.session.access_token, { backendUrl, consent: pending.consent })
+                  .then(() => clearGoogleSignupConsent(attempt)) }
+              }
+              await operation.current.promise
+            }
+            return user
+          })() }
+        }
+        const user = await verification.current.promise
+        if (active) {
+          setStatus(attempt ? 'Your consent preferences were saved.' : `Signed in as ${user.email || user.user_id}.`)
           if (nextRoute) navigate(nextRoute, { replace: true })
         }
-      } catch (verifyError) {
-        if (!ignore) {
-          setError(verifyError.message)
+      } catch {
+        if (active) {
           setStatus('')
+          setError(attempt ? 'Signup preferences were not saved. Retry account setup or restart signup if this attempt expired or was cancelled.' : 'Sign in could not be verified. Please try again.')
+          setCanRetry(Boolean(attempt && readGoogleSignupConsent(attempt)))
         }
       }
     }
+    void finishCallback()
+    return () => { active = false }
+  }, [backendUrl, navigate, nextRoute, attempt, retry, searchParams, websiteCallback])
 
-    finishCallback()
-    return () => {
-      ignore = true
-    }
-  }, [backendUrl, navigate, nextRoute])
+  if (websiteCallback) return <WebsiteCallbackLoading error={error} nextRoute={nextRoute} canRetry={canRetry}
+    onRetry={() => { operation.current = null; setCanRetry(false); setRetry(value => value + 1) }} />
 
-  return (
-    <AuthShell title="Auth Status">
-      <AuthMessage message={error} tone="error" />
-      <AuthMessage message={status} tone={error ? 'error' : 'success'} />
-      <AuthLinks />
-    </AuthShell>
-  )
+  return <AuthShell title="Auth Status">
+    <AuthMessage message={error} tone="error" />
+    {canRetry && <button type="button" onClick={() => { operation.current = null; setCanRetry(false); setRetry(value => value + 1) }}>Retry saving signup preferences</button>}
+    <AuthMessage message={status} tone={error ? 'error' : 'success'} />
+    <AuthLinks />
+  </AuthShell>
 }
-
 
 export function AuthUnsubscribePage({ backendUrl }) {
   const [searchParams] = useSearchParams()
@@ -1173,6 +1297,18 @@ export function AuthStatusPage({ backendUrl }) {
 
   useEffect(() => {
     let ignore = false
+    let hadSession = false
+    const stopLogoutWatch = window.electronAPI ? () => {} : watchWebsiteLogoutIntent()
+
+    function notifySessionLoss(sessionError = null) {
+      if (ignore || window.electronAPI) return false
+      const sessionLoss = createWebsiteSessionLoss(hadSession, sessionError)
+      if (!hadSession && !sessionLoss) return false
+      ignore = true
+      setUser(null)
+      navigate('/auth/login?next=%2Fauth%2Fstatus', { replace:true, state:{ next:'/auth/status', sessionLoss, authMessage:sessionLoss ? '' : 'Signed out.' } })
+      return true
+    }
 
     async function loadUser() {
       if (!supabase) {
@@ -1187,10 +1323,14 @@ export function AuthStatusPage({ backendUrl }) {
       }
 
       if (sessionError || !data.session?.access_token) {
+        if (notifySessionLoss(sessionError)) return
         setUserError(sessionError?.message || 'No active auth session was found.')
         setLoading(false)
         return
       }
+
+      hadSession = true
+      if (!window.electronAPI) clearCompletedWebsiteLogout()
 
       try {
         const currentUser = await fetchCurrentUser(data.session.access_token, { backendUrl })
@@ -1209,10 +1349,15 @@ export function AuthStatusPage({ backendUrl }) {
     }
 
     loadUser()
+    const subscription = window.electronAPI ? null : supabase?.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') notifySessionLoss()
+    })
     return () => {
       ignore = true
+      subscription?.data.subscription.unsubscribe()
+      stopLogoutWatch()
     }
-  }, [backendUrl])
+  }, [backendUrl, navigate])
 
   async function handleLogout() {
     if (!supabase || logoutPending) {
@@ -1222,7 +1367,7 @@ export function AuthStatusPage({ backendUrl }) {
     setLoading(true)
     setUserError('')
     try {
-      const { error: signOutError } = await supabase.auth.signOut()
+      const { error: signOutError } = await signOutWebsite(supabase)
       if (signOutError) {
         setUserError('Sign out failed. Please try again.')
         setLoading(false)
@@ -1245,7 +1390,7 @@ export function AuthStatusPage({ backendUrl }) {
 
   return (
     <AuthShell title="Account">
-      {loading && <p className="auth-message info">Loading...</p>}
+      {loading && !user && !logoutPending && <WebsiteSkeleton kind="account" label="Loading account details..." />}
       <AuthMessage message={userError || bootstrapError} tone="error" />
       {user && (
         <div className="auth-user-summary">
@@ -1289,54 +1434,109 @@ function RequireAuth({ backendUrl, children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [signedOut, setSignedOut] = useState(false)
+  const [sessionLoss, setSessionLoss] = useState(null)
+  const [attempt, setAttempt] = useState(0)
   const [error, setError] = useState('')
   const location = useLocation()
 
   useEffect(() => {
     let ignore = false
+    let operation = 0
+    let accountId = null
+    let hadSession = false
+    let checkingSession = false
+    let signedOutWhileChecking = false
+    const stopLogoutWatch = watchWebsiteLogoutIntent()
+
+    function loseSession(sessionError = null) {
+      const notice = createWebsiteSessionLoss(hadSession, sessionError)
+      setSessionLoss(current => current || notice)
+      setUser(null)
+      setSignedOut(true)
+      setLoading(false)
+    }
 
     async function loadUser() {
+      const currentOperation = ++operation
+      setError('')
       if (!supabase) {
         setError('Supabase auth is not configured for this build.')
         setLoading(false)
         return
       }
 
-      const { data, error: sessionError } = await supabase.auth.getSession()
-      if (ignore) {
+      checkingSession = true
+      const { data, error: sessionError } = await supabase.auth.getSession().catch(() => ({ data: { session: null }, error: true }))
+      if (ignore || currentOperation !== operation) {
         return
       }
+      checkingSession = false
 
-      if (sessionError || !data.session?.access_token) {
-        setSignedOut(true)
+      if (sessionError && !['session_expired', 'refresh_token_not_found', 'refresh_token_already_used', 'session_not_found'].includes(sessionError.code) && !signedOutWhileChecking) {
+        setError('Could not verify your session. Please try again.')
         setLoading(false)
         return
       }
 
+      if (sessionError || !data.session?.access_token) {
+        loseSession(signedOutWhileChecking && sessionError?.code !== 'session_expired' ? null : sessionError)
+        return
+      }
+      hadSession = true
+      if (signedOutWhileChecking) { loseSession(); return }
+      clearCompletedWebsiteLogout()
+
       try {
+        accountId = data.session.user?.id || null
         const currentUser = await fetchCurrentUser(data.session.access_token, { backendUrl })
-        if (!ignore) {
+        if (!ignore && currentOperation === operation) {
           setUser(currentUser)
+          setSignedOut(false)
         }
       } catch (verifyError) {
-        if (!ignore) {
+        if (!ignore && currentOperation === operation) {
           setError(verifyError.message)
-          setSignedOut(true)
         }
       } finally {
-        if (!ignore) {
+        if (!ignore && currentOperation === operation) {
           setLoading(false)
         }
       }
     }
 
     loadUser()
+    const subscription = supabase?.auth.onAuthStateChange((event, session) => {
+      if (ignore) return
+      if (event === 'SIGNED_OUT' || !session?.access_token) {
+        // INITIAL_SESSION null must not outrun getSession's refresh/recovery.
+        if (checkingSession) { if (event === 'SIGNED_OUT') signedOutWhileChecking = true; return }
+        if (event !== 'SIGNED_OUT' && event !== 'INITIAL_SESSION') return
+        operation += 1
+        accountId = null
+        loseSession()
+      } else if (session.user?.id !== accountId) {
+        hadSession = true
+        signedOutWhileChecking = false
+        if (event === 'SIGNED_IN') clearCompletedWebsiteLogout()
+        operation += 1
+        accountId = session.user?.id
+        setUser(null)
+        setLoading(true)
+        setError('')
+        // Avoid awaiting Supabase auth APIs inside its auth-state callback.
+        queueMicrotask(loadUser)
+      }
+    })
     return () => {
       ignore = true
+      operation += 1
+      subscription?.data.subscription.unsubscribe()
+      stopLogoutWatch()
     }
-  }, [backendUrl])
+  }, [backendUrl, attempt])
 
   if (loading) {
+    if (location.pathname === '/auth/dashboard' && !window.electronAPI) return <DashboardLoading />
     return (
       <AuthShell title="Account">
         <p className="auth-message info">Checking session...</p>
@@ -1350,7 +1550,7 @@ function RequireAuth({ backendUrl, children }) {
       <Navigate
         to={`/auth/login?next=${encodeURIComponent(nextRoute)}`}
         replace
-        state={{ authMessage: LOGIN_REQUIRED_MESSAGE, next: nextRoute }}
+        state={{ authMessage: sessionLoss ? '' : LOGIN_REQUIRED_MESSAGE, next: nextRoute, sessionLoss }}
       />
     )
   }
@@ -1359,6 +1559,7 @@ function RequireAuth({ backendUrl, children }) {
     return (
       <AuthShell title="Account">
         <AuthMessage message={error} tone="error" />
+        <button type="button" className="auth-secondary-button" onClick={() => { setLoading(true); setAttempt(value => value + 1) }}>Retry session check</button>
         <AuthLinks />
       </AuthShell>
     )
@@ -1368,17 +1569,32 @@ function RequireAuth({ backendUrl, children }) {
 }
 
 
-export function AuthDashboardPage({ backendUrl }) {
+export function AuthDashboardPage({ backendUrl, page = 'dashboard' }) {
+  return <RequireAuth backendUrl={backendUrl}>{(user) => <WebsiteDashboardContent key={user.user_id + page} user={user} backendUrl={backendUrl} page={page} />}</RequireAuth>
+}
+
+function WebsiteDashboardContent({ backendUrl, user, page }) {
+  const [sessionPage, setSessionPage] = useState(1)
+  const activeRef = useRef(false)
+  useEffect(() => { activeRef.current = true; return () => { activeRef.current = false } }, [])
+
   const [logoutPending, setLogoutPending] = useState(false)
   const [logoutError, setLogoutError] = useState('')
   const [sessionHistory, setSessionHistory] = useState([])
   const [sessionHistoryLoading, setSessionHistoryLoading] = useState(true)
   const [sessionHistoryError, setSessionHistoryError] = useState('')
   const [openTranscriptSessionId, setOpenTranscriptSessionId] = useState('')
+  const transcriptRequest = useRef(0)
+  const transcriptDeletion = useRef(false)
+  const transcriptEpoch = useRef(0)
+  const notesRequest = useRef(0)
   const [transcriptEntries, setTranscriptEntries] = useState([])
+  const [loadedTranscriptSessionId, setLoadedTranscriptSessionId] = useState('')
   const [transcriptLoading, setTranscriptLoading] = useState(false)
   const [transcriptError, setTranscriptError] = useState('')
+  const [transcriptDeletedSessionId, setTranscriptDeletedSessionId] = useState('')
   const [transcriptDownloadKey, setTranscriptDownloadKey] = useState('')
+  const [transcriptDownloadError, setTranscriptDownloadError] = useState(null)
   const [openNotesSessionId, setOpenNotesSessionId] = useState('')
   const [sessionNotes, setSessionNotes] = useState(null)
   const [notesLoading, setNotesLoading] = useState(false)
@@ -1387,9 +1603,12 @@ export function AuthDashboardPage({ backendUrl }) {
   const [openAskAISessionId, setOpenAskAISessionId] = useState('')
   const [askAIMessages, setAskAIMessages] = useState([])
   const [askAIMessagesNextPage, setAskAIMessagesNextPage] = useState(null)
+  const askAIInput = useRef(null)
+  const [emailDrafts, setEmailDrafts] = useState({})
   const [askAIDrafts, setAskAIDrafts] = useState({})
   const [askAIRequestIds, setAskAIRequestIds] = useState({})
   const [askAILoading, setAskAILoading] = useState(false)
+  const [askAIHistoryLoading, setAskAIHistoryLoading] = useState(false)
   const [askAIError, setAskAIError] = useState('')
   const askAIMessagesControllerRef = useRef(null)
   const askAISubmitControllerRef = useRef(null)
@@ -1416,6 +1635,7 @@ export function AuthDashboardPage({ backendUrl }) {
     setAskAIMessagesNextPage(null)
     setAskAIError('')
     setAskAILoading(false)
+    setAskAIHistoryLoading(false)
   }
 
   useEffect(() => () => {
@@ -1449,7 +1669,7 @@ export function AuthDashboardPage({ backendUrl }) {
         const result = await fetchInterviewSessions(data.session.access_token, {
           backendUrl,
           limit: 20,
-          page: 1,
+          page: sessionPage,
           signal,
         })
         if (!ignore) {
@@ -1486,7 +1706,7 @@ export function AuthDashboardPage({ backendUrl }) {
       ignore = true
       controller.abort()
     }
-  }, [backendUrl])
+  }, [backendUrl, sessionPage])
 
   async function handleSessionHistoryRetry() {
     if (sessionHistoryLoading) {
@@ -1509,7 +1729,7 @@ export function AuthDashboardPage({ backendUrl }) {
       const result = await fetchInterviewSessions(data.session.access_token, {
         backendUrl,
         limit: 20,
-        page: 1,
+        page: sessionPage,
       })
       setSessionHistory(result.items)
       setOpenTranscriptSessionId('')
@@ -1534,19 +1754,23 @@ export function AuthDashboardPage({ backendUrl }) {
     }
   }
 
-  async function handleTranscriptToggle(sessionId) {
+  async function handleTranscriptToggle(sessionId, { reload = false } = {}) {
+    if (transcriptDeletion.current) return
     const normalizedSessionId = String(sessionId || '').trim()
-    if (!normalizedSessionId || transcriptLoading) {
+    if (!normalizedSessionId) {
       return
     }
-    if (openTranscriptSessionId === normalizedSessionId) {
+    if (openTranscriptSessionId === normalizedSessionId && !reload) {
       setOpenTranscriptSessionId('')
       setTranscriptEntries([])
       setTranscriptError('')
       return
     }
+    setOpenTranscriptSessionId(normalizedSessionId)
+    if (openTranscriptSessionId !== normalizedSessionId) setTranscriptEntries([])
     setTranscriptLoading(true)
     setTranscriptError('')
+    const request = ++transcriptRequest.current
     try {
       if (!supabase) {
         setOpenTranscriptSessionId(normalizedSessionId)
@@ -1555,6 +1779,7 @@ export function AuthDashboardPage({ backendUrl }) {
         return
       }
       const { data, error: sessionError } = await supabase.auth.getSession()
+      if (!activeRef.current || request !== transcriptRequest.current) return
       if (sessionError || !data.session?.access_token) {
         setOpenTranscriptSessionId(normalizedSessionId)
         setTranscriptEntries([])
@@ -1566,52 +1791,90 @@ export function AuthDashboardPage({ backendUrl }) {
         limit: 100,
         page: 1,
       })
+      if (!activeRef.current || request !== transcriptRequest.current) return
+      if (result.items.some(entry => entry.session_id !== normalizedSessionId)) throw new Error('Transcript session mismatch.')
       setOpenTranscriptSessionId(normalizedSessionId)
       setTranscriptEntries(result.items)
+      setLoadedTranscriptSessionId(normalizedSessionId)
     } catch {
+      if (!activeRef.current || request !== transcriptRequest.current) return
       setOpenTranscriptSessionId(normalizedSessionId)
       setTranscriptEntries([])
       setTranscriptError('Could not load transcript entries. Please try again.')
     } finally {
-      setTranscriptLoading(false)
+      if (activeRef.current && request === transcriptRequest.current) setTranscriptLoading(false)
     }
   }
 
   async function handleTranscriptDownload(sessionId, format) {
+    if (transcriptDeletion.current) return false
+    const epoch = transcriptEpoch.current
     const normalizedSessionId = String(sessionId || '').trim()
     const normalizedFormat = String(format || '').trim().toLowerCase()
     if (!normalizedSessionId || !normalizedFormat || transcriptDownloadKey) {
       return
     }
     setTranscriptDownloadKey(`${normalizedSessionId}:${normalizedFormat}`)
-    setTranscriptError('')
+    setTranscriptDownloadError(null)
+    const downloadError = message => { if (activeRef.current && epoch === transcriptEpoch.current) setTranscriptDownloadError({ sessionId:normalizedSessionId, message }) }
     try {
       if (!supabase) {
-        setTranscriptError('Transcript download is unavailable until auth is ready.')
-        return
+        downloadError('Transcript download is unavailable until auth is ready.')
+        return false
       }
       const { data, error: sessionError } = await supabase.auth.getSession()
+      if (!activeRef.current) return false
       if (sessionError || !data.session?.access_token) {
-        setTranscriptError('Could not verify transcript download access. Please sign in again.')
-        return
+        downloadError('Could not verify transcript download access. Please sign in again.')
+        return false
       }
       const download = await downloadInterviewTranscript(data.session.access_token, normalizedSessionId, normalizedFormat, {
         backendUrl,
       })
-      triggerTextDownload(download.filename, download.content, download.format)
+      if (activeRef.current && epoch === transcriptEpoch.current) triggerTextDownload(download.filename, download.content, download.format)
+      return true
     } catch {
-      setTranscriptError('Could not download the transcript. Please try again.')
+      if (!activeRef.current || epoch !== transcriptEpoch.current) return false
+      downloadError('Could not download the transcript. Please try again.')
+      return false
     } finally {
-      setTranscriptDownloadKey('')
+      if (activeRef.current && epoch === transcriptEpoch.current) setTranscriptDownloadKey('')
     }
   }
 
-  async function handleNotesToggle(sessionId) {
+  async function handleTranscriptDelete(sessionId) {
+    if (transcriptDeletion.current) throw new Error('Transcript deletion is already pending.')
+    if (sessionId !== openTranscriptSessionId || sessionId !== loadedTranscriptSessionId || !transcriptEntries.length || transcriptEntries.some(entry => entry.session_id !== sessionId)) {
+      throw new Error('Load the selected session transcript before deleting it.')
+    }
+    transcriptDeletion.current = true
+    // Fence all previously started transcript reads and downloads before mutation.
+    transcriptRequest.current += 1
+    transcriptEpoch.current += 1
+    setTranscriptLoading(false)
+    setTranscriptDownloadKey('')
+    setTranscriptDownloadError(null)
+    try {
+      if (!supabase) throw new Error('Authentication is unavailable. Please sign in again.')
+      const { data, error } = await supabase.auth.getSession()
+      if (error || !data.session?.access_token) throw new Error('Please sign in again before deleting the transcript.')
+      await deleteInterviewTranscriptEntries(data.session.access_token, sessionId, { backendUrl })
+      if (!activeRef.current) return
+      setOpenTranscriptSessionId(sessionId)
+      setTranscriptEntries([])
+      setTranscriptError('')
+      setTranscriptDeletedSessionId(sessionId)
+    } finally {
+      transcriptDeletion.current = false
+    }
+  }
+
+  async function handleNotesToggle(sessionId, { reload = false } = {}) {
     const normalizedSessionId = String(sessionId || '').trim()
-    if (!normalizedSessionId || notesLoading) {
+    if (!normalizedSessionId || notesGenerateKey) {
       return
     }
-    if (openNotesSessionId === normalizedSessionId) {
+    if (openNotesSessionId === normalizedSessionId && !reload) {
       setOpenNotesSessionId('')
       setSessionNotes(null)
       setNotesError('')
@@ -1621,12 +1884,14 @@ export function AuthDashboardPage({ backendUrl }) {
     setSessionNotes(null)
     setNotesError('')
     setNotesLoading(true)
+    const request = ++notesRequest.current
     try {
       if (!supabase) {
         setNotesError('AI notes access is unavailable until auth is ready.')
         return
       }
       const { data, error: sessionError } = await supabase.auth.getSession()
+      if (!activeRef.current || request !== notesRequest.current) return
       if (sessionError || !data.session?.access_token) {
         setNotesError('Could not verify AI notes access. Please sign in again.')
         return
@@ -1634,15 +1899,17 @@ export function AuthDashboardPage({ backendUrl }) {
       const result = await fetchInterviewSessionNotes(data.session.access_token, normalizedSessionId, {
         backendUrl,
       })
+      if (!activeRef.current || request !== notesRequest.current) return
       setSessionNotes(result)
     } catch (loadError) {
+      if (!activeRef.current || request !== notesRequest.current) return
       if (String(loadError?.message || '').includes('were not found')) {
         setNotesError('No AI notes yet. Generate AI Notes to create them.')
       } else {
         setNotesError('Could not load AI notes. Please try again.')
       }
     } finally {
-      setNotesLoading(false)
+      if (activeRef.current && request === notesRequest.current) setNotesLoading(false)
     }
   }
 
@@ -1656,12 +1923,14 @@ export function AuthDashboardPage({ backendUrl }) {
     setSessionNotes(null)
     setNotesError('')
     setNotesLoading(true)
+    const request = ++notesRequest.current
     try {
       if (!supabase) {
         setNotesError('AI notes generation is unavailable until auth is ready.')
         return
       }
       const { data, error: sessionError } = await supabase.auth.getSession()
+      if (!activeRef.current || request !== notesRequest.current) return
       if (sessionError || !data.session?.access_token) {
         setNotesError('Could not verify AI notes generation access. Please sign in again.')
         return
@@ -1670,12 +1939,13 @@ export function AuthDashboardPage({ backendUrl }) {
         backendUrl,
         forceRegenerate,
       })
+      if (!activeRef.current || request !== notesRequest.current) return
       setSessionNotes(result)
     } catch (generateError) {
+      if (!activeRef.current || request !== notesRequest.current) return
       setNotesError(String(generateError?.message || '').trim() || 'Could not generate AI notes. Please try again.')
     } finally {
-      setNotesLoading(false)
-      setNotesGenerateKey('')
+      if (activeRef.current && request === notesRequest.current) { setNotesLoading(false); setNotesGenerateKey('') }
     }
   }
 
@@ -1696,12 +1966,14 @@ export function AuthDashboardPage({ backendUrl }) {
     setAskAIMessagesNextPage(null)
     setAskAIError('')
     setAskAILoading(true)
+    setAskAIHistoryLoading(true)
     try {
       if (!supabase) {
         setAskAIError('Ask AI is unavailable until auth is ready.')
         return
       }
       const { data, error: sessionError } = await supabase.auth.getSession()
+      if (controller.signal.aborted || !activeRef.current) return
       if (sessionError || !data.session?.access_token) {
         setAskAIError('Could not verify Ask AI access. Please sign in again.')
         return
@@ -1726,6 +1998,7 @@ export function AuthDashboardPage({ backendUrl }) {
       if (askAIMessagesControllerRef.current === controller) {
         askAIMessagesControllerRef.current = null
         setAskAILoading(false)
+        setAskAIHistoryLoading(false)
       }
     }
   }
@@ -1746,6 +2019,7 @@ export function AuthDashboardPage({ backendUrl }) {
         return
       }
       const { data, error: sessionError } = await supabase.auth.getSession()
+      if (controller.signal.aborted || !activeRef.current) return
       if (sessionError || !data.session?.access_token) {
         setAskAIError('Could not verify Ask AI access. Please sign in again.')
         return
@@ -1804,6 +2078,7 @@ export function AuthDashboardPage({ backendUrl }) {
         return
       }
       const { data, error: sessionError } = await supabase.auth.getSession()
+      if (controller.signal.aborted || !activeRef.current) return
       if (sessionError || !data.session?.access_token) {
         setAskAIError('Could not verify Ask AI access. Please sign in again.')
         return
@@ -1860,7 +2135,7 @@ export function AuthDashboardPage({ backendUrl }) {
     setLogoutPending(true)
     setLogoutError('')
     try {
-      const { error: signOutError } = await supabase.auth.signOut()
+      const { error: signOutError } = await signOutWebsite(supabase)
       if (signOutError) {
         setLogoutError('Sign out failed. Please try again.')
         setLogoutPending(false)
@@ -1879,39 +2154,50 @@ export function AuthDashboardPage({ backendUrl }) {
   }
 
   return (
-    <RequireAuth backendUrl={backendUrl}>
-      {(user) => (
-        <AuthShell title="Dashboard">
-          <div className="auth-user-summary">
-            <p>{user.email || user.user_id}</p>
-            {user.role && <span>{user.role}</span>}
-          </div>
+        <DashboardLayout user={user} title={page === 'sessions' ? 'Call Sessions' : 'Dashboard'} onLogout={handleLogout} logoutPending={logoutPending}>
           <AuthMessage message={logoutError || error} tone="error" />
           {bootstrapResult && (
             <div className="auth-user-summary">
               <p>Profile ready</p>
               <span>
-                profile {bootstrapResult.profile_created ? 'created' : 'found'} - settings {bootstrapResult.settings_created ? 'created' : 'found'}
+                Your account profile and settings are ready.
               </span>
             </div>
           )}
-          <div className="auth-user-summary">
-            <p>Interview sessions</p>
-            <span>Basic cloud session history from C6.3.</span>
-          </div>
-          {sessionHistoryLoading ? (
-            <p className="auth-message info">Loading interview sessions...</p>
-          ) : sessionHistoryError ? (
+          {page === 'dashboard' && <DashboardOverview user={user} backendUrl={backendUrl} sessions={sessionHistory} loading={sessionHistoryLoading} failed={Boolean(sessionHistoryError)} />}
+          {sessionHistoryError ? (
             <div>
               <p className="auth-message error">{sessionHistoryError}</p>
               <button className="auth-secondary-button" type="button" onClick={handleSessionHistoryRetry}>
                 Retry session history
               </button>
             </div>
-          ) : sessionHistory.length ? (
-            <div className="auth-session-history" aria-label="Interview session history">
-              {sessionHistory.map((session) => (
+          ) : sessionHistoryLoading || sessionHistory.length ? (
+            <WebsiteSessionTable
+              sessions={sessionHistory}
+              loading={sessionHistoryLoading}
+              preview={page === 'dashboard'}
+              page={sessionPage}
+              onPageChange={setSessionPage}
+              viewerData={{transcriptSessionId:loadedTranscriptSessionId,entries:transcriptEntries,transcriptLoading,askSessionId:openAskAISessionId,messages:askAIMessages,askLoading:askAILoading,downloadLoading:Boolean(transcriptDownloadKey),onDeleteTranscript:handleTranscriptDelete}}
+              onTranscript={handleTranscriptToggle}
+              transcriptDisabled={() => false}
+              sectionDisabled={(id, section) => section === 'notes' && Boolean(notesGenerateKey) && openNotesSessionId !== id}
+              onSection={(id, section) => {
+                if (section === 'transcript' && openTranscriptSessionId !== id) handleTranscriptToggle(id, {reload:true})
+                if (section === 'notes' && openNotesSessionId !== id) handleNotesToggle(id, {reload:true})
+                if (section === 'ask' && openAskAISessionId !== id) handleAskAIToggle(id, {reload:true})
+              }}
+              actionsFor={(id) => [
+                { label: 'Generate AI Notes', onClick: () => handleNotesGenerate(id), disabled: Boolean(notesGenerateKey) || notesLoading },
+                { label: 'View AI Notes', onClick: () => { if (openNotesSessionId !== id) handleNotesToggle(id, {reload:true}) }, disabled: notesLoading },
+                { label: 'Ask AI', onClick: () => { if (openAskAISessionId !== id) handleAskAIToggle(id, {reload:true}) }, disabled: askAILoading },
+                { label: 'Download .txt', onClick: () => handleTranscriptDownload(id, 'txt'), disabled: Boolean(transcriptDownloadKey) },
+                { label: 'Download .md', onClick: () => handleTranscriptDownload(id, 'md'), disabled: Boolean(transcriptDownloadKey) },
+              ]}
+              renderDetails={(session, viewerSection, presentation) => (
                 <article key={session.id} className="auth-session-history__item">
+                  {viewerSection === 'details' && <>
                   <strong className="auth-session-history__title">
                     {session.title || session.target_role || session.company_name || 'Untitled session'}
                   </strong>
@@ -1924,64 +2210,18 @@ export function AuthDashboardPage({ backendUrl }) {
                   <p className="auth-session-history__line">
                     Ended: {session.ended_at ? formatSessionTime(session.ended_at) : 'Not ended yet'}
                   </p>
-                  <div className="auth-session-history__actions">
-                    <button
-                      className="auth-session-history__action"
-                      type="button"
-                      onClick={() => handleTranscriptToggle(session.id)}
-                      disabled={transcriptLoading && openTranscriptSessionId !== session.id}
-                    >
-                      {openTranscriptSessionId === session.id ? 'Hide transcript' : 'View transcript'}
-                    </button>
-                    <button
-                      className="auth-session-history__action"
-                      type="button"
-                      onClick={() => handleNotesGenerate(session.id)}
-                      disabled={Boolean(notesGenerateKey) || notesLoading}
-                    >
-                      {notesGenerateKey === session.id ? 'Generating AI Notes...' : 'Generate AI Notes'}
-                    </button>
-                    <button
-                      className="auth-session-history__action"
-                      type="button"
-                      onClick={() => handleNotesToggle(session.id)}
-                      disabled={notesLoading && openNotesSessionId !== session.id}
-                    >
-                      {openNotesSessionId === session.id ? 'Hide AI Notes' : 'View AI Notes'}
-                    </button>
-                    <button
-                      className="auth-session-history__action"
-                      type="button"
-                      onClick={() => handleAskAIToggle(session.id)}
-                      disabled={askAILoading && openAskAISessionId !== session.id}
-                    >
-                      {openAskAISessionId === session.id ? 'Hide Ask AI' : 'Ask AI'}
-                    </button>
-                    <button
-                      className="auth-session-history__action"
-                      type="button"
-                      onClick={() => handleTranscriptDownload(session.id, 'txt')}
-                      disabled={Boolean(transcriptDownloadKey)}
-                    >
-                      Download .txt
-                    </button>
-                    <button
-                      className="auth-session-history__action"
-                      type="button"
-                      onClick={() => handleTranscriptDownload(session.id, 'md')}
-                      disabled={Boolean(transcriptDownloadKey)}
-                    >
-                      Download .md
-                    </button>
-                  </div>
-                  {openTranscriptSessionId === session.id ? (
-                    <div className="auth-session-history__transcript">
-                      {transcriptLoading ? (
-                        <p className="auth-session-history__line">Loading transcript...</p>
+                  </>}
+                  {viewerSection === 'transcript' && transcriptDownloadError?.sessionId === session.id && <p role="alert" className="auth-message error">{transcriptDownloadError.message}</p>}
+                  {viewerSection === 'transcript' && openTranscriptSessionId === session.id ? (
+                    <div className="auth-session-history__transcript" aria-busy={transcriptLoading}>
+                      {transcriptDeletedSessionId === session.id && <p role="status">Transcript deleted.</p>}
+                      {transcriptLoading && Boolean(transcriptEntries.length) && <p role="status">Refreshing transcript...</p>}
+                      {transcriptLoading && !transcriptEntries.length ? (
+                        <WebsiteSkeleton label="Loading transcript..." />
                       ) : transcriptError ? (
-                        <p className="auth-message error">{transcriptError}</p>
-                      ) : transcriptEntries.length ? (
-                        transcriptEntries.map((entry) => (
+                        <div><p className="auth-message error" role="alert">{transcriptError}</p><button type="button" onClick={() => handleTranscriptToggle(session.id, { reload: true })}>Retry transcript</button></div>
+                      ) : presentation.visibleEntries.length ? (
+                        presentation.visibleEntries.map((entry) => (
                           <section key={entry.id} className="auth-session-history__transcript-entry">
                             <p className="auth-session-history__line"><strong>Question:</strong> {entry.question_text}</p>
                             <p className="auth-session-history__line"><strong>Answer:</strong> {entry.answer_text}</p>
@@ -1989,14 +2229,14 @@ export function AuthDashboardPage({ backendUrl }) {
                           </section>
                         ))
                       ) : (
-                        <p className="auth-session-history__line">No transcript entries yet.</p>
+                        <p className="auth-session-history__line">No transcript available.</p>
                       )}
                     </div>
                   ) : null}
-                  {openNotesSessionId === session.id ? (
-                    <div className="auth-session-history__notes">
+                  {viewerSection === 'notes' && openNotesSessionId === session.id ? (
+                    <div className="auth-session-history__notes" aria-busy={notesLoading}>
                       {notesLoading ? (
-                        <p className="auth-session-history__line">Loading AI notes...</p>
+                        notesGenerateKey ? <p className="auth-session-history__line" role="status">Generating AI notes...</p> : <WebsiteSkeleton kind="notes" label="Loading AI notes..." />
                       ) : notesError ? (
                         <div>
                           <p className="auth-message error">{notesError}</p>
@@ -2042,8 +2282,9 @@ export function AuthDashboardPage({ backendUrl }) {
                       )}
                     </div>
                   ) : null}
-                  {openAskAISessionId === session.id ? (
-                    <div className="auth-session-history__ask-ai">
+                  {viewerSection === 'ask' && openAskAISessionId === session.id ? (
+                    <div className="auth-session-history__ask-ai wa-panel" aria-busy={askAILoading}>
+                      <div className="wa-conversation">
                       {askAIError ? (
                         <div>
                           <p className="auth-message error">{askAIError}</p>
@@ -2059,14 +2300,15 @@ export function AuthDashboardPage({ backendUrl }) {
                           ) : null}
                         </div>
                       ) : null}
-                      {askAILoading && !askAIMessages.length ? (
-                        <p className="auth-session-history__line">Loading Ask AI...</p>
+                      {askAIHistoryLoading && !askAIMessages.length ? (
+                        <WebsiteSkeleton label="Loading Ask AI messages..." />
                       ) : null}
-                      {askAIMessages.length ? (
+                      {presentation.hiddenMessages.size > 0 && <div className="wa-cleared" role="status"><p>Chat cleared from this view. Saved messages will return when you reopen this popup.</p><small>New questions can still use the saved conversation as context.</small></div>}
+                      {presentation.visibleMessages.length ? (
                         <div className="auth-session-history__ask-ai-messages">
-                          {askAIMessages.map((message) => (
+                          {presentation.visibleMessages.map((message) => (
                             <section key={message.id} className="auth-session-history__ask-ai-message">
-                              <p className="auth-session-history__line"><strong>{message.role === 'user' ? 'You' : 'AI'}:</strong> {message.message_text}</p>
+                              {message.role === 'assistant' && (/^Subject:.*thank you/im.test(message.message_text) || /follow[ -]up email/i.test(askAIMessages[askAIMessages.findIndex(item=>item.id===message.id)-1]?.message_text || '')) ? <SessionEmailDraft text={message.message_text} value={emailDrafts[`${session.id}:${message.id}`]} onChange={value=>setEmailDrafts(current=>({...current,[`${session.id}:${message.id}`]:value}))} /> : <p className="auth-session-history__line"><strong>{message.role === 'user' ? 'You' : 'AI'}:</strong> {message.message_text}</p>}
                               <p className="auth-session-history__meta">{formatAskAIMessageMetaLine(message)}</p>
                             </section>
                           ))}
@@ -2082,13 +2324,14 @@ export function AuthDashboardPage({ backendUrl }) {
                           ) : null}
                         </div>
                       ) : !askAILoading && !askAIError ? (
-                        <p className="auth-session-history__line">No Ask AI messages yet.</p>
+                        <div className="wa-intro"><p>Ask a question about this session, or start with a suggestion below.</p><SessionSuggestions draft={askAIDrafts[session.id] || ''} disabled={askAILoading} inputRef={askAIInput} onChange={value=>{setAskAIDrafts(current=>({...current,[session.id]:value}));setAskAIRequestIds(current=>{if(current[session.id]?.question===value.trim())return current;const next={...current};delete next[session.id];return next})}} /><small>These entries are stored questions and generated answers, not a complete spoken conversation. Assessments are limited to the available text.</small></div>
                       ) : null}
+                      </div>
                       {!isAskAIContextMissingError(askAIError) ? (
                         <form className="auth-session-history__ask-ai-form" onSubmit={(event) => handleAskAISubmit(event, session.id)}>
                           <label>
-                            Ask about this session
-                            <textarea
+                            <span className="wd-sr-only">Ask about this session</span>
+                            <textarea ref={askAIInput}
                               value={askAIDrafts[session.id] || ''}
                               onChange={(event) => {
                                 setAskAIDrafts((current) => ({
@@ -2110,7 +2353,7 @@ export function AuthDashboardPage({ backendUrl }) {
                               spellCheck={false}
                               autoCorrect="off"
                               autoComplete="off"
-                              placeholder="Ask what to improve, rewrite an answer, or practice follow-ups..."
+                              placeholder="Type your question here…"
                             />
                           </label>
                           <button
@@ -2118,18 +2361,19 @@ export function AuthDashboardPage({ backendUrl }) {
                             type="submit"
                             disabled={askAILoading || !String(askAIDrafts[session.id] || '').trim()}
                           >
-                            {askAILoading ? 'Asking AI...' : 'Send Ask AI'}
+                            {askAILoading ? 'Asking AI...' : 'Send'}
                           </button>
                         </form>
                       ) : null}
                     </div>
                   ) : null}
                 </article>
-              ))}
-            </div>
+              )}
+            />
           ) : (
-            <p className="auth-message info">No interview sessions yet.</p>
+            <div><p className="auth-message info">No interview sessions yet.</p>{sessionPage > 1 && <button type="button" onClick={() => setSessionPage(sessionPage - 1)}>Previous page</button>}</div>
           )}
+          <details className="wd-account-tools"><summary>Account setup</summary>
           <button
             className="auth-secondary-button"
             type="button"
@@ -2142,23 +2386,17 @@ export function AuthDashboardPage({ backendUrl }) {
           >
             {bootstrapLoading ? 'Preparing...' : 'Prepare Profile'}
           </button>
-          <button className="auth-secondary-button" type="button" onClick={handleLogout} disabled={!supabase || logoutPending}>
-            <LogOut size={18} aria-hidden="true" />
-            {logoutPending ? 'Signing out...' : 'Logout'}
-          </button>
-          <nav className="auth-links" aria-label="Account navigation">
-            <Link to="/auth/status">Auth status</Link>
-            <Link to="/auth/resume">Cloud resume</Link>
-            <Link to="/">Desktop app</Link>
-          </nav>
-        </AuthShell>
-      )}
-    </RequireAuth>
+          </details>
+        </DashboardLayout>
   )
 }
 
 
 export function AuthResumePage({ backendUrl }) {
+  return <RequireAuth backendUrl={backendUrl}>{(user) => <WebsiteResumeContent key={user.user_id} user={user} backendUrl={backendUrl} />}</RequireAuth>
+}
+
+function WebsiteResumeContent({ backendUrl, user }) {
   const [file, setFile] = useState(null)
   const [currentResume, setCurrentResume] = useState(null)
   const [reviewCandidate, setReviewCandidate] = useState(null)
@@ -2173,10 +2411,17 @@ export function AuthResumePage({ backendUrl }) {
   const [error, setError] = useState('')
   const confirmControllerRef = useRef(null)
   const fileInputRef = useRef(null)
+  const returnFocusRef = useRef(null)
+  const operationRef = useRef(null)
+  const [dialog, setDialog] = useState(null)
+  const [manual, setManual] = useState(false)
+  const [manualDraft, setManualDraft] = useState(null)
+  const [statusAttempt, setStatusAttempt] = useState(0)
 
   useEffect(() => {
     return () => {
       confirmControllerRef.current?.abort()
+      operationRef.current?.abort()
     }
   }, [])
 
@@ -2185,19 +2430,53 @@ export function AuthResumePage({ backendUrl }) {
       throw new Error('Supabase auth is not configured for this build.')
     }
     const { data, error: sessionError } = await supabase.auth.getSession()
-    if (sessionError || !data.session?.access_token) {
+    if (sessionError || !data.session?.access_token || data.session.user?.id !== user.user_id) {
       throw new Error(sessionErrorMessage)
     }
     return data.session.access_token
   }
 
+  function beginResumeOperation() {
+    if (operationRef.current) return null
+    const controller = new AbortController()
+    operationRef.current = controller
+    return controller
+  }
+
+  function finishResumeOperation(controller) {
+    if (operationRef.current === controller) operationRef.current = null
+  }
+
+  function openUpload(event) {
+    if (busy) return
+    returnFocusRef.current = event?.currentTarget || returnFocusRef.current
+    setError('')
+    setDialog('upload')
+  }
+
+  function openReview() {
+    setManual(false)
+    setDialog(['uploading', 'extracting'].includes(phase) || confirmPending ? 'processing' : 'review')
+  }
+
+  function openManual() {
+    if (busy) return
+    setManualDraft(current => current || normalizeCloudProfile({}))
+    setManual(true)
+    setError('')
+    setMessage('')
+    setDialog('review')
+  }
+
   async function loadCloudResumeState(signal) {
     const token = await getSessionToken()
-    const [current, candidate] = await Promise.all([
+    const [current, candidate, items] = await Promise.all([
       fetchCurrentCloudResume(token, { backendUrl, signal }),
       fetchReviewCandidate(token, { backendUrl, signal }),
+      fetchCloudResumeList(token, { backendUrl, signal }),
     ])
-    return { current, candidate }
+    const pending = items.find(item => item.id !== current.resume?.id && ['uploaded', 'extracting', 'needs_review', 'indexing', 'failed', 'timeout', 'cancelled'].includes(item.status))
+    return { current, candidate, pending }
   }
 
   useEffect(() => {
@@ -2209,7 +2488,7 @@ export function AuthResumePage({ backendUrl }) {
       setError('')
       setMessage('')
       try {
-        const { current, candidate } = await loadCloudResumeState(controller.signal)
+        const { current, candidate, pending } = await loadCloudResumeState(controller.signal)
         if (ignore) {
           return
         }
@@ -2217,11 +2496,11 @@ export function AuthResumePage({ backendUrl }) {
         if (ignore) {
           return
         }
-        setReviewCandidate(candidate.has_candidate ? candidate.resume : null)
+        setReviewCandidate(candidate.has_candidate ? candidate.resume : pending || null)
         if (ignore) {
           return
         }
-        setResumeRecord(candidate.has_candidate ? candidate.resume : current.resume)
+        setResumeRecord(candidate.has_candidate ? candidate.resume : pending || current.resume)
         if (ignore) {
           return
         }
@@ -2229,7 +2508,7 @@ export function AuthResumePage({ backendUrl }) {
         if (ignore) {
           return
         }
-        setMessage(current.ready ? 'A ready resume is active for cloud answers.' : '')
+        setMessage('')
       } catch (stateError) {
         if (ignore || stateError.name === 'AbortError') {
           return
@@ -2244,10 +2523,9 @@ export function AuthResumePage({ backendUrl }) {
       ignore = true
       controller.abort()
     }
-  }, [backendUrl])
+  }, [backendUrl, statusAttempt])
 
-  function handleFileChange(event) {
-    const selectedFile = event.target.files?.[0] || null
+  function handleFileChange(selectedFile) {
     setFile(selectedFile)
     setError(selectedFile ? validateCloudResumeFile(selectedFile) : '')
     setMessage('')
@@ -2269,12 +2547,18 @@ export function AuthResumePage({ backendUrl }) {
 
   async function handleUploadAndExtract(event) {
     event.preventDefault()
+    if (['loading', 'uploading', 'extracting'].includes(phase) || confirmPending || deletePending || rebuildPending) return
     const validationError = validateCloudResumeFile(file)
     if (validationError) {
       setError(validationError)
       return
     }
 
+    if (draftProfile && !window.confirm('Uploading another resume replaces your unconfirmed draft. Continue?')) return
+    const controller = beginResumeOperation()
+    if (!controller) return
+    setManual(false)
+    setDialog('processing')
     setError('')
     setMessage('Uploading resume...')
     setPhase('uploading')
@@ -2283,10 +2567,13 @@ export function AuthResumePage({ backendUrl }) {
 
     try {
       const token = await getSessionToken()
-      const uploaded = await uploadCloudResume(token, file, { backendUrl })
+      const uploaded = await uploadCloudResume(token, file, { backendUrl, signal: controller.signal })
+      if (controller.signal.aborted) return
       setResumeRecord(uploaded)
+      setReviewCandidate(uploaded)
       setMessage('Resume uploaded. Starting extraction...')
-      const uploadedStatus = await fetchCloudResumeStatus(token, uploaded.id, { backendUrl })
+      const uploadedStatus = await fetchCloudResumeStatus(token, uploaded.id, { backendUrl, signal: controller.signal })
+      if (controller.signal.aborted) return
       setResumeRecord(uploadedStatus)
       if (uploadedStatus.status !== 'uploaded') {
         setPhase(uploadedStatus.status || 'idle')
@@ -2295,7 +2582,9 @@ export function AuthResumePage({ backendUrl }) {
       }
       setPhase('extracting')
       setMessage('Analyzing resume...')
-      const extracted = await extractCloudResume(token, uploaded.id, { backendUrl })
+      const extracted = await extractCloudResume(token, uploaded.id, { backendUrl, signal: controller.signal })
+      if (controller.signal.aborted) return
+      setDialog('review')
       setResumeRecord({ ...uploaded, status: extracted.status, extraction_attempt: extracted.extraction_attempt })
       setDraftProfile(normalizeCloudProfile(extracted.profile))
       setExtractionAttempt(extracted.extraction_attempt)
@@ -2304,37 +2593,48 @@ export function AuthResumePage({ backendUrl }) {
       setPhase('needs_review')
       setMessage(extracted.review_required ? 'Some fields need manual review.' : 'Review extracted profile.')
     } catch (resumeError) {
+      if (controller.signal.aborted || resumeError.name === 'AbortError') return
       setPhase('failed')
       setError(resumeError.message || 'Extraction failed. Try again or upload another file.')
       setMessage('')
-    }
+    } finally { finishResumeOperation(controller) }
   }
 
   async function handleExtractCandidate() {
-    if (!reviewCandidate?.id) {
+    if (!reviewCandidate?.id || busy || operationRef.current) {
       return
     }
+    if (draftProfile && !window.confirm('Extracting again replaces your unconfirmed edits. Continue?')) return
+    const controller = beginResumeOperation()
+    if (!controller) return
+    setManual(false)
+    setDialog('processing')
     setError('')
     setMessage('Analyzing resume...')
     setPhase('extracting')
     try {
       const token = await getSessionToken()
-      const extracted = await extractCloudResume(token, reviewCandidate.id, { backendUrl })
+      const extracted = await extractCloudResume(token, reviewCandidate.id, { backendUrl, signal: controller.signal })
+      if (controller.signal.aborted) return
+      setDialog('review')
       setDraftProfile(normalizeCloudProfile(extracted.profile))
       setExtractionAttempt(extracted.extraction_attempt)
       setResumeRecord({ ...reviewCandidate, status: extracted.status, extraction_attempt: extracted.extraction_attempt })
+      setReviewCandidate({ ...reviewCandidate, status: extracted.status, extraction_attempt: extracted.extraction_attempt })
       setPhase('needs_review')
       setMessage(extracted.review_required ? 'Some fields need manual review.' : 'Review extracted profile.')
     } catch (resumeError) {
+      if (controller.signal.aborted || resumeError.name === 'AbortError') return
       setPhase('failed')
       setError(resumeError.message || 'Extraction failed. Try again or upload another file.')
       setMessage('')
-    }
+    } finally { finishResumeOperation(controller) }
   }
 
   async function handleConfirmProfile(event) {
     event.preventDefault()
-    if (confirmPending) {
+    if (manual) return
+    if (confirmPending || operationRef.current) {
       return
     }
     const resumeId = resumeRecord?.id || reviewCandidate?.id
@@ -2343,11 +2643,14 @@ export function AuthResumePage({ backendUrl }) {
       return
     }
 
+    const operationController = beginResumeOperation()
+    if (!operationController) return
+    setDialog('processing')
     setError('')
     setMessage('Saving reviewed profile...')
     setConfirmPending(true)
     confirmControllerRef.current?.abort()
-    const confirmController = new AbortController()
+    const confirmController = operationController
     confirmControllerRef.current = confirmController
     try {
       const token = await getSessionToken()
@@ -2361,8 +2664,13 @@ export function AuthResumePage({ backendUrl }) {
       if (confirmController.signal.aborted) {
         return
       }
+      setDialog(null)
+      setManualDraft(null)
       setPhase('confirmed')
       setReviewCandidate(null)
+      setDraftProfile(null)
+      setExtractionAttempt(null)
+      clearSelectedResumeFile()
       try {
         const current = await fetchCurrentCloudResume(token, { backendUrl, signal: confirmController.signal })
         if (confirmController.signal.aborted) {
@@ -2370,10 +2678,10 @@ export function AuthResumePage({ backendUrl }) {
         }
         setCurrentResume(current.ready ? current.resume : null)
         setResumeRecord((currentRecord) => (
-          current.ready ? current.resume : { ...(currentRecord || {}), id: resumeId, status: confirmed.status }
+          current.ready && current.resume?.id === resumeId ? current.resume : { ...(currentRecord || {}), id: resumeId, status: confirmed.status }
         ))
         setMessage(
-          confirmed.ready && current.ready
+          confirmed.ready && current.ready && current.resume?.id === resumeId
             ? 'Resume confirmed and activated.'
             : 'Resume confirmed. Active resume is not ready yet.',
         )
@@ -2388,12 +2696,14 @@ export function AuthResumePage({ backendUrl }) {
       if (confirmController.signal.aborted || confirmError.name === 'AbortError') {
         return
       }
+      setDialog('review')
       setError(confirmError.message || 'Could not confirm the reviewed profile.')
       setMessage('')
     } finally {
       if (!confirmController.signal.aborted) {
         setConfirmPending(false)
       }
+      finishResumeOperation(confirmController)
       if (confirmControllerRef.current === confirmController) {
         confirmControllerRef.current = null
       }
@@ -2402,7 +2712,7 @@ export function AuthResumePage({ backendUrl }) {
 
   async function handleDeleteResume(targetResumeArg = null) {
     const targetResume = targetResumeArg || currentResume || reviewCandidate || resumeRecord
-    if (!targetResume?.id || deletePending || rebuildPending || confirmPending || ['uploading', 'extracting'].includes(phase)) {
+    if (!targetResume?.id || operationRef.current || deletePending || rebuildPending || confirmPending || ['uploading', 'extracting'].includes(phase)) {
       return
     }
     const resumeLabel = [targetResume.original_filename, targetResume.status].filter(Boolean).join(' - ')
@@ -2413,12 +2723,15 @@ export function AuthResumePage({ backendUrl }) {
       return
     }
 
+    const controller = beginResumeOperation()
+    if (!controller) return
     setDeletePending(true)
     setError('')
     setMessage('Deleting resume...')
     try {
       const token = await getSessionToken()
-      await deleteCloudResume(token, targetResume.id, { backendUrl })
+      await deleteCloudResume(token, targetResume.id, { backendUrl, signal: controller.signal })
+      if (controller.signal.aborted) return
       if (currentResume?.id === targetResume.id) {
         setCurrentResume(null)
       }
@@ -2432,136 +2745,74 @@ export function AuthResumePage({ backendUrl }) {
       if ((reviewCandidate?.id === targetResume.id) || (resumeRecord?.id === targetResume.id)) {
         setDraftProfile(null)
         setExtractionAttempt(null)
+        setDialog(null)
       }
       setPhase('idle')
+      setManualDraft(null)
       setMessage('Resume deleted.')
     } catch (deleteError) {
+      if (controller.signal.aborted || deleteError.name === 'AbortError') return
       setError(deleteError.message || 'Could not delete the resume. Try again.')
       setMessage('')
     } finally {
-      setDeletePending(false)
+      if (!controller.signal.aborted) setDeletePending(false)
+      finishResumeOperation(controller)
     }
   }
 
   async function handleRebuildIndex() {
-    if (!currentResume?.id || rebuildPending || deletePending || confirmPending || ['uploading', 'extracting'].includes(phase)) {
+    if (!currentResume?.id || operationRef.current || rebuildPending || deletePending || confirmPending || ['uploading', 'extracting'].includes(phase)) {
       return
     }
 
+    const controller = beginResumeOperation()
+    if (!controller) return
     setRebuildPending(true)
     setError('')
     setMessage('Rebuilding resume index...')
     try {
       const token = await getSessionToken()
-      await rebuildCloudResumeIndex(token, currentResume.id, { backendUrl })
-      const current = await fetchCurrentCloudResume(token, { backendUrl })
+      await rebuildCloudResumeIndex(token, currentResume.id, { backendUrl, signal: controller.signal })
+      if (controller.signal.aborted) return
+      const current = await fetchCurrentCloudResume(token, { backendUrl, signal: controller.signal })
+      if (controller.signal.aborted) return
       setCurrentResume(current.ready ? current.resume : null)
-      setResumeRecord((currentRecord) => (current.ready ? current.resume : currentRecord))
+      setResumeRecord((currentRecord) => (!reviewCandidate && current.ready ? current.resume : currentRecord))
       setPhase('idle')
       setMessage('Resume index rebuilt.')
     } catch (rebuildError) {
+      if (controller.signal.aborted || rebuildError.name === 'AbortError') return
       setError(rebuildError.message || 'Could not rebuild the resume index. Try again.')
       setMessage('')
     } finally {
-      setRebuildPending(false)
+      if (!controller.signal.aborted) setRebuildPending(false)
+      finishResumeOperation(controller)
     }
   }
 
   const busy = ['loading', 'uploading', 'extracting'].includes(phase) || confirmPending || deletePending || rebuildPending
   const uploadDisabled = busy || !file || Boolean(validateCloudResumeFile(file))
 
-  return (
-    <RequireAuth backendUrl={backendUrl}>
-      {(user) => (
-        <AuthShell title="Cloud Resume">
-          <div className="auth-user-summary">
-            <p>{user.email || user.user_id}</p>
-            <span>Authenticated cloud resume setup</span>
-          </div>
-          <AuthMessage message={error} tone="error" />
-          <AuthMessage message={message} tone={phase === 'failed' ? 'error' : 'info'} />
-          {currentResume ? (
-            <div className="auth-user-summary">
-              <p>Current ready resume</p>
-              <span>{currentResume.original_filename} - {currentResume.status}</span>
-              <button className="auth-secondary-button" type="button" onClick={handleRebuildIndex} disabled={busy || !currentResume.is_active}>
-                {rebuildPending ? 'Rebuilding index...' : 'Rebuild Index'}
-              </button>
-              <button className="auth-secondary-button" type="button" onClick={() => handleDeleteResume(currentResume)} disabled={busy}>
-                {deletePending ? 'Deleting resume...' : 'Delete Resume'}
-              </button>
-            </div>
-          ) : (
-            <p className="auth-message info">No active ready resume yet.</p>
-          )}
-          {reviewCandidate && !draftProfile && (
-            <div className="auth-user-summary">
-              <p>Review candidate found</p>
-              <span>{reviewCandidate.original_filename} - re-run extraction if the draft was lost.</span>
-              <button className="auth-secondary-button" type="button" onClick={handleExtractCandidate} disabled={busy}>
-                {phase === 'extracting' ? 'Analyzing resume...' : 'Extract Again'}
-              </button>
-              <button className="auth-secondary-button" type="button" onClick={() => handleDeleteResume(reviewCandidate)} disabled={busy}>
-                {deletePending ? 'Deleting resume...' : 'Delete Resume'}
-              </button>
-            </div>
-          )}
-          <form className="auth-form auth-cloud-resume-form" onSubmit={handleUploadAndExtract}>
-            <label>
-              Resume file
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
-                onChange={handleFileChange}
-                disabled={busy}
-              />
-            </label>
-            <button type="submit" disabled={uploadDisabled}>
-              <Upload size={18} aria-hidden="true" />
-              {phase === 'uploading' ? 'Uploading resume...' : phase === 'extracting' ? 'Analyzing resume...' : 'Upload and Extract'}
-            </button>
-          </form>
-          {draftProfile && phase !== 'confirmed' && (
-            <form className="auth-form auth-review-form" onSubmit={handleConfirmProfile}>
-              <div className="auth-section-heading">
-                <FileText size={18} aria-hidden="true" />
-                <h2>Review extracted profile</h2>
-              </div>
-              {CLOUD_PROFILE_FIELDS.map(([field, label, kind]) => (
-                <label key={field}>
-                  {label}
-                  {kind === 'textarea' ? (
-                    <textarea
-                      value={draftProfile[field] || ''}
-                      onChange={(event) => updateDraftField(field, event.target.value)}
-                    />
-                  ) : (
-                    <input
-                      type={field === 'email' ? 'email' : 'text'}
-                      value={draftProfile[field] || ''}
-                      onChange={(event) => updateDraftField(field, event.target.value)}
-                    />
-                  )}
-                </label>
-              ))}
-              <button type="submit" disabled={confirmPending || phase === 'confirmed'}>
-                {phase === 'confirmed' ? 'Resume confirmed' : confirmPending ? 'Saving reviewed profile...' : 'Confirm Reviewed Profile'}
-              </button>
-              <button className="auth-secondary-button" type="button" onClick={() => handleDeleteResume(resumeRecord || reviewCandidate)} disabled={busy}>
-                {deletePending ? 'Deleting resume...' : 'Delete Resume'}
-              </button>
-            </form>
-          )}
-          <nav className="auth-links" aria-label="Resume navigation">
-            <Link to="/auth/dashboard">Dashboard</Link>
-            <Link to="/auth/status">Auth status</Link>
-            <Link to="/">Desktop app</Link>
-          </nav>
-        </AuthShell>
-      )}
-    </RequireAuth>
-  )
+  function retryResumeOperation() {
+    if (busy) return
+    if (['extracting', 'indexing'].includes(reviewCandidate?.status)) { setStatusAttempt(value => value + 1); return }
+    if (reviewCandidate?.id) { handleExtractCandidate(); return }
+    if (file) { handleUploadAndExtract({ preventDefault() {} }); return }
+    setStatusAttempt(value => value + 1)
+  }
+
+  return <DashboardLayout user={user} title="Resumes">
+    <WebsiteResumes currentResume={currentResume} candidate={reviewCandidate || resumeRecord}
+      phase={phase} busy={busy} file={file} error={error} message={message}
+      dialog={dialog} onClose={() => setDialog(null)} onUpload={openUpload}
+      onManual={openManual} onReview={openReview} onExtract={handleExtractCandidate}
+      onConfirm={handleConfirmProfile} onDelete={handleDeleteResume} onRebuild={handleRebuildIndex}
+      onRetry={retryResumeOperation} onSubmit={handleUploadAndExtract} onFile={handleFileChange}
+      fileInputRef={fileInputRef} returnFocusRef={returnFocusRef} uploadDisabled={uploadDisabled}
+      draftProfile={manual ? manualDraft : draftProfile} hasCandidateDraft={Boolean(draftProfile)} manual={manual} fields={CLOUD_PROFILE_FIELDS}
+      updateDraftField={manual ? (field, value) => setManualDraft(current => ({...current, [field]:value})) : updateDraftField}
+      confirmPending={confirmPending} deletePending={deletePending} rebuildPending={rebuildPending} />
+  </DashboardLayout>
 }
 
 
@@ -2573,7 +2824,7 @@ export function AuthLogoutPage() {
 
     async function logout() {
       if (supabase) {
-        await supabase.auth.signOut()
+        await signOutWebsite(supabase)
       }
       if (!ignore) {
         setMessage('Signed out.')

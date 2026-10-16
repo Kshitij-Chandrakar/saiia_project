@@ -22,7 +22,7 @@ function Badge({ className, icon, title, children, position }) {
   </div>
 }
 
-export default function WebsiteLogin({ form, checkingSession, configured, onSubmit, onGoogleLogin, authMessage, desktopError = '', blocked = false, signupHref = '/auth/signup' }) {
+export default function WebsiteLogin({ form, checkingSession, configured, onSubmit, onGoogleLogin, authMessage, desktopError = '', blocked = false, signupHref = '/auth/signup', onForgotPassword, emailRef, presentationOnly = false }) {
   const [rotation, setRotation] = useState(0)
   useEffect(() => {
     const motion = window.matchMedia('(prefers-reduced-motion: no-preference) and (min-width: 901px)')
@@ -42,7 +42,7 @@ export default function WebsiteLogin({ form, checkingSession, configured, onSubm
   const orbit = [87.5, 112.5, 137.5]
   const position = (start) => orbit[(rotation + start) % 3] + Math.floor((rotation + start) / 3) * 100
   const [rememberedEmail, setRememberedEmail] = useState(() => {
-    try { return localStorage.getItem('intervucopilot.login-email') || '' } catch { return '' }
+    try { return presentationOnly ? '' : localStorage.getItem('intervucopilot.login-email') || '' } catch { return '' }
   })
   const [rememberEmail, setRememberEmail] = useState(Boolean(rememberedEmail))
   useEffect(() => {
@@ -104,10 +104,10 @@ export default function WebsiteLogin({ form, checkingSession, configured, onSubm
           <form className="website-login__form" onSubmit={handleSubmit} aria-busy={busy}>
             <div className="website-login__field">
               <label htmlFor="website-login-email">Email Address</label>
-              <div className="website-login__input"><img src={emailIcon} alt="" /><input id="website-login-email" type="email" value={form.email} onChange={(event) => { form.setEmail(event.target.value); form.setError('') }} aria-invalid={Boolean(form.error)} aria-errormessage={form.error ? 'website-login-credential-error' : undefined} autoComplete="email" placeholder="name@work-or-personal.com" required disabled={busy} /></div>
+              <div className="website-login__input"><img src={emailIcon} alt="" /><input ref={emailRef} id="website-login-email" type="email" value={form.email} onChange={(event) => { form.setEmail(event.target.value); form.setError('') }} aria-invalid={Boolean(form.error)} aria-errormessage={form.error ? 'website-login-credential-error' : undefined} autoComplete="email" placeholder="name@work-or-personal.com" required disabled={busy} /></div>
             </div>
             <div className="website-login__field">
-              <div className="website-login__password-label"><label htmlFor="website-login-password">Password</label><Link to="/auth/forgot-password">Forgot password?</Link></div>
+              <div className="website-login__password-label"><label htmlFor="website-login-password">Password</label><Link to="/auth/forgot-password" onClick={onForgotPassword ? e => { e.preventDefault(); onForgotPassword() } : undefined}>Forgot password?</Link></div>
               <div className="website-login__input"><img src={lock} alt="" /><input id="website-login-password" type={visible ? 'text' : 'password'} value={form.password} onChange={(event) => { form.setPassword(event.target.value); form.setError('') }} aria-invalid={Boolean(form.error)} aria-errormessage={form.error ? 'website-login-credential-error' : undefined} autoComplete="current-password" placeholder="••••••••••••" required disabled={busy} /><button className="website-login__toggle" type="button" onClick={() => setVisible(!visible)} aria-label={visible ? 'Hide password' : 'Show password'} aria-pressed={visible}><img src={eye} alt="" /></button></div>
             </div>
             <label className="website-login__remember" title="Remember your email on this device. Account session persistence is unchanged."><input type="checkbox" checked={rememberEmail} disabled={busy || blocked} onChange={(event) => {

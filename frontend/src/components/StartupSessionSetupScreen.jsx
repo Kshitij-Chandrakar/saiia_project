@@ -1,4 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react'
+import './startup-session-setup.css'
+import StartupAccountMenu from './StartupAccountMenu'
+import brand from '../assets/startup-setup/imgContainer.svg'
+import clock from '../assets/startup-setup/imgMdiClockOutline.svg'
+import collapse from '../assets/startup-setup/imgContainer2.svg'
+import close from '../assets/startup-setup/imgContainer3.svg'
+import back from '../assets/startup-setup/imgContainer4.svg'
+import navClose from '../assets/startup-setup/imgContainer5.svg'
+import arrow from '../assets/startup-setup/imgContainer12.svg'
+import mascot from '../assets/startup-login/login-mascot.png'
+
 
 const EMPTY_SETUP = {
   title: '',
@@ -29,7 +40,10 @@ function getResumeReadinessLabel(resume) {
   return READINESS_LABELS[resume.readiness_reason] || READINESS_LABELS.unknown
 }
 
-export default function StartupSessionSetupScreen({ initialConfig, onBack, onStartSession }) {
+export default function StartupSessionSetupScreen({ initialConfig, onBack, onStartSession, onSignedOut, authenticatedEmail = '', remainingMinutes = null, totalMinutes = null }) {
+  const [quotaLoading, setQuotaLoading] = useState(true)
+  const quotaPendingRef = useRef(false)
+  const mountedRef = useRef(false)
   const [draft, setDraft] = useState(() => ({ ...EMPTY_SETUP, ...(initialConfig || {}) }))
   const [resumes, setResumes] = useState([])
   const [resumesLoading, setResumesLoading] = useState(false)
@@ -37,12 +51,42 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
   const [resumeMessage, setResumeMessage] = useState('')
   const [message, setMessage] = useState('')
   const [starting, setStarting] = useState(false)
+  const [companyError, setCompanyError] = useState('')
+  const [collapsed, setCollapsed] = useState(false)
+  const companyRef = useRef(null)
+  const presentationBusyRef = useRef(false)
+  const startingRef = useRef(false)
   const startIdempotencyKeyRef = useRef('')
   const electronApi = typeof window !== 'undefined' ? window.electronAPI : null
   const saiiaApi = typeof window !== 'undefined' ? window.saiia : null
 
+  const hasTimeBalance = remainingMinutes !== null && totalMinutes !== null &&
+    Number.isFinite(remainingMinutes) && Number.isFinite(totalMinutes) && remainingMinutes >= 0 && totalMinutes >= 0
+  const checkQuotaAvailability = async (refresh = false) => {
+    if (quotaPendingRef.current || hasTimeBalance) return
+    quotaPendingRef.current = true
+    setQuotaLoading(true)
+    try {
+      const load = refresh ? saiiaApi?.refreshCloudStartupContext : saiiaApi?.getCloudStartupContext
+      await load?.()
+      // The current safe startup contract contains no time balance. Never infer one from cloud readiness.
+    } catch {
+      // Render a generic unavailable state; provider details do not belong in the header.
+    } finally {
+      quotaPendingRef.current = false
+      if (mountedRef.current) setQuotaLoading(false)
+    }
+  }
+  useEffect(() => {
+    mountedRef.current = true
+    if (hasTimeBalance) setQuotaLoading(false)
+    else void checkQuotaAvailability()
+    return () => { mountedRef.current = false }
+  }, [hasTimeBalance, authenticatedEmail])
+
   const updateDraft = (key) => (event) => {
     setDraft((current) => ({ ...current, [key]: event.target.value }))
+    if (key === 'company') setCompanyError('')
   }
 
   const loadResumes = async (isActive = () => true) => {
@@ -140,13 +184,19 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
         return
       }
     }
-    if (starting) {
+    if (startingRef.current) {
       return
     }
     if (selectedResumeBlocked) {
       setMessage('This resume is uploaded but not ready for generation yet. Finish extraction/indexing from the dashboard, then refresh.')
       return
     }
+    if (!draft.company.trim()) {
+      setCompanyError('Enter a company name.')
+      companyRef.current?.focus()
+      return
+    }
+    startingRef.current = true
     setStarting(true)
     setMessage('')
     const idempotencyKey =
@@ -163,7 +213,7 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
           title: draft.title,
           selected_resume_id: draft.selectedResumeId || undefined,
           target_role: draft.role,
-          company_name: draft.company,
+          company_name: draft.company.trim(),
           job_description: draft.jobContext,
         },
         { idempotencyKey },
@@ -173,11 +223,6 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
         setMessage(created?.error || 'Session could not be created. Check your cloud connection and retry.')
         return
       }
-      console.info('Intervu AI active interview session', {
-        activeSessionIdExists: true,
-        activeSessionIdSuffix: String(session.id).slice(-6),
-        sessionStatus: session.status || 'unknown',
-      })
       const result = await electronApi?.completeStartup?.()
       if (result?.ok !== true) {
         await saiiaApi.endInterviewSession?.(session.id).catch?.(() => {})
@@ -198,67 +243,53 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
       setMessage('Cloud session storage is temporarily unavailable. Please restart the backend and try again.')
     } finally {
       startIdempotencyKeyRef.current = ''
+      startingRef.current = false
       setStarting(false)
     }
   }
 
+  useEffect(() => {
+    if (collapsed) document.documentElement.dataset.startupMascot = 'true'
+    else delete document.documentElement.dataset.startupMascot
+    return () => { delete document.documentElement.dataset.startupMascot }
+  }, [collapsed])
+
+  const setPresentation = async (next) => {
+    if (presentationBusyRef.current) return
+    presentationBusyRef.current = true
+    try {
+      const result = await (next ? electronApi?.collapseStartupWindow?.() : electronApi?.restoreStartupWindow?.())
+      if (result?.ok) setCollapsed(next)
+      else setMessage('Unable to change window presentation.')
+    } catch { setMessage('Unable to change window presentation.') }
+    finally { presentationBusyRef.current = false }
+  }
+  if (collapsed) return <button className="startup-setup-mascot" aria-label="Restore session setup" onClick={() => void setPresentation(false)}><img src={mascot} alt="" /></button>
   return (
-    <div className="startup-choice-window" aria-label="Intervu AI session setup">
+    <div className="startup-choice-window startup-session-setup" aria-label="Intervucopilot session setup">
       <section className="startup-setup-card">
         <header className="startup-choice-header">
-          <div className="startup-choice-brand">
-            <span className="startup-choice-brand__icon" aria-hidden="true">
-              <span />
-            </span>
-            <h1>Intervu AI</h1>
-          </div>
-          <span className="startup-choice-time" aria-label="10 of 10 minutes remaining">
-            <span>
-              <strong>10</strong> / 10 min
-              <small>remaining</small>
-            </span>
-          </span>
+          <div className="startup-choice-brand"><span className="startup-choice-brand__icon"><img src={brand} alt="" /></span><h1>Intervucopilot</h1></div>
+          <span className="startup-choice-time" role="status" aria-live="polite"><img src={clock} alt="" /><span>{hasTimeBalance ? <><strong>{remainingMinutes}</strong> / {totalMinutes} min<small>remaining</small></> : quotaLoading ? 'Checking…' : <>Time unavailable<button type="button" className="startup-setup-quota-retry" onClick={() => void checkQuotaAvailability(true)}>Retry</button></>}</span></span>
+          <StartupAccountMenu key={authenticatedEmail} authenticatedEmail={authenticatedEmail} onSignedOut={onSignedOut} disabled={starting} />
+          <button type="button" className="startup-setup-control" aria-label="Collapse session setup" disabled={starting} onClick={() => void setPresentation(true)}><img src={collapse} alt="" /></button>
+          <button type="button" className="startup-setup-control startup-setup-close" aria-label="Close window" onClick={() => electronApi?.closeStartupWindow?.()?.catch?.(() => {})}><img src={close} alt="" /></button>
         </header>
-
+        <nav className="startup-setup-titlebar" aria-label="Session setup navigation">
+          <button type="button" aria-label="Back to session choices" onClick={onBack} disabled={starting}><img src={back} alt="" /></button><h2>Create New Session</h2>
+          <button type="button" aria-label="Cancel session setup" onClick={onBack} disabled={starting}><img src={navClose} alt="" /></button>
+        </nav>
         <main className="startup-setup-main">
-          <div className="startup-setup-titlebar">
-            <button type="button" className="startup-setup-back" onClick={onBack}>
-              ←
-            </button>
-            <h2>Create New Session</h2>
-          </div>
-
-          <section className="startup-setup-intro">
-            <h3>Prepare your interview</h3>
-            <p>Tell Intervu AI a little about your interview to personalize your experience.</p>
-          </section>
-
+          <section className="startup-setup-intro"><h3>Prepare your interview</h3><p>Tell Intervucopilot a little about your interview to personalize your experience.</p></section>
           <div className="startup-setup-grid">
-            <label>
-              <span>Session title</span>
-              <input value={draft.title} onChange={updateDraft('title')} placeholder="e.g. Design interview" />
-            </label>
-            <label>
-              <span>Target role</span>
-              <input value={draft.role} onChange={updateDraft('role')} placeholder="e.g. UI/UX Designer" />
-            </label>
+            <label><span>Company<span className="startup-setup-required" aria-hidden="true">*</span></span><input ref={companyRef} required aria-invalid={Boolean(companyError)} aria-describedby={companyError ? 'setup-company-error' : undefined} value={draft.company} onChange={updateDraft('company')} placeholder="e.g. Google" />{companyError && <p id="setup-company-error" role="alert">{companyError}</p>}</label>
+            <label><span>Position</span><input value={draft.role} onChange={updateDraft('role')} placeholder="e.g. UI/UX Designer" /></label>
           </div>
-
-          <label className="startup-setup-field">
-            <span>Company name <small>Optional</small></span>
-            <input value={draft.company} onChange={updateDraft('company')} placeholder="e.g. Google" />
-          </label>
-
-          <label className="startup-setup-field">
-            <span>Job description / context <small>Optional</small></span>
-            <textarea
-              value={draft.jobContext}
-              onChange={updateDraft('jobContext')}
-              placeholder="Paste role notes, job description, or interview context..."
-              rows={4}
-            />
-          </label>
-
+          <div className="startup-setup-grid">
+            <label><span>Session title</span><input value={draft.title} onChange={updateDraft('title')} placeholder="e.g. Design interview" /></label>
+            <label><span>AI Model</span><select aria-describedby="setup-model-description" defaultValue="runtime"><option value="runtime">Automatic</option></select></label>
+          </div>
+          <p id="setup-model-description" className="startup-setup-model-description">Uses configured model routing and provider fallback.</p>
           <section className="startup-setup-resume" aria-label="Resume and reference document">
             <div className="startup-setup-resume__header">
               <strong>Resume / reference document</strong>
@@ -270,7 +301,7 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
               <p>Loading resumes...</p>
             ) : resumes.length ? (
               <label>
-                <span>Select a resume</span>
+                <span className="startup-setup-select-label">Select a resume</span>
                 <select value={draft.selectedResumeId} onChange={updateSelectedResume}>
                   <option value="">Select a resume</option>
                   {resumes.map((resume) => (
@@ -288,6 +319,7 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
                 </button>
               </div>
             )}
+            {selectedResume && <p className="startup-setup-resume-summary">{selectedResume.display_name || selectedResume.original_filename || 'Uploaded resume'} - {getResumeReadinessLabel(selectedResume)}</p>}
             {selectedResumeBlocked ? (
               <div className="startup-setup-resume__message" aria-live="polite">
                 <p>
@@ -304,19 +336,13 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
             ) : null}
             {resumeMessage ? <p className="startup-setup-resume__message" aria-live="polite">{resumeMessage}</p> : null}
           </section>
+          <label className="startup-setup-field"><span>Job description / context <small>Optional</small></span><textarea value={draft.jobContext} onChange={updateDraft('jobContext')} placeholder="Paste role notes, job description, or interview context..." rows={4} /></label>
+          {(message || startBlockedMessage) && <p className="startup-choice-message" role="status">{message || startBlockedMessage}</p>}
         </main>
-
         <footer className="startup-setup-footer">
-          <button type="button" className="startup-setup-back" onClick={onBack}>
-            ← Back
-          </button>
-          <button type="button" className="startup-setup-start" onClick={handleStartSession} disabled={startDisabled}>
-            {starting ? 'Starting...' : 'Start Session →'}
-          </button>
+          <button type="button" className="startup-setup-back" onClick={onBack} disabled={starting}><img src={back} alt="" />Back</button>
+          <button type="button" className="startup-setup-start" onClick={handleStartSession} disabled={startDisabled}>{starting ? 'Starting...' : <>Start Session<img src={arrow} alt="" /></>}</button>
         </footer>
-
-        {!message && startBlockedMessage ? <p className="startup-choice-message" aria-live="polite">{startBlockedMessage}</p> : null}
-        {message ? <p className="startup-choice-message" aria-live="polite">{message}</p> : null}
       </section>
     </div>
   )

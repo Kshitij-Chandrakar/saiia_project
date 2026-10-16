@@ -135,10 +135,10 @@ export default function StartupLoginScreen({ onAuthenticated }) {
     ? 'Opening login...'
     : errorView.actionLabel
   const errorText = errorView.message
-  const subtitle = 'Sign in to continue to your Intervu AI workspace.'
+  const subtitle = 'Sign in to continue to your Intervucopilot workspace.'
 
   return (
-    <div className="startup-login-window" aria-label="Intervu AI startup login">
+    <div className="startup-login-window" aria-label="Intervucopilot startup login">
       <section className="startup-login-card">
         <div className="startup-login-decorations" aria-hidden="true">
           <div className="startup-login-decoration startup-login-decoration--ellipse-left">
@@ -163,7 +163,7 @@ export default function StartupLoginScreen({ onAuthenticated }) {
             <span className="startup-login-brand__logo" aria-hidden="true">
               <img src={loginLogoUrl} alt="" />
             </span>
-            <h1>Intervu AI</h1>
+            <h1>Intervucopilot</h1>
           </div>
           <button
             className="startup-login-close"
@@ -179,12 +179,12 @@ export default function StartupLoginScreen({ onAuthenticated }) {
           {isOpeningBrowser ? (
             <div className="startup-login-opening-content">
               <div className="startup-login-opening-mascot">
-                <img className="startup-login-opening-mascot__image" src={loginMascotUrl} alt="Intervu AI mascot" />
+                <img className="startup-login-opening-mascot__image" src={loginMascotUrl} alt="Intervucopilot mascot" />
               </div>
               <div className="startup-login-opening-status-block">
                 <div className="startup-login-opening-copy">
                   <h2>Opening Your Browser</h2>
-                  <p>We’re securely connecting you to Intervu AI Sign In.</p>
+                  <p>We’re securely connecting you to Intervucopilot Sign In.</p>
                 </div>
                 <div className="startup-login-opening-loading" aria-hidden="true">
                   <div className="startup-login-opening-dots">
@@ -201,7 +201,7 @@ export default function StartupLoginScreen({ onAuthenticated }) {
                 <p>Your browser will open automatically.</p>
               </div>
               <p className="startup-login-opening-announcement" role="status" aria-live="polite">
-                Opening Your Browser. We’re securely connecting you to Intervu AI Sign In.
+                Opening Your Browser. We’re securely connecting you to Intervucopilot Sign In.
               </p>
             </div>
           ) : (
@@ -209,11 +209,11 @@ export default function StartupLoginScreen({ onAuthenticated }) {
               <div className="startup-login-hero">
                 <div className="startup-login-mascot-stack">
                   <span className="startup-login-mascot-frame">
-                    <img className="startup-login-mascot" src={loginMascotUrl} alt="Intervu AI mascot" />
+                    <img className="startup-login-mascot" src={loginMascotUrl} alt="Intervucopilot mascot" />
                   </span>
                 </div>
                 <div className="startup-login-copy">
-                  <h2>Welcome to Intervu AI</h2>
+                  <h2>Welcome to Intervucopilot</h2>
                   <p aria-live="polite">{subtitle}</p>
                 </div>
               </div>
@@ -231,8 +231,8 @@ export default function StartupLoginScreen({ onAuthenticated }) {
                   disabled={!startupPollFailed && (loginPending || authState.loginDisabled)}
                   onClick={handleLogin}
                 >
-                  <span>{buttonText}</span>
-                  {buttonText === 'Login with Intervu AI \u2192' ? <img src={loginArrowUrl} alt="" aria-hidden="true" /> : null}
+                  <span>{buttonText.replace('Intervu AI', 'Intervucopilot')}</span>
+                  {buttonText.replace('Intervu AI', 'Intervucopilot') === 'Login with Intervucopilot \u2192' ? <img src={loginArrowUrl} alt="" aria-hidden="true" /> : null}
                 </button>
               </div>
 

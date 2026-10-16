@@ -1,7 +1,7 @@
 const DEFAULT_BACKEND_URL = 'http://localhost:8000'
 const SAFE_UNSUBSCRIBE_ERROR = 'Unable to update your promotional email preference right now.'
 
-export const SAFE_AUTH_NEXT_ROUTES = new Set(['/auth/dashboard', '/auth/status'])
+export const SAFE_AUTH_NEXT_ROUTES = new Set(['/auth/dashboard', '/auth/status', '/auth/sessions', '/auth/resume'])
 
 export async function verifyAuthEmailAction(search, client, onEmailVerified = async () => {}) {
   const params = new URLSearchParams(search)
@@ -23,7 +23,15 @@ export async function verifyAuthEmailAction(search, client, onEmailVerified = as
   if (!client) return { ...failure, message: 'Secure link verification is unavailable. Please try again later.' }
   try {
     const { data, error } = await client.auth.verifyOtp({ token_hash: tokenHash, type })
-    if (error || (type === 'recovery' && !data?.session?.access_token)) return failure
+    if (error || (type === 'recovery' && !data?.session?.access_token)) {
+      if (type === 'email') {
+        if (error?.code === 'otp_expired') return { ...failure, reason: 'email_link_expired' }
+        return { ...failure, message: error?.status === 429
+          ? 'Too many verification attempts. Please wait before trying again.'
+          : 'Secure link verification is unavailable. Please try again later.' }
+      }
+      return failure
+    }
     if (type === 'email' && data?.session?.access_token) {
       try {
         await onEmailVerified(data.session)
@@ -35,7 +43,9 @@ export async function verifyAuthEmailAction(search, client, onEmailVerified = as
       ? { status: 'recovery' }
       : { status: 'verified', message: 'Your Intervu AI account is ready.', href: data?.session?.access_token ? next : '/auth/login' }
   } catch {
-    return failure
+    return type === 'email'
+      ? { ...failure, message: 'Secure link verification is unavailable. Please try again later.' }
+      : failure
   }
 }
 
@@ -408,6 +418,17 @@ export async function fetchCurrentCloudResume(accessToken, options = {}) {
 }
 
 
+export async function fetchCloudResumeList(accessToken, options = {}) {
+  const token = requireAccessToken(accessToken)
+  const { backendUrl = DEFAULT_BACKEND_URL, fetchImpl = fetch, signal } = options
+  const payload = await parseJsonResponse(await fetchImpl(`${backendUrl}/api/resumes`, {
+    method: 'GET', headers: { Authorization: `Bearer ${token}` }, signal,
+  }), 'Unable to load resume status.')
+  return (Array.isArray(payload.items) ? payload.items : []).map(record => ({
+    ...projectCloudResume(record), readiness_reason: record.readiness_reason || 'unknown',
+  }))
+}
+
 export async function fetchReviewCandidate(accessToken, options = {}) {
   const token = requireAccessToken(accessToken)
   const {
@@ -574,6 +595,17 @@ export async function fetchInterviewSessions(accessToken, options = {}) {
   }
 }
 
+
+export async function deleteInterviewTranscriptEntries(accessToken, sessionId, options = {}) {
+  const token = requireAccessToken(accessToken)
+  const { backendUrl = DEFAULT_BACKEND_URL, fetchImpl = fetch, signal } = options
+  const payload = await parseJsonResponse(await fetchImpl(
+    `${backendUrl}/api/interview-sessions/${encodeURIComponent(sessionId)}/transcript-entries`,
+    { method: 'DELETE', headers: { Authorization: `Bearer ${token}` }, signal },
+  ), 'Unable to delete the interview transcript.')
+  if (!Number.isInteger(payload.deleted_count) || payload.deleted_count < 0) throw new Error('Unable to confirm transcript deletion.')
+  return payload
+}
 
 export async function fetchInterviewTranscriptEntries(accessToken, sessionId, options = {}) {
   const token = requireAccessToken(accessToken)

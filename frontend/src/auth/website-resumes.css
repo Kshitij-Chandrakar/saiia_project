@@ -1,0 +1,53 @@
+.website-resumes .wr-page-actions { display:flex; justify-content:flex-end; gap:12px; margin-bottom:16px; }
+.website-resumes .wr-resume-card { display:flex; align-items:center; gap:16px; padding:20px; border:1px solid #e5e7eb; border-radius:12px; margin-bottom:16px; }
+.website-resumes .wr-document { display:grid; place-items:center; flex-shrink:0; width:48px; height:48px; border-radius:10px; background:#eff6ff; color:#2978cb; }
+.website-resumes .wr-record { flex:1; min-width:0; }
+.website-resumes .wr-record h2 { font-size:16px; line-height:24px; overflow-wrap:anywhere; }
+.website-resumes .wr-record p, .website-resumes small { color:#6b7280; font-size:12px; }
+.website-resumes .wr-status { color:#2978cb; font-weight:600; text-transform:capitalize; }
+.website-resumes .wr-card-actions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; max-width:300px; }
+.website-dashboard :is(.website-resumes,.wr-dialog-footer) .wr-danger { color:#b42318; }
+.website-dashboard.wr-dialog { position:fixed; inset:0; display:flex; flex-direction:column; width:min(560px,calc(100vw - 32px)); max-width:none; min-height:0; max-height:calc(100svh - 32px); margin:auto; padding:0; border:1px solid #e5e7eb; border-radius:16px; box-shadow:0 24px 80px #0f172a40; overflow:hidden; }
+.website-dashboard.wr-dialog:not([open]) { display:none; }
+.website-dashboard.wr-dialog--wide { width:min(880px,calc(100vw - 32px)); }
+.website-dashboard.wr-dialog::backdrop { background:#0f172a80; }
+.wr-dialog .wr-dialog-header { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:20px 24px; border-bottom:1px solid #e5e7eb; flex-shrink:0; }
+.wr-dialog .wr-dialog-header h2 { font-size:22px; line-height:30px; }
+.wr-dialog .wr-dialog-header button { border:0; padding:8px; flex-shrink:0; }
+.wr-dialog :is(.wr-review-form,.wr-upload-form) { display:flex; flex-direction:column; min-height:0; }
+.wr-dialog .wr-dialog-body { padding:24px; overflow-y:auto; min-height:0; overscroll-behavior:contain; }
+.wr-dialog .wr-dialog-footer { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:8px; padding:16px 24px; border-top:1px solid #e5e7eb; flex-shrink:0; }
+.wr-dialog .wr-dropzone { position:relative; border:1px dashed #b8c6d9; border-radius:12px; background:#f8fafc; }
+.wr-dialog .wr-dropzone input { position:absolute; width:1px; height:1px; opacity:0; }
+.wr-dialog .wr-dropzone label { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; min-height:210px; padding:24px; text-align:center; cursor:pointer; color:#64748b; }
+.wr-dialog .wr-dropzone:focus-within { outline:3px solid #2978cb80; outline-offset:3px; }
+.wr-dialog .wr-dropzone:hover { border-color:#2978cb; }
+.wr-dialog .wr-dropzone strong { color:#2978cb; }
+.wr-dialog .wr-dropzone small { font-size:12px; }
+.wr-dialog .wr-selected-file { display:flex; gap:8px; margin-top:12px; overflow-wrap:anywhere; }
+.wr-dialog .wr-selected-file svg { flex-shrink:0; }
+.wr-dialog .wr-divider { display:flex; align-items:center; gap:12px; margin:20px 0; color:#64748b; font-size:12px; }
+.wr-dialog .wr-divider::before, .wr-dialog .wr-divider::after { content:''; height:1px; background:#e5e7eb; flex:1; }
+.wr-dialog .wr-manual { width:100%; background:#f3f4f6; }
+.wr-dialog .wr-processing { text-align:center; }
+.wr-dialog .wr-processing > svg { color:#2978cb; margin-bottom:12px; }
+.wr-dialog .wr-processing h3 { font-size:16px; margin-bottom:8px; }
+.wr-dialog .wr-processing p { color:#64748b; }
+.wr-dialog .wr-indeterminate { height:6px; border-radius:999px; margin:20px 0; background:#dbeafe; overflow:hidden; }
+.wr-dialog .wr-indeterminate::after { content:''; display:block; height:100%; width:35%; border-radius:inherit; background:#2978cb; animation:wr-progress 1.5s ease-in-out infinite alternate; }
+.wr-dialog .wr-spinner { animation:wr-spin 1.2s linear infinite; }
+.wr-dialog .wr-instruction { color:#64748b; margin-bottom:20px; }
+.wr-dialog fieldset { min-width:0; border:0; margin:0 0 24px; padding:0; }
+.wr-dialog legend { font-weight:600; font-size:14px; margin-bottom:12px; }
+.wr-dialog .wr-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.wr-dialog .wr-fields label { display:flex; flex-direction:column; gap:6px; font-size:12px; color:#475569; }
+.wr-dialog .wr-long-field { grid-column:1/-1; }
+.wr-dialog .wr-fields :is(input,textarea) { width:100%; border:1px solid #cbd5e1; border-radius:8px; color:#111827; background:#fff; padding:10px 12px; font-size:14px; }
+.wr-dialog .wr-fields textarea { resize:vertical; min-height:88px; }
+.website-resumes .wr-error, .wr-dialog .wr-error { color:#b42318; background:#fff1f0; border-radius:8px; padding:12px; margin:12px 0; overflow-wrap:anywhere; }
+.website-resumes .wr-notice, .wr-dialog .wr-notice { color:#475569; background:#eff6ff; border-radius:8px; padding:12px; margin:12px 0; overflow-wrap:anywhere; }
+@keyframes wr-spin { to { transform:rotate(360deg); } }
+@keyframes wr-progress { to { margin-left:65%; } }
+@media(max-width:600px) { .website-resumes .wr-resume-card { align-items:flex-start; flex-wrap:wrap; padding:16px; } .website-resumes .wr-card-actions { width:100%; max-width:none; justify-content:flex-start; } .wr-dialog .wr-fields { grid-template-columns:1fr; } .wr-dialog .wr-dialog-header { padding:16px; } .wr-dialog .wr-dialog-header h2 { font-size:20px; } .wr-dialog .wr-dialog-body, .wr-dialog .wr-dialog-footer { padding:16px; } .wr-dialog .wr-dialog-footer button { flex:1; } }
+@media(prefers-reduced-motion:reduce) { .wr-dialog .wr-spinner, .wr-dialog .wr-indeterminate::after { animation:none; } }
+@media(max-width:600px) { .wr-dialog--wide .wr-dialog-footer .wd-primary { flex-basis:100%; } }

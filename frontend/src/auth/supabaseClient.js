@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { isWebsiteRecoveryEntry } from './passwordRecovery.js'
 
 
 const viteEnv = import.meta.env || {}
@@ -27,7 +28,7 @@ export function createSupabaseBrowserClient(env = viteEnv) {
   return createClient(config.url, config.anonKey, {
     auth: {
       autoRefreshToken: true,
-      detectSessionInUrl: true,
+      detectSessionInUrl: !(typeof window !== 'undefined' && isWebsiteRecoveryEntry(new URL(window.location.href), Boolean(window.electronAPI))),
       persistSession: true,
     },
   })

@@ -7,11 +7,39 @@ from app.cloud.interview_transcripts import (
     CloudInterviewTranscriptEntryRecord,
     CloudInterviewTranscriptService,
     CreateInterviewTranscriptEntryResult,
+    SupabaseInterviewTranscriptClient,
 )
 
 
 USER_ID = "00000000-0000-4000-8000-000000000001"
 SESSION_ID = "30000000-0000-4000-8000-000000000001"
+
+
+def test_delete_calls_only_owned_rpc_and_validates_confirmation() -> None:
+    class Response:
+        status_code = 200
+        def json(self): return self.payload
+    response = Response()
+    response.payload = 2
+    class Transport:
+        def post(self, url, **kwargs):
+            assert url == 'https://project.test/rest/v1/rpc/delete_interview_session_transcript_entries'
+            assert kwargs['json'] == {'p_user_id': USER_ID, 'p_session_id': SESSION_ID}
+            return response
+    client = object.__new__(SupabaseInterviewTranscriptClient)
+    client._rest_url = 'https://project.test/rest/v1'
+    client._headers = {}
+    client._session = Transport()
+    service = CloudInterviewTranscriptService(client=client)
+    assert service.delete_transcript_entries(user_id=USER_ID, session_id=SESSION_ID) == 2
+    response.payload = 0
+    assert service.delete_transcript_entries(user_id=USER_ID, session_id=SESSION_ID) == 0
+    response.payload = True
+    from app.cloud.interview_sessions import CloudInterviewSessionError
+    with pytest.raises(CloudInterviewSessionError):
+        service.delete_transcript_entries(user_id=USER_ID, session_id=SESSION_ID)
+    with pytest.raises(CloudInterviewSessionValidationError):
+        service.delete_transcript_entries(user_id=USER_ID, session_id='invalid')
 
 
 def _entry(**overrides: Any) -> CloudInterviewTranscriptEntryRecord:

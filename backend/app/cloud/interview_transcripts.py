@@ -231,6 +231,8 @@ class SupabaseInterviewTranscriptClient:
             message = self._safe_error_text(response, "message")
             if "not found" in message:
                 raise CloudInterviewSessionNotFoundError("Interview session was not found.")
+            if operation == "delete" and message == "Transcript deletion is available five minutes after the session ends.":
+                raise CloudInterviewSessionConflictError(message)
             raise CloudInterviewSessionConflictError("Interview transcript state changed. Please retry.")
         raise CloudInterviewSessionError(SAFE_FAILURE_MESSAGE)
 
@@ -299,6 +301,23 @@ class SupabaseInterviewTranscriptClient:
             raise CloudInterviewSessionNotFoundError("Interview transcript entry was not found.")
         return rows[0]
 
+    def delete_transcript_entries(self, *, user_id: str, session_id: str) -> int:
+        try:
+            response = self._session.post(
+                f"{self._rest_url}/rpc/delete_interview_session_transcript_entries",
+                headers=self._headers,
+                json={"p_user_id": user_id, "p_session_id": session_id},
+                timeout=SUPABASE_MUTATION_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            self._raise_request("interview_session_transcript_entries", "delete", exc)
+        if response.status_code != 200:
+            self._raise_response("interview_session_transcript_entries", "delete", response)
+        count = response.json()
+        if type(count) is not int or count < 0:
+            raise CloudInterviewSessionError(SAFE_FAILURE_MESSAGE)
+        return count
+
     def list_transcript_entries(self, *, user_id: str, session_id: str, limit: int, page: int) -> list[CloudInterviewTranscriptEntryRecord]:
         offset = (page - 1) * limit
         return self._select_entries(
@@ -333,6 +352,12 @@ class SupabaseInterviewTranscriptClient:
 class CloudInterviewTranscriptService:
     def __init__(self, *, client: Any | None = None) -> None:
         self._client = client or SupabaseInterviewTranscriptClient()
+
+    def delete_transcript_entries(self, *, user_id: str, session_id: str) -> int:
+        normalized_session_id = _normalize_uuid(session_id, field="session_id")
+        if normalized_session_id is None:
+            raise CloudInterviewSessionValidationError("session_id is invalid.")
+        return self._client.delete_transcript_entries(user_id=user_id, session_id=normalized_session_id)
 
     def create_transcript_entry(
         self,
