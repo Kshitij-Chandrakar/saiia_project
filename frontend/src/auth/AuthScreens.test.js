@@ -784,3 +784,11 @@ test('pending email signup persistence clears only after success and no-ops on r
   assert.equal(calls, 1)
   assert.equal(helpers.records.size, 0)
 })
+
+
+test('pending consent is retained when persistence completes after callback disposal', async () => {
+  const helpers = consentHelpers(async () => {})
+  helpers.rememberSignupConsent('test@example.com', false)
+  await helpers.persistPendingSignupConsent({access_token:'synthetic',user:{email:'test@example.com'}}, 'backend', () => false)
+  assert.equal(helpers.records.size, 1)
+})

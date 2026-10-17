@@ -146,13 +146,13 @@ function clearPendingSignupConsent() {
 }
 
 
-async function persistPendingSignupConsent(session, backendUrl) {
+async function persistPendingSignupConsent(session, backendUrl, isCurrent = () => true) {
   if (!CONSENT_FEATURE_ENABLED) return
   const consent = pendingSignupConsentForSession(session)
   if (!consent) return
   await bootstrapProfile(session.access_token, { backendUrl, consent })
   // A different signup may have replaced the record while bootstrap was pending.
-  if (JSON.stringify(pendingSignupConsentForSession(session)) === JSON.stringify(consent)) {
+  if (isCurrent() && JSON.stringify(pendingSignupConsentForSession(session)) === JSON.stringify(consent)) {
     clearPendingSignupConsent()
   }
 }
@@ -1138,6 +1138,7 @@ export function AuthCallbackPage({ backendUrl }) {
   const websiteCallback = !window.electronAPI
   const callbackError = useRef(new URLSearchParams(window.location.search).has('error') || new URLSearchParams(window.location.hash.slice(1)).has('error'))
   const verifiedAccount = useRef(null)
+  const retryAllowed = useRef(false)
   const [retry, setRetry] = useState(0)
   const [canRetry, setCanRetry] = useState(false)
   const navigate = useNavigate()
@@ -1147,8 +1148,33 @@ export function AuthCallbackPage({ backendUrl }) {
   const [status, setStatus] = useState('Finishing sign in...')
   const [error, setError] = useState('')
 
+  function retryPersistence() {
+    if (!retryAllowed.current) return
+    retryAllowed.current = false
+    operation.current = null
+    // A failed initial auth check may be retried; successful verification is reused.
+    if (!verifiedAccount.current) verification.current = null
+    setCanRetry(false)
+    setRetry(value => value + 1)
+  }
+
   useEffect(() => {
-    let active = true
+    let active = true, accountChanged = false, establishedSession = null
+    retryAllowed.current = false
+    const subscription = supabase?.auth.onAuthStateChange?.((_event, session) => {
+      const expectedAccount = verifiedAccount.current || verification.current?.userId
+      if (expectedAccount && session?.user?.id !== expectedAccount) {
+        accountChanged = true
+        retryAllowed.current = false
+        if (active) {
+          setCanRetry(false)
+          setStatus('')
+          setError('Sign in could not be verified. Please try again.')
+        }
+      }
+    })?.data?.subscription
+    const isCurrent = () => active && !accountChanged
+    const authFailure = () => Object.assign(new Error('Authentication recovery required.'), { authRecovery: true })
     async function finishCallback() {
       setCanRetry(false)
       setError('')
@@ -1159,66 +1185,85 @@ export function AuthCallbackPage({ backendUrl }) {
         return
       }
       try {
-        // Supabase owns URL capture, exchange and cleanup. Share verification
-        // across Strict Mode effect restarts without replaying backend requests.
-        const verificationKey = `${backendUrl}:${attempt}:${nextRoute}:${retry}`
+        // Cache initial session verification independently from retriable persistence.
+        // Supabase owns URL exchange/cleanup; retries never replay an email token/code.
+        const verificationKey = `${backendUrl}:${attempt}:${nextRoute}`
         if (verification.current?.key !== verificationKey) {
+          verifiedAccount.current = null
+          operation.current = null
           verification.current = { key: verificationKey, promise: (async () => {
             if ((websiteCallback && callbackError.current) || (attempt && (searchParams.has('error') || new URLSearchParams(window.location.hash.slice(1)).has('error')))) {
               clearGoogleSignupConsent(attempt)
-              throw new Error('cancelled')
+              throw authFailure()
             }
             const { data, error: sessionError } = await supabase.auth.getSession()
             if (sessionError || !data.session?.access_token) {
               if (attempt) clearGoogleSignupConsent(attempt)
-              throw new Error('No active auth session was found. Please sign in again.')
+              throw authFailure()
             }
+            if (verification.current?.key === verificationKey) verification.current.userId = data.session.user?.id
             const user = await fetchCurrentUser(data.session.access_token, { backendUrl })
-            if (attempt) {
-              if (!CONSENT_FEATURE_ENABLED) throw new Error(CONSENT_SETUP_UNAVAILABLE)
-              // Only this OAuth signup attempt can consume these preferences. Identity
-              // and authorization come exclusively from the verified bearer session.
-              if (verifiedAccount.current && verifiedAccount.current !== user.user_id) {
-                clearGoogleSignupConsent(attempt)
-                throw new Error('account changed')
-              }
-              verifiedAccount.current = user.user_id
-              if (operation.current?.attempt !== attempt) {
-                const pending = readGoogleSignupConsent(attempt)
-                if (!pending) throw new Error('expired')
-                operation.current = { attempt, promise: bootstrapProfile(data.session.access_token, { backendUrl, consent: pending.consent })
-                  .then(() => clearGoogleSignupConsent(attempt)) }
-              }
-              await operation.current.promise
-            } else if (websiteCallback) {
-              await persistPendingSignupConsent(data.session, backendUrl)
-            }
-            return user
+            return { user, session: data.session }
           })() }
         }
-        const user = await verification.current.promise
-        if (active) {
+        const verified = await verification.current.promise
+        if (!isCurrent()) return
+        const { user } = verified
+        establishedSession = verified.session
+        if (verifiedAccount.current && verifiedAccount.current !== user.user_id) throw authFailure()
+        verifiedAccount.current = user.user_id
+        if (attempt || (websiteCallback && CONSENT_FEATURE_ENABLED && pendingSignupConsentForSession(establishedSession))) {
+          if (!operation.current) {
+            operation.current = { promise: (async () => {
+              const { data, error: sessionError } = await supabase.auth.getSession()
+              const session = data?.session
+              if (!isCurrent() || sessionError || !session?.access_token || session.user?.id !== user.user_id ||
+                  (session.expires_at && session.expires_at * 1000 <= Date.now())) throw authFailure()
+              if (attempt) {
+                if (!CONSENT_FEATURE_ENABLED) throw new Error(CONSENT_SETUP_UNAVAILABLE)
+                const pending = readGoogleSignupConsent(attempt)
+                if (!pending) throw new Error('expired')
+                await bootstrapProfile(session.access_token, { backendUrl, consent: pending.consent })
+                if (!isCurrent()) throw authFailure()
+                clearGoogleSignupConsent(attempt)
+              } else {
+                if (!pendingSignupConsentForSession(session)) throw authFailure()
+                await persistPendingSignupConsent(session, backendUrl, isCurrent)
+              }
+              if (!isCurrent()) throw authFailure()
+            })() }
+          }
+          await operation.current.promise
+        }
+        if (isCurrent()) {
           setStatus(attempt ? 'Your consent preferences were saved.' : `Signed in as ${user.email || user.user_id}.`)
           if (nextRoute) navigate(nextRoute, { replace: true })
         }
-      } catch {
+      } catch (failure) {
         if (active) {
+          const pending = attempt ? readGoogleSignupConsent(attempt) :
+            CONSENT_FEATURE_ENABLED && establishedSession && pendingSignupConsentForSession(establishedSession)
+          const recoverable = !failure.status || failure.status >= 500 || [408, 429].includes(failure.status)
+          const retryable = Boolean(isCurrent() && !failure.authRecovery && ![401, 403].includes(failure.status) &&
+            (attempt || recoverable) && pending)
+          retryAllowed.current = retryable
           setStatus('')
-          setError(attempt ? 'Signup preferences were not saved. Retry account setup or restart signup if this attempt expired or was cancelled.' : 'Sign in could not be verified. Please try again.')
-          setCanRetry(Boolean(attempt && readGoogleSignupConsent(attempt)))
+          setError(retryable ? 'Signup preferences were not saved. Please retry account setup.' :
+            attempt ? 'Signup preferences were not saved. Retry account setup or restart signup if this attempt expired or was cancelled.' : 'Sign in could not be verified. Please try again.')
+          setCanRetry(retryable)
         }
       }
     }
     void finishCallback()
-    return () => { active = false }
+    return () => { active = false; subscription?.unsubscribe() }
   }, [backendUrl, navigate, nextRoute, attempt, retry, searchParams, websiteCallback])
 
   if (websiteCallback) return <WebsiteCallbackLoading error={error} nextRoute={nextRoute} canRetry={canRetry}
-    onRetry={() => { operation.current = null; setCanRetry(false); setRetry(value => value + 1) }} />
+    onRetry={retryPersistence} />
 
   return <AuthShell title="Auth Status">
     <AuthMessage message={error} tone="error" />
-    {canRetry && <button type="button" onClick={() => { operation.current = null; setCanRetry(false); setRetry(value => value + 1) }}>Retry saving signup preferences</button>}
+    {canRetry && <button type="button" onClick={retryPersistence}>Retry saving signup preferences</button>}
     <AuthMessage message={status} tone={error ? 'error' : 'success'} />
     <AuthLinks />
   </AuthShell>
