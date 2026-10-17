@@ -55,6 +55,7 @@ export default function DashboardOnboarding({ backendUrl, initial, onComplete })
   const [documentFile, setDocumentFile] = useState(null), [processingConsent, setProcessingConsent] = useState(false)
   const [draft, setDraft] = useState({ company: '', position: '', job_description: '' })
   const [selectedResume, setSelectedResume] = useState(null), [job, setJob] = useState(null), [session, setSession] = useState(null)
+  const editorTriggerRef = useRef(null)
   const heading = useRef(null), lock = useRef(false), active = useRef(true), fileInput = useRef(null)
   const jobKey = useRef(crypto.randomUUID()), sessionKey = useRef(crypto.randomUUID())
   useEffect(() => { active.current = true; return () => { active.current = false } }, [])
@@ -77,7 +78,16 @@ export default function DashboardOnboarding({ backendUrl, initial, onComplete })
     try { await work() } catch { if (active.current) setError('Unable to save. Your previous data has been kept. Please retry.') }
     finally { lock.current = false; if (active.current) setBusy(false) }
   }
-  function changeEditor(next) {
+  useEffect(() => {
+    if (editor || busy || !editorTriggerRef.current) return
+    const trigger = editorTriggerRef.current
+    editorTriggerRef.current = null
+    // The closed render has removed inert; restore the original editor action.
+    if (trigger.isConnected && !trigger.disabled && !trigger.closest('[inert]')) trigger.focus()
+    else heading.current?.focus({ preventScroll: true })
+  }, [editor, busy])
+  function changeEditor(next, trigger) {
+    if (trigger) editorTriggerRef.current = trigger
     setProcessingConsent(false)
     setDocumentFile(null)
     setEditor(next)
@@ -108,7 +118,7 @@ export default function DashboardOnboarding({ backendUrl, initial, onComplete })
         <div className="ob-graphic">
           {step === 1 && <><div className="ob-mascot"><img src={mascot} alt="Intervucopilot mascot" /></div><div className="ob-proof"><strong>Trusted by more than 1,530,000+ candidates</strong><div><span>{'\u2605 \u2605 \u2605 \u2605 \u2605'}</span> <b>4.9</b><small> \u00b7 340,000+ mock reviews</small></div></div></>}
           {step === 2 && <><button className="ob-upload" type="button" disabled={busy || !resources} onClick={() => fileInput.current?.click()} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (!busy) uploadFile(e.dataTransfer.files[0]) }}><span className="ob-upload-icon"><img src={upload} alt="" /></span><strong>{!resources ? 'Loading resumes...' : selectedResume?.original_filename || 'Drop your resume here or click to browse'}</strong><small>{selectedResume ? `Status: ${selectedResume.status}` : 'Supports PDF, DOCX, or TXT up to 5MB'}</small><span className="ob-private">ATS parse-ready &amp; 100% private</span></button><input ref={fileInput} type="file" hidden accept=".pdf,.docx,.txt" onChange={e => { uploadFile(e.target.files[0]); e.target.value = '' }} />{selectedResume && <Link className="ob-manage" to="/auth/resume" target="_blank" rel="noopener noreferrer">Review / manage your resume</Link>}</>}
-          {step === 3 && <div className="ob-context"><div className="ob-document"><small>{job ? 'Saved preparation context' : 'Preparation context'}</small><strong>{job ? (job.position || job.company || 'Job description') : 'No job context added yet'}</strong><p>{job ? job.company : 'Add context when you are ready.'}</p></div><button className="ob-chip ob-chip-top" disabled={busy} onClick={() => { changeEditor('upload'); setNotice('') }}><img src={documentIcon} alt="" />Upload Document</button><button className="ob-chip ob-chip-right" disabled={busy} onClick={() => changeEditor('job')}><img src={jobIcon} alt="" />Add Job Description</button><button className="ob-chip ob-chip-bottom" disabled={busy} onClick={() => changeEditor('notes')}><img src={notesIcon} alt="" />Add Company Notes</button></div>}
+          {step === 3 && <div className="ob-context"><div className="ob-document"><small>{job ? 'Saved preparation context' : 'Preparation context'}</small><strong>{job ? (job.position || job.company || 'Job description') : 'No job context added yet'}</strong><p>{job ? job.company : 'Add context when you are ready.'}</p></div><button className="ob-chip ob-chip-top" disabled={busy} onClick={event => { changeEditor('upload', event.currentTarget); setNotice('') }}><img src={documentIcon} alt="" />Upload Document</button><button className="ob-chip ob-chip-right" disabled={busy} onClick={event => changeEditor('job', event.currentTarget)}><img src={jobIcon} alt="" />Add Job Description</button><button className="ob-chip ob-chip-bottom" disabled={busy} onClick={event => changeEditor('notes', event.currentTarget)}><img src={notesIcon} alt="" />Add Company Notes</button></div>}
           {step === 4 && <div className="ob-session"><div className="ob-session-ghost" /><small>{session?.started_at ? new Date(session.started_at).toLocaleDateString() : 'INTERVIEW SESSION'}</small><strong>{session?.company_name || job?.company || 'Your interview'}</strong><p>{session?.target_role || job?.position || 'No session created yet'}</p><div className="ob-tags"><span>Interview</span><span>Transcript</span></div><div className="ob-session-bottom"><span>{session ? session.status : 'Ready to Start'}</span><button type="button" disabled={busy || !resources} onClick={startSession}>Start Session</button></div></div>}
           {step === 5 && <div className="ob-live" role="img" aria-label="Illustrative live-call preview"><div className="ob-live-toolbar"><span>{'\u25cf'} LIVE 0:42</span><span>Google Meet</span><b>Answer {'\u2318\u21b5'}</b><span>Screenshot {'\u2318\u21e7\u21b5'}</span></div><div className="ob-live-label">INTERVIEWER ASKED:</div><div className="ob-live-question"> &ldquo;Tell me about a time you resolved a major production incident under pressure.&rdquo;</div><div className="ob-live-answer"><strong>AI Copilot Suggested Answer (STAR Method):</strong><p>&bull; Situation: Payment gateway outage triggered 504 gateway timeouts during Black Friday peak traffic.</p><p>&bull; Task: Lead rapid triage, identify primary bottleneck, and recover transaction throughput with zero data loss.</p><p>&bull; Action: Isolated cascading DB locks, diverted read traffic to read-replicas, and enabled cached payment token fallback.</p><p>&bull; Result: Restored full service within 7 minutes; prevented ~$350K in abandoned checkouts and authored permanent circuit-breaker fix.</p></div></div>}
         </div>
@@ -119,7 +129,7 @@ export default function DashboardOnboarding({ backendUrl, initial, onComplete })
       </div>
     </div>
     {editor && <div className="ob-editor" role="dialog" aria-modal="true" aria-labelledby="ob-editor-title" onKeyDown={e => {
-      if (e.key === 'Escape' && !busy) { changeEditor(''); heading.current?.focus() }
+      if (e.key === 'Escape' && !busy) { changeEditor('') }
       if (e.key === 'Tab') {
         const controls = [...e.currentTarget.querySelectorAll('input,textarea,button')].filter(el => !el.disabled)
         const first = controls[0], last = controls[controls.length - 1]

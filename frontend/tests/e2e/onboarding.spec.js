@@ -146,3 +146,23 @@ test('document replacement and editor cancellation require new consent',async({p
  await file.setInputFiles(doc('B.txt'));await expect(extract).toBeDisabled();await consent.check();await expect(extract).toBeEnabled()
  await page.keyboard.press('Escape');await open.click();await expect(consent).not.toBeChecked();await expect(file).toHaveValue('')
 })
+
+for(const name of ['Upload Document','Add Company Notes','Add Job Description']) test(`editor restores focus to ${name} after Escape and Cancel`,async({page})=>{
+ await mock(page,{step:3});await page.goto('/auth/onboarding')
+ const trigger=page.getByRole('button',{name,exact:true})
+ for(const close of ['Escape','Cancel']){
+  await trigger.focus();await page.keyboard.press('Enter');await expect(page.getByRole('dialog')).toBeVisible()
+  if(close==='Escape')await page.keyboard.press('Escape')
+  else await page.getByRole('button',{name:'Cancel',exact:true}).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.locator('.ob-body')).not.toHaveAttribute('inert','')
+  await expect(trigger).toBeFocused()
+ }
+})
+test('successful context save restores its opening trigger after controls become usable',async({page})=>{
+ await mock(page,{step:3});await page.goto('/auth/onboarding')
+ const trigger=page.getByRole('button',{name:'Add Job Description',exact:true})
+ await trigger.focus();await page.keyboard.press('Enter');await page.getByLabel('Company',{exact:true}).fill('Example')
+ await page.getByRole('button',{name:'Save context',exact:true}).click()
+ await expect(page.getByRole('dialog')).toHaveCount(0);await expect(trigger).toBeEnabled();await expect(trigger).toBeFocused()
+})
