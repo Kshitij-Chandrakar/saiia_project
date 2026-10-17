@@ -2,15 +2,22 @@ import {test,expect} from '@playwright/test'
 import {mkdir} from 'node:fs/promises'
 import path from 'node:path'
 const captures=path.resolve('../tmp/onboarding-five-screenshots')
-async function mock(page,{step=1,completed=false,resume=false,signedIn=true,fail=false}={}) {
+async function mock(page,{step=1,completed=false,resume=false,signedIn=true,fail=false,settingsMissing=false,bootstrapFailure=false}={}) {
  const state={onboarding_current_step:step,onboarding_completed_at:completed?'completed':null}
- const writes=[]
- await page.route('**/src/auth/supabaseClient.js*',route=>route.fulfill({contentType:'application/javascript',body:`export const supabase={auth:{getSession:async()=>({data:{session:${signedIn?"{access_token:'synthetic',user:{id:'owner'}}":"null"}}}),onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}}),signOut:async()=>({error:null})}};export function getSupabaseAuthConfig(){return {}};`}))
+ const writes=[],entryCalls=[]
+ let missing=settingsMissing,setupFailure=bootstrapFailure
+ await page.route('**/src/auth/supabaseClient.js*',route=>route.fulfill({contentType:'application/javascript',body:`window.__obSession=${signedIn?"{access_token:'synthetic',user:{id:'owner'}}":"null"};export const supabase={auth:{getSession:async()=>({data:{session:window.__obSession}}),onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}}),signOut:async()=>{window.__obSession=null;return {error:null}}}};export function getSupabaseAuthConfig(){return {}};`}))
  await page.route('**/api/**',async route=>{
   const req=route.request(),url=new URL(req.url()),p=url.pathname
-  if(p==='/api/auth/me')return route.fulfill({json:{user_id:'owner',email:'candidate@example.test'}})
-  if(p==='/api/auth/profile/bootstrap')return route.fulfill({json:{profile_exists:true,settings_exists:true}})
+  if(p==='/api/auth/me'){entryCalls.push('verify');return route.fulfill({json:{user_id:'owner',email:'candidate@example.test'}})}
+  if(p==='/api/auth/profile/bootstrap'){
+   entryCalls.push('bootstrap');expect(req.postData()).toBeNull()
+   if(setupFailure)return route.fulfill({status:503,json:{detail:'Account setup temporarily unavailable'}})
+   missing=false;return route.fulfill({json:{profile_exists:true,settings_exists:true}})
+  }
   if(p.startsWith('/api/onboarding')){
+   entryCalls.push('onboarding')
+   if(missing)return route.fulfill({status:409,json:{detail:'Account setup required'}})
    if(fail)return route.fulfill({status:503,json:{detail:'private backend failure'}})
    if(req.method()!=='GET'){writes.push({path:p,body:req.postDataJSON()});if(p.endsWith('/step'))state.onboarding_current_step=req.postDataJSON().current_step;else state.onboarding_completed_at='saved'}
    return route.fulfill({json:state})
@@ -25,7 +32,7 @@ async function mock(page,{step=1,completed=false,resume=false,signedIn=true,fail
   if(p==='/api/interview-sessions')return route.fulfill({json:{items:[],limit:20,page:1}})
   return route.fulfill({status:404,json:{detail:'Unmocked endpoint'}})
  })
- return {state,writes}
+ return {state,writes,entryCalls,recoverSetup:()=>{setupFailure=false}}
 }
 async function ready(page){await page.evaluate(()=>document.fonts.ready);await expect.poll(()=>page.locator('.ob-card img').evaluateAll(images=>images.every(i=>i.complete&&i.naturalWidth>0))).toBe(true)}
 test('new user resumes saved steps, keeps existing resume, and finishes once',async({page})=>{
@@ -165,4 +172,143 @@ test('successful context save restores its opening trigger after controls become
  await trigger.focus();await page.keyboard.press('Enter');await page.getByLabel('Company',{exact:true}).fill('Example')
  await page.getByRole('button',{name:'Save context',exact:true}).click()
  await expect(page.getByRole('dialog')).toHaveCount(0);await expect(trigger).toBeEnabled();await expect(trigger).toBeFocused()
+})
+
+
+test('missing settings are bootstrapped before the onboarding read on direct dashboard entry',async({page})=>{
+ const f=await mock(page,{settingsMissing:true})
+ await page.goto('/auth/dashboard')
+ await expect(page.getByRole('heading',{name:'Welcome to Intervucopilot',exact:true})).toBeVisible()
+ expect(f.state.onboarding_current_step).toBe(1)
+ const read=f.entryCalls.indexOf('onboarding')
+ expect(read).toBeGreaterThan(f.entryCalls.indexOf('bootstrap'))
+ expect(f.entryCalls.slice(0,read)).toContain('verify')
+})
+
+test('failed entry bootstrap blocks onboarding until session-check retry succeeds',async({page})=>{
+ const f=await mock(page,{settingsMissing:true,bootstrapFailure:true})
+ await page.goto('/auth/dashboard')
+ const retry=page.getByRole('button',{name:'Retry',exact:true})
+ await expect(retry).toBeVisible()
+ expect(f.entryCalls).not.toContain('onboarding')
+ f.recoverSetup();await retry.click()
+ await expect(page.getByRole('heading',{name:'Welcome to Intervucopilot',exact:true})).toBeVisible()
+ expect(f.entryCalls.indexOf('onboarding')).toBeGreaterThan(f.entryCalls.lastIndexOf('bootstrap'))
+})
+
+
+for(const completed of [true,false]) test(`legacy account route redirects through dashboard gate (completed=${completed})`,async({page})=>{
+ await mock(page,{completed});await page.goto('/auth/status')
+ await expect(page).toHaveURL(completed?/auth\/dashboard$/:/auth\/onboarding$/)
+ await expect(page.getByRole('heading',{name:completed?'Welcome back!':'Welcome to Intervucopilot',exact:true})).toBeVisible()
+ await expect(page.getByRole('button',{name:'Prepare Profile',exact:true})).toHaveCount(0)
+})
+
+test('legacy account route sends signed-out users to login',async({page})=>{
+ await mock(page,{signedIn:false});await page.goto('/auth/status')
+ await expect(page).toHaveURL(/auth\/login/)
+ await expect(page.getByRole('heading',{name:'Welcome back!',exact:true})).toBeVisible()
+ await expect(page.getByRole('button',{name:'Prepare Profile',exact:true})).toHaveCount(0)
+})
+
+test('bootstrap recovery is branded, safe, responsive and supports logout',async({page})=>{
+ await mock(page,{bootstrapFailure:true});await page.goto('/auth/dashboard')
+ await expect(page.getByRole('heading',{name:"Account setup couldn't be completed",exact:true})).toBeFocused()
+ await expect(page.getByText("We couldn't finish preparing your account. Please try again.",{exact:true})).toBeVisible()
+ await expect(page.locator('.account-setup-recovery')).not.toContainText('temporarily unavailable')
+ await mkdir(captures,{recursive:true})
+ for(const [width,height] of [[1366,768],[390,844]]){
+  await page.setViewportSize({width,height})
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+  await page.screenshot({path:path.join(captures,`account-setup-recovery-${width}.png`)})
+ }
+ await page.locator('.account-setup-recovery').getByRole('button',{name:'Logout',exact:true}).click()
+ await expect(page).toHaveURL(/auth\/login$/)
+ await expect(page.getByRole('heading',{name:'Welcome back!',exact:true})).toBeVisible()
+})
+
+for(const route of ['/auth/login','/auth/signup'])test(`${route} has no misleading system-status link`,async({page})=>{
+ await mock(page,{signedIn:false});await page.goto(route)
+ await expect(page.getByRole('heading',{name:route.endsWith('login')?'Welcome back!':'Create your account',exact:true})).toBeVisible()
+ await expect(page.getByRole('link',{name:/system status/i})).toHaveCount(0)
+})
+
+
+test('email verification setup failure recovers through dashboard and preserves explicit consent',async({page})=>{
+ await mock(page)
+ const consent={terms_accepted:true,privacy_accepted:true,marketing_email_opt_in:false,consent_source:'signup'}
+ await page.addInitScript(consent=>localStorage.setItem('intervuai.pendingSignupConsent',JSON.stringify({email:'candidate@example.test',consent})),consent)
+ await page.route('**/src/auth/AuthScreens.jsx*',async route=>{
+  const response=await route.fetch()
+  await route.fulfill({response,body:(await response.text()).replace(/const CONSENT_FEATURE_ENABLED = [^\n]+/,'const CONSENT_FEATURE_ENABLED = true;')})
+ })
+ await page.route('**/src/auth/supabaseClient.js*',route=>route.fulfill({contentType:'application/javascript',body:`
+  const session={access_token:'synthetic',user:{id:'owner',email:'candidate@example.test'}};
+  window.__verificationCalls=0;
+  export const supabase={auth:{getSession:async()=>({data:{session}}),verifyOtp:async()=>{window.__verificationCalls++;return {data:{session},error:null}},onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}})}};
+  export function getSupabaseAuthConfig(){return {}};
+ `}))
+ let fail=true,writes=0
+ await page.route('**/api/auth/profile/bootstrap',route=>{
+  if(!route.request().postData()){expect(fail).toBe(false);return route.fulfill({json:{profile_exists:true,settings_exists:true}})}
+  writes++;expect(route.request().postDataJSON()).toEqual(consent)
+  return route.fulfill(fail?{status:503,json:{detail:'private setup details'}}:{json:{profile_exists:true,settings_exists:true}})
+ })
+ await page.goto('/auth/confirm?token_hash=synthetic&type=email')
+ const proceed=page.getByRole('link',{name:'Continue to Dashboard',exact:true})
+ await expect(proceed).toHaveAttribute('href','/auth/dashboard')
+ await proceed.click()
+ await expect(page.getByRole('heading',{name:"Account setup couldn't be completed",exact:true})).toBeVisible()
+ expect(await page.evaluate(()=>localStorage.getItem('intervuai.pendingSignupConsent'))).not.toBeNull()
+ fail=false;await page.getByRole('button',{name:'Retry',exact:true}).click()
+ await expect(page).toHaveURL(/auth\/onboarding$/)
+ expect(writes).toBe(3)
+ expect(await page.evaluate(()=>window.__verificationCalls)).toBe(1)
+ expect(await page.evaluate(()=>localStorage.getItem('intervuai.pendingSignupConsent'))).toBeNull()
+ await expect(page.getByRole('button',{name:'Prepare Profile',exact:true})).toHaveCount(0)
+})
+
+
+test('Sessions to Dashboard uses the dashboard skeleton while onboarding is rechecked',async({page})=>{
+ await mock(page,{completed:true})
+ await page.goto('/auth/sessions')
+ await expect(page.getByRole('heading',{name:'Call Sessions',exact:true})).toBeVisible()
+ let release
+ const gate=new Promise(resolve=>{release=resolve})
+ await page.route('**/api/onboarding',async route=>{await gate;await route.fulfill({json:{onboarding_current_step:1,onboarding_completed_at:'completed'}})})
+ await page.getByRole('link',{name:'Dashboard',exact:true}).click()
+ await expect(page.locator('.wd-loading-content')).toBeVisible()
+ await expect(page.locator('.ob-loading')).toHaveCount(0)
+ await expect(page.getByText('Loading your workspace...', {exact:true})).toHaveCount(0)
+ await expect(page.getByRole('heading',{name:'Welcome back!',exact:true})).toHaveCount(0)
+ await mkdir(captures,{recursive:true})
+ await page.screenshot({path:path.join(captures,'workspace-gate-loading.png')})
+ release()
+ await expect(page.getByRole('heading',{name:'Welcome back!',exact:true})).toBeVisible()
+ await expect(page.locator('.wd-loading-content')).toHaveCount(0)
+})
+
+
+test('Resume navigation keeps the workspace shell across section checks',async({page})=>{
+ await mock(page,{completed:true});await page.goto('/auth/resume')
+ await expect(page.getByRole('heading',{name:'Resumes',exact:true,level:1})).toBeVisible()
+ for(const title of ['Call Sessions','Resumes','Dashboard','Resumes']){
+  let release
+  const gate=new Promise(resolve=>{release=resolve})
+  const pattern=title==='Resumes'?'**/api/auth/me':'**/api/onboarding'
+  const handler=async route=>{await gate;await route.fulfill({json:title==='Resumes'?{user_id:'owner',email:'candidate@example.test'}:{onboarding_current_step:1,onboarding_completed_at:'completed'}})}
+  await page.route(pattern,handler)
+  await page.getByRole('link',{name:title,exact:true}).click()
+  await expect(page.locator('.wd-loading-content')).toBeVisible()
+  await expect(page.getByRole('heading',{name:title,exact:true,level:1})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'Account',exact:true})).toHaveCount(0)
+  await expect(page.getByText('Checking session...',{exact:true})).toHaveCount(0)
+  await expect(page.locator('.ob-loading')).toHaveCount(0)
+  if(title==='Resumes'){
+   await mkdir(captures,{recursive:true})
+   await page.screenshot({path:path.join(captures,'resume-route-loading.png')})
+  }
+  release();await expect(page.locator('.wd-loading-content')).toHaveCount(0)
+  await page.unroute(pattern,handler)
+ }
 })

@@ -450,7 +450,7 @@ test('dashboard auth skeleton is private, inert, route-specific and aligned with
   await switchedAccount.release();await expect(status).toHaveCount(0);await expect(page.getByText('second@example.test',{exact:true}).first()).toBeVisible()
   await page.reload();await expect(status).toBeVisible();await page.evaluate(()=>window.__finishAuth());await expect(status).toHaveCount(0)
   await expect(page.getByRole('region',{name:'Resume status summary'})).toHaveAttribute('aria-busy','false')
-  await page.goto('/auth/sessions');await expect(page.getByText('Checking session...',{exact:true})).toBeVisible();await expect(status).toHaveCount(0)
+  await page.goto('/auth/sessions');await expect(page.getByRole('heading',{name:'Call Sessions',level:1})).toBeVisible();await expect(page.locator('.wd-loading-content')).toBeVisible();await expect(page.getByText('Checking session...',{exact:true})).toHaveCount(0)
   await page.evaluate(()=>window.__finishAuth());await expect(page.getByRole('heading',{name:'Call Sessions',level:1})).toBeVisible()
 })
 
@@ -635,7 +635,7 @@ test('row menu keyboard, outside click, stable IDs after filter/sort, all existi
   await expect(workspace.row('Platform engineering discussion')).toBeVisible()
   const trigger=page.getByRole('button',{name:'Actions for Platform engineering discussion',exact:true});await trigger.focus();await page.keyboard.press('ArrowDown')
   await expect(page.getByRole('menuitem',{name:'Generate AI Notes',exact:true})).toBeFocused();await page.keyboard.press('End');await expect(page.getByRole('menuitem',{name:'Download .md',exact:true})).toBeFocused();await page.keyboard.press('Escape');await expect(trigger).toBeFocused()
-  expect((await page.evaluate(()=>window.__requests)).filter(x=>x.method==='POST')).toHaveLength(0)
+  expect((await page.evaluate(()=>window.__requests)).filter(x=>x.method==='POST'&&x.endpoint!=='/api/auth/profile/bootstrap')).toHaveLength(0)
   await workspace.menu('Platform engineering discussion');await page.getByRole('heading',{name:'Call Sessions',level:1}).click();await expect(page.getByRole('menu')).toHaveCount(0)
   await page.getByLabel('Sort loaded sessions').selectOption('title');await page.getByLabel('Search loaded sessions').fill('Design systems')
   await workspace.row('Design systems discussion').getByRole('button',{name:'View Transcript',exact:true}).click();await expect(page.getByText('No transcript available.',{exact:true})).toBeVisible()
@@ -863,7 +863,7 @@ test('manual editor opens empty and remains an explicitly unsaved draft without 
   await mock(page);await new Workspace(page).goto('/auth/resume','Resumes');await openResumeUpload(page);await page.getByRole('button',{name:'Input Manually',exact:true}).click()
   const dialog=page.getByRole('dialog',{name:'Enter Profile Manually',exact:true});await expect(dialog.getByLabel('Full name',{exact:true})).toHaveValue('');await dialog.getByLabel('Full name',{exact:true}).fill('Manual Draft');await expect(dialog).toContainText('Saving without an uploaded resume is not currently supported.');await expect(dialog.getByRole('button',{name:'Confirm Reviewed Profile',exact:true})).toBeDisabled()
   await page.keyboard.press('Escape');await openResumeUpload(page);await page.getByRole('button',{name:'Input Manually',exact:true}).click();await expect(page.getByLabel('Full name',{exact:true})).toHaveValue('Manual Draft');await page.keyboard.press('Escape')
-  expect((await page.evaluate(()=>window.__requests)).filter(r=>r.method!=='GET')).toHaveLength(0)
+  expect((await page.evaluate(()=>window.__requests)).filter(r=>r.method!=='GET'&&r.endpoint!=='/api/auth/profile/bootstrap')).toHaveLength(0)
 })
 
 test('upload selection validates unsupported, empty and oversized files and accepts drag and drop',async({page})=>{
@@ -966,4 +966,20 @@ test('manual and extracted candidate drafts remain separate when reopened',async
   await openResumeUpload(page);await page.getByRole('button',{name:'Input Manually',exact:true}).click();await page.getByLabel('Full name',{exact:true}).fill('Separate Manual Draft');await page.keyboard.press('Escape')
   await page.getByRole('button',{name:'Review Profile',exact:true}).click();await expect(page.getByLabel('Full name',{exact:true})).toHaveValue('Extracted Candidate');await page.keyboard.press('Escape');await openResumeUpload(page);await page.getByRole('button',{name:'Input Manually',exact:true}).click();await expect(page.getByLabel('Full name',{exact:true})).toHaveValue('Separate Manual Draft')
   expect((await page.evaluate(()=>window.__requests)).filter(request=>request.endpoint.endsWith('/confirm'))).toHaveLength(0)
+})
+
+
+test('all workspace routes use private route-matched skeletons during session checks',async({page})=>{
+ await mock(page)
+ await page.addInitScript(()=>{window.__authGate=new Promise(resolve=>window.__finishAuth=()=>{window.__authGate=null;resolve()})})
+ for(const [route,title] of [['/auth/resume','Resumes'],['/auth/sessions','Call Sessions'],['/auth/dashboard','Dashboard']]){
+  await page.goto(route)
+  await expect(page.getByRole('heading',{name:title,level:1,exact:true})).toBeVisible()
+  await expect(page.locator('.wd-loading-content')).toBeVisible()
+  await expect(page.getByRole('heading',{name:'Account',exact:true})).toHaveCount(0)
+  await expect(page.getByText('Checking session...',{exact:true})).toHaveCount(0)
+  expect(await page.evaluate(()=>window.__requests.filter(r=>/api\/(resumes|interview-sessions)/.test(r.endpoint)))).toEqual([])
+  await page.evaluate(()=>window.__finishAuth())
+  await expect(page.locator('.wd-loading-content')).toHaveCount(0)
+ }
 })

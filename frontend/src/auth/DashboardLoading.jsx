@@ -1,9 +1,14 @@
 import DashboardLayout from './DashboardLayout'
 import WebsiteSessionTable from './WebsiteSessionTable'
-import { Skeleton } from './WebsiteSkeleton'
+import WebsiteSkeleton, { Skeleton } from './WebsiteSkeleton'
 
 // Presentation only: no authenticated user, data hooks or protected requests.
-export default function DashboardLoading() {
+export default function DashboardLoading({ page = 'dashboard' }) {
+  if (page === 'resume' || page === 'sessions') return <DashboardLayout title={page === 'resume' ? 'Resumes' : 'Call Sessions'} loading>
+    <div className="wd-loading-content" aria-hidden="true" inert>
+      {page === 'resume' ? <WebsiteSkeleton kind="resume" label="Loading resumes..." /> : <WebsiteSessionTable sessions={[]} loading />}
+    </div>
+  </DashboardLayout>
   return <DashboardLayout title="Dashboard" loading>
     <div className="wd-loading-content" aria-hidden="true" inert>
       <section className="wd-welcome"><p className="wd-eyebrow">WORKSPACE OVERVIEW</p><h2><Skeleton width="min(300px,85%)" height={44} /></h2><p>Review your recent conversations and keep your resume ready for your next interview.</p></section>

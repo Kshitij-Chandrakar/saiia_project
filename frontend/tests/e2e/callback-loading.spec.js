@@ -198,6 +198,8 @@ async function pendingSignupCallback(page, { attempt = false, pending = true, fa
       return route.fulfill({json:{user_id:'owner',email:'candidate@example.test'}})
     }
     if(endpoint==='/api/auth/profile/bootstrap'){
+      // Dashboard entry also ensures rows, without rewriting signup consent.
+      if(!route.request().postData())return route.fulfill({json:{profile_exists:true,settings_exists:true}})
       bootstraps++;bootstrapVerifications.push(verifications);expect(route.request().postDataJSON()).toEqual(consent)
       if(delayed)await gate
       if(fail)return route.fulfill({status:failureStatus,json:{detail:'private bootstrap failure'}})

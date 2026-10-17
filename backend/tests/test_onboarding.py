@@ -80,3 +80,64 @@ def test_completed_row_is_not_recompleted_or_rewound():
     assert store.complete('owner')['onboarding_completed_at']=='original-time'
     assert store.step('owner',1)['onboarding_current_step']==5
     assert [method for method,_ in calls]==['PATCH','GET','PATCH','GET']
+
+
+@pytest.mark.parametrize('existing', [False, True])
+def test_profile_bootstrap_precedes_onboarding_and_is_idempotent(client, monkeypatch, existing):
+    from app.api import auth
+    from app.cloud.profile_bootstrap import bootstrap_authenticated_profile
+    api, _, app = client
+    app.include_router(auth.router, prefix='/api/auth')
+    rows = {('profiles', 'verified-owner'): {}}
+    if existing:
+        rows[('user_settings', 'verified-owner')] = {
+            'onboarding_current_step': 4, 'onboarding_completed_at': 'completed',
+            'preferred_answer_style': 'existing-style'}
+    inserts = []
+    class BootstrapStore:
+        def row_exists(self, table, user): return (table, user) in rows
+        def insert_user_row(self, table, user):
+            inserts.append((table, user))
+            rows[(table, user)] = {'onboarding_current_step': 1, 'onboarding_completed_at': None}
+            return True
+    class Transport:
+        def request(self, method, url, **kwargs):
+            assert method == 'GET'
+            assert kwargs['params']['user_id'] == 'eq.verified-owner'
+            row = rows.get(('user_settings', 'verified-owner'))
+            return NS(status_code=200, json=lambda: [] if row is None else [row])
+    store = OnboardingService(Transport(), NS(supabase_url='https://synthetic.invalid', service_role_key='synthetic'))
+    app.dependency_overrides[onboarding.service] = lambda: store
+    monkeypatch.setattr(auth, 'bootstrap_authenticated_profile', lambda user: bootstrap_authenticated_profile(user, client=BootstrapStore()))
+    monkeypatch.setattr(auth, '_trigger_welcome_email', lambda user: None)
+    assert api.get('/api/onboarding').status_code == (200 if existing else 409)
+    for _ in range(2):
+        assert api.post('/api/auth/profile/bootstrap').status_code == 200
+    response = api.get('/api/onboarding')
+    assert response.status_code == 200
+    assert response.json() == {'onboarding_current_step': 4 if existing else 1,
+                               'onboarding_completed_at': 'completed' if existing else None}
+    assert inserts == ([] if existing else [('user_settings', 'verified-owner')])
+    if existing:
+        assert rows[('user_settings', 'verified-owner')]['preferred_answer_style'] == 'existing-style'
+
+
+def test_supabase_network_failure_stays_controlled_503(client):
+    import requests
+    api, _, app = client
+    class Transport:
+        def request(self, *args, **kwargs): raise requests.ConnectionError('private upstream detail')
+    store = OnboardingService(Transport(), NS(supabase_url='https://synthetic.invalid', service_role_key='synthetic'))
+    app.dependency_overrides[onboarding.service] = lambda: store
+    response = api.get('/api/onboarding')
+    assert response.status_code == 503
+    assert 'private' not in response.text
+
+
+def test_forbidden_identity_cannot_access_onboarding(client):
+    from fastapi import HTTPException
+    api, store, app = client
+    def forbidden(): raise HTTPException(403, 'Forbidden')
+    app.dependency_overrides[get_current_user] = forbidden
+    assert api.get('/api/onboarding').status_code == 403
+    assert store.calls == []

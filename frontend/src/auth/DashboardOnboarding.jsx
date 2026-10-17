@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { onboardingRequest, onboardingResources, onboardingUpload, onboardingExtractJob, cloudResource } from './onboardingApi'
 import './dashboard-onboarding.css'
+import DashboardLoading from './DashboardLoading'
 import mascot from '../assets/onboarding/beeb2.png'
 import back from '../assets/onboarding/eca13.svg'
 import upload from '../assets/onboarding/1fa9b.svg'
@@ -44,7 +45,7 @@ export function DashboardOnboardingGate({ backendUrl, children }) {
   }, [backendUrl, location.pathname, attempt, navigate])
   if (window.electronAPI) return children
   if (error) return <main className="dashboard-onboarding"><section className="ob-card ob-loading"><p role="alert">{error}</p><button onClick={() => retry(v => v + 1)}>Retry onboarding</button></section></main>
-  if (!state || (!state.onboarding_completed_at && location.pathname !== '/auth/onboarding')) return <main className="dashboard-onboarding"><section className="ob-card ob-loading" role="status">Loading your workspace...</section></main>
+  if (!state || (!state.onboarding_completed_at && location.pathname !== '/auth/onboarding')) return <DashboardLoading page={location.pathname === '/auth/resume' ? 'resume' : location.pathname === '/auth/sessions' ? 'sessions' : 'dashboard'} />
   if (state.onboarding_completed_at) return children
   return <DashboardOnboarding key={location.key} backendUrl={backendUrl} initial={state} onComplete={() => { setState(v => ({ ...v, onboarding_completed_at: true })); navigate('/auth/dashboard', { replace: true }) }} />
 }
