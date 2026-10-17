@@ -6753,6 +6753,7 @@ export default function App() {
       <Route path="/auth/confirm" element={<AuthConfirmPage backendUrl={BACKEND_URL} />} />
       <Route path="/auth/status" element={<AuthStatusPage backendUrl={BACKEND_URL} />} />
       <Route path="/unsubscribe" element={<AuthUnsubscribePage backendUrl={BACKEND_URL} />} />
+      <Route path="/auth/onboarding" element={<AuthDashboardPage backendUrl={BACKEND_URL} />} />
       <Route path="/auth/dashboard" element={<AuthDashboardPage backendUrl={BACKEND_URL} />} />
       <Route path="/auth/sessions" element={<AuthDashboardPage backendUrl={BACKEND_URL} page="sessions" />} />
       <Route path="/auth/resume" element={<AuthResumePage backendUrl={BACKEND_URL} />} />

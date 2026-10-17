@@ -1,0 +1,603 @@
+@font-face{
+  font-family:Onboarding Inter;
+  src:url('../assets/website-login/inter-400.ttf');
+  font-weight:400;
+  font-display:swap}
+  @font-face{
+    font-family:Onboarding Inter;
+    src:url('../assets/website-login/inter-600.ttf');
+    font-weight:600;
+    font-display:swap}
+    @font-face{
+      font-family:Onboarding Inter;
+      src:url('../assets/website-login/inter-700.ttf');
+      font-weight:700;
+      font-display:swap}
+      .dashboard-onboarding{
+        min-height:100dvh;
+        box-sizing:border-box;
+        display:grid;
+        place-items:center;
+        background:#f4f6fa;
+        padding:24px;
+        font-family:Onboarding Inter,Inter,sans-serif;
+        color:#171923}
+        .dashboard-onboarding *{
+          box-sizing:border-box}
+          .dashboard-onboarding button,.dashboard-onboarding input,.dashboard-onboarding textarea{
+            font:inherit}
+            .dashboard-onboarding button{
+              cursor:pointer}
+              .dashboard-onboarding button:disabled{
+                cursor:wait;
+                opacity:.6}
+                .dashboard-onboarding button:focus-visible,.dashboard-onboarding a:focus-visible,.dashboard-onboarding input:focus-visible,.dashboard-onboarding textarea:focus-visible{
+                  outline:3px solid #0058be;
+                  outline-offset:4px}
+                  .ob-card{
+                    width:569px;
+                    max-width:100%;
+                    height:531px;
+                    border:1px solid #ffffff99;
+                    border-radius:24px;
+                    background:#fff;
+                    box-shadow:0 25px 50px -12px #00000040;
+                    position:relative;
+                    display:flex;
+                    flex-direction:column;
+                    isolation:isolate}
+                    .ob-header{
+                      height:76px;
+                      flex:none;
+                      position:relative;
+                      padding:28px 32px 12px;
+                      display:flex;
+                      align-items:center;
+                      justify-content:space-between;
+                      z-index:2}
+                      .ob-back{
+                        width:36px;
+                        height:36px;
+                        border:0;
+                        border-radius:50%;
+                        background:transparent;
+                        display:grid;
+                        place-items:center}
+                        .ob-back img{
+                          width:20px;
+                          height:20px}
+                          .ob-skip{
+                            margin-left:auto;
+                            background:none;
+                            border:0;
+                            color:#6b7280;
+                            text-decoration:underline;
+                            font-size:14px!important;
+                            font-weight:600!important;
+                            letter-spacing:.3px;
+                            padding:4px 8px}
+                            .ob-progress{
+                              list-style:none;
+                              display:flex;
+                              gap:10px;
+                              align-items:center;
+                              padding:0;
+                              margin:0;
+                              position:absolute;
+                              left:50%;
+                              top:46px;
+                              transform:translate(-50%,-50%)}
+                              .ob-progress li{
+                                width:8px;
+                                height:8px;
+                                border-radius:50%;
+                                background:#e5e7eb}
+                                .ob-progress li[aria-current]{
+                                  width:10px;
+                                  height:10px;
+                                  background:#7fb0f8;
+                                  box-shadow:0 0 0 4px #d1fae5}
+                                  .ob-body{
+                                    position:relative;
+                                    flex:1;
+                                    min-height:0;
+                                    overflow:auto;
+                                    scrollbar-width:thin;
+                                    border-radius:0 0 24px 24px}
+                                    .ob-decoration{
+                                      position:absolute;
+                                      inset:0;
+                                      overflow:hidden;
+                                      border-radius:inherit;
+                                      pointer-events:none;
+                                      z-index:-1}
+                                      .ob-decoration img{
+                                        position:absolute;
+                                        max-width:none}
+                                        .ob-lines-left{
+                                          width:270px;
+                                          height:488px;
+                                          left:-112px;
+                                          top:20px}
+                                          .ob-lines-right{
+                                            width:374.669px;
+                                            height:434px;
+                                            left:331.19px;
+                                            top:56px}
+                                            .ob-glow-left{
+                                              width:576px;
+                                              height:778px;
+                                              left:-297px;
+                                              top:-86px;
+                                              transform:rotate(11deg)}
+                                              .ob-glow-right{
+                                                width:566px;
+                                                height:700px;
+                                                left:212px;
+                                                top:-200px;
+                                                transform:rotate(161deg)}
+                                                .ob-step{
+                                                  position:relative;
+                                                  z-index:1;
+                                                  min-height:100%;
+                                                  padding:20px 40px 40px;
+                                                  display:flex;
+                                                  flex-direction:column;
+                                                  align-items:center;
+                                                  animation:ob-enter .18s ease-out}
+                                                  .ob-graphic{
+                                                    width:100%;
+                                                    height:219.5px;
+                                                    flex:none;
+                                                    display:flex;
+                                                    flex-direction:column;
+                                                    align-items:center;
+                                                    justify-content:center;
+                                                    position:relative}
+                                                    .ob-step h1{
+                                                      font-size:20px;
+                                                      font-weight:700;
+                                                      line-height:32px;
+                                                      letter-spacing:-.6px;
+                                                      text-align:center;
+                                                      margin:12px 0 0;
+                                                      outline:none}
+                                                      .ob-description{
+                                                        font-size:12px;
+                                                        line-height:22.75px;
+                                                        text-align:center;
+                                                        color:#64748b;
+                                                        max-width:449px;
+                                                        margin:6.875px 0 0}
+                                                        .ob-actions{
+                                                          width:100%;
+                                                          display:flex;
+                                                          justify-content:center;
+                                                          gap:14px;
+                                                          margin-top:auto;
+                                                          padding-top:24px}
+                                                          .ob-primary,.ob-secondary{
+                                                            border:0;
+                                                            border-radius:12px;
+                                                            min-height:52px;
+                                                            display:flex;
+                                                            align-items:center;
+                                                            justify-content:center;
+                                                            gap:8px;
+                                                            font-size:14px!important;
+                                                            font-weight:600!important;
+                                                            letter-spacing:.5px;
+                                                            padding:12px 20px;
+                                                            transition:background .15s}
+                                                            .ob-primary{
+                                                              width:384px;
+                                                              max-width:100%;
+                                                              background:#0058be;
+                                                              color:white;
+                                                              box-shadow:0 4px 6px -1px #0000001a,0 2px 4px -2px #0000001a}
+                                                              .ob-primary:hover{
+                                                                background:#004da5}
+                                                                .ob-primary img{
+                                                                  width:16px;
+                                                                  height:16px}
+                                                                  .ob-secondary{
+                                                                    background:#f1f5f9;
+                                                                    color:#0f172a;
+                                                                    border:1px solid #cbd5e1}
+                                                                    .ob-step-5 .ob-actions button{
+                                                                      flex:1;
+                                                                      min-height:48px;
+                                                                      font-size:12px!important;
+                                                                      padding:10px 8px;
+                                                                      letter-spacing:0}
+                                                                      .ob-step-5 .ob-graphic{
+                                                                        height:229.5px}
+                                                                        .ob-step-5 h1{
+                                                                          margin-top:12px}
+                                                                          .ob-step-5 .ob-actions{
+                                                                            padding-top:18px}
+                                                                            .ob-mascot{
+                                                                              width:216px;
+                                                                              height:148.5px;
+                                                                              margin-bottom:12px;
+                                                                              position:relative;
+                                                                              overflow:hidden}
+                                                                              .ob-mascot img{
+                                                                                width:114.08%;
+                                                                                height:107.72%;
+                                                                                max-width:none;
+                                                                                position:absolute;
+                                                                                left:-6.89%;
+                                                                                top:-4.28%}
+                                                                                .ob-proof{
+                                                                                  border:1px solid #e2e8f0;
+                                                                                  border-radius:16px;
+                                                                                  background:white;
+                                                                                  padding:11px 25px;
+                                                                                  text-align:center;
+                                                                                  font-size:12px;
+                                                                                  line-height:16px;
+                                                                                  box-shadow:0 1px 1px #0000000d}
+                                                                                  .ob-proof strong{
+                                                                                    font-weight:600}
+                                                                                    .ob-proof>div{
+                                                                                      margin-top:4px;
+                                                                                      font-size:11px;
+                                                                                      line-height:17px}
+                                                                                      .ob-proof span{
+                                                                                        color:#fbbf24}
+                                                                                        .ob-proof small{
+                                                                                          font-size:11px;
+                                                                                          color:#9ca3af}
+                                                                                          .ob-upload{
+                                                                                            background:#ffffff80;
+                                                                                            border:1px dashed #cbd5e1;
+                                                                                            border-radius:16px;
+                                                                                            width:455px;
+                                                                                            max-width:100%;
+                                                                                            min-height:171.5px;
+                                                                                            display:flex;
+                                                                                            flex-direction:column;
+                                                                                            align-items:center;
+                                                                                            justify-content:center;
+                                                                                            gap:4px;
+                                                                                            color:#171923;
+                                                                                            padding:16px;
+                                                                                            font-size:12px!important}
+                                                                                            .ob-upload-icon{
+                                                                                              height:44px;
+                                                                                              width:46px;
+                                                                                              display:grid;
+                                                                                              place-items:center;
+                                                                                              border:1px solid #e5e7eb;
+                                                                                              box-shadow:0 1px 2px #0000000d;
+                                                                                              border-radius:12px;
+                                                                                              margin-bottom:8px;
+                                                                                              background:white}
+                                                                                              .ob-upload img{
+                                                                                                width:20px;
+                                                                                                height:20px}
+                                                                                                .ob-upload strong{
+                                                                                                  font-weight:600;
+                                                                                                  max-width:100%;
+                                                                                                  overflow-wrap:anywhere}
+                                                                                                  .ob-upload small{
+                                                                                                    font-size:10px;
+                                                                                                    color:#94a3b8}
+                                                                                                    .ob-private{
+                                                                                                      font-size:10px;
+                                                                                                      margin-top:12px;
+                                                                                                      border:1px solid #e2e8f0;
+                                                                                                      border-radius:20px;
+                                                                                                      padding:6px 12px;
+                                                                                                      color:#64748b}
+                                                                                                      .ob-manage{
+                                                                                                        font-size:11px;
+                                                                                                        color:#0058be;
+                                                                                                        margin-top:8px}
+                                                                                                        .ob-step-2 .ob-graphic{
+                                                                                                          height:196.5px}
+                                                                                                          .ob-step-2 .ob-actions{
+                                                                                                            padding-top:45px}
+                                                                                                            .ob-context{
+                                                                                                              width:320px;
+                                                                                                              max-width:85%;
+                                                                                                              height:155px;
+                                                                                                              position:relative;
+                                                                                                              align-self:center}
+                                                                                                              .ob-document{
+                                                                                                                padding:30px 20px 20px;
+                                                                                                                border:1px solid #e2e8f0;
+                                                                                                                border-radius:12px;
+                                                                                                                background:white;
+                                                                                                                height:145px;
+                                                                                                                box-shadow:0 12px 18px #00000018}
+                                                                                                                .ob-document small,.ob-session small{
+                                                                                                                  font-size:10px;
+                                                                                                                  line-height:16px;
+                                                                                                                  color:#94a3b8}
+                                                                                                                  .ob-document strong,.ob-session strong{
+                                                                                                                    display:block;
+                                                                                                                    font-size:14px;
+                                                                                                                    margin-top:12px}
+                                                                                                                    .ob-document p,.ob-session p{
+                                                                                                                      font-size:11px;
+                                                                                                                      color:#64748b;
+                                                                                                                      margin:4px 0 12px}
+                                                                                                                      .ob-chip{
+                                                                                                                        position:absolute;
+                                                                                                                        background:#fff;
+                                                                                                                        border:1px solid #dbeafe;
+                                                                                                                        border-radius:22px;
+                                                                                                                        padding:6px 10px;
+                                                                                                                        display:flex;
+                                                                                                                        gap:5px;
+                                                                                                                        align-items:center;
+                                                                                                                        font-size:10px!important;
+                                                                                                                        white-space:nowrap}
+                                                                                                                        .ob-chip img{
+                                                                                                                          width:14px;
+                                                                                                                          height:14px}
+                                                                                                                          .ob-chip-top{
+                                                                                                                            left:-20px;
+                                                                                                                            top:-10px}
+                                                                                                                            .ob-chip-right{
+                                                                                                                              right:-45px;
+                                                                                                                              top:40px}
+                                                                                                                              .ob-chip-bottom{
+                                                                                                                                left:-20px;
+                                                                                                                                bottom:-5px}
+                                                                                                                                .ob-session{
+                                                                                                                                  background:#fff;
+                                                                                                                                  border:1px solid #dbe3f0;
+                                                                                                                                  border-radius:14px;
+                                                                                                                                  width:320px;
+                                                                                                                                  max-width:90%;
+                                                                                                                                  padding:20px;
+                                                                                                                                  position:relative;
+                                                                                                                                  box-shadow:0 12px 18px #00000018}
+                                                                                                                                  .ob-session-ghost{
+                                                                                                                                    position:absolute;
+                                                                                                                                    inset:-10px -28px 8px;
+                                                                                                                                    transform:rotate(5deg);
+                                                                                                                                    background:#ffffff70;
+                                                                                                                                    border:1px solid #e2e8f0;
+                                                                                                                                    border-radius:14px;
+                                                                                                                                    z-index:-1}
+                                                                                                                                    .ob-tags{
+                                                                                                                                      display:flex;
+                                                                                                                                      gap:6px;
+                                                                                                                                      margin:12px 0 18px}
+                                                                                                                                      .ob-tags span{
+                                                                                                                                        padding:3px 6px;
+                                                                                                                                        background:#f1f5f9;
+                                                                                                                                        border-radius:4px;
+                                                                                                                                        font-size:10px;
+                                                                                                                                        color:#64748b}
+                                                                                                                                        .ob-session-bottom{
+                                                                                                                                          display:flex;
+                                                                                                                                          align-items:center;
+                                                                                                                                          justify-content:space-between;
+                                                                                                                                          font-size:10px;
+                                                                                                                                          color:#4d8dff}
+                                                                                                                                          .ob-session-bottom button{
+                                                                                                                                            font-size:10px;
+                                                                                                                                            padding:5px 10px;
+                                                                                                                                            border:0;
+                                                                                                                                            border-radius:6px;
+                                                                                                                                            background:#171923;
+                                                                                                                                            color:#fff}
+                                                                                                                                                          .ob-live{
+                                                                                                                                                            width:431px;
+                                                                                                                                                            max-width:100%;
+                                                                                                                                                            height:212px;
+                                                                                                                                                            border:1px solid #33415599;
+                                                                                                                                                            border-radius:16px;
+                                                                                                                                                            box-shadow:0 25px 50px -12px #00000040;
+                                                                                                                                                            background:linear-gradient(26deg,#09282c,#0f172a,#1e1b4b);
+                                                                                                                                                            padding:17px;
+                                                                                                                                                            color:#d1d5db}
+                                                                                                                                                            .ob-live-toolbar{
+                                                                                                                                                              display:flex;
+                                                                                                                                                              align-items:center;
+                                                                                                                                                              gap:8px;
+                                                                                                                                                              border-bottom:1px solid #ffffff1a;
+                                                                                                                                                              padding-bottom:13px;
+                                                                                                                                                              font-size:10px;
+                                                                                                                                                              white-space:nowrap}
+                                                                                                                                                              .ob-live-toolbar>span:first-child{
+                                                                                                                                                                color:#7fb0f8}
+                                                                                                                                                                .ob-live-toolbar>b{
+                                                                                                                                                                  margin-left:auto;
+                                                                                                                                                                  background:#7fb0f8;
+                                                                                                                                                                  padding:2px 8px;
+                                                                                                                                                                  border-radius:4px;
+                                                                                                                                                                  font-size:9px}
+                                                                                                                                                                  .ob-live-label{
+                                                                                                                                                                    font-size:10px;
+                                                                                                                                                                    margin:12px 0 10px;
+                                                                                                                                                                    color:#9ca3af}
+                                                                                                                                                                    .ob-live-question{
+                                                                                                                                                                      font-size:8px;
+                                                                                                                                                                      background:#ffffff0d;
+                                                                                                                                                                      border:1px solid #ffffff0d;
+                                                                                                                                                                      border-radius:8px;
+                                                                                                                                                                      padding:8px}
+                                                                                                                                                                      .ob-live-answer{
+                                                                                                                                                                        margin-top:10px;
+                                                                                                                                                                        background:#022c2266;
+                                                                                                                                                                        border:1px solid #10b9814d;
+                                                                                                                                                                        border-radius:12px;
+                                                                                                                                                                        padding:10px;
+                                                                                                                                                                        font-size:7px;
+                                                                                                                                                                        line-height:1.2}
+                                                                                                                                                                        .ob-live-answer strong{
+                                                                                                                                                                          font-size:9px;
+                                                                                                                                                                          color:#4d8dff}
+                                                                                                                                                                          .ob-live-answer p{
+                                                                                                                                                                            margin:4px 0 0}
+                                                                                                                                                                            .ob-message{
+                                                                                                                                                                              font-size:12px;
+                                                                                                                                                                              line-height:1.6;
+                                                                                                                                                                              color:#475569;
+                                                                                                                                                                              text-align:center;
+                                                                                                                                                                              margin:8px 0 0;
+                                                                                                                                                                              overflow-wrap:anywhere}
+                                                                                                                                                                              .ob-error{
+                                                                                                                                                                                color:#b42318}
+                                                                                                                                                                                .ob-message button{
+                                                                                                                                                                                  background:none;
+                                                                                                                                                                                  border:0;
+                                                                                                                                                                                  text-decoration:underline;
+                                                                                                                                                                                  color:#0058be}
+                                                                                                                                                                                  .ob-loading{
+                                                                                                                                                                                    display:flex;
+                                                                                                                                                                                    align-items:center;
+                                                                                                                                                                                    justify-content:center;
+                                                                                                                                                                                    padding:40px;
+                                                                                                                                                                                    text-align:center;
+                                                                                                                                                                                    gap:16px}
+                                                                                                                                                                                    .ob-editor{
+                                                                                                                                                                                      position:absolute;
+                                                                                                                                                                                      inset:0;
+                                                                                                                                                                                      z-index:5;
+                                                                                                                                                                                      background:#fff;
+                                                                                                                                                                                      border-radius:24px;
+                                                                                                                                                                                      overflow:auto;
+                                                                                                                                                                                      padding:32px}
+                                                                                                                                                                                      .ob-editor form{
+                                                                                                                                                                                        display:grid;
+                                                                                                                                                                                        gap:12px}
+                                                                                                                                                                                        .ob-editor h2{
+                                                                                                                                                                                          font-size:20px;
+                                                                                                                                                                                          margin:0}
+                                                                                                                                                                                          .ob-editor label{
+                                                                                                                                                                                            display:grid;
+                                                                                                                                                                                            gap:4px;
+                                                                                                                                                                                            font-size:13px}
+                                                                                                                                                                                            .ob-editor input,.ob-editor textarea{
+                                                                                                                                                                                              width:100%;
+                                                                                                                                                                                              border:1px solid #cbd5e1;
+                                                                                                                                                                                              border-radius:8px;
+                                                                                                                                                                                              padding:10px;
+                                                                                                                                                                                              color:#171923;
+                                                                                                                                                                                              background:white}
+                                                                                                                                                                                              .ob-editor textarea{
+                                                                                                                                                                                                height:100px;
+                                                                                                                                                                                                resize:vertical}
+                                                                                                                                                                                                .ob-editor button{
+                                                                                                                                                                                                  min-height:36px;
+                                                                                                                                                                                                  border:1px solid #cbd5e1;
+                                                                                                                                                                                                  border-radius:8px;
+                                                                                                                                                                                                  background:#f1f5f9;
+                                                                                                                                                                                                  color:#171923}
+                                                                                                                                                                                                  .ob-editor button[type=submit]{
+                                                                                                                                                                                                    background:#0058be;
+                                                                                                                                                                                                    color:white}
+                                                                                                                                                                                                    @keyframes ob-enter{
+                                                                                                                                                                                                      from{
+                                                                                                                                                                                                        opacity:0;
+                                                                                                                                                                                                        transform:translateY(4px)}
+                                                                                                                                                                                                        to{
+                                                                                                                                                                                                          opacity:1;
+                                                                                                                                                                                                          transform:none}
+                                                                                                                                                                                                        }
+                                                                                                                                                                                                        @media(max-width:600px){
+                                                                                                                                                                                                          .dashboard-onboarding{
+                                                                                                                                                                                                            padding:16px}
+                                                                                                                                                                                                            .ob-card{
+                                                                                                                                                                                                              height:min(620px,calc(100dvh - 32px))}
+                                                                                                                                                                                                              .ob-header{
+                                                                                                                                                                                                                padding-left:20px;
+                                                                                                                                                                                                                padding-right:20px}
+                                                                                                                                                                                                                .ob-step{
+                                                                                                                                                                                                                  padding:16px 20px 28px}
+                                                                                                                                                                                                                  .ob-proof{
+                                                                                                                                                                                                                    padding:10px 12px}
+                                                                                                                                                                                                                    .ob-proof strong{
+                                                                                                                                                                                                                      font-size:10px}
+                                                                                                                                                                                                                      .ob-graphic{
+                                                                                                                                                                                                                        height:205px}
+                                                                                                                                                                                                                        .ob-chip-right{
+                                                                                                                                                                                                                          right:-20px}
+                                                                                                                                                                                                                          .ob-step h1{
+                                                                                                                                                                                                                            font-size:20px;
+                                                                                                                                                                                                                            line-height:28px}
+                                                                                                                                                                                                                            .ob-description{
+                                                                                                                                                                                                                              font-size:12px}
+                                                                                                                                                                                                                              .ob-actions{
+                                                                                                                                                                                                                                padding-top:24px}
+                                                                                                                                                                                                                                .ob-step-5 .ob-actions{
+                                                                                                                                                                                                                                  flex-direction:column}
+                                                                                                                                                                                                                                  .ob-step-5 .ob-graphic{
+                                                                                                                                                                                                                                    height:225px}
+                                                                                                                                                                                                                                    .ob-live{
+                                                                                                                                                                                                                                      padding:12px}
+                                                                                                                                                                                                                                      .ob-live-toolbar{
+                                                                                                                                                                                                                                        font-size:8px;
+                                                                                                                                                                                                                                        gap:5px}
+                                                                                                                                                                                                                                        .ob-live-toolbar>b{
+                                                                                                                                                                                                                                          font-size:8px}
+                                                                                                                                                                                                                                          .ob-live-answer{
+                                                                                                                                                                                                                                            font-size:6px}
+                                                                                                                                                                                                                                            .ob-live-answer strong{
+                                                                                                                                                                                                                                              font-size:8px}
+                                                                                                                                                                                                                                              .ob-context{
+                                                                                                                                                                                                                                                max-width:90%}
+                                                                                                                                                                                                                                                .ob-step-2 .ob-actions{
+                                                                                                                                                                                                                                                  padding-top:24px}
+                                                                                                                                                                                                                                                }
+                                                                                                                                                                                                                                                @media(prefers-reduced-motion:reduce){
+                                                                                                                                                                                                                                                  .ob-step{
+                                                                                                                                                                                                                                                    animation:none}
+                                                                                                                                                                                                                                                    .dashboard-onboarding button{
+                                                                                                                                                                                                                                                      transition:none}
+                                                                                                                                                                                                                                                    }
+                                                                                                                                                                                                                                                    .dashboard-onboarding{
+                                                                                                                                                                                                                                                      grid-template-columns:minmax(0,1fr)}
+                                                                                                                                                                                                                                                      .ob-card{
+                                                                                                                                                                                                                                                        min-width:0;
+                                                                                                                                                                                                                                                        justify-self:center}
+                                                                                                                                                                                                                                                        .ob-consent{
+                                                                                                                                                                                                                                                          display:flex!important;
+                                                                                                                                                                                                                                                          align-items:flex-start;
+                                                                                                                                                                                                                                                          line-height:1.6}
+                                                                                                                                                                                                                                                          .ob-consent input{
+                                                                                                                                                                                                                                                            width:16px!important;
+                                                                                                                                                                                                                                                            flex:none;
+                                                                                                                                                                                                                                                            margin-top:3px}
+                                                                                                                                                                                                                                                            .ob-chip{
+                                                                                                                                                                                                                                                              color:#171923}
+                                                                                                                                                                                                                                                                .ob-step-5 .ob-actions button{
+                                                                                                                                                                                                                                                                  flex:1 1 0;
+                                                                                                                                                                                                                                                                  width:auto;
+                                                                                                                                                                                                                                                                  min-width:0}
+                                                                                                                                                                                                                                                                  .ob-step-5 .ob-actions img{
+                                                                                                                                                                                                                                                                    flex:none}
+                                                                                                                                                                                                                                                                    .ob-live{
+                                                                                                                                                                                                                                                                      overflow:hidden}
+                                                                                                                                                                                                                                                                                            .ob-document:before{
+                                                                                                                                                                                                                                                                                              content:'';
+                                                                                                                                                                                                                                                                                              position:absolute;
+                                                                                                                                                                                                                                                                                              inset:-14px 10px 12px;
+                                                                                                                                                                                                                                                                                              border:1px solid #e2e8f0;
+                                                                                                                                                                                                                                                                                              border-radius:12px;
+                                                                                                                                                                                                                                                                                              background:#ffffff80;
+                                                                                                                                                                                                                                                                                              transform:rotate(-3deg);
+                                                                                                                                                                                                                                                                                              z-index:-1}
+                                                                                                                                                                                                                                                                                              .ob-context{
+                                                                                                                                                                                                                                                                                                isolation:isolate}
+                                                                                                                                                                                                                                                                                                .ob-live-toolbar>span:last-child{
+                                                                                                                                                                                                                                                                                                  font-size:9px;
+                                                                                                                                                                                                                                                                                                  background:#ffffff1a;
+                                                                                                                                                                                                                                                                                                  padding:2px 6px;
+                                                                                                                                                                                                                                                                                                  border-radius:4px}
+                                                                                                                                                                                                                                                                                                  .ob-session strong,.ob-document strong{
+                                                                                                                                                                                                                                                                                                    overflow:hidden;
+                                                                                                                                                                                                                                                                                                    text-overflow:ellipsis;
+                                                                                                                                                                                                                                                                                                    white-space:nowrap}
+                                                                                                                                                                                                                                                                                                    @media(max-width:600px){
+                                                                                                                                                                                                                                                                                                                  .ob-live-toolbar>span:last-child{
+                                                                                                                                                                                                                                                                                                                    font-size:6px;
+                                                                                                                                                                                                                                                                                                                    padding:2px 3px}
+                                                                                                                                                                                                                                                                                                                  }

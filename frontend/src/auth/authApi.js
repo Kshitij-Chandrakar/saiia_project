@@ -293,7 +293,10 @@ export async function fetchCurrentUser(accessToken, options = {}) {
     },
   })
 
-  const payload = await parseJsonResponse(response, 'Unable to verify the current user.')
+  const payload = await parseJsonResponse(response, 'Unable to verify the current user.').catch(error => {
+    error.status = response.status
+    throw error
+  })
 
   return {
     user_id: payload.user_id,
@@ -328,7 +331,10 @@ export async function bootstrapProfile(accessToken, options = {}) {
     ...request,
   })
 
-  const payload = await parseJsonResponse(response, 'Unable to bootstrap the profile.')
+  const payload = await parseJsonResponse(response, 'Unable to bootstrap the profile.').catch(error => {
+    error.status = response.status
+    throw error
+  })
 
   return {
     user_id: payload.user_id,

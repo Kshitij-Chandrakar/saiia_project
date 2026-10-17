@@ -887,3 +887,12 @@ test('resume list preserves server readiness, authorization and cancellation wit
   assert.equal(records[0].storage_path, undefined)
   assert.equal(records[0].raw_text, undefined)
 })
+
+
+test('callback auth and bootstrap failures retain HTTP status for recovery decisions', async () => {
+  for (const operation of [fetchCurrentUser, bootstrapProfile]) {
+    for (const status of [401,403,503]) {
+      await assert.rejects(operation('synthetic', {fetchImpl:async()=>new Response('{}',{status})}), error => error.status === status)
+    }
+  }
+})
