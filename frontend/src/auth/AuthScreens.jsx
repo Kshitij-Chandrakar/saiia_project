@@ -31,6 +31,7 @@ import {
 import authLogo from '../assets/startup-login/login-logo.svg'
 import { supabase } from './supabaseClient'
 import './auth.css'
+import './account-setup-recovery.css'
 import DashboardLayout from './DashboardLayout'
 import DashboardLoading from './DashboardLoading'
 import WebsiteResumes from './WebsiteResumes'
@@ -1070,7 +1071,7 @@ function EmailConfirmationPage({ backendUrl }) {
       <div role="status" aria-live="polite">
         <AuthMessage message={result?.message} tone={result?.status === 'error' ? 'error' : 'success'} />
       </div>
-      {result && <Link className="auth-action-button" to={result.href}>{result.href === '/auth/forgot-password' ? 'Request a new reset link' : result.status === 'verified' ? 'Continue' : result.href === '/auth/status' ? 'Continue to Account' : 'Go to login'}</Link>}
+      {result && <Link className="auth-action-button" to={result.href} state={result.retrySignupBootstrap ? { retrySignupBootstrap: true } : undefined}>{result.href === '/auth/forgot-password' ? 'Request a new reset link' : result.status === 'verified' ? 'Continue' : result.href === '/auth/dashboard' ? 'Continue to Dashboard' : 'Go to login'}</Link>}
     </AuthShell>
   )
 }
@@ -1329,6 +1330,10 @@ export function AuthUnsubscribePage({ backendUrl }) {
 
 
 export function AuthStatusPage({ backendUrl }) {
+  return window.electronAPI ? <DesktopAuthStatusPage backendUrl={backendUrl} /> : <Navigate to="/auth/dashboard" replace />
+}
+
+function DesktopAuthStatusPage({ backendUrl }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [userError, setUserError] = useState('')
@@ -1482,11 +1487,43 @@ export function AuthStatusPage({ backendUrl }) {
 }
 
 
+function WebsiteAccountSetupRecovery({ onRetry }) {
+  const navigate = useNavigate()
+  const [pending, setPending] = useState(false), [error, setError] = useState('')
+  const lock = useRef(false), active = useRef(true), heading = useRef(null)
+  useEffect(() => { active.current = true; heading.current?.focus(); return () => { active.current = false } }, [])
+  async function logout() {
+    if (lock.current) return
+    lock.current = true; setPending(true); setError('')
+    try {
+      const { error: failure } = await signOutWebsite(supabase)
+      if (failure) throw failure
+      if (active.current) navigate('/auth/login', { replace: true })
+    } catch {
+      if (active.current) setError('Sign out failed. Please try again.')
+    } finally {
+      lock.current = false
+      if (active.current) setPending(false)
+    }
+  }
+  return <DashboardLayout user={{}} title="Account setup" onLogout={logout} logoutPending={pending}>
+    <section className="account-setup-recovery" aria-labelledby="account-setup-title">
+      <img src={authLogo} alt="" />
+      <h1 id="account-setup-title" ref={heading} tabIndex={-1}>Account setup couldn't be completed</h1>
+      <p>We couldn't finish preparing your account. Please try again.</p>
+      {error && <p role="alert">{error}</p>}
+      <div><button type="button" onClick={onRetry} disabled={pending}>Retry</button>
+        <button type="button" onClick={logout} disabled={pending}>{pending ? 'Signing out...' : 'Logout'}</button></div>
+    </section>
+  </DashboardLayout>
+}
+
 function RequireAuth({ backendUrl, children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [signedOut, setSignedOut] = useState(false)
   const [sessionLoss, setSessionLoss] = useState(null)
+  const [setupFailed, setSetupFailed] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const [error, setError] = useState('')
   const location = useLocation()
@@ -1510,6 +1547,8 @@ function RequireAuth({ backendUrl, children }) {
 
     async function loadUser() {
       const currentOperation = ++operation
+      let bootstrapping = false
+      setSetupFailed(false)
       setError('')
       if (!supabase) {
         setError('Supabase auth is not configured for this build.')
@@ -1541,13 +1580,26 @@ function RequireAuth({ backendUrl, children }) {
       try {
         accountId = data.session.user?.id || null
         const currentUser = await fetchCurrentUser(data.session.access_token, { backendUrl })
+        if (ignore || currentOperation !== operation) return
+        // Website entry must ensure settings exist before the onboarding gate reads them.
+        // Ordinary entry preserves preferences; explicit verification recovery reuses pending consent.
+        if (!window.electronAPI) {
+          bootstrapping = true
+          // Recovery hint only: consent must still match this verified session.
+          if (location.state?.retrySignupBootstrap && CONSENT_FEATURE_ENABLED && pendingSignupConsentForSession(data.session)) {
+            await persistPendingSignupConsent(data.session, backendUrl, () => !ignore && currentOperation === operation)
+          } else {
+            await bootstrapProfile(data.session.access_token, { backendUrl })
+          }
+        }
         if (!ignore && currentOperation === operation) {
           setUser(currentUser)
           setSignedOut(false)
         }
       } catch (verifyError) {
         if (!ignore && currentOperation === operation) {
-          setError(verifyError.message)
+          if (bootstrapping) setSetupFailed(true)
+          else setError(verifyError.message)
         }
       } finally {
         if (!ignore && currentOperation === operation) {
@@ -1585,7 +1637,7 @@ function RequireAuth({ backendUrl, children }) {
       subscription?.data.subscription.unsubscribe()
       stopLogoutWatch()
     }
-  }, [backendUrl, attempt])
+  }, [backendUrl, attempt, location.state?.retrySignupBootstrap])
 
   if (loading) {
     if (location.pathname === '/auth/dashboard' && !window.electronAPI) return <DashboardLoading />
@@ -1606,6 +1658,8 @@ function RequireAuth({ backendUrl, children }) {
       />
     )
   }
+
+  if (setupFailed && !window.electronAPI) return <WebsiteAccountSetupRecovery onRetry={() => { setLoading(true); setAttempt(value => value + 1) }} />
 
   if (error) {
     return (

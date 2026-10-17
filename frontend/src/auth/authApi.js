@@ -36,7 +36,7 @@ export async function verifyAuthEmailAction(search, client, onEmailVerified = as
       try {
         await onEmailVerified(data.session)
       } catch {
-        return { status: 'error', message: 'Email verified, but account setup could not be completed. Your signup preferences have not been cleared. Continue to Account and retry profile setup.', href: '/auth/status' }
+        return { status: 'error', message: 'Email verified, but account setup could not be completed. Your signup preferences have not been cleared. Continue to Dashboard and retry account setup.', href: '/auth/dashboard', retrySignupBootstrap: true }
       }
     }
     return type === 'recovery'

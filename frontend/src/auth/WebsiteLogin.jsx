@@ -127,7 +127,6 @@ export default function WebsiteLogin({ form, checkingSession, configured, onSubm
             <div><img src={microphone} alt="" /><span><strong>Voice AI Studio</strong><span>Low latency &lt;180ms</span></span></div>
             <div><img src={rubric} alt="" /><span><strong>Rubric Grading</strong><span>FAANG/Fortune 500</span></span></div>
           </div>
-          <Link className="website-login__status" to="/auth/status">System status</Link>
         </div>
       </section>
     </main>

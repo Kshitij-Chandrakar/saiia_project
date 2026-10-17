@@ -557,7 +557,8 @@ test('bootstrap failure preserves pending consent and reports setup failure afte
     auth: { verifyOtp: async () => ({ data: { session } }) },
   }, (verified) => helpers.persistPendingSignupConsent(verified, 'backend'))
   assert.equal(result.status, 'error')
-  assert.equal(result.href, '/auth/status')
+  assert.equal(result.href, '/auth/dashboard')
+  assert.equal(result.retrySignupBootstrap, true)
   assert.match(result.message, /Email verified, but account setup/)
   assert.doesNotMatch(result.message, /private backend detail|expired/)
   assert.equal(helpers.pendingSignupConsentForSession(session).marketing_email_opt_in, true)
@@ -791,4 +792,10 @@ test('pending consent is retained when persistence completes after callback disp
   helpers.rememberSignupConsent('test@example.com', false)
   await helpers.persistPendingSignupConsent({access_token:'synthetic',user:{email:'test@example.com'}}, 'backend', () => false)
   assert.equal(helpers.records.size, 1)
+})
+
+
+test('legacy website account page is only a compatibility redirect and desktop stays isolated', () => {
+  assert.match(statusPageSource, /return window.electronAPI \? <DesktopAuthStatusPage backendUrl=\{backendUrl\} \/> : <Navigate to="\/auth\/dashboard" replace \/>/)
+  assert.doesNotMatch(loginPageSource, />System status</i)
 })

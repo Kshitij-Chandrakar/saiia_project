@@ -67,7 +67,6 @@ export default function WebsiteSignup({ form, checkingSession, configured, terms
         </form>
         <footer><p>Already have an account? <Link to="/auth/login">Sign in</Link></p><nav aria-label="Signup information">{legalLink('Privacy Policy')}<span aria-hidden="true">&bull;</span>{legalLink('Terms of Service')}</nav></footer>
         <div className="website-signup__features"><div><img src={microphone} alt="" /><span><strong>Voice AI Studio</strong><span>Low latency &lt;180ms</span></span></div><div><img src={rubric} alt="" /><span><strong>Rubric Grading</strong><span>FAANG/Fortune 500</span></span></div></div>
-        <Link className="website-signup__status" to="/auth/status">System Status</Link>
       </div>
     </section>
     {notice && <div className="website-signup__legal-notice" id="signup-legal-notice" role="status"><span>{notice}</span><button type="button" aria-label="Dismiss notice" onClick={() => setNotice('')}>Close</button></div>}
