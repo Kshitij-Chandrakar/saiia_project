@@ -171,7 +171,7 @@ test('responsive reference geometry, reduced motion and recorded pending-to-succ
   }
 })
 
-async function pendingSignupCallback(page, { attempt = false, pending = true, failure = false, failureStatus = 503, delayed = false } = {}) {
+async function pendingSignupCallback(page, { attempt = false, pending = true, failure = false, failureStatus = 503, delayed = false, verificationFailure = null, missingSession = false } = {}) {
   const consent = {terms_accepted:true,privacy_accepted:true,marketing_email_opt_in:false,consent_source:'signup',consent_version:'c10.6a-v1'}
   await page.addInitScript(({attempt,pending,consent}) => {
     if(pending)localStorage.setItem('intervuai.pendingSignupConsent',JSON.stringify({email:'candidate@example.test',consent}))
@@ -183,15 +183,20 @@ async function pendingSignupCallback(page, { attempt = false, pending = true, fa
     await route.fulfill({response,body})
   })
   await page.route('**/src/auth/supabaseClient.js*',route=>route.fulfill({contentType:'application/javascript',body:`
-    window.__callbackSession={access_token:'synthetic',user:{id:'owner',email:'candidate@example.test'}};
+    window.__callbackSession=${missingSession ? 'null' : JSON.stringify({access_token:'synthetic',user:{id:'owner',email:'candidate@example.test'}})};
     export const supabase={auth:{getSession:async()=>({data:{session:window.__callbackSession}}),exchangeCodeForSession:()=>{throw Error('Verification replayed')},verifyOtp:()=>{throw Error('Verification replayed')},onAuthStateChange:fn=>{window.__callbackAuthChange=fn;return {data:{subscription:{unsubscribe(){}}}}}}};export function getSupabaseAuthConfig(){return {}};
   `}))
-  let bootstraps=0,verifications=0,ready=!pending,fail=failure,release
+  let bootstraps=0,verifications=0,ready=!pending,fail=failure,meFailure=verificationFailure,release
   const gate=new Promise(resolve=>{release=resolve})
   const bootstrapVerifications=[]
   await page.route('**/api/**',async route=>{
     const endpoint=new URL(route.request().url()).pathname
-    if(endpoint==='/api/auth/me'){verifications++;return route.fulfill({json:{user_id:'owner',email:'candidate@example.test'}})}
+    if(endpoint==='/api/auth/me'){
+      verifications++
+      if(meFailure==='network')return route.abort('failed')
+      if(meFailure)return route.fulfill({status:meFailure,json:{detail:'private verification failure'}})
+      return route.fulfill({json:{user_id:'owner',email:'candidate@example.test'}})
+    }
     if(endpoint==='/api/auth/profile/bootstrap'){
       bootstraps++;bootstrapVerifications.push(verifications);expect(route.request().postDataJSON()).toEqual(consent)
       if(delayed)await gate
@@ -201,7 +206,7 @@ async function pendingSignupCallback(page, { attempt = false, pending = true, fa
     if(endpoint==='/api/onboarding')return route.fulfill(ready?{json:{onboarding_current_step:1,onboarding_completed_at:pending?null:'completed'}}:{status:503,json:{detail:'Missing settings'}})
     return route.fulfill({json:{items:[],ready:false,resume:null,has_candidate:false}})
   })
-  return {count:()=>bootstraps,bootstrapVerifications,release:()=>release(),succeed:()=>{fail=false},route:'/auth/callback'+(attempt?'?signup_attempt=synthetic-attempt':'')}
+  return {count:()=>bootstraps,bootstrapVerifications,release:()=>release(),succeed:()=>{fail=false;meFailure=null},route:'/auth/callback'+(attempt?'?signup_attempt=synthetic-attempt':'')}
 }
 test('email callback without signup_attempt bootstraps before onboarding and clears pending consent',async({page})=>{
   const f=await pendingSignupCallback(page)
@@ -290,4 +295,29 @@ for(const leave of ['account change','unmount']) test(`late bootstrap after ${le
   expect(await page.evaluate(()=>localStorage.getItem('intervuai.pendingSignupConsent'))).not.toBeNull()
   await expect(page).not.toHaveURL(/auth\/onboarding$/)
   await expect(page.getByRole('button',{name:'Retry saving signup preferences'})).toHaveCount(0)
+})
+
+for(const failure of [503,408,429,'network']) test(`email callback retries transient auth verification failure ${failure}`,async({page})=>{
+  const f=await pendingSignupCallback(page,{verificationFailure:failure})
+  await page.goto(f.route)
+  const retry=page.getByRole('button',{name:'Retry saving signup preferences'})
+  await expect(retry).toBeVisible()
+  expect(f.count()).toBe(0)
+  expect(await page.evaluate(()=>localStorage.getItem('intervuai.pendingSignupConsent'))).not.toBeNull()
+  f.succeed()
+  await retry.evaluate(button=>{button.click();button.click()})
+  await expect(page).toHaveURL(/auth\/onboarding$/)
+  expect(f.count()).toBe(1)
+  expect(f.bootstrapVerifications).toEqual([2])
+  expect(await page.evaluate(()=>localStorage.getItem('intervuai.pendingSignupConsent'))).toBeNull()
+})
+
+for(const failure of [401,403,400,'missing']) test(`email callback does not retry non-recoverable verification ${failure}`,async({page})=>{
+  const f=await pendingSignupCallback(page,{verificationFailure:failure==='missing'?null:failure,missingSession:failure==='missing'})
+  await page.goto(f.route)
+  await expect(page.getByRole('heading',{name:'Unable to finish sign-in'})).toBeVisible()
+  await expect(page.getByRole('button',{name:'Retry saving signup preferences'})).toHaveCount(0)
+  await expect(page.getByRole('link',{name:'Back to sign in'})).toBeVisible()
+  expect(f.count()).toBe(0)
+  expect(await page.evaluate(()=>localStorage.getItem('intervuai.pendingSignupConsent'))).not.toBeNull()
 })

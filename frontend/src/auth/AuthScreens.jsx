@@ -1201,7 +1201,10 @@ export function AuthCallbackPage({ backendUrl }) {
               if (attempt) clearGoogleSignupConsent(attempt)
               throw authFailure()
             }
-            if (verification.current?.key === verificationKey) verification.current.userId = data.session.user?.id
+            if (verification.current?.key === verificationKey) {
+              verification.current.userId = data.session.user?.id
+              verification.current.session = data.session
+            }
             const user = await fetchCurrentUser(data.session.access_token, { backendUrl })
             return { user, session: data.session }
           })() }
@@ -1241,8 +1244,9 @@ export function AuthCallbackPage({ backendUrl }) {
         }
       } catch (failure) {
         if (active) {
+          const callbackSession = establishedSession || verification.current?.session || null
           const pending = attempt ? readGoogleSignupConsent(attempt) :
-            CONSENT_FEATURE_ENABLED && establishedSession && pendingSignupConsentForSession(establishedSession)
+            CONSENT_FEATURE_ENABLED && callbackSession && pendingSignupConsentForSession(callbackSession)
           const recoverable = !failure.status || failure.status >= 500 || [408, 429].includes(failure.status)
           const retryable = Boolean(isCurrent() && !failure.authRecovery && ![401, 403].includes(failure.status) &&
             (attempt || recoverable) && pending)
