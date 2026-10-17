@@ -17,6 +17,7 @@ async function mock(page, { failure = false, desktop = false } = {}) {
     }};export function getSupabaseAuthConfig(){return {}};
   `}))
   await page.route('**/api/**', route => {
+    if(new URL(route.request().url()).pathname==='/api/onboarding') return route.fulfill({json:{onboarding_current_step:1,onboarding_completed_at:'completed'}})
     if(new URL(route.request().url()).pathname==='/api/auth/me') return route.fulfill({json:{user_id:'synthetic-user',email:'candidate@example.test'}})
     return route.fulfill({json:{items:[],ready:false,resume:null,has_candidate:false}})
   })
@@ -168,4 +169,64 @@ test('responsive reference geometry, reduced motion and recorded pending-to-succ
     await page.emulateMedia({reducedMotion:'no-preference'}); await page.evaluate(()=>window.__release()); await expect(page.getByRole('heading',{name:'Resumes',level:1})).toBeVisible()
     const video=page.video(); await context.close(); if(video)await video.saveAs(path.join(output,'callback-transition.webm'))
   }
+})
+
+async function pendingSignupCallback(page, { attempt = false, pending = true, failure = false } = {}) {
+  const consent = {terms_accepted:true,privacy_accepted:true,marketing_email_opt_in:false,consent_source:'signup',consent_version:'c10.6a-v1'}
+  await page.addInitScript(({attempt,pending,consent}) => {
+    if(pending)localStorage.setItem('intervuai.pendingSignupConsent',JSON.stringify({email:'candidate@example.test',consent}))
+    if(attempt)sessionStorage.setItem('intervuai.googleSignupAttempt',JSON.stringify({attempt:'synthetic-attempt',createdAt:Date.now(),consent}))
+  }, {attempt,pending,consent})
+  await page.route('**/src/auth/AuthScreens.jsx*',async route=>{
+    const response=await route.fetch()
+    const body=(await response.text()).replace(/const CONSENT_FEATURE_ENABLED = [^\n]+/,'const CONSENT_FEATURE_ENABLED = true;')
+    await route.fulfill({response,body})
+  })
+  await page.route('**/src/auth/supabaseClient.js*',route=>route.fulfill({contentType:'application/javascript',body:`
+    export const supabase={auth:{getSession:async()=>({data:{session:{access_token:'synthetic',user:{id:'owner',email:'candidate@example.test'}}}}),onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}})}};export function getSupabaseAuthConfig(){return {}};
+  `}))
+  let bootstraps=0,ready=!pending
+  await page.route('**/api/**',async route=>{
+    const endpoint=new URL(route.request().url()).pathname
+    if(endpoint==='/api/auth/me')return route.fulfill({json:{user_id:'owner',email:'candidate@example.test'}})
+    if(endpoint==='/api/auth/profile/bootstrap'){
+      bootstraps++;expect(route.request().postDataJSON()).toEqual(consent)
+      if(failure)return route.fulfill({status:503,json:{detail:'private bootstrap failure'}})
+      ready=true;return route.fulfill({json:{profile_exists:true,settings_exists:true}})
+    }
+    if(endpoint==='/api/onboarding')return route.fulfill(ready?{json:{onboarding_current_step:1,onboarding_completed_at:pending?null:'completed'}}:{status:503,json:{detail:'Missing settings'}})
+    return route.fulfill({json:{items:[],ready:false,resume:null,has_candidate:false}})
+  })
+  return {count:()=>bootstraps,route:'/auth/callback'+(attempt?'?signup_attempt=synthetic-attempt':'')}
+}
+test('email callback without signup_attempt bootstraps before onboarding and clears pending consent',async({page})=>{
+  const f=await pendingSignupCallback(page)
+  await page.goto(f.route)
+  await expect(page.getByRole('heading',{name:'Welcome to Intervucopilot',exact:true})).toBeVisible()
+  await expect(page).toHaveURL(/auth\/onboarding$/)
+  expect(f.count()).toBe(1)
+  expect(await page.evaluate(()=>localStorage.getItem('intervuai.pendingSignupConsent'))).toBeNull()
+})
+test('signup_attempt callback uses only its existing bootstrap operation',async({page})=>{
+  const f=await pendingSignupCallback(page,{attempt:true})
+  await page.goto(f.route)
+  await expect(page.getByRole('heading',{name:'Welcome to Intervucopilot',exact:true})).toBeVisible()
+  expect(f.count()).toBe(1)
+  expect(await page.evaluate(()=>sessionStorage.getItem('intervuai.googleSignupAttempt'))).toBeNull()
+  expect(await page.evaluate(()=>localStorage.getItem('intervuai.pendingSignupConsent'))).not.toBeNull()
+})
+test('ordinary callback without pending consent reaches existing dashboard without a consent write',async({page})=>{
+  const f=await pendingSignupCallback(page,{pending:false})
+  await page.goto(f.route)
+  await expect(page.getByRole('heading',{name:'Welcome back!',exact:true})).toBeVisible()
+  expect(f.count()).toBe(0)
+})
+test('email callback bootstrap failure keeps pending data and does not enter onboarding',async({page})=>{
+  const f=await pendingSignupCallback(page,{failure:true})
+  await page.goto(f.route)
+  await expect(page.getByText('Sign in could not be verified. Please try again.',{exact:true})).toBeVisible()
+  await expect(page).toHaveURL(/auth\/callback$/)
+  expect(f.count()).toBe(1)
+  expect(await page.evaluate(()=>localStorage.getItem('intervuai.pendingSignupConsent'))).not.toBeNull()
+  await expect(page.getByRole('heading',{name:'Welcome to Intervucopilot',exact:true})).toHaveCount(0)
 })

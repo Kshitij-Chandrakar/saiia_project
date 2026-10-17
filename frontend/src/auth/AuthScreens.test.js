@@ -773,3 +773,14 @@ test('website signup is isolated from Electron and desktop handoff, with verifie
   assert.match(source, /readGoogleSignupConsent\(attempt\)/)
   assert.doesNotMatch(source, /record.email !== verifiedEmail/)
 })
+
+test('pending email signup persistence clears only after success and no-ops on repetition', async () => {
+  let calls = 0
+  const helpers = consentHelpers(async () => { calls++ })
+  helpers.rememberSignupConsent('test@example.com', false)
+  const session = { access_token: 'synthetic', user: { email: 'test@example.com' } }
+  await helpers.persistPendingSignupConsent(session, 'backend')
+  await helpers.persistPendingSignupConsent(session, 'backend')
+  assert.equal(calls, 1)
+  assert.equal(helpers.records.size, 0)
+})

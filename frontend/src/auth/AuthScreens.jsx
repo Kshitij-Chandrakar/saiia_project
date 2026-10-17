@@ -1190,6 +1190,8 @@ export function AuthCallbackPage({ backendUrl }) {
                   .then(() => clearGoogleSignupConsent(attempt)) }
               }
               await operation.current.promise
+            } else if (websiteCallback) {
+              await persistPendingSignupConsent(data.session, backendUrl)
             }
             return user
           })() }
