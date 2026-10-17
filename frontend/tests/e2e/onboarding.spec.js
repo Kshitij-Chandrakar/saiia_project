@@ -267,3 +267,48 @@ test('email verification setup failure recovers through dashboard and preserves 
  expect(await page.evaluate(()=>localStorage.getItem('intervuai.pendingSignupConsent'))).toBeNull()
  await expect(page.getByRole('button',{name:'Prepare Profile',exact:true})).toHaveCount(0)
 })
+
+
+test('Sessions to Dashboard uses the dashboard skeleton while onboarding is rechecked',async({page})=>{
+ await mock(page,{completed:true})
+ await page.goto('/auth/sessions')
+ await expect(page.getByRole('heading',{name:'Call Sessions',exact:true})).toBeVisible()
+ let release
+ const gate=new Promise(resolve=>{release=resolve})
+ await page.route('**/api/onboarding',async route=>{await gate;await route.fulfill({json:{onboarding_current_step:1,onboarding_completed_at:'completed'}})})
+ await page.getByRole('link',{name:'Dashboard',exact:true}).click()
+ await expect(page.locator('.wd-loading-content')).toBeVisible()
+ await expect(page.locator('.ob-loading')).toHaveCount(0)
+ await expect(page.getByText('Loading your workspace...', {exact:true})).toHaveCount(0)
+ await expect(page.getByRole('heading',{name:'Welcome back!',exact:true})).toHaveCount(0)
+ await mkdir(captures,{recursive:true})
+ await page.screenshot({path:path.join(captures,'workspace-gate-loading.png')})
+ release()
+ await expect(page.getByRole('heading',{name:'Welcome back!',exact:true})).toBeVisible()
+ await expect(page.locator('.wd-loading-content')).toHaveCount(0)
+})
+
+
+test('Resume navigation keeps the workspace shell across section checks',async({page})=>{
+ await mock(page,{completed:true});await page.goto('/auth/resume')
+ await expect(page.getByRole('heading',{name:'Resumes',exact:true,level:1})).toBeVisible()
+ for(const title of ['Call Sessions','Resumes','Dashboard','Resumes']){
+  let release
+  const gate=new Promise(resolve=>{release=resolve})
+  const pattern=title==='Resumes'?'**/api/auth/me':'**/api/onboarding'
+  const handler=async route=>{await gate;await route.fulfill({json:title==='Resumes'?{user_id:'owner',email:'candidate@example.test'}:{onboarding_current_step:1,onboarding_completed_at:'completed'}})}
+  await page.route(pattern,handler)
+  await page.getByRole('link',{name:title,exact:true}).click()
+  await expect(page.locator('.wd-loading-content')).toBeVisible()
+  await expect(page.getByRole('heading',{name:title,exact:true,level:1})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'Account',exact:true})).toHaveCount(0)
+  await expect(page.getByText('Checking session...',{exact:true})).toHaveCount(0)
+  await expect(page.locator('.ob-loading')).toHaveCount(0)
+  if(title==='Resumes'){
+   await mkdir(captures,{recursive:true})
+   await page.screenshot({path:path.join(captures,'resume-route-loading.png')})
+  }
+  release();await expect(page.locator('.wd-loading-content')).toHaveCount(0)
+  await page.unroute(pattern,handler)
+ }
+})

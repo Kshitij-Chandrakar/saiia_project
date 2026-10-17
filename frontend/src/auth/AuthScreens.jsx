@@ -1640,7 +1640,7 @@ function RequireAuth({ backendUrl, children }) {
   }, [backendUrl, attempt, location.state?.retrySignupBootstrap])
 
   if (loading) {
-    if (location.pathname === '/auth/dashboard' && !window.electronAPI) return <DashboardLoading />
+    if (!window.electronAPI) return <DashboardLoading page={location.pathname === '/auth/resume' ? 'resume' : location.pathname === '/auth/sessions' ? 'sessions' : 'dashboard'} />
     return (
       <AuthShell title="Account">
         <p className="auth-message info">Checking session...</p>

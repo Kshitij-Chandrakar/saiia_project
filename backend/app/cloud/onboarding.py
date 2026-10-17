@@ -7,6 +7,9 @@ FIELDS = 'onboarding_current_step,onboarding_completed_at'
 class OnboardingUnavailable(RuntimeError):
     pass
 
+class OnboardingBootstrapRequired(RuntimeError):
+    """The verified account has not finished profile/settings bootstrap."""
+
 class OnboardingService:
     def __init__(self, session=None, settings=None):
         settings = settings or get_supabase_settings().require_configured()
@@ -26,7 +29,7 @@ class OnboardingService:
             if not isinstance(rows, list): raise OnboardingUnavailable()
             if not rows:
                 if changes is not None and incomplete_only: return self.request(user_id)
-                raise OnboardingUnavailable()
+                raise OnboardingBootstrapRequired()
             row = rows[0]
             if not isinstance(row.get('onboarding_current_step'), int) or not 1 <= row['onboarding_current_step'] <= 5:
                 raise OnboardingUnavailable()

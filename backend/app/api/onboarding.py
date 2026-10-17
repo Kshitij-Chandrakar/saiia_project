@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from app.auth.supabase_auth import CurrentUserDep
-from app.cloud.onboarding import OnboardingService, OnboardingUnavailable
+from app.cloud.onboarding import OnboardingService, OnboardingUnavailable, OnboardingBootstrapRequired
 from app.cloud.supabase_config import SupabaseConfigurationError
 
 router = APIRouter()
@@ -16,6 +16,8 @@ def service():
 
 def perform(operation):
     try: return operation()
+    except OnboardingBootstrapRequired:
+        raise HTTPException(409, 'Account setup is required. Please retry your session check.') from None
     except OnboardingUnavailable:
         raise HTTPException(503, 'Onboarding is unavailable. Account setup or the onboarding migration may not be ready.') from None
 
