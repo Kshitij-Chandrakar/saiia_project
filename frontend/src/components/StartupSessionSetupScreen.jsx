@@ -250,7 +250,7 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
       )
       const session = created?.session
       if (!session?.id) {
-        if (created?.code === 'model_selection_stale' || created?.code === 'session_conflict') {
+        if (created?.code === 'model_selection_stale' || (modelRequired && created?.code === 'session_conflict')) {
           setSelectedModel('')
           setStaleSelection(true)
           await loadModels(false)

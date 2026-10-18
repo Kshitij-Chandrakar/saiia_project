@@ -275,7 +275,7 @@ async def test_cancel_during_read_closes_stream_without_fallback(external):
         task.cancel()
     else:
         control.cancel()
-    with pytest.raises(asyncio.CancelledError):
+    with pytest.raises(asyncio.CancelledError if external else GenerationStopped):
         await task
     assert len(wires) == 1 and wires[0].closed
 
@@ -388,7 +388,7 @@ async def test_fallback_has_only_remaining_overall_time_and_can_be_cancelled():
     task = asyncio.create_task(collect("gpt-5.6-luna", handler, control=control))
     await asyncio.wait_for(entered.wait(), 1)
     control.cancel()
-    with pytest.raises(asyncio.CancelledError):
+    with pytest.raises(GenerationStopped):
         await task
     assert len(wires) == 2 and wires[-1].closed
 

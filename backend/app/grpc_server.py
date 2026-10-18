@@ -9,6 +9,7 @@ import ipaddress
 import json
 import time
 import uuid
+from app.answer_generation import GenerationStopped
 
 import grpc
 
@@ -175,6 +176,10 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                     # A non-question legitimately emits no events; never invent an answer.
                 try:
                     await asyncio.wait_for(generate(), timeout=90)
+                except GenerationStopped:
+                    await emit(request_id, 'answer_error', pb.ErrorEvent(code='generation_stopped', message='Generation stopped.'))
+                    if auto_mode:
+                        await emit(request_id, 'status', pb.Status(code='auto_listening'))
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:

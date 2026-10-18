@@ -2,7 +2,7 @@
 // No Supabase URL, credentials, network connection or package installation.
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { PGlite } from '../../tmp/transcript-delete-db/node_modules/@electric-sql/pglite/dist/index.js'
+import { PGlite } from '@electric-sql/pglite'
 const db = new PGlite()
 const owner='00000000-0000-4000-8000-000000000001', other='00000000-0000-4000-8000-000000000002'
 const historical='30000000-0000-4000-8000-000000000001'

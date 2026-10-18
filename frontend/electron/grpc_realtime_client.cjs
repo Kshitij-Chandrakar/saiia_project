@@ -57,7 +57,7 @@ class GrpcRealtimeClient {
     this.lastAnswerStatus = 'idle'
     this.answerCategory = this.answerProvider = 'none'
     this.currentQuestion = this.currentAnswer = ''
-    this.answerRequestId = this.completedAnswerRequestId = this.answerFailureCode = ''
+    this.answerRequestId = this.completedAnswerRequestId = this.answerFailureCode = this.answerFailureRequestId = ''
     this.host = env.ELECTRON_GRPC_REALTIME_HOST || '127.0.0.1'
     this.port = Number(env.ELECTRON_GRPC_REALTIME_PORT || 50051)
     this.transportFactory = transportFactory
@@ -85,7 +85,7 @@ class GrpcRealtimeClient {
       answerStartedCount: this.answerStartedCount, answerDeltaCount: this.answerDeltaCount,
       answerCompletedCount: this.answerCompletedCount, lastAnswerStatus: this.lastAnswerStatus,
       answerCategory: this.answerCategory, answerProvider: this.answerProvider,
-      answerRequestId: this.answerRequestId || '', answerFailureCode: this.answerFailureCode || '',
+      answerFailureRequestId: this.answerFailureRequestId || '', answerRequestId: this.answerRequestId || '', answerFailureCode: this.answerFailureCode || '',
       currentQuestion: this.currentQuestion, currentAnswer: this.currentAnswer }
   }
 
@@ -179,7 +179,7 @@ class GrpcRealtimeClient {
             if (answerKind === 'question_detected') {
               this.answerRequestId = event.request_id || ''
               this.completedAnswerRequestId = ''
-              this.answerFailureCode = ''
+              this.answerFailureCode = this.answerFailureRequestId = ''
               this.questionsDetectedCount++
               this.cloudAnswerSaveStatus = 'n/a'
               this.currentQuestion = String(payload.text || '').slice(0, 65536)
@@ -192,9 +192,10 @@ class GrpcRealtimeClient {
               this.completedAnswerRequestId = event.request_id || ''
               this.answerCompletedCount++
               this.currentAnswer = String(payload.text || '').slice(0, 262144)
-            } else if (['generation_failed', 'persistence_unavailable', 'generation_uncertain'].includes(payload.code)) {
+            } else if (['generation_failed', 'persistence_unavailable', 'generation_uncertain', 'generation_stopped'].includes(payload.code)) {
               this.currentAnswer = ''
               this.answerFailureCode = payload.code
+              this.answerFailureRequestId = event.request_id || ''
               this.completedAnswerRequestId = event.request_id || ''
               this.autoStatus = 'auto_listening'
             } else this.lastError = 'Experimental answer unavailable. Retry.'
@@ -238,7 +239,7 @@ class GrpcRealtimeClient {
         this.lastAnswerStatus = 'idle'
         this.answerCategory = this.answerProvider = 'none'
         this.currentQuestion = this.currentAnswer = ''
-    this.answerRequestId = this.completedAnswerRequestId = this.answerFailureCode = ''
+    this.answerRequestId = this.completedAnswerRequestId = this.answerFailureCode = this.answerFailureRequestId = ''
         this.lastPcmAt = null
         this.sttChunksForwarded = this.sttBytesForwarded = this.sttCallbackCount = this.nonSilentChunks = 0
         this.sttBridgeConnected = false
@@ -430,7 +431,7 @@ class GrpcRealtimeClient {
     this.sessionMode = "diagnostics"
     this.currentTranscript = ''
     this.currentQuestion = this.currentAnswer = ''
-    this.answerRequestId = this.completedAnswerRequestId = this.answerFailureCode = ''
+    this.answerRequestId = this.completedAnswerRequestId = this.answerFailureCode = this.answerFailureRequestId = ''
     this.connecting = null
     for (const item of this.pending.values()) { clearTimeout(item.timer); item.reject(Error('closed')) }
     this.pending.clear()

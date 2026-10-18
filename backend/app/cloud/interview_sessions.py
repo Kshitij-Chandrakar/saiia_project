@@ -82,6 +82,7 @@ def model_admission_status(client=None):
         return "legacy"
     if not session_model_backend_ready():
         return "closed"
+    owned = client is None
     try:
         client = client or SupabaseInterviewSessionClient()
         response = client._session.post(client._rest_url + "/rpc/session_model_routing_ready",
@@ -89,6 +90,11 @@ def model_admission_status(client=None):
         return "enabled" if response.status_code == 200 and response.json() is True else "closed"
     except Exception:
         return "closed"
+    finally:
+        if owned and client is not None:
+            close = getattr(client._session, "close", None)
+            if close:
+                close()
 
 
 @dataclass(frozen=True)

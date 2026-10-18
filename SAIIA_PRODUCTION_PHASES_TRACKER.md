@@ -3,7 +3,7 @@
 > **Current model-selection status ? 2026-10-18:** Configuration-driven Electron Create Session selection, immutable backend session bindings, HTTP/gRPC answer routing, silent fallback, Retry and final-answer persistence are implemented and activated on **Saiia-dev only** (`rbmxfazjbldmkomdpyzl`). Default: Gemini 3.5 Flash-Lite; fallback: Groq GPT-OSS 120B. Selection stays locked; restricted metadata distinguishes selected and actual models. Production rollout remains separate. See [feature closeout](docs/SESSION_ANSWER_MODELS_CLOSEOUT.md) for scope, configuration/restart instructions, verification and pending checks. Earlier phase/status text below is historical for this feature; unrelated roadmap phases are unchanged.
 
 
-**Product:** SAIIA â€” Smart AI Interview Assistant  
+**Product:** SAIIA — Smart AI Interview Assistant
 **Document Type:** Production phase checklist for developer + Codex  
 **Version:** 1.1  
 **Last updated:** 2026-09-04
@@ -267,7 +267,7 @@ SAIIA MVP is complete and demo-ready.
 The MVP proved this flow:
 
 ```text
-Profile setup â†’ Recording â†’ Transcription â†’ Classification â†’ Groq answer generation â†’ Electron overlay display
+Profile setup → Recording → Transcription → Classification → Groq answer generation → Electron overlay display
 ```
 
 This file tracks the next production phases so the project does not lose direction or fall into scope creep.
@@ -300,7 +300,7 @@ Use this file for:
 SAIIA must remain focused on this product promise:
 
 ```text
-Understand the candidate â†’ understand the interview question â†’ generate a grounded answer â†’ show it quickly in a private overlay.
+Understand the candidate → understand the interview question → generate a grounded answer → show it quickly in a private overlay.
 ```
 
 If a feature does not support this flow, it should not be prioritized.
@@ -309,7 +309,7 @@ If a feature does not support this flow, it should not be prioritized.
 
 ## 4. Current Baseline
 
-## V1.0 â€” Manual MVP
+## V1.0 — Manual MVP
 
 ### Status
 
@@ -360,7 +360,7 @@ If a feature does not support this flow, it should not be prioritized.
 
 ```text
 SAIIA MVP can be shown in a demo:
-profile â†’ record â†’ transcribe â†’ classify â†’ Groq answer â†’ overlay.
+profile → record → transcribe → classify → Groq answer → overlay.
 ```
 
 ---
@@ -369,7 +369,7 @@ profile â†’ record â†’ transcribe â†’ classify â†’ Groq answ
 
 ---
 
-# Phase P0 â€” Clean Baseline and Repository Safety
+# Phase P0 — Clean Baseline and Repository Safety
 
 ## Status
 
@@ -446,7 +446,7 @@ Project is clean, safe, and ready for production-phase development.
 
 ---
 
-# Phase P1 â€” Resume Upload and Profile Extraction
+# Phase P1 — Resume Upload and Profile Extraction
 
 ## Status
 
@@ -538,7 +538,7 @@ DELETE /api/resume
 
 ---
 
-# Phase P2 â€” Resume RAG Grounding
+# Phase P2 — Resume RAG Grounding
 
 ## Goal
 
@@ -618,7 +618,7 @@ job description context if available
 
 ---
 
-# Phase P3 â€” Job Description and Company Context
+# Phase P3 — Job Description and Company Context
 
 ## Status
 
@@ -671,7 +671,7 @@ Tailor answers to the target job and company.
 
 ---
 
-# Phase P4 â€” Multi-Model Strategy: Groq + NVIDIA DeepSeek + Ollama
+# Phase P4 — Multi-Model Strategy: Groq + NVIDIA DeepSeek + Ollama
 
 ## Status
 
@@ -726,7 +726,7 @@ Ollama = optional local fallback
 
 - [x] Show primary provider.
 - [x] Show refinement provider if used.
-- [x] Show â€œRefined answer available.â€
+- [x] Show “Refined answer available.”
 - [x] Let user choose refined answer.
 - [x] Keep overlay simple and readable.
 
@@ -771,7 +771,7 @@ Ollama = optional local fallback
 
 ---
 
-# Phase P5 â€” Screen Reading / OCR Mode
+# Phase P5 — Screen Reading / OCR Mode
 
 ## Goal
 
@@ -894,13 +894,13 @@ New architecture:
 This section records the migration from OCR-only planning to dual-source Screen Intelligence. It intentionally references C0.9 rather than duplicating every implementation checklist item.
 
 ---
-# Phase P6 â€” Overlay Product Polish
+# Phase P6 — Overlay Product Polish
 
 ## Goal
 
 Make the overlay feel professional, compact, and reliable.
 
-## P6A â€” Transparent Runtime UI Foundation
+## P6A — Transparent Runtime UI Foundation
 
 ### Status
 
@@ -999,7 +999,7 @@ Visibility during screen sharing depends on OS, meeting app, and whether the use
 - [ ] Controls are reliable.
 - [ ] Position and display settings persist.
 
-## P6B â€” Floating Interview Toolbar
+## P6B — Floating Interview Toolbar
 
 ### Status
 
@@ -1042,7 +1042,7 @@ Visibility during screen sharing depends on OS, meeting app, and whether the use
 
 ---
 
-# Phase P7 â€” Main App UI and Onboarding Polish
+# Phase P7 — Main App UI and Onboarding Polish
 
 ## Status
 
@@ -1112,7 +1112,7 @@ Make SAIIA understandable for a new user.
 
 ---
 
-# Phase P8 â€” Auto Listen Mode
+# Phase P8 — Auto Listen Mode
 
 ## Status
 
@@ -1167,23 +1167,23 @@ This phase now has both:
 
 ```text
 continuous audio stream
-â†“
+↓
 voice activity detection
-â†“
+↓
 speech segment buffering
-â†“
+↓
 silence detection
-â†“
+↓
 transcription
-â†“
+↓
 question detection
-â†“
+↓
 duplicate filtering
-â†“
+↓
 classification
-â†“
+↓
 answer generation
-â†“
+↓
 overlay update
 ```
 
@@ -1211,7 +1211,7 @@ overlay update
 
 ---
 
-# Phase P9 â€” Better Audio Capture
+# Phase P9 — Better Audio Capture
 
 ## Status
 
@@ -1256,7 +1256,7 @@ Improve audio capture beyond basic microphone input.
 
 ---
 
-# Phase P10 â€” Settings and Profile Management
+# Phase P10 — Settings and Profile Management
 
 ## Status
 
@@ -1314,7 +1314,7 @@ Let users manage SAIIA without editing `.env` or files manually.
 
 ---
 
-# Phase P11 â€” Session History
+# Phase P11 — Session History
 
 ## Goal
 
@@ -1343,7 +1343,7 @@ Store useful local interview history.
 
 ---
 
-# Phase P12 â€” Performance and Reliability
+# Phase P12 — Performance and Reliability
 
 ## Goal
 
@@ -1394,7 +1394,7 @@ Make SAIIA fast and stable for repeated real usage.
 
 ---
 
-# Phase P13 â€” Packaging and Installer
+# Phase P13 — Packaging and Installer
 
 ## Goal
 
@@ -1421,7 +1421,7 @@ Make SAIIA installable as a desktop app.
 
 ---
 
-# Phase P14 â€” Testing and QA
+# Phase P14 — Testing and QA
 
 ## Goal
 
@@ -1471,7 +1471,7 @@ Prevent regressions.
 
 ---
 
-# Phase P15 â€” Privacy and Security Hardening
+# Phase P15 — Privacy and Security Hardening
 
 ## Goal
 
@@ -1508,7 +1508,7 @@ Protect sensitive local data.
 
 ---
 
-# Phase P16 â€” Auth, Billing, Usage Limits, and Licensing Preparation
+# Phase P16 — Auth, Billing, Usage Limits, and Licensing Preparation
 
 ## Goal
 
@@ -1565,7 +1565,7 @@ But keep the architecture ready.
 
 ---
 
-# Phase P17 â€” Protected Commercial Edition
+# Phase P17 — Protected Commercial Edition
 
 ## Goal
 

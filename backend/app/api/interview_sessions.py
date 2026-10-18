@@ -467,7 +467,7 @@ def _handle_cloud_error(exc: Exception) -> HTTPException:
 
 
 @router.get("/answer-models")
-def answer_models_catalog():
+def answer_models_catalog(current_user: CurrentUserDep):
     from app.answer_models import model_catalog
     from app.config import settings
     from app.cloud.interview_sessions import model_admission_status

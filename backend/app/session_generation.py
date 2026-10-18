@@ -22,6 +22,10 @@ from app.answer_generation import (AttemptFailure, Deadlines, GenerationBudget,
 from app.answer_models import resolve_binding, ModelConfigurationError
 from app.config import settings
 
+LIFECYCLE_LOCAL_SECONDS = .25
+LIFECYCLE_REMOTE_SECONDS = 2.0
+LIFECYCLE_GRACE_SECONDS = 8.0
+
 _generator = ContextVar("session_answer_generator", default=None)
 _prepared = ContextVar("session_prepared_context", default=None)
 
@@ -167,6 +171,32 @@ class AttemptRun:
                               fallback_used=bool(self.index), generation_ms=0, error=None)
 
 
+def owned_session(factory, **kwargs):
+    service = factory()
+    try:
+        return service.get_session(**kwargs)
+    finally:
+        close = getattr(getattr(getattr(service, '_client', None), '_session', None), 'close', None)
+        if close:
+            close()
+
+
+def coding_budget_required(req, api):
+    source = str(req.source or '').strip().lower()
+    resolution = api._resolve_request_followup(req, source=source)
+    intent = (api._compile_request_followup_intent(req, source=source, followup_resolution=resolution)
+              if settings.ENABLE_FOLLOWUP_INTENT_COMPILER else None)
+    question = (intent.resolved_question if intent and intent.follow_up_detected and not intent.needs_clarification
+                else resolution.resolved_question or req.question)
+    coding = api.looks_like_coding_implementation_request(question)
+    if intent and intent.requested_output in ('structured_coding_answer', 'coding_optimization', 'code_explanation', 'complexity_analysis'):
+        coding = intent.requested_output == 'structured_coding_answer'
+    kind = str(req.question_type or req.screen_question_type or '').strip().lower()
+    if source == 'screen':
+        kind = api._infer_screen_problem_type(question, kind)
+    return bool(req.coding_answer_mode or coding or (source == 'screen' and kind in ('coding', 'debugging', 'output')))
+
+
 async def dispatch_session_generation(req, request, *, buffered):
     if request is not None and getattr(getattr(request, 'state', None), 'session_generation_internal', False):
         return None
@@ -175,7 +205,7 @@ async def dispatch_session_generation(req, request, *, buffered):
     from app.api import generate as api
     # Reuse the existing auth/error mapping before accessing the authoritative row.
     user = await asyncio.to_thread(api._authorize_generation_session, req, request)
-    session = await asyncio.to_thread(api._new_cloud_interview_session_service().get_session,
+    session = await asyncio.to_thread(owned_session, api._new_cloud_interview_session_service,
         user_id=user.user_id, session_id=req.session_id, allow_model_bound=True)
     if session.status != 'active':
         raise HTTPException(409, 'Interview session is not active.')
@@ -189,6 +219,9 @@ async def dispatch_session_generation(req, request, *, buffered):
         selected_model = resolve_binding(key, getattr(session, 'selected_model_binding', None)) if key else None
     except ModelConfigurationError:
         raise HTTPException(409, 'Stored session model binding is unsupported.') from None
+    from app.cloud.interview_transcripts import MAX_QUESTION_TEXT_CHARS
+    if len(req.original_question or req.question or '') > MAX_QUESTION_TEXT_CHARS:
+        raise HTTPException(422, 'Question exceeds transcript storage limit.')
     store = new_turn_store()
     if req.recover_turn:
         recovery_identity = dict(p_user_id=user.user_id, p_session_id=session.id,
@@ -224,37 +257,58 @@ async def dispatch_session_generation(req, request, *, buffered):
         preserve_checkpoint = False
         pending_variation = []
 
-        async def monitor_session():
-            while True:
-                await asyncio.sleep(.25)
-                if key and (not settings.ENABLE_SESSION_ANSWER_MODELS or not session_model_backend_ready()):
-                    control.cancel()
-                    return
-                verified = await asyncio.to_thread(api._current_user_for_session_id, req, request)
-                if verified.user_id != user.user_id:
-                    control.cancel()
-                    return
-                if request is not None and request.scope.get('type') == 'http' and 'grpc_cloud_context_only' not in request.scope.get('state', {}):
-                    if await request.is_disconnected():
-                        control.cancel()
-                        return
-                current = await asyncio.to_thread(api._new_cloud_interview_session_service().get_session,
-                    user_id=user.user_id, session_id=session.id, allow_model_bound=True)
-                if current.status != 'active':
-                    control.cancel()
-                    return
-                check = await store.operation('check', identity, token=token)
-                if check['state'] not in ('processing','checkpoint','completed'):
-                    control.cancel()
-                    return
+        async def check_remote():
+            verified = await asyncio.to_thread(api._current_user_for_session_id, req, request)
+            if verified is None or verified.user_id != user.user_id:
+                raise GenerationStopped()
+            current = await asyncio.to_thread(owned_session, api._new_cloud_interview_session_service,
+                user_id=user.user_id, session_id=session.id, allow_model_bound=True)
+            if current.status != 'active':
+                raise GenerationStopped()
+            check = await store.operation('check', identity, token=token)
+            if check['state'] not in ('processing','checkpoint','completed'):
+                raise GenerationStopped()
 
         async def alive():
+            from app.cloud.interview_sessions import CloudInterviewSessionNotFoundError, CloudInterviewSessionConflictError
+            loop = asyncio.get_running_loop()
+            verified_at = loop.time()
+            next_check = verified_at + LIFECYCLE_REMOTE_SECONDS
+            pending = None
             try:
-                await monitor_session()
-            except asyncio.CancelledError:
-                raise
-            except Exception:
+                while True:
+                    await asyncio.sleep(LIFECYCLE_LOCAL_SECONDS)
+                    if key and (not settings.ENABLE_SESSION_ANSWER_MODELS or not session_model_backend_ready()):
+                        raise GenerationStopped()
+                    if request is not None and request.scope.get('type') == 'http' and 'grpc_cloud_context_only' not in request.scope.get('state', {}):
+                        if await request.is_disconnected():
+                            raise GenerationStopped()
+                    if pending is not None and pending.done():
+                        try:
+                            await pending
+                            verified_at = loop.time()
+                        except (GenerationStopped, CloudInterviewSessionNotFoundError, CloudInterviewSessionConflictError):
+                            raise GenerationStopped()
+                        except HTTPException as exc:
+                            if exc.status_code < 500:
+                                raise GenerationStopped() from None
+                        except TurnStateError as exc:
+                            if exc.code != 'persistence_unavailable':
+                                raise GenerationStopped() from None
+                        except Exception:
+                            pass  # Transient remote failures are tolerated only within the fence below.
+                        pending = None
+                        next_check = loop.time() + LIFECYCLE_REMOTE_SECONDS
+                    if loop.time() - verified_at >= LIFECYCLE_GRACE_SECONDS:
+                        raise GenerationStopped()
+                    if pending is None and loop.time() >= next_check:
+                        pending = asyncio.create_task(check_remote())
+            except GenerationStopped:
                 control.cancel()
+            finally:
+                if pending:
+                    pending.cancel()
+                    await asyncio.gather(pending, return_exceptions=True)
 
         async def produce():
             nonlocal result, pending_variation
@@ -265,7 +319,7 @@ async def dispatch_session_generation(req, request, *, buffered):
             primary_cache = {}
             context_cache = {}
             models = attempt_models(selected_model) if key else (None,)
-            budget = GenerationBudget(Deadlines.from_config(settings, coding=bool(req.coding_answer_mode or req.screen_question_type in ('coding','debugging','output'))))
+            budget = GenerationBudget(Deadlines.from_config(settings, coding=coding_budget_required(req, api)))
             loop = asyncio.get_running_loop()
             async with httpx.AsyncClient(transport=httpx.AsyncHTTPTransport(retries=0)) as client:
                 for index, model in enumerate(models):
@@ -325,6 +379,18 @@ async def dispatch_session_generation(req, request, *, buffered):
                             result.update(provider=model.provider, model=model.api_model)
                         if result.get('code_validation_used') and result.get('code_validation_passed') is False:
                             raise AttemptFailure('invalid_response')
+                        from app.cloud.interview_transcripts import MAX_ANSWER_TEXT_CHARS
+                        if len(result['answer']) > MAX_ANSWER_TEXT_CHARS:
+                            raise AttemptFailure('answer_too_large')
+                        from app.cloud.interview_transcripts import normalize_transcript_entry_payload
+                        from app.cloud.interview_sessions import CloudInterviewSessionValidationError
+                        try:
+                            normalize_transcript_entry_payload(dict(request_id=req.request_id, source='auto',
+                                question_text=req.original_question or req.question, answer_text=result['answer'],
+                                provider=result.get('provider'), model=result.get('model'),
+                                category=result.get('generate_category'), generation_ms=result.get('generation_ms')))
+                        except CloudInterviewSessionValidationError:
+                            raise AttemptFailure('invalid_response') from None
                         checkpoint = {'question': req.original_question or req.question, 'result': result,
                                       'request': req.model_dump(exclude={'recover_turn'})}
                         await store.operation('checkpoint', identity, token=token, payload=checkpoint)
@@ -380,11 +446,16 @@ async def dispatch_session_generation(req, request, *, buffered):
             yield api._stream_event(dict(type='error', request_id=req.request_id, error='generation_failed', message='Unable to generate an answer', retry_attempt=req.retry_attempt))
             yield api._stream_event(dict(type='done', request_id=req.request_id, incomplete=True))
         except TurnStateError as exc:
-            preserve_checkpoint = True
+            preserve_checkpoint = exc.code != 'invalid_result'
+            if exc.code == 'invalid_result':
+                yield api._stream_event(dict(type='replace', request_id=req.request_id, answer=''))
+                yield api._stream_event(dict(type='error', request_id=req.request_id, error='generation_failed', message='Unable to generate an answer', retry_attempt=req.retry_attempt))
+                yield api._stream_event(dict(type='done', request_id=req.request_id, incomplete=True))
+                return
             yield api._stream_event(dict(type='replace', request_id=req.request_id, answer=''))
             yield api._stream_event(dict(type='error', request_id=req.request_id, error=exc.code, message='Answer saving is pending. Retry to recover.'))
             yield api._stream_event(dict(type='done', request_id=req.request_id, incomplete=True))
-        except HTTPException:
+        except (GenerationStopped, HTTPException):
             # Revoked authorization/session validity is terminal, never fallback.
             yield api._stream_event(dict(type='replace', request_id=req.request_id, answer=''))
             yield api._stream_event(dict(type='error', request_id=req.request_id, error='generation_stopped', message='Generation stopped.'))
@@ -395,7 +466,8 @@ async def dispatch_session_generation(req, request, *, buffered):
             if monitor:
                 monitor.cancel()
             await asyncio.gather(task, *([monitor] if monitor else []), return_exceptions=True)
-            # Checkpoint/completed states are intentionally retained on cancellation.
+            # Explicit stop/disconnect purges checkpoints in SQL. Only persistence
+            # failures retain them for save-only Retry; completed rows are immutable.
             if not preserve_checkpoint:
                 try:
                     await store.operation('cancel', identity, token=token)
@@ -413,12 +485,13 @@ async def dispatch_session_generation(req, request, *, buffered):
     if not buffered:
         return response
     final = None
-    async for line in response.body_iterator:
-        event = json.loads(line)
-        if event['type']=='metadata':
-            final = event['metadata']
-        if event['type']=='error':
-            raise HTTPException(502, dict(code=event['error'], message=event.get('message'), request_id=req.request_id))
+    async with aclosing(response.body_iterator) as stream:
+        async for line in stream:
+            event = json.loads(line)
+            if event['type']=='metadata':
+                final = event['metadata']
+            if event['type']=='error':
+                raise HTTPException(409 if event['error'] == 'generation_stopped' else 502, dict(code=event['error'], message=event.get('message'), request_id=req.request_id))
     if final is None:
         raise HTTPException(409, 'Generation stopped.')
     return api.GenerateResponse(**final)

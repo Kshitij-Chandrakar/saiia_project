@@ -293,8 +293,10 @@ def _authorize_generation_session(req: "GenerateRequest", request: Request | Non
         return None
     from app.nlp.answer_variation import variation_scope
     variation_scope.set((current_user.user_id, session_id))
+    service = None
     try:
-        _new_cloud_interview_session_service().get_session(
+        service = _new_cloud_interview_session_service()
+        service.get_session(
             user_id=current_user.user_id,
             session_id=session_id,
         )
@@ -308,6 +310,10 @@ def _authorize_generation_session(req: "GenerateRequest", request: Request | Non
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Supabase cloud configuration is not ready.") from exc
     except CloudInterviewSessionError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Supabase cloud interview session operation failed.") from exc
+    finally:
+        close = getattr(getattr(getattr(service, '_client', None), '_session', None), 'close', None)
+        if close:
+            close()
     return current_user
 
 

@@ -2,7 +2,7 @@
 // No Supabase URL, credentials, network connection or package installation.
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { PGlite } from '../../tmp/transcript-delete-db/node_modules/@electric-sql/pglite/dist/index.js'
+import { PGlite } from '@electric-sql/pglite'
 const db = new PGlite()
 const owner='00000000-0000-4000-8000-000000000001', other='00000000-0000-4000-8000-000000000002'
 const historical='30000000-0000-4000-8000-000000000001'
@@ -24,7 +24,7 @@ for (const name of ['20260828120000_add_interview_session_lifecycle.sql','202608
 }
 for (const name of ['20260829103000_add_interview_session_transcript_storage.sql',
  '20260829170000_lock_down_transcript_entry_inserts.sql','20261011120000_add_permanent_transcript_deletion.sql',
- '20261018120000_add_session_model_selection.sql','20261018150000_add_session_generation_turns.sql']) {
+ '20261018120000_add_session_model_selection.sql','20261018150000_add_session_generation_turns.sql','20261018180000_add_session_model_bindings.sql','20261018210000_harden_session_generation_recovery.sql']) {
  await db.transaction(async tx=>tx.exec(await readFile(new URL(`../../supabase/migrations/${name}`,import.meta.url),'utf8')))
 }
 await db.exec(`insert into public.interview_sessions(id,user_id,title) values ('${historical}','${owner}','test')`)
@@ -71,6 +71,25 @@ assert.equal((await op('complete','cancelled',cancelled.token)).error,'stale_att
 const old=await op('claim','superseded')
 await op('claim','new',null,0,null,owner,'hash','superseded')
 assert.equal((await op('checkpoint','superseded',old.token,0,payload)).error,'stale_attempt')
+
+// Corrections reject oversized new checkpoints without changing stored content.
+const invalid=await op('claim','oversized',null,0,{request:{question:'test'}})
+assert.equal((await op('checkpoint','oversized',invalid.token,0,{...payload,result:{...payload.result,answer:'x'.repeat(24001)}})).error,'invalid_result')
+assert.equal((await db.query("select state from public.session_generation_turns where request_id='oversized'")).rows[0].state,'processing')
+// Old impossible checkpoints are fenced and reduced to request-only failed turns.
+await db.query("update public.session_generation_turns set state='checkpoint',payload=$1 where request_id='oversized'",[{...payload,result:{...payload.result,answer:'x'.repeat(24001)}}])
+assert.equal((await op('complete','oversized',invalid.token)).error,'invalid_result')
+const quarantined=(await db.query("select state,payload from public.session_generation_turns where request_id='oversized'")).rows[0]
+assert.equal(quarantined.state,'failed');assert.ok(!quarantined.payload.result)
+assert.equal((await op('claim','oversized',null,1)).state,'claimed')
+// Explicit cancellation and supersession purge checkpoint answers, not just processing rows.
+const checkpointed=await op('claim','checkpoint-superseded')
+await op('checkpoint','checkpoint-superseded',checkpointed.token,0,payload)
+await op('claim','checkpoint-new',null,0,null,owner,'hash','checkpoint-superseded')
+assert.equal((await db.query("select payload from public.session_generation_turns where request_id='checkpoint-superseded'")).rows[0].payload,null)
+assert.equal((await op('recover','checkpoint-superseded')).error,'generation_unrecoverable')
+assert.equal((await db.query("select payload from public.session_generation_turns where request_id='cancelled'")).rows[0].payload,null)
+
 await db.exec('reset role;set role authenticated')
 await assert.rejects(db.query('select * from public.session_generation_turns'),/permission denied/)
 await assert.rejects(op('claim','forged'),/permission denied/)

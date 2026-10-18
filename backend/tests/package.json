@@ -1,0 +1,11 @@
+{
+  "name": "saiia-session-sql-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node session_models.postgres.mjs && node session_generation.postgres.mjs && node session_model_bindings.postgres.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8"
+  }
+}

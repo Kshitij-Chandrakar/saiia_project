@@ -7,10 +7,25 @@ import { createServer } from 'vite'
 import { chromium, _electron } from '@playwright/test'
 
 const root = resolve(import.meta.dirname,'../..')
-const catalog = JSON.parse(execFileSync('E:/deepfake_envs/SaIIA/python.exe',['-c',
+const catalog = JSON.parse(execFileSync(process.env.SAIIA_TEST_PYTHON || 'python',['-c',
   'import json;from app.answer_models import model_catalog;from app.config import settings;print(json.dumps(dict(items=model_catalog(settings),admission="enabled",error="")))'],
   { cwd: resolve(root,'backend'), encoding:'utf8' }))
 let server,browser,url
+
+test('legacy creation conflict can retry without an unavailable model selector', async () => {
+  const page = await pageWith({ ...catalog, admission: 'legacy' }, {
+    creationResult: { code: 'session_conflict', error: 'Session conflict. Retry.' },
+  })
+  await ready(page)
+  await page.getByRole('button', { name: 'Start Session' }).click()
+  await page.waitForFunction(() => window.created.length === 1)
+  await page.getByText('Session conflict. Retry.', { exact: true }).waitFor()
+  assert.equal(await page.getByRole('button', { name: 'Start Session' }).isDisabled(), false)
+  await page.evaluate(() => { delete window.creationResult })
+  await page.getByRole('button', { name: 'Start Session' }).click()
+  await page.waitForFunction(() => window.started.length === 1)
+  await page.close()
+})
 before(async () => {
   server=await createServer({ root:resolve(root,'frontend'), server:{host:'127.0.0.1',port:0}, logLevel:'error' })
   await server.listen()

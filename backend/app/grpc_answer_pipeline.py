@@ -124,7 +124,9 @@ async def stream_question_answer(transcript, cloud_context=None, logical_turn_id
                 yield {"type": "result", "text": metadata.get("answer", ""),
                        "category": category, "provider": metadata.get("provider", "")}
             elif kind == "error":
-                from app.answer_generation import GenerationFailure
+                from app.answer_generation import GenerationFailure, GenerationStopped
+                if item.get('error') == 'generation_stopped':
+                    raise GenerationStopped()
                 if item.get('error') == 'generation_failed':
                     raise GenerationFailure(())
                 if item.get('error') in ('persistence_unavailable','generation_uncertain','generation_processing'):

@@ -3,9 +3,9 @@
 > **Current model-selection status ? 2026-10-18:** Configuration-driven Electron Create Session selection, immutable backend session bindings, HTTP/gRPC answer routing, silent fallback, Retry and final-answer persistence are implemented and activated on **Saiia-dev only** (`rbmxfazjbldmkomdpyzl`). Default: Gemini 3.5 Flash-Lite; fallback: Groq GPT-OSS 120B. Selection stays locked; restricted metadata distinguishes selected and actual models. Production rollout remains separate. See [feature closeout](docs/SESSION_ANSWER_MODELS_CLOSEOUT.md) for scope, configuration/restart instructions, verification and pending checks. Earlier phase/status text below is historical for this feature; unrelated roadmap phases are unchanged.
 
 
-**Product:** SAIIA â€” Smart AI Interview Assistant  
+**Product:** SAIIA — Smart AI Interview Assistant
 **Document type:** Detailed implementation roadmap and execution source of truth  
-**Track:** Desktop stabilization â†’ Cloud account system â†’ Website integration â†’ Session intelligence â†’ Subscription and release  
+**Track:** Desktop stabilization → Cloud account system → Website integration → Session intelligence → Subscription and release
 **Version:** 1.1  
 **Last updated:** 2026-09-04
 **Created:** 2026-07-10  
@@ -80,9 +80,9 @@ SAIIA will become one connected product with three major surfaces.
 
 ```text
 Public Website
-    â†“
+    ↓
 User Account Dashboard
-    â†“
+    ↓
 Desktop Interview Assistant
 ```
 
@@ -289,7 +289,7 @@ C15.5 is a conditional release gate: it must be completed before C16 only if SAI
 
 ---
 
-# C0 â€” Desktop Core Stabilization
+# C0 — Desktop Core Stabilization
 
 ## Status
 
@@ -364,7 +364,7 @@ Required behavior:
 - simulated frontend word/line timers must not be used in the true-streaming path
 - outer Electron window must not resize on every reveal step
 - long answers must scroll inside a fixed expanded panel
-- â€œShow full answerâ€ must immediately reveal the rest
+- “Show full answer” must immediately reveal the rest
 - new answers must abort old provider streams
 - collapse/re-expand must not delete or restart the answer
 
@@ -645,7 +645,7 @@ C0.9 is complete only when:
 - Historical desktop baseline: `SAIIA_PRODUCTION_PHASES_TRACKER.md`
 
 ---
-# C1 â€” Supabase Cloud Foundation
+# C1 — Supabase Cloud Foundation
 
 ## Status
 
@@ -910,7 +910,7 @@ It should:
 
 ---
 
-# C2 â€” Authentication and Account Lifecycle
+# C2 — Authentication and Account Lifecycle
 
 ## Status
 
@@ -1140,7 +1140,7 @@ After a verified user first enters the dashboard:
 
 ---
 
-# C3 â€” Resume Upload and Cloud Profile
+# C3 — Resume Upload and Cloud Profile
 
 ## Status
 
@@ -1209,16 +1209,16 @@ Do not rewrite these services unless required for multi-user safety.
 
 ```text
 Authenticated user
-â†’ Upload resume
-â†’ Validate file
-â†’ Store private file
-â†’ Extract text
-â†’ Parse structured profile
-â†’ Show review/edit screen
-â†’ User confirms
-â†’ Save profile
-â†’ Build/rebuild resume index
-â†’ Mark resume ready
+→ Upload resume
+→ Validate file
+→ Store private file
+→ Extract text
+→ Parse structured profile
+→ Show review/edit screen
+→ User confirms
+→ Save profile
+→ Build/rebuild resume index
+→ Mark resume ready
 ```
 
 ## Backend endpoints
@@ -1323,7 +1323,7 @@ Do not make extracted values authoritative until user confirms.
 
 ---
 
-# C4 â€” Job Target and Job-Description Cloud Sync
+# C4 — Job Target and Job-Description Cloud Sync
 
 ## Status
 
@@ -1443,7 +1443,7 @@ Deferred criteria:
 
 ---
 
-# C5 â€” Desktop App Login and Cloud Synchronization
+# C5 — Desktop App Login and Cloud Synchronization
 
 ## Status
 
@@ -1584,7 +1584,7 @@ Desktop may cache:
 
 ---
 
-# C6 â€” Interview Session Lifecycle and Storage
+# C6 — Interview Session Lifecycle and Storage
 
 ## Status
 
@@ -1617,12 +1617,12 @@ Before durable session storage is implemented, the desktop app needs a small sta
 
 ```text
 created
-â†’ active
-â†’ paused, optional
-â†’ ended
-â†’ processing notes, optional
-â†’ completed
-â†’ deleted
+→ active
+→ paused, optional
+→ ended
+→ processing notes, optional
+→ completed
+→ deleted
 ```
 
 ## `interview_sessions` table
@@ -1733,7 +1733,7 @@ DELETE /api/sessions/{session_id}
 
 ---
 
-# C7 â€” Transcript Storage, Viewing, and Download
+# C7 — Transcript Storage, Viewing, and Download
 
 ## Status
 
@@ -1884,7 +1884,7 @@ GET /api/sessions/{id}/transcript/export?format=txt
 
 ---
 
-# C8 â€” AI Notes Generation
+# C8 — AI Notes Generation
 
 ## Status
 
@@ -1994,7 +1994,7 @@ Do not add a heavy job queue unless needed. A lightweight background task may be
 
 ---
 
-# C9 â€” Ask AI and Follow-Up Context Memory
+# C9 — Ask AI and Follow-Up Context Memory
 
 ## Status
 
@@ -2264,7 +2264,7 @@ Templates should include:
 
 ---
 
-# C11 â€” Pricing and Subscription Foundation
+# C11 — Pricing and Subscription Foundation
 
 ## Status
 
@@ -2407,7 +2407,7 @@ GET /api/billing/entitlements
 
 ---
 
-# C12 â€” Payment Provider Integration
+# C12 — Payment Provider Integration
 
 ## Status
 
@@ -2528,7 +2528,7 @@ Recommended fields:
 
 ---
 
-# C13 â€” Usage Limits and Backend Feature Enforcement
+# C13 — Usage Limits and Backend Feature Enforcement
 
 ## Status
 
@@ -2584,13 +2584,13 @@ Examples:
 
 ```text
 Authenticated request
-â†’ Check entitlement
-â†’ Check current usage
-â†’ Reserve or authorize unit
-â†’ Perform operation
-â†’ Record successful usage
-â†’ Roll back reservation on failure, if used
-â†’ Return updated usage
+→ Check entitlement
+→ Check current usage
+→ Reserve or authorize unit
+→ Perform operation
+→ Record successful usage
+→ Roll back reservation on failure, if used
+→ Return updated usage
 ```
 
 ## Rules
@@ -2635,7 +2635,7 @@ GET /api/usage/limits
 
 ---
 
-# C14 â€” Final Figma Website Implementation and Integration
+# C14 — Final Figma Website Implementation and Integration
 
 ## Status
 
@@ -2649,7 +2649,7 @@ Implement the approved Figma design and connect every production website screen 
 
 ## Important clarification
 
-Website integration may begin incrementally in C2â€“C13 using functional screens.
+Website integration may begin incrementally in C2–C13 using functional screens.
 
 C14 is the final design-complete integration phase:
 
@@ -2798,7 +2798,7 @@ C14 is the final design-complete integration phase:
 
 ---
 
-# C15 â€” Privacy, Export, Retention, and Deletion
+# C15 — Privacy, Export, Retention, and Deletion
 
 ## Status
 
@@ -3827,7 +3827,7 @@ C15.5 is complete only if it is required for the release and all criteria below 
 
 ---
 
-# C16 â€” QA, Deployment, Packaging Readiness, and Release
+# C16 — QA, Deployment, Packaging Readiness, and Release
 
 ## Status
 
@@ -3970,7 +3970,7 @@ Requirements:
 
 ## Reliability testing
 
-- repeated 30â€“60 minute desktop session
+- repeated 30–60 minute desktop session
 - provider timeouts
 - backend restart
 - internet loss/recovery
@@ -4187,24 +4187,24 @@ Do not send the full interview transcript on every follow-up. Use:
 
 ```text
 Website UI
-    â†’ shows plans, checkout, usage, billing state
+    → shows plans, checkout, usage, billing state
 
 Payment Provider
-    â†’ collects payment and manages provider-side subscription
+    → collects payment and manages provider-side subscription
 
 FastAPI Backend
-    â†’ creates checkout, verifies webhook, updates subscription,
+    → creates checkout, verifies webhook, updates subscription,
       enforces feature access and usage limits
 
 Supabase
-    â†’ stores users, plans, subscriptions, usage, and payment references
+    → stores users, plans, subscriptions, usage, and payment references
 
 Resend
-    â†’ sends verification, payment, renewal, cancellation,
+    → sends verification, payment, renewal, cancellation,
       and consent-based marketing email
 
 Desktop App
-    â†’ displays plan/access state and requests backend authorization
+    → displays plan/access state and requests backend authorization
 ```
 
 The desktop app must never unlock paid features from a local frontend flag alone.
@@ -4250,7 +4250,7 @@ The designer is not responsible for:
 After each implementation phase, append or update:
 
 ```markdown
-## Phase Update â€” Cx
+## Phase Update — Cx
 
 **Status:** [x] Done  
 **Date:** YYYY-MM-DD
@@ -4446,7 +4446,7 @@ Mitigation: reason-required, approval-gated, time-limited break-glass access wit
 
 ## 17. Final Product Acceptance
 
-The C0â€“C16 track is complete when:
+The C0–C16 track is complete when:
 
 - desktop app is stable
 - account creation and login work
@@ -4949,18 +4949,18 @@ When future instructions conflict or become unclear, return to this sequence:
 
 ```text
 Stabilize the desktop
-â†’ establish secure cloud identity
-â†’ migrate profile and job context
-â†’ connect desktop and website
-â†’ store sessions and transcripts
-â†’ generate notes
-â†’ add contextual Ask AI
-â†’ add email
-â†’ add plans and payments
-â†’ enforce usage
-â†’ complete UI integration
-â†’ harden privacy
-â†’ test and release
+→ establish secure cloud identity
+→ migrate profile and job context
+→ connect desktop and website
+→ store sessions and transcripts
+→ generate notes
+→ add contextual Ask AI
+→ add email
+→ add plans and payments
+→ enforce usage
+→ complete UI integration
+→ harden privacy
+→ test and release
 ```
 
 Do not skip foundational phases to build visible features faster.

@@ -15,6 +15,78 @@ from app.answer_models import MODELS
 SID='11111111-1111-4111-8111-111111111111'
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('buffered', [False, True])
+async def test_turn_stop_is_typed_and_does_not_fallback(setup, monkeypatch, buffered):
+    _, store = setup
+    calls = []
+    async def stop(client, model, prepared, key):
+        calls.append(model.provider)
+        raise GenerationStopped()
+        yield
+    monkeypatch.setattr(sg, 'provider_stream', stop)
+    if buffered:
+        with pytest.raises(HTTPException) as exc:
+            await api.generate_answer(req(), request())
+        assert exc.value.status_code == 409
+        assert exc.value.detail['code'] == 'generation_stopped'
+    else:
+        result = await events(req())
+        assert any(e.get('error') == 'generation_stopped' for e in result)
+        assert not any(e['type'] == 'metadata' for e in result)
+    assert calls == ['openai'] and not store.saves
+    assert next(iter(store.rows.values()))['payload'] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('persistent', [False, True])
+async def test_monitor_tolerates_bounded_transient_failures(setup, monkeypatch, persistent):
+    _, store = setup
+    monkeypatch.setattr(sg, 'LIFECYCLE_REMOTE_SECONDS', .02)
+    checks = []
+    def verify(*args):
+        checks.append(True)
+        if len(checks) > 2 and (persistent or len(checks) == 3):
+            raise HTTPException(503)
+        return NS(user_id='owner')
+    monkeypatch.setattr(api, '_current_user_for_session_id', verify)
+    async def provider(*args):
+        await asyncio.sleep(.8 if persistent else .25)
+        yield 'Dependency injection supplies dependencies externally.', None, True
+    monkeypatch.setattr(sg, 'provider_stream', provider)
+    result = await events(req())
+    assert bool(store.saves) is not persistent
+    assert any(e.get('error') == 'generation_stopped' for e in result) is persistent
+    assert len(checks) >= 3
+
+
+@pytest.mark.asyncio
+async def test_transcript_size_rejected_before_checkpoint_without_truncation(setup, monkeypatch):
+    _, store = setup
+    calls = []
+    async def oversized(client, model, *args):
+        calls.append(model.provider)
+        yield 'x' * 24001, None, True
+    monkeypatch.setattr(sg, 'provider_stream', oversized)
+    result = await events(req())
+    assert any(e.get('error') == 'generation_failed' for e in result)
+    assert not store.saves and next(iter(store.rows.values()))['state'] == 'failed'
+    with pytest.raises(HTTPException) as exc:
+        await events(req(turn='too-long').model_copy(update={'question':'x' * 4001}))
+    assert exc.value.status_code == 422
+    assert len(calls) == 2
+
+
+def test_budget_uses_resolved_coding_and_followup_intent(setup, monkeypatch):
+    monkeypatch.setattr(api, '_resolve_request_followup', lambda *a, **k: NS(resolved_question='Write Python code to implement binary search'))
+    monkeypatch.setattr(api.settings, 'ENABLE_FOLLOWUP_INTENT_COMPILER', False)
+    assert sg.coding_budget_required(req(), api)
+    monkeypatch.setattr(api.settings, 'ENABLE_FOLLOWUP_INTENT_COMPILER', True)
+    monkeypatch.setattr(api, '_compile_request_followup_intent', lambda *a, **k: NS(
+        resolved_question='Explain it', follow_up_detected=True, needs_clarification=False, requested_output='code_explanation'))
+    assert not sg.coding_budget_required(req(), api)
+
+
 def test_scoped_generator_method_restore_keeps_copied_receiver_local(monkeypatch):
     class Generator:
         label = 'default'
@@ -59,10 +131,10 @@ class Store:
             if row['state']!='completed':
                 self.saves.append(copy.deepcopy(row['payload']))
                 row['state']='completed'
-        elif op=='fail':
-            row['state']='failed'
-        elif op=='cancel' and row['state']=='processing':
-            row['state']='cancelled'
+        elif op=='fail' and row['state']=='processing':
+            row.update(state='failed', payload={'request':row['payload'].get('request')}, token='fenced')
+        elif op=='cancel' and row['state'] in ('processing','checkpoint'):
+            row.update(state='cancelled', payload=None, token='fenced')
         return dict(state=row['state'])
 
 
@@ -70,6 +142,9 @@ class Store:
 def setup(monkeypatch):
     from app.cloud import interview_sessions
     monkeypatch.setattr(interview_sessions,'session_model_backend_ready',lambda:True)
+    monkeypatch.setattr(sg, 'LIFECYCLE_LOCAL_SECONDS', .02)
+    monkeypatch.setattr(sg, 'LIFECYCLE_REMOTE_SECONDS', .1)
+    monkeypatch.setattr(sg, 'LIFECYCLE_GRACE_SECONDS', .6)
     store=Store()
     session=NS(id=SID,user_id='owner',status='active',selected_model_key=MODELS[0].key,
                selected_resume_id=None,target_role='engineer',company_name='company',job_description_preview='authorized JD')
@@ -249,7 +324,8 @@ async def test_missing_gemini_key_actual_handler_falls_back(setup,monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement(setup,monkeypatch):
+@pytest.mark.parametrize('stopped', [False, True])
+async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement(setup,monkeypatch,stopped):
     import grpc
     from app import grpc_server,grpc_answer_pipeline
     from app.grpc_cloud_context import GrpcCloudContext
@@ -284,6 +360,8 @@ async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement
     calls=[]
     async def provider(client,model,prepared,key):
         calls.append(model.provider)
+        if stopped and fail:
+            raise GenerationStopped()
         if model.provider=='openai':
             yield 'FAILED PROVISIONAL',None,False
             raise AttemptFailure('provider_unavailable')
@@ -306,7 +384,7 @@ async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement
                 await socket.events.put(json.dumps(dict(type='Turn',transcript=text,turn_order=order,end_of_turn=True)))
             await turn('Explain dependency injection',0)
             failure=await until(lambda item:item.HasField('answer_error'))
-            assert failure.answer_error.code=='generation_failed'
+            assert failure.answer_error.code==('generation_stopped' if stopped else 'generation_failed')
             assert failure.request_id and failure.request_id!='start-id'
             await until(lambda item:item.status.code=='auto_listening')
             fail=False
@@ -315,7 +393,7 @@ async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement
             assert complete.request_id!=failure.request_id
             assert 'FAILED PROVISIONAL' not in complete.answer_completed.text
             assert 'dependencies' in complete.answer_completed.text
-            assert calls==['openai','groq','openai','groq'] and len(store.saves)==1
+            assert calls==(['openai','openai','groq'] if stopped else ['openai','groq','openai','groq']) and len(store.saves)==1
             assert {key[2] for key in store.rows}=={failure.request_id,complete.request_id}
             # Existing wire contract carries turn identity, but has no retry-attempt field.
             assert 'retry_attempt' not in pb.InterviewClientEvent.DESCRIPTOR.fields_by_name
@@ -352,8 +430,8 @@ async def test_lifecycle_monitor_stops_current_provider_without_fallback_or_save
         monkeypatch.setattr(api,'_current_user_for_session_id',reject)
     elif stop=='session_end': session.status='ended'
     else: next(iter(store.rows.values()))['state']='cancelled'
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(task,2)
+    stopped = await asyncio.wait_for(task,2)
+    assert any(e.get('error') == 'generation_stopped' for e in stopped)
     assert len(calls)==(2 if phase=='fallback' else 1)
     assert len(closed)==1 and not store.saves
 

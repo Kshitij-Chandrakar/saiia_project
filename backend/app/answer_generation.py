@@ -33,8 +33,8 @@ class GenerationFailure(Exception):
         super().__init__("Unable to generate an answer")
 
 
-class GenerationStopped(asyncio.CancelledError):
-    """Lifecycle/auth stops are not provider failures and must never fall back."""
+class GenerationStopped(BaseException):
+    """Control signal distinct from task cancellation and ordinary provider errors."""
 
 
 def attempt_models(model):

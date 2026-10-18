@@ -7,6 +7,26 @@ from fastapi.testclient import TestClient
 from fastapi import FastAPI
 from app.auth.supabase_auth import get_current_user
 
+
+def test_catalog_requires_authentication_before_readiness(monkeypatch):
+    app = FastAPI()
+    app.include_router(api.router, prefix='/api/interview-sessions')
+    monkeypatch.setattr(sessions, 'model_admission_status', lambda: pytest.fail('anonymous readiness probe'))
+    assert TestClient(app).get('/api/interview-sessions/answer-models').status_code == 401
+
+
+def test_admission_closes_only_its_owned_network_client(monkeypatch):
+    monkeypatch.setattr(settings, 'ENABLE_SESSION_ANSWER_MODELS', True)
+    monkeypatch.setattr(sessions, 'session_model_backend_ready', lambda: True)
+    closed = []
+    client = NS(_session=NS(post=lambda *a, **k: NS(status_code=200, json=lambda: True),
+                            close=lambda: closed.append(True)), _rest_url='http://local', _headers={})
+    monkeypatch.setattr(sessions, 'SupabaseInterviewSessionClient', lambda: client)
+    assert sessions.model_admission_status() == 'enabled'
+    assert closed == [True]
+    assert sessions.model_admission_status(client) == 'enabled'
+    assert closed == [True]
+
 @pytest.mark.parametrize('flag,python_ready,db_ready,expected',[(False,False,False,'legacy'),(True,False,True,'closed'),(True,True,False,'closed'),(True,True,True,'enabled')])
 def test_admission_includes_both_readiness_gates(monkeypatch,flag,python_ready,db_ready,expected):
     monkeypatch.setattr(settings,'ENABLE_SESSION_ANSWER_MODELS',flag)

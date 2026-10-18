@@ -90,6 +90,9 @@ def test_restart_removal_preserves_snapshot_and_frozen_historical_binding():
 
 def test_safe_catalog_endpoint_no_credentials_profiles_or_remote_assets():
     app=FastAPI();app.include_router(router,prefix='/api/interview-sessions')
+    from app.auth.supabase_auth import get_current_user
+    from types import SimpleNamespace
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(user_id='owner')
     response=TestClient(app).get('/api/interview-sessions/answer-models')
     assert response.status_code==200
     items=response.json()['items']

@@ -4924,7 +4924,7 @@ function MainWindow() {
                 request_id: entry.requestId, retry_attempt: entry.error === 'generation_failed' ? 1 : 0, recover_turn: true },
                 displayMode: 'answer', historyMode: 'auto', historyEntryId: entry.historyEntryId } : null
               setGenerationDiagnostics(current => ({ ...current, answerRetryAvailable: canRetry }))
-              setError(canRetry ? 'Unable to generate an answer' : 'The previous answer could not be confirmed. Submit a new question to continue.')
+              setError(entry.error === 'generation_stopped' ? 'Generation stopped.' : canRetry ? 'Unable to generate an answer' : 'The previous answer could not be confirmed. Submit a new question to continue.')
               setQuestionHistoryState(current => appendQuestionHistoryEntry(current,
                 createQuestionHistoryEntry({ id: entry.historyEntryId, mode: 'auto', question: entry.question,
                   fullAnswer: '', displayedAnswer: '', status: 'error', category: entry.category })))
