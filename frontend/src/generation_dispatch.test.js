@@ -306,3 +306,73 @@ test('actual preload routes authenticated manual streaming IPC and forwards delt
   assert.equal(h.values.setGenerationDiagnostics.generateStreamRequestSent, true)
   assert.equal(h.values.setGenerationDiagnostics.generateFallbackRequestSent, false)
 })
+
+test('HTTP fallback replacement cancels queued primary paint and ignores late attempt deltas', async () => {
+  const h = harness()
+  let paint, cancelled = 0
+  h.context.requestAnimationFrame = callback => { paint = callback; return 9 }
+  h.context.cancelAnimationFrame = () => { cancelled++ }
+  h.context.readNdjsonStream = async (_response, { onEvent }) => {
+    onEvent({ type: 'start', request_id: 'turn' })
+    onEvent({ type: 'delta', request_id: 'turn', attempt: 0, text: 'FAILED PRIMARY' })
+    onEvent({ type: 'replace', request_id: 'turn', attempt: 1, answer: '' })
+    onEvent({ type: 'delta', request_id: 'turn', attempt: 0, text: 'LATE' })
+    onEvent({ type: 'replace', request_id: 'turn', answer: 'Fallback final' })
+    onEvent({ type: 'metadata', request_id: 'turn', metadata: { answer: 'Fallback final' } })
+    onEvent({ type: 'done', request_id: 'turn' })
+    paint() // Even an already queued paint reads the replaced canonical accumulator.
+    return { sawDone: true }
+  }
+  await h.generate({ text: 'Explain REST' })
+  assert.equal(h.values.setAnswer, 'Fallback final')
+  assert.ok(cancelled > 0)
+})
+
+test('HTTP terminal generation failure clears provisional output and preserves Retry identity', async () => {
+  const h = harness()
+  h.context.failedAnswerTurnRef = { current: null }
+  h.context.readNdjsonStream = async (_response, { onEvent }) => {
+    onEvent({ type: 'start', request_id: 'logical-turn' })
+    onEvent({ type: 'delta', request_id: 'logical-turn', text: 'partial' })
+    onEvent({ type: 'error', request_id: 'logical-turn', error: 'generation_failed', message: 'Unable to generate an answer', retry_attempt: 2 })
+  }
+  await assert.rejects(h.generate({ text: 'Explain REST' }), /Unable to generate an answer/)
+  assert.equal(h.values.setAnswer, '')
+  assert.equal(h.context.failedAnswerTurnRef.current.body.request_id, 'logical-turn')
+  assert.equal(h.context.failedAnswerTurnRef.current.body.retry_attempt, 3)
+  assert.equal(h.context.failedAnswerTurnRef.current.body.recover_turn, true)
+  assert.equal(h.values.setGenerationDiagnostics.answerRetryAvailable, true)
+})
+
+test('actual Retry action keeps logical identity, updates existing history and suppresses double clicks', async () => {
+  const history = await import('./question_history.js')
+  const branch = source.slice(source.indexOf("        if (action === 'generation-retry') {"), source.indexOf("        if (action === 'cloud-session-ended') {"))
+  let state = history.appendQuestionHistoryEntry(history.createQuestionHistoryState(), history.createQuestionHistoryEntry({
+    id: 'history-one', mode: 'answer', requestId: 'old-ui', question: 'Explain REST', status: 'error',
+  }))
+  let resolve, calls = 0
+  const failed = { body: { request_id: 'logical-turn', retry_attempt: 1, recover_turn: true }, historyMode: 'answer', historyEntryId: 'history-one' }
+  const context = {
+    action: 'generation-retry', failedAnswerTurnRef: { current: failed }, latestGenerationRequestIdRef: { current: 'old-ui' },
+    isManualGenerating: false, autoProcessing: false, Date, Math,
+    isCurrentRequest: (a,b) => a === b, updateQuestionHistoryEntry: history.updateQuestionHistoryEntry,
+    setQuestionHistoryState: update => { state = update(state) },
+    setIsManualGenerating() {}, setError() {}, setGenerationDiagnostics() {}, setProvider() {},
+    streamGenerateAnswer: options => {
+      calls++
+      assert.equal(options.body.request_id, 'logical-turn')
+      assert.equal(options.body.retry_attempt, 1)
+      return new Promise(done => { resolve = done })
+    },
+  }
+  const run = vm.runInNewContext(`(async () => { ${branch} })`, context)
+  const pending = run()
+  await run()
+  assert.equal(calls, 1)
+  resolve({ answer: 'Recovered final', provider: 'groq', model: 'openai/gpt-oss-120b' })
+  await pending
+  assert.equal(state.answer.entries.length, 1)
+  assert.equal(state.answer.entries[0].status, 'complete')
+  assert.equal(state.answer.entries[0].fullAnswer, 'Recovered final')
+  assert.equal(context.failedAnswerTurnRef.current, null)
+})

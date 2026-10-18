@@ -2,11 +2,14 @@ import hashlib
 import json
 import re
 import time
+from contextvars import ContextVar
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Any
 
 from app.nlp.answer_planner import AnswerPlan
+
+variation_scope = ContextVar("variation_scope", default="local")
 
 
 _FILLER_PREFIXES = (
@@ -158,6 +161,7 @@ def context_fingerprint(
     profile_context_enabled: bool,
 ) -> str:
     payload = {
+        "scope": variation_scope.get(),
         "profile": profile if profile_context_enabled else {},
         "snippets": retrieved_snippets or [],
         "job": job_context or {},

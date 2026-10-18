@@ -483,7 +483,7 @@ test('startup session setup screen collects local setup and routes back or into 
   assert.match(appSource, /if \(normalizedSource === 'analyze_screen' \|\| normalizedSource === 'screen'\)/)
   assert.match(appSource, /if \(normalizedMode === 'manual'\) \{\s+return 'answer'/)
   assert.match(appSource, /const requestSource = getSafeGenerationSource\(mode, source\)/)
-  assert.match(appSource, /request_id: String\(requestId\)/)
+  assert.match(appSource, /request_id: crypto\.randomUUID\(\)/)
   assert.match(appSource, /source: requestSource/)
   assert.match(appSource, /session_id: activeSessionId \|\| undefined/)
   assert.match(appSource, /const selectedResumeId = String\(activeStartupSessionConfig\?\.selectedResumeId \|\| ''\)\.trim\(\)/)

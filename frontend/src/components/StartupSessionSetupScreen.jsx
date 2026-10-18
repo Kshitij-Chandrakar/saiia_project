@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import './startup-session-setup.css'
 import StartupAccountMenu from './StartupAccountMenu'
+import AnswerModelSelect from './AnswerModelSelect'
 import brand from '../assets/startup-setup/imgContainer.svg'
 import clock from '../assets/startup-setup/imgMdiClockOutline.svg'
 import collapse from '../assets/startup-setup/imgContainer2.svg'
@@ -45,6 +46,12 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
   const quotaPendingRef = useRef(false)
   const mountedRef = useRef(false)
   const [draft, setDraft] = useState(() => ({ ...EMPTY_SETUP, ...(initialConfig || {}) }))
+  const [catalog, setCatalog] = useState({ items: [], admission: '', error: '' })
+  const [modelLoading, setModelLoading] = useState(true)
+  const [selectedModel, setSelectedModel] = useState('')
+  const [staleSelection, setStaleSelection] = useState(false)
+  const [createdSession, setCreatedSession] = useState(null)
+  const modelRequestRef = useRef(0)
   const [resumes, setResumes] = useState([])
   const [resumesLoading, setResumesLoading] = useState(false)
   const [resumeLoadError, setResumeLoadError] = useState('')
@@ -83,6 +90,27 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
     else void checkQuotaAvailability()
     return () => { mountedRef.current = false }
   }, [hasTimeBalance, authenticatedEmail])
+
+  const loadModels = async (reset = false) => {
+    const request = ++modelRequestRef.current
+    setModelLoading(true)
+    try {
+      const result = await saiiaApi?.listAnswerModels?.()
+      if (request !== modelRequestRef.current) return
+      if (result?.error || !Array.isArray(result?.items) || !['legacy','closed','enabled'].includes(result?.admission)) throw new Error()
+      setCatalog({ items: result.items, admission: result.admission, error: '' })
+      setSelectedModel(reset === true ? result.items.find(m => m.default && m.selectable)?.key || '' : '')
+    } catch {
+      if (request === modelRequestRef.current) setCatalog({ items: [], admission: '', error: 'Unable to load answer models.' })
+    } finally { if (request === modelRequestRef.current) setModelLoading(false) }
+  }
+  useEffect(() => {
+    void loadModels(true)
+    return () => { modelRequestRef.current++ }
+  }, [authenticatedEmail])
+  const modelRequired = catalog.admission === 'enabled'
+  const modelBlocked = staleSelection || modelLoading || Boolean(catalog.error) || !catalog.admission || catalog.admission === 'closed' ||
+    (modelRequired && !catalog.items.some(m => m.key === selectedModel && m.selectable))
 
   const updateDraft = (key) => (event) => {
     setDraft((current) => ({ ...current, [key]: event.target.value }))
@@ -160,7 +188,7 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
   const startBlockedByResumeLoad = resumesLoading || Boolean(resumeLoadError)
   const startBlockedByUnavailableStorage = cloudSessionStorageUnavailable
   const startDisabled = Boolean(
-    starting ||
+    starting || createdSession || modelBlocked ||
     startBlockedByResumeLoad ||
     startBlockedByUnavailableStorage ||
     selectedResumeBlocked
@@ -170,6 +198,7 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
     : ''
 
   const handleStartSession = async () => {
+    if (createdSession || modelBlocked) return
     if (startDisabled) {
       if (cloudSessionStorageUnavailable) {
         setMessage('Cloud session storage is temporarily unavailable. Please restart the backend and try again.')
@@ -215,22 +244,38 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
           target_role: draft.role,
           company_name: draft.company.trim(),
           job_description: draft.jobContext,
+          ...(modelRequired ? { selected_model_key: selectedModel } : {}),
         },
-        { idempotencyKey },
+        { idempotencyKey, expectedModelAdmission: modelRequired ? 'enabled' : 'legacy' },
       )
       const session = created?.session
       if (!session?.id) {
+        if (created?.code === 'model_selection_stale' || created?.code === 'session_conflict') {
+          setSelectedModel('')
+          setStaleSelection(true)
+          await loadModels(false)
+        }
         setMessage(created?.error || 'Session could not be created. Check your cloud connection and retry.')
         return
       }
+      if (modelRequired && (!session.selected_model_key || session.model_selection_kind !== 'model_bound')) {
+        await saiiaApi.endInterviewSession?.(session.id).catch?.(() => {})
+        setMessage('Session model could not be confirmed. Refresh model choices and retry.')
+        setSelectedModel('')
+        return
+      }
+      setCreatedSession(session)
       const result = await electronApi?.completeStartup?.()
       if (result?.ok !== true) {
         await saiiaApi.endInterviewSession?.(session.id).catch?.(() => {})
+        setCreatedSession(null)
         setMessage('Session could not be started. Log in again and retry.')
         return
       }
       onStartSession?.({
         ...draft,
+        selectedModelKey: session.selected_model_key || null,
+        modelSelectionKind: session.model_selection_kind,
         activeSessionId: session.id,
         activeSessionStatus: session.status,
         activeSessionStartedAt: session.started_at,
@@ -287,9 +332,13 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
           </div>
           <div className="startup-setup-grid">
             <label><span>Session title</span><input value={draft.title} onChange={updateDraft('title')} placeholder="e.g. Design interview" /></label>
-            <label><span>AI Model</span><select aria-describedby="setup-model-description" defaultValue="runtime"><option value="runtime">Automatic</option></select></label>
+            <AnswerModelSelect items={catalog.items} value={catalog.admission === 'legacy' ? '' : selectedModel}
+              onChange={key => { setSelectedModel(key); setStaleSelection(false); setMessage('') }} disabled={starting || Boolean(createdSession) || modelLoading || catalog.admission !== 'enabled'}
+              placeholder={modelLoading ? 'Loading...' : catalog.admission === 'legacy' ? 'Automatic' : 'Choose a model'} />
           </div>
-          <p id="setup-model-description" className="startup-setup-model-description">Uses configured model routing and provider fallback.</p>
+          <p id="setup-model-description" className="startup-setup-model-description">{modelLoading ? 'Loading answer models...' : catalog.error ? <>{catalog.error}<button type="button" onClick={() => void loadModels(true)}>Retry</button></> :
+            catalog.admission === 'legacy' ? 'Automatic routing is active. Model selection is not enabled.' : catalog.admission === 'closed' ? 'Model-bound session creation is not available yet.' :
+            selectedModel ? catalog.items.find(m => m.key === selectedModel)?.description : 'Choose a model before starting.'}</p>
           <section className="startup-setup-resume" aria-label="Resume and reference document">
             <div className="startup-setup-resume__header">
               <strong>Resume / reference document</strong>

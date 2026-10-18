@@ -1,5 +1,6 @@
 import json
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, Request
@@ -13,7 +14,14 @@ from app.api.screen_ocr import router as screen_ocr_router
 from app.config import settings
 from app.services.resume_index_service import ResumeIndexError, ResumeIndexService
 
-app = FastAPI(title="SAIIA Backend")
+@asynccontextmanager
+async def lifespan(app):
+    from app.cloud.interview_sessions import validate_session_model_dev_activation
+    validate_session_model_dev_activation()
+    yield
+
+
+app = FastAPI(title="SAIIA Backend", lifespan=lifespan)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 PROFILE_PATH = Path(__file__).parent.parent / "candidate_profile.json"
 logger = logging.getLogger("profile_api")

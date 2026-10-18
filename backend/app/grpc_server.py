@@ -8,6 +8,7 @@ import asyncio
 import ipaddress
 import json
 import time
+import uuid
 
 import grpc
 
@@ -115,6 +116,9 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         questions.task_done()
                         text, request_id, fingerprint, turn, is_final = questions.get_nowait()
                     await emit(request_id, "status", pb.Status(code="auto_listening"))
+                logical_turn_id = str(uuid.uuid4())
+                if cloud_context and settings.ENABLE_SESSION_ANSWER_MODELS:
+                    request_id = logical_turn_id
                 generation_active = True
                 intake['pending_question'] = False
                 intake['pending_reason'] = ''
@@ -128,7 +132,10 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                     answer = ""
                     category = provider = ""
                     question_seen = completed = False
-                    async with aclosing(stream_question_answer(text, cloud_context=cloud_context) if cloud_context else stream_question_answer(text)) as pipeline:
+                    pipeline_call = (stream_question_answer(text, cloud_context=cloud_context, logical_turn_id=logical_turn_id)
+                        if cloud_context and settings.ENABLE_SESSION_ANSWER_MODELS else
+                        stream_question_answer(text, cloud_context=cloud_context) if cloud_context else stream_question_answer(text))
+                    async with aclosing(pipeline_call) as pipeline:
                         async for item in pipeline:
                             kind = item.get("type")
                             category = item.get("category") or category
@@ -178,8 +185,15 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         await output.put(None)
                         return
                     await ignored(text, 'unknown', is_final)
+                    from app.answer_generation import GenerationFailure
+                    from app.session_generation import TurnStateError
+                    terminal = isinstance(exc, GenerationFailure)
+                    recoverable = isinstance(exc, TurnStateError)
                     await emit(request_id, "answer_error", pb.ErrorEvent(
-                        code="answer_unavailable", message="Experimental answer unavailable or timed out. Retry."))
+                        code="generation_failed" if terminal else exc.code if recoverable else "answer_unavailable",
+                        message="Unable to generate an answer" if terminal or recoverable else "Experimental answer unavailable or timed out. Retry."))
+                    if (terminal or recoverable) and auto_mode:
+                        await emit(request_id, 'status', pb.Status(code='auto_listening'))
                 finally:
                     generation_active = False
                     queued_fingerprints.discard(fingerprint)

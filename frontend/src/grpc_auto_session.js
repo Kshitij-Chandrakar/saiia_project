@@ -52,6 +52,15 @@ export async function createGrpcAutoSession({ api, stream, source = 'microphone'
     if (!canContinue() || next.connectionStatus !== 'connected' || next.lastErrorMessage) { fail(); return }
     if (next.manualRun !== connected.manualRun || next.autoEventVersion < version) return
     version = next.autoEventVersion
+    if (next.answerFailureCode && questionNumber && completedQuestion !== questionNumber) {
+      completedQuestion = questionNumber
+      clearTimeout(deadline)
+      lastText = ''
+      onAnswer({ question: next.currentQuestion, answer: '', category: next.answerCategory,
+        provider: next.answerProvider, status: 'error', error: next.answerFailureCode,
+        requestId: next.answerRequestId, historyEntryId: `auto-grpc-${connected.manualRun}-${questionNumber}` })
+      onPhase('listening')
+    }
     if (next.currentTranscript) onTranscript(next.currentTranscript)
     if (next.questionsDetectedCount > questionNumber) {
       clearTimeout(cooldownTimer)

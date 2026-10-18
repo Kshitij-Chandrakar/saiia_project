@@ -109,7 +109,7 @@ class FakeInterviewSessionService:
         self.last_create_payload = payload
         return CreateInterviewSessionResult(record=_record(user_id=user_id), replayed=False)
 
-    def get_session(self, *, user_id: str, session_id: str):
+    def get_session(self, *, user_id: str, session_id: str, allow_model_bound: bool = False):
         self.user_ids.append(user_id)
         return _record(user_id=user_id, id=session_id)
 

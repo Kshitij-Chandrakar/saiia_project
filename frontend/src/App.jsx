@@ -1314,6 +1314,7 @@ function MainWindow() {
   const manualRecordingCancelledRef = useRef(false)
 
   const applyStartupSessionConfig = (nextConfig) => {
+    failedAnswerTurnRef.current = null
     cloudTestSnapshotRef.current = null
     setLocalTestSession(false)
     startupSessionConfigRef.current = nextConfig
@@ -1541,6 +1542,7 @@ function MainWindow() {
   }), [])
   const pendingManualGenerationRef = useRef(null)
   const generationRecoveryBusyRef = useRef(false)
+  const failedAnswerTurnRef = useRef(null)
 
   const streamGenerateAnswer = async ({
     body,
@@ -1557,6 +1559,7 @@ function MainWindow() {
     let accumulatedAnswer = ''
     let finalPayload = null
     let streamRequestId = ''
+    let streamAttempt = -1
     let receivedAnyDelta = false
     let firstDeltaMs = null
     let streamDispatchToFirstDeltaMs = null
@@ -1613,6 +1616,10 @@ function MainWindow() {
       if (streamRequestId && event.request_id && event.request_id !== streamRequestId) {
         return
       }
+      if (Number.isInteger(event.attempt)) {
+        if (event.attempt < streamAttempt) return
+        streamAttempt = event.attempt
+      }
       if (event.type === 'delta') {
         const text = stripInternalControlMarkers(event.text || '')
         if (!text) {
@@ -1647,6 +1654,17 @@ function MainWindow() {
         return
       }
       if (event.type === 'error') {
+        if (['generation_failed', 'persistence_unavailable'].includes(event.error)) {
+          accumulatedAnswer = ''
+          publishAnswer('')
+          failedAnswerTurnRef.current = { body: { ...body, request_id: event.request_id,
+            retry_attempt: (event.retry_attempt ?? body.retry_attempt ?? 0) + (event.error === 'generation_failed' ? 1 : 0), recover_turn: true },
+            displayMode, historyMode, historyEntryId }
+          setGenerationDiagnostics(current => ({ ...current, answerRetryAvailable: true }))
+          const terminal = new Error(event.message || 'Unable to generate an answer')
+          terminal.code = event.error
+          throw terminal
+        }
         if (!receivedAnyDelta) {
           throw new Error('Could not generate an answer right now.')
         }
@@ -3202,8 +3220,10 @@ function MainWindow() {
     const jobDescription = String(
       activeStartupSessionConfig?.jobDescription || activeStartupSessionConfig?.jobContext || ''
     ).trim()
+    failedAnswerTurnRef.current = null
+    setGenerationDiagnostics(current => ({ ...current, answerRetryAvailable: false }))
     const generateRequestBody = {
-      request_id: String(requestId),
+      request_id: crypto.randomUUID(),
       question: text,
       original_question: committedQuestionBeforeStream || text,
       followup_mode: historyMode,
@@ -4890,6 +4910,25 @@ function MainWindow() {
           },
           onAnswer: entry => {
             if (!isCurrent()) return
+            if (entry.status === 'generating' && entry.historyEntryId !== failedAnswerTurnRef.current?.historyEntryId) {
+              activeGenerateAbortControllerRef.current?.abort()
+              latestGenerationRequestIdRef.current = `grpc-${entry.historyEntryId}`
+              failedAnswerTurnRef.current = null
+              setGenerationDiagnostics(current => ({ ...current, answerRetryAvailable: false }))
+              setError('')
+            }
+            if (entry.status === 'error') {
+              const canRetry = ['generation_failed', 'persistence_unavailable'].includes(entry.error)
+              failedAnswerTurnRef.current = canRetry ? { body: { question: entry.question, category: entry.category || 'technical',
+                session_id: startupSessionConfigRef.current?.activeSessionId,
+                request_id: entry.requestId, retry_attempt: entry.error === 'generation_failed' ? 1 : 0, recover_turn: true },
+                displayMode: 'answer', historyMode: 'auto', historyEntryId: entry.historyEntryId } : null
+              setGenerationDiagnostics(current => ({ ...current, answerRetryAvailable: canRetry }))
+              setError(canRetry ? 'Unable to generate an answer' : 'The previous answer could not be confirmed. Submit a new question to continue.')
+              setQuestionHistoryState(current => appendQuestionHistoryEntry(current,
+                createQuestionHistoryEntry({ id: entry.historyEntryId, mode: 'auto', question: entry.question,
+                  fullAnswer: '', displayedAnswer: '', status: 'error', category: entry.category })))
+            }
             setTranscript(entry.question)
             setAcceptedAutoQuestion(entry.question)
             setLastDetectedQuestion(entry.question)
@@ -6245,6 +6284,34 @@ function MainWindow() {
       const nextValue = payload?.payload?.value
 
       try {
+        if (action === 'generation-retry') {
+          const failed = failedAnswerTurnRef.current
+          if (!failed || failed.retrying || isManualGenerating || autoProcessing) return
+          failed.retrying = true
+          const retryUiId = Date.now() + Math.random()
+          latestGenerationRequestIdRef.current = retryUiId
+          if (failed.historyMode && failed.historyEntryId) setQuestionHistoryState(current => updateQuestionHistoryEntry(
+            current, failed.historyMode, failed.historyEntryId, { requestId: String(retryUiId), status: 'generating' }))
+          setIsManualGenerating(true)
+          setError('')
+          setGenerationDiagnostics(current => ({ ...current, answerRetryAvailable: false }))
+          try {
+            const result = await streamGenerateAnswer({ ...failed, requestId: retryUiId })
+            if (!isCurrentRequest(latestGenerationRequestIdRef.current, retryUiId)) return
+            if (failed.historyMode && failed.historyEntryId) setQuestionHistoryState(current => updateQuestionHistoryEntry(
+              current, failed.historyMode, failed.historyEntryId,
+              { status: 'complete', fullAnswer: result.answer, displayedAnswer: result.answer, provider: result.provider,
+                model: result.model, completedAt: new Date().toISOString() }, { requestId: retryUiId }))
+            setProvider(result.provider)
+            failedAnswerTurnRef.current = null
+          } catch (error) {
+            if (isCurrentRequest(latestGenerationRequestIdRef.current, retryUiId)) setError(error.message || 'Unable to generate an answer')
+          } finally {
+            failed.retrying = false
+            if (isCurrentRequest(latestGenerationRequestIdRef.current, retryUiId)) setIsManualGenerating(false)
+          }
+          return
+        }
         if (action === 'cloud-session-ended') {
           if (startupSessionConfigRef.current?.activeSessionId === payload?.payload?.sessionId) applyStartupSessionConfig({ ...startupSessionConfigRef.current, activeSessionId: '' })
           return

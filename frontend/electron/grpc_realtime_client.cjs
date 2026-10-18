@@ -57,6 +57,7 @@ class GrpcRealtimeClient {
     this.lastAnswerStatus = 'idle'
     this.answerCategory = this.answerProvider = 'none'
     this.currentQuestion = this.currentAnswer = ''
+    this.answerRequestId = this.completedAnswerRequestId = this.answerFailureCode = ''
     this.host = env.ELECTRON_GRPC_REALTIME_HOST || '127.0.0.1'
     this.port = Number(env.ELECTRON_GRPC_REALTIME_PORT || 50051)
     this.transportFactory = transportFactory
@@ -84,6 +85,7 @@ class GrpcRealtimeClient {
       answerStartedCount: this.answerStartedCount, answerDeltaCount: this.answerDeltaCount,
       answerCompletedCount: this.answerCompletedCount, lastAnswerStatus: this.lastAnswerStatus,
       answerCategory: this.answerCategory, answerProvider: this.answerProvider,
+      answerRequestId: this.answerRequestId || '', answerFailureCode: this.answerFailureCode || '',
       currentQuestion: this.currentQuestion, currentAnswer: this.currentAnswer }
   }
 
@@ -165,15 +167,21 @@ class GrpcRealtimeClient {
           if (event.status?.code === 'answer_stream_enabled') this.answerStreamEnabled = true
           const answerKind = ['question_detected', 'answer_started', 'answer_delta', 'answer_completed', 'answer_error'].find(kind => event[kind])
           if (answerKind) {
+            if (answerKind !== 'question_detected' && this.answerRequestId && event.request_id && event.request_id !== this.answerRequestId) return
+            if (answerKind !== 'question_detected' && event.request_id && this.completedAnswerRequestId === event.request_id) return
             const payload = event[answerKind]
             const timing = { question_detected: 'question_detected_at', answer_started: 'answer_started_at', answer_delta: 'first_answer_delta_at', answer_completed: 'answer_completed_at' }[answerKind]
             if (timing) this.manualTimings[timing] ??= Date.now()
             this.lastAnswerStatus = answerKind
             if (this.sessionMode === 'auto_pipeline') this.autoStatus = answerKind === 'answer_completed' ? 'auto_cooldown' : 'generating'
             if (['technical', 'behavioral', 'personal', 'general'].includes(payload.category)) this.answerCategory = payload.category
-            if (['openai', 'groq', 'ollama', 'local'].includes(payload.provider)) this.answerProvider = payload.provider
+            if (['openai', 'groq', 'gemini', 'ollama', 'local'].includes(payload.provider)) this.answerProvider = payload.provider
             if (answerKind === 'question_detected') {
+              this.answerRequestId = event.request_id || ''
+              this.completedAnswerRequestId = ''
+              this.answerFailureCode = ''
               this.questionsDetectedCount++
+              this.cloudAnswerSaveStatus = 'n/a'
               this.currentQuestion = String(payload.text || '').slice(0, 65536)
               this.currentAnswer = ''
             } else if (answerKind === 'answer_started') this.answerStartedCount++
@@ -181,8 +189,14 @@ class GrpcRealtimeClient {
               this.answerDeltaCount++
               this.currentAnswer = (this.currentAnswer + String(payload.text || '')).slice(0, 262144)
             } else if (answerKind === 'answer_completed') {
+              this.completedAnswerRequestId = event.request_id || ''
               this.answerCompletedCount++
-              if (payload.text) this.currentAnswer = String(payload.text).slice(0, 262144)
+              this.currentAnswer = String(payload.text || '').slice(0, 262144)
+            } else if (['generation_failed', 'persistence_unavailable', 'generation_uncertain'].includes(payload.code)) {
+              this.currentAnswer = ''
+              this.answerFailureCode = payload.code
+              this.completedAnswerRequestId = event.request_id || ''
+              this.autoStatus = 'auto_listening'
             } else this.lastError = 'Experimental answer unavailable. Retry.'
           }
           if (this.sessionMode === 'manual_pipeline' && this.manualPipelineEnabled && (answerKind || transcriptKind)) {
@@ -224,6 +238,7 @@ class GrpcRealtimeClient {
         this.lastAnswerStatus = 'idle'
         this.answerCategory = this.answerProvider = 'none'
         this.currentQuestion = this.currentAnswer = ''
+    this.answerRequestId = this.completedAnswerRequestId = this.answerFailureCode = ''
         this.lastPcmAt = null
         this.sttChunksForwarded = this.sttBytesForwarded = this.sttCallbackCount = this.nonSilentChunks = 0
         this.sttBridgeConnected = false
@@ -415,6 +430,7 @@ class GrpcRealtimeClient {
     this.sessionMode = "diagnostics"
     this.currentTranscript = ''
     this.currentQuestion = this.currentAnswer = ''
+    this.answerRequestId = this.completedAnswerRequestId = this.answerFailureCode = ''
     this.connecting = null
     for (const item of this.pending.values()) { clearTimeout(item.timer); item.reject(Error('closed')) }
     this.pending.clear()

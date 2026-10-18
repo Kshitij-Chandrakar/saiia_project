@@ -132,6 +132,8 @@ function safeInterviewSessionItem(value = null) {
     title: typeof value.title === 'string' ? value.title : null,
     target_role: typeof value.target_role === 'string' ? value.target_role : null,
     company_name: typeof value.company_name === 'string' ? value.company_name : null,
+    selected_model_key: typeof value.selected_model_key === 'string' ? value.selected_model_key : null,
+    model_selection_kind: value.model_selection_kind === 'model_bound' ? 'model_bound' : 'legacy',
   }
 }
 
@@ -853,6 +855,22 @@ class DesktopAuthSessionManager {
     }
   }
 
+  async listAnswerModels() {
+    if (!this.session?.access_token) return { items: [], error: 'Log in to load answer models.' }
+    if (!this._hasFreshVerification(this.session)) await this._verifyAndBootstrap(this.session)
+    if (this.status !== AUTH_STATUSES.CONNECTED || !this.session?.access_token || !this.user?.user_id) return { items: [], error: 'Log in again to load answer models.' }
+    const captured = this.captureCloudRequestContext()
+    const response = await this._backendJson('/api/interview-sessions/answer-models', 'GET', this.session.access_token)
+    if (!this._cloudRequestStillCurrent(captured)) return { items: [], error: 'Model request is no longer current.' }
+    if (response.status === 401) this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
+    if (!response.ok || !Array.isArray(response.payload?.items) || !['legacy', 'closed', 'enabled'].includes(response.payload.admission)) return { items: [], error: 'Unable to load answer models.' }
+    const items = response.payload.items.filter(m => typeof m?.key === 'string' && m.key.length <= 240 && typeof m.display_name === 'string' && typeof m.description === 'string').map(m => ({
+      key: m.key, display_name: m.display_name.slice(0, 100), description: m.description.slice(0, 240),
+      logo_key: typeof m.logo_key === 'string' ? m.logo_key.slice(0, 64) : '', default: m.default === true, selectable: m.selectable === true,
+    }))
+    return { items, admission: response.payload.admission, error: '' }
+  }
+
   async createInterviewSession(payload, options = {}) {
     if (typeof payload?.company_name !== 'string' || !payload.company_name.trim()) {
       return { session: null, replayed: false, error: 'Enter a company name.' }
@@ -883,13 +901,17 @@ class DesktopAuthSessionManager {
       company_name: payload.company_name.trim(),
       job_description: typeof payload?.job_description === 'string' ? payload.job_description : '',
     }
+    if (payload?.selected_model_key !== undefined) {
+      if (typeof payload.selected_model_key !== 'string' || !payload.selected_model_key || payload.selected_model_key.length > 240) return { session: null, error: 'Choose a valid answer model.' }
+      requestBody.selected_model_key = payload.selected_model_key
+    }
     const captured = this.captureCloudRequestContext()
     const promise = this._backendJson(
       '/api/interview-sessions',
       'POST',
       this.session.access_token,
       requestBody,
-      { 'Idempotency-Key': idempotencyKey },
+      { 'Idempotency-Key': idempotencyKey, ...(['legacy','enabled'].includes(options?.expectedModelAdmission) ? { 'X-Session-Model-Admission': options.expectedModelAdmission } : {}) },
     )
       .then((response) => {
         if (!this._cloudRequestStillCurrent(captured)) {
@@ -906,7 +928,8 @@ class DesktopAuthSessionManager {
           return {
             session: null,
             replayed: false,
-            error: safeErrorMessage(response.payload?.detail, 'Unable to start the interview session.'),
+            error: response.payload?.detail?.code === 'model_selection_stale' ? 'Model choices changed. Choose a model again.' : safeErrorMessage(response.payload?.detail, 'Unable to start the interview session.'),
+            code: response.payload?.detail?.code === 'model_selection_stale' ? 'model_selection_stale' : response.status === 409 ? 'session_conflict' : '',
           }
         }
         const sessionRecord = safeInterviewSessionItem(response.payload?.session)
