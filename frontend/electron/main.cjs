@@ -145,6 +145,7 @@ function safeAnswerStreamEvent(event) {
       'stream_interrupted',
       'stream_incomplete',
       'generation_failed',
+      'generation_uncertain',
       'persistence_unavailable',
       'generation_stopped',
     ])

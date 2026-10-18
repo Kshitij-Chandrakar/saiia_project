@@ -12,6 +12,37 @@ const catalog = JSON.parse(execFileSync(process.env.SAIIA_TEST_PYTHON || 'python
   { cwd: resolve(root,'backend'), encoding:'utf8' }))
 let server,browser,url
 
+for (const admission of ['legacy', 'closed']) {
+  test(`stale enabled selection recovers through ${admission} admission`, async () => {
+    const page = await pageWith(catalog)
+    await ready(page)
+    await page.evaluate(({ catalog, admission }) => {
+      window.fixtureCatalog = { ...catalog, admission }
+      window.creationResult = { code: 'model_selection_stale', error: 'Model choices changed.' }
+    }, { catalog, admission })
+    await page.getByRole('button', { name: 'Start Session' }).click()
+    await page.waitForFunction(() => window.catalogCalls === 2)
+    if (admission === 'legacy') {
+      assert.equal(await page.getByRole('button', { name: 'Start Session' }).isDisabled(), false)
+      await page.evaluate(() => { delete window.creationResult })
+      await page.getByRole('button', { name: 'Start Session' }).click()
+      await page.waitForFunction(() => window.started.length === 1)
+      assert.equal(await page.evaluate(() => Object.hasOwn(window.created[1].body, 'selected_model_key')), false)
+    } else {
+      assert.equal(await page.getByRole('button', { name: 'Start Session' }).isDisabled(), true)
+      await page.evaluate(catalog => { window.fixtureCatalog = catalog; delete window.creationResult }, catalog)
+      await page.getByRole('button', { name: 'Refresh models' }).click()
+      await page.waitForFunction(() => window.catalogCalls === 3)
+      assert.equal(await page.getByRole('button', { name: 'Start Session' }).isDisabled(), true)
+      await page.getByRole('button', { name: /AI Model/ }).click()
+      await page.getByRole('option').first().click()
+      await page.getByRole('button', { name: 'Start Session' }).click()
+      await page.waitForFunction(() => window.started.length === 1)
+    }
+    await page.close()
+  })
+}
+
 test('legacy creation conflict can retry without an unavailable model selector', async () => {
   const page = await pageWith({ ...catalog, admission: 'legacy' }, {
     creationResult: { code: 'session_conflict', error: 'Session conflict. Retry.' },

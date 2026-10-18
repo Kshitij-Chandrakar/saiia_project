@@ -99,6 +99,7 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
       if (request !== modelRequestRef.current) return
       if (result?.error || !Array.isArray(result?.items) || !['legacy','closed','enabled'].includes(result?.admission)) throw new Error()
       setCatalog({ items: result.items, admission: result.admission, error: '' })
+      if (result.admission !== 'enabled') setStaleSelection(false)
       setSelectedModel(reset === true ? result.items.find(m => m.default && m.selectable)?.key || '' : '')
     } catch {
       if (request === modelRequestRef.current) setCatalog({ items: [], admission: '', error: 'Unable to load answer models.' })
@@ -337,7 +338,7 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
               placeholder={modelLoading ? 'Loading...' : catalog.admission === 'legacy' ? 'Automatic' : 'Choose a model'} />
           </div>
           <p id="setup-model-description" className="startup-setup-model-description">{modelLoading ? 'Loading answer models...' : catalog.error ? <>{catalog.error}<button type="button" onClick={() => void loadModels(true)}>Retry</button></> :
-            catalog.admission === 'legacy' ? 'Automatic routing is active. Model selection is not enabled.' : catalog.admission === 'closed' ? 'Model-bound session creation is not available yet.' :
+            catalog.admission === 'legacy' ? 'Automatic routing is active. Model selection is not enabled.' : catalog.admission === 'closed' ? <>Model-bound session creation is not available yet.<button type="button" onClick={() => void loadModels(false)}>Refresh models</button></> :
             selectedModel ? catalog.items.find(m => m.key === selectedModel)?.description : 'Choose a model before starting.'}</p>
           <section className="startup-setup-resume" aria-label="Resume and reference document">
             <div className="startup-setup-resume__header">

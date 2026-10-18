@@ -16,6 +16,71 @@ SID='11111111-1111-4111-8111-111111111111'
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('failure', ['rejected', 'lost_before', 'lost_after', 'late_checkpoint', 'complete_lost', 'fail_unavailable', 'stale'])
+async def test_checkpoint_error_reconciles_before_retry_or_regeneration(setup, monkeypatch, failure):
+    _, store = setup
+    operation = store.operation
+    faulted = False
+    pending = None
+    calls = []
+    async def provider(*args):
+        calls.append(True)
+        yield 'Dependency injection supplies dependencies externally.', None, True
+    async def flaky(op, identity, *, token=None, payload=None):
+        nonlocal faulted, pending
+        if op == 'checkpoint' and not faulted and failure != 'complete_lost':
+            faulted = True
+            if failure == 'lost_after':
+                await operation(op, identity, token=token, payload=payload)
+            if failure == 'late_checkpoint':
+                pending = payload
+            if failure == 'stale':
+                row = next(iter(store.rows.values()))
+                row.update(token='newer-worker', payload={'request': {'question': 'newer'}})
+                raise sg.TurnStateError('stale_attempt')
+            raise sg.TurnStateError('invalid_result' if failure in ('rejected', 'fail_unavailable') else 'persistence_unavailable')
+        if op == 'fail' and failure == 'fail_unavailable':
+            raise sg.TurnStateError('persistence_unavailable')
+        if op == 'fail' and pending is not None:
+            await operation('checkpoint', identity, token=token, payload=pending)
+            pending = None
+        result = await operation(op, identity, token=token, payload=payload)
+        if op == 'complete' and not faulted and failure == 'complete_lost':
+            faulted = True
+            raise sg.TurnStateError('persistence_unavailable')
+        return result
+    monkeypatch.setattr(sg, 'provider_stream', provider)
+    monkeypatch.setattr(store, 'operation', flaky)
+    result = await events(req())
+    error = next(e for e in result if e['type'] == 'error')
+    if failure in ('fail_unavailable', 'stale'):
+        assert error['error'] == 'generation_uncertain'
+        row = next(iter(store.rows.values()))
+        assert row['state'] == 'processing'
+        if failure == 'stale':
+            assert row['token'] == 'newer-worker' and row['payload']['request']['question'] == 'newer'
+        assert len(calls) == 1 and not store.saves
+        return
+    regenerate = failure in ('rejected', 'lost_before')
+    assert error['error'] == ('generation_failed' if regenerate else 'persistence_unavailable')
+    final = await events(req(retry_attempt=1 if regenerate else 0, recover_turn=True))
+    assert any(e['type'] == 'metadata' for e in final)
+    assert len(store.saves) == 1
+    assert len(calls) == (2 if regenerate else 1)
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_lookup_loss_never_assumes_generation_can_retry():
+    calls = []
+    async def unavailable(op, *args, **kwargs):
+        calls.append(op)
+        raise sg.TurnStateError('persistence_unavailable')
+    result = await sg.reconcile_turn_failure(NS(operation=unavailable), {}, 'owned',
+        checkpoint_known=False, code='persistence_unavailable')
+    assert result == 'generation_uncertain' and calls == ['claim']
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('buffered', [False, True])
 async def test_turn_stop_is_typed_and_does_not_fallback(setup, monkeypatch, buffered):
     _, store = setup
@@ -118,6 +183,8 @@ class Store:
             if row is None or (row['state']=='failed' and identity['p_attempt']==row['attempt']+1):
                 row=self.rows[key]=dict(state='processing',token=str(identity['p_attempt']),payload=payload,attempt=identity['p_attempt'])
                 return dict(state='claimed',token=row['token'])
+            if identity['p_attempt'] != row['attempt']:
+                raise sg.TurnStateError('attempt_conflict')
             return copy.deepcopy(row)
         if row['token']!=token:
             raise sg.TurnStateError('stale_attempt')

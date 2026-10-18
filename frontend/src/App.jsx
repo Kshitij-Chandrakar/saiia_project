@@ -1654,6 +1654,13 @@ function MainWindow() {
         return
       }
       if (event.type === 'error') {
+        if (event.error === 'generation_uncertain') {
+          accumulatedAnswer = ''
+          publishAnswer('')
+          failedAnswerTurnRef.current = null
+          setGenerationDiagnostics(current => ({ ...current, answerRetryAvailable: false }))
+          throw Object.assign(new Error('The previous answer could not be confirmed. Submit a new question to continue.'), { code: event.error })
+        }
         if (['generation_failed', 'persistence_unavailable'].includes(event.error)) {
           accumulatedAnswer = ''
           publishAnswer('')

@@ -344,6 +344,20 @@ test('HTTP terminal generation failure clears provisional output and preserves R
   assert.equal(h.values.setGenerationDiagnostics.answerRetryAvailable, true)
 })
 
+test('uncertain persistence clears provisional output without offering regeneration Retry', async () => {
+  const h = harness()
+  h.context.failedAnswerTurnRef = { current: { body: {} } }
+  h.context.readNdjsonStream = async (_response, { onEvent }) => {
+    onEvent({ type: 'start', request_id: 'uncertain-turn' })
+    onEvent({ type: 'delta', request_id: 'uncertain-turn', text: 'partial' })
+    onEvent({ type: 'error', request_id: 'uncertain-turn', error: 'generation_uncertain' })
+  }
+  await assert.rejects(h.generate({ text: 'Explain REST' }), /could not be confirmed/)
+  assert.equal(h.values.setAnswer, '')
+  assert.equal(h.context.failedAnswerTurnRef.current, null)
+  assert.equal(h.values.setGenerationDiagnostics.answerRetryAvailable, false)
+})
+
 test('actual Retry action keeps logical identity, updates existing history and suppresses double clicks', async () => {
   const history = await import('./question_history.js')
   const branch = source.slice(source.indexOf("        if (action === 'generation-retry') {"), source.indexOf("        if (action === 'cloud-session-ended') {"))

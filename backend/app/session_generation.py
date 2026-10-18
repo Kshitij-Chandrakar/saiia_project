@@ -90,6 +90,30 @@ def new_turn_store():
     return TurnStore()
 
 
+async def reconcile_turn_failure(store, identity, token, *, checkpoint_known, code):
+    """Bounded reconciliation; only an observed failed fence permits regeneration."""
+    if code == 'stale_attempt':
+        return 'generation_uncertain'
+    if checkpoint_known and code == 'persistence_unavailable':
+        return 'persistence_unavailable'
+    try:
+        state = await store.operation('claim', identity)
+        if state['state'] == 'processing':
+            # SQL fail is token-fenced and only affects processing, never checkpoints.
+            # Its acknowledgement alone is insufficient: it may have been a no-op.
+            await store.operation('fail', identity, token=token)
+            state = await store.operation('claim', identity)
+        if state['state'] == 'failed':
+            return 'generation_failed'
+        if state['state'] == 'completed' or (state['state'] == 'checkpoint' and state.get('token') == token):
+            return 'persistence_unavailable'
+    except TurnStateError:
+        pass
+    # Lost RPC responses and failed fences never establish retryable generation.
+    # The existing 120 s processing lease eventually becomes an uncertain tombstone.
+    return 'generation_uncertain'
+
+
 class AttemptProvider:
     """Request-local sync facade for existing correction/validation helpers."""
     last_retry_used = False
@@ -255,6 +279,7 @@ async def dispatch_session_generation(req, request, *, buffered):
         result = None
         failures = []
         preserve_checkpoint = False
+        checkpoint_known = claim['state'] in ('checkpoint', 'completed')
         pending_variation = []
 
         async def check_remote():
@@ -311,7 +336,7 @@ async def dispatch_session_generation(req, request, *, buffered):
                     await asyncio.gather(pending, return_exceptions=True)
 
         async def produce():
-            nonlocal result, pending_variation
+            nonlocal result, pending_variation, checkpoint_known
             if claim['state'] in ('checkpoint','completed'):
                 result = claim['payload']
                 return
@@ -394,6 +419,7 @@ async def dispatch_session_generation(req, request, *, buffered):
                         checkpoint = {'question': req.original_question or req.question, 'result': result,
                                       'request': req.model_dump(exclude={'recover_turn'})}
                         await store.operation('checkpoint', identity, token=token, payload=checkpoint)
+                        checkpoint_known = True
                         result = checkpoint
                         return
                     except (AttemptFailure, HTTPException) as exc:
@@ -446,14 +472,16 @@ async def dispatch_session_generation(req, request, *, buffered):
             yield api._stream_event(dict(type='error', request_id=req.request_id, error='generation_failed', message='Unable to generate an answer', retry_attempt=req.retry_attempt))
             yield api._stream_event(dict(type='done', request_id=req.request_id, incomplete=True))
         except TurnStateError as exc:
-            preserve_checkpoint = exc.code != 'invalid_result'
-            if exc.code == 'invalid_result':
-                yield api._stream_event(dict(type='replace', request_id=req.request_id, answer=''))
-                yield api._stream_event(dict(type='error', request_id=req.request_id, error='generation_failed', message='Unable to generate an answer', retry_attempt=req.retry_attempt))
-                yield api._stream_event(dict(type='done', request_id=req.request_id, incomplete=True))
-                return
+            # Never cancel unknown durable work after a persistence error.
+            preserve_checkpoint = True
+            error = await reconcile_turn_failure(store, identity, token,
+                checkpoint_known=checkpoint_known, code=exc.code)
+            message = ('Unable to generate an answer' if error == 'generation_failed' else
+                       'Answer saving is pending. Retry to recover.' if error == 'persistence_unavailable' else
+                       'The previous answer could not be confirmed. Submit a new question to continue.')
             yield api._stream_event(dict(type='replace', request_id=req.request_id, answer=''))
-            yield api._stream_event(dict(type='error', request_id=req.request_id, error=exc.code, message='Answer saving is pending. Retry to recover.'))
+            yield api._stream_event(dict(type='error', request_id=req.request_id,
+                error=error, message=message, retry_attempt=req.retry_attempt))
             yield api._stream_event(dict(type='done', request_id=req.request_id, incomplete=True))
         except (GenerationStopped, HTTPException):
             # Revoked authorization/session validity is terminal, never fallback.
