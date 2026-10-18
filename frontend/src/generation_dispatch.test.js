@@ -393,13 +393,14 @@ test('actual Retry action keeps logical identity, updates existing history and s
 })
 
 for (const scenario of ['processing', 'stream-start', 'transport', 'abort', 'abort-error', 'new-request',
-  'replaced-turn', 'cleared-turn', 'logout', 'session-end', 'auth-expired', 'forbidden', 'success', 'auth-race']) {
+  'replaced-turn', 'cleared-turn', 'logout', 'session-end', 'auth-expired', 'forbidden', 'success', 'auth-race',
+  'generation_uncertain', 'generation_failed', 'persistence_unavailable']) {
   test(`Retry availability is fenced for ${scenario}`, async () => {
     const branch = source.slice(source.indexOf("        if (action === 'generation-retry') {"), source.indexOf("        if (action === 'cloud-session-ended') {"))
     const body = Object.freeze({ session_id: 'session-one', request_id: 'logical-turn', retry_attempt: 2, recover_turn: true })
     const failed = { body }
     const controller = new AbortController()
-    let reject, resolve, resolveAuth, calls = 0
+    let reject, resolve, resolveAuth, calls = 0, displayedError = ''
     let auth = { auth: { status: 'connected', endedInterviewSessionIds: [] }, cloud: { available: true } }
     let diagnostics = { answerRetryAvailable: true }
     const context = {
@@ -411,7 +412,7 @@ for (const scenario of ['processing', 'stream-start', 'transport', 'abort', 'abo
         ? new Promise(done => { resolveAuth = done }) : Promise.resolve(auth) } },
       isCurrentRequest: (a,b) => a === b,
       setGenerationDiagnostics: update => { diagnostics = update(diagnostics) },
-      setIsManualGenerating() {}, setError() {}, setProvider() {},
+      setIsManualGenerating() {}, setError(value) { displayedError = value }, setProvider() {},
       streamGenerateAnswer: options => {
         calls++
         assert.equal(options.body, body)
@@ -430,6 +431,18 @@ for (const scenario of ['processing', 'stream-start', 'transport', 'abort', 'abo
     if (scenario === 'replaced-turn') context.failedAnswerTurnRef.current = { body }
     if (scenario === 'cleared-turn' || scenario === 'logout') context.failedAnswerTurnRef.current = null
     if (scenario === 'logout' || scenario === 'auth-expired') auth.auth.status = 'signed_out'
+    if (scenario === 'logout') context.startupSessionConfigRef.current = null
+    if (scenario === 'generation_uncertain') {
+      context.failedAnswerTurnRef.current = null
+      error.code = scenario
+      error.message = 'The previous answer could not be confirmed. Submit a new question to continue.'
+    }
+    if (['generation_failed', 'persistence_unavailable'].includes(scenario)) {
+      context.failedAnswerTurnRef.current = { body: { ...body, retry_attempt: body.retry_attempt + (scenario === 'generation_failed' ? 1 : 0) } }
+      diagnostics.answerRetryAvailable = true
+      error.code = scenario
+      error.message = 'Unable to generate an answer'
+    }
     if (scenario === 'session-end') context.generationDiagnosticsRef.current.activeSessionEnded = true
     if (scenario === 'success') resolve({ answer: 'Final answer', provider: 'groq' })
     else reject(error)
@@ -440,7 +453,13 @@ for (const scenario of ['processing', 'stream-start', 'transport', 'abort', 'abo
       resolveAuth(auth)
     }
     await pending
-    assert.equal(diagnostics.answerRetryAvailable, ['processing', 'stream-start', 'transport'].includes(scenario))
+    assert.equal(diagnostics.answerRetryAvailable, ['processing', 'stream-start', 'transport', 'generation_failed', 'persistence_unavailable'].includes(scenario))
+    assert.equal(displayedError, ['abort', 'abort-error', 'new-request', 'logout', 'session-end', 'success'].includes(scenario) ? '' : error.message)
+    if (['generation_failed', 'persistence_unavailable'].includes(scenario)) {
+      assert.notEqual(context.failedAnswerTurnRef.current, failed)
+      assert.equal(context.failedAnswerTurnRef.current.body.retry_attempt, scenario === 'generation_failed' ? 3 : 2)
+      assert.equal(context.failedAnswerTurnRef.current.body.recover_turn, true)
+    }
     assert.equal(calls, 1) // No automatic retry.
     assert.equal(failed.body, body)
     assert.equal(body.request_id, 'logical-turn')

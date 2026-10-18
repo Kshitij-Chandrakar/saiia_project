@@ -6315,8 +6315,9 @@ function MainWindow() {
             setProvider(result.provider)
             failedAnswerTurnRef.current = null
           } catch (error) {
-            const stillCurrent = () => isCurrentRequest(latestGenerationRequestIdRef.current, retryUiId) &&
-              failedAnswerTurnRef.current === failed && !retryController?.signal.aborted && error?.name !== 'AbortError'
+            const requestIsCurrent = () => isCurrentRequest(latestGenerationRequestIdRef.current, retryUiId) &&
+              !retryController?.signal.aborted && error?.name !== 'AbortError'
+            const sameFailedTurn = () => requestIsCurrent() && failedAnswerTurnRef.current === failed
             const sessionPermitsRetry = () => !generationDiagnosticsRef.current.activeSessionEnded &&
               (!failed.body.session_id || (startupSessionConfigRef.current?.activeSessionId === failed.body.session_id &&
                 !['ended', 'abandoned'].includes(startupSessionConfigRef.current?.activeSessionStatus)))
@@ -6324,9 +6325,9 @@ function MainWindow() {
             const recoverable = ![401, 403, 499].includes(status) && (error?.code === 'generation_processing' ||
               ((!error?.code || ['stream_error', 'stream_interrupted', 'stream_incomplete'].includes(error.code)) &&
                 [0, 404, 408, 429, 500, 501, 502, 503, 504].includes(status)))
-            if (stillCurrent()) {
+            if (requestIsCurrent() && sessionPermitsRetry()) {
               setError(error.message || 'Unable to generate an answer')
-              if (recoverable && sessionPermitsRetry()) {
+              if (recoverable && sameFailedTurn() && sessionPermitsRetry()) {
                 const cloudRequired = Boolean(failed.body.session_id || failed.body.selected_resume_id || failed.body.job_context_id)
                 let authPermitsRetry = !cloudRequired
                 if (cloudRequired) {
@@ -6336,8 +6337,8 @@ function MainWindow() {
                       !state.auth.endedInterviewSessionIds?.includes(failed.body.session_id)
                   } catch { /* Unknown auth state must not enable cloud Retry. */ }
                 }
-                if (authPermitsRetry && stillCurrent() && sessionPermitsRetry()) {
-                  setGenerationDiagnostics(current => stillCurrent() && sessionPermitsRetry()
+                if (authPermitsRetry && sameFailedTurn() && sessionPermitsRetry()) {
+                  setGenerationDiagnostics(current => sameFailedTurn() && sessionPermitsRetry()
                     ? { ...current, answerRetryAvailable: true } : current)
                 }
               }
