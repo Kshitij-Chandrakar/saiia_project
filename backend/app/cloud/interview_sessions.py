@@ -12,6 +12,25 @@ import requests
 from requests.adapters import HTTPAdapter
 
 from app.cloud.supabase_config import SupabaseConfigurationError, get_supabase_settings
+from app.answer_models import MODEL_CATALOG, DEFAULT_MODEL_KEY, model_binding, DISABLED_MODELS
+from app.config import settings
+
+# Explicit development rollout target; never infer environment from a project name.
+SESSION_MODELS_DEV_PROJECT_REF = "rbmxfazjbldmkomdpyzl"
+
+
+def session_model_backend_ready():
+    if not settings.SESSION_ANSWER_MODELS_DEV_READY:
+        return False
+    config = get_supabase_settings()
+    return bool(config.configured
+        and settings.SESSION_ANSWER_MODELS_DEV_PROJECT_REF == SESSION_MODELS_DEV_PROJECT_REF
+        and config.supabase_url.rstrip('/') == f"https://{SESSION_MODELS_DEV_PROJECT_REF}.supabase.co")
+
+
+def validate_session_model_dev_activation():
+    if settings.SESSION_ANSWER_MODELS_DEV_READY and not session_model_backend_ready():
+        raise SupabaseConfigurationError("Session model development readiness requires the approved Saiia-dev target and configured cloud credentials.")
 
 logger = logging.getLogger("cloud_interview_sessions")
 
@@ -54,6 +73,30 @@ class CloudInterviewSessionValidationError(CloudInterviewSessionError):
     """Raised when a request payload is invalid."""
 
 
+class CloudInterviewSessionModelStaleError(CloudInterviewSessionValidationError):
+    """A formerly selectable model is no longer an admissible new choice."""
+
+
+def model_admission_status(client=None):
+    if not settings.ENABLE_SESSION_ANSWER_MODELS:
+        return "legacy"
+    if not session_model_backend_ready():
+        return "closed"
+    owned = client is None
+    try:
+        client = client or SupabaseInterviewSessionClient()
+        response = client._session.post(client._rest_url + "/rpc/session_model_routing_ready",
+            headers=client._headers, json={}, timeout=SUPABASE_SELECT_TIMEOUT)
+        return "enabled" if response.status_code == 200 and response.json() is True else "closed"
+    except Exception:
+        return "closed"
+    finally:
+        if owned and client is not None:
+            close = getattr(client._session, "close", None)
+            if close:
+                close()
+
+
 @dataclass(frozen=True)
 class CloudInterviewSessionRecord:
     id: str
@@ -69,6 +112,12 @@ class CloudInterviewSessionRecord:
     ended_at: str | None
     created_at: str | None
     updated_at: str | None
+    selected_model_key: str | None = None
+    selected_model_binding: dict | None = None
+
+    @property
+    def model_selection_kind(self) -> str:
+        return "model_bound" if self.selected_model_key is not None else "legacy"
 
 
 @dataclass(frozen=True)
@@ -117,16 +166,24 @@ def validate_idempotency_key(value: str | None) -> str:
     return key
 
 
-def normalize_session_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def normalize_session_payload(payload: dict[str, Any], *, model_enabled: bool = False) -> dict[str, Any]:
     if "user_id" in payload:
         raise CloudInterviewSessionValidationError("user_id is server-derived and cannot be submitted.")
+    allowed = {"title", "target_role", "company_name", "job_description", "selected_resume_id", "job_context_id", "selected_model_key"}
+    if payload.keys() - allowed:
+        raise CloudInterviewSessionValidationError("Unsupported session field.")
+    selected = payload.get("selected_model_key")
+    if selected is not None and (not isinstance(selected, str) or selected not in MODEL_CATALOG):
+        raise CloudInterviewSessionModelStaleError("Selected model key is invalid.")
+    if not model_enabled and selected is not None:
+        raise CloudInterviewSessionConflictError("Model-bound session creation is not available yet.")
     title = _normalize_text(payload.get("title"), field="title", max_chars=MAX_TITLE_CHARS)
     target_role = _normalize_text(payload.get("target_role"), field="target_role", max_chars=MAX_ROLE_CHARS)
     company_name = _normalize_text(payload.get("company_name"), field="company_name", max_chars=MAX_COMPANY_CHARS)
     job_description_preview = _preview_job_description(payload.get("job_description"))
     if not any((title, target_role, company_name, job_description_preview)):
         raise CloudInterviewSessionValidationError("Please provide at least one session detail before starting.")
-    return {
+    normalized = {
         "selected_resume_id": _normalize_uuid(payload.get("selected_resume_id"), field="selected_resume_id"),
         "job_context_id": _normalize_uuid(payload.get("job_context_id"), field="job_context_id"),
         "title": title or None,
@@ -134,6 +191,14 @@ def normalize_session_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "company_name": company_name or None,
         "job_description_preview": job_description_preview or None,
     }
+    # Keep legacy hashes byte-compatible: do not add a null field while disabled.
+    if model_enabled:
+        normalized["selected_model_key"] = selected or DEFAULT_MODEL_KEY
+        choice = MODEL_CATALOG[normalized["selected_model_key"]]
+        if f"{choice.provider}:{choice.api_model}" in DISABLED_MODELS:
+            raise CloudInterviewSessionModelStaleError("Selected model is disabled for execution.")
+        normalized["selected_model_binding"] = model_binding(choice)
+    return normalized
 
 
 def normalized_payload_hash(payload: dict[str, Any]) -> str:
@@ -158,6 +223,8 @@ def _record_from_payload(payload: dict[str, Any]) -> CloudInterviewSessionRecord
         ended_at=payload.get("ended_at"),
         created_at=payload.get("created_at"),
         updated_at=payload.get("updated_at"),
+        selected_model_key=payload.get("selected_model_key"),
+        selected_model_binding=payload.get("selected_model_binding"),
     )
 
 
@@ -285,7 +352,7 @@ class SupabaseInterviewSessionClient:
     ) -> CreateInterviewSessionResult:
         try:
             response = self._session.post(
-                f"{self._rest_url}/rpc/create_interview_session_with_idempotency",
+                f"{self._rest_url}/rpc/" + ("create_interview_session_with_binding" if payload.get("selected_model_key") else "create_interview_session_with_idempotency"),
                 headers={**self._headers, "Prefer": "return=representation"},
                 json={
                     "p_user_id": user_id,
@@ -297,6 +364,7 @@ class SupabaseInterviewSessionClient:
                     "p_target_role": payload["target_role"],
                     "p_company_name": payload["company_name"],
                     "p_job_description_preview": payload["job_description_preview"],
+                    **({"p_selected_model_key": payload["selected_model_key"], "p_selected_model_binding": payload["selected_model_binding"]} if payload.get("selected_model_key") else {}),
                 },
                 timeout=SUPABASE_MUTATION_TIMEOUT,
             )
@@ -421,11 +489,16 @@ class CloudInterviewSessionService:
             page=page,
         )
 
-    def get_session(self, *, user_id: str, session_id: str) -> CloudInterviewSessionRecord:
+    def get_session(self, *, user_id: str, session_id: str, allow_model_bound: bool = False) -> CloudInterviewSessionRecord:
         normalized_session_id = _normalize_uuid(session_id, field="session_id")
         if normalized_session_id is None:
             raise CloudInterviewSessionValidationError("session_id is invalid.")
-        return self._client.get_session(user_id=user_id, session_id=normalized_session_id)
+        record = self._client.get_session(user_id=user_id, session_id=normalized_session_id)
+        # Existing generation calls this shared loader. Fail closed even if a future
+        # model-bound record is restored while the admission flag is disabled.
+        if getattr(record, "selected_model_key", None) is not None and not allow_model_bound and (not settings.ENABLE_SESSION_ANSWER_MODELS or not session_model_backend_ready()):
+            raise CloudInterviewSessionConflictError("Model-bound session generation is not available yet.")
+        return record
 
     def create_session(
         self,
@@ -435,7 +508,9 @@ class CloudInterviewSessionService:
         idempotency_key: str,
     ) -> CreateInterviewSessionResult:
         validated_key = validate_idempotency_key(idempotency_key)
-        normalized = normalize_session_payload(payload)
+        normalized = normalize_session_payload(payload, model_enabled=settings.ENABLE_SESSION_ANSWER_MODELS)
+        if settings.ENABLE_SESSION_ANSWER_MODELS and model_admission_status(self._client) != "enabled":
+            raise CloudInterviewSessionConflictError("Model-bound session creation is not available yet.")
         if normalized["selected_resume_id"] and not self._client.resume_owned_by_user(
             user_id=user_id,
             resume_id=normalized["selected_resume_id"],

@@ -943,6 +943,7 @@ export default function AnswerPanel({
           ].map(([action, label]) => <button key={action} type="button" disabled={overlayState.isManualGenerating} onClick={() => window.electronAPI?.triggerToolbarAction?.(action)}>{label}</button>)}
         </div>
       ) : null}
+      {overlayState.generationDiagnostics?.answerRetryAvailable ? <div role="alert"><span>Unable to generate an answer</span><button type="button" disabled={overlayState.isManualGenerating} onClick={() => window.electronAPI?.triggerToolbarAction?.('generation-retry')}>Retry</button></div> : null}
       {mode !== 'chat' && mode !== 'analyzeScreen' && overlayState.generationDiagnostics?.localWithoutSaving ? <p>Local answer. Not saved to cloud session.</p> : null}
       {!(mode === 'chat' && chatPanelView === 'myAnswers') ? (
         <div className="topbar-answer-panel__header">

@@ -7,6 +7,11 @@ load_dotenv()
 
 
 class Settings:
+    ANSWER_MODELS = os.getenv("ANSWER_MODELS", "openai:gpt-5.6-luna,openai:gpt-5.6-terra,groq:openai/gpt-oss-120b,gemini:gemini-3.5-flash-lite,gemini:gemini-3.6-flash")
+    ANSWER_DEFAULT_MODEL = os.getenv("ANSWER_DEFAULT_MODEL", "gemini:gemini-3.5-flash-lite")
+    ANSWER_FALLBACK_MODEL = os.getenv("ANSWER_FALLBACK_MODEL", "groq:openai/gpt-oss-120b")
+    ANSWER_DISABLED_MODELS = os.getenv("ANSWER_DISABLED_MODELS", "")
+    ANSWER_MODEL_OVERRIDES = os.getenv("ANSWER_MODEL_OVERRIDES", "{}")
     USE_GRPC_CLOUD_CONTEXT_PIPELINE = os.getenv("USE_GRPC_CLOUD_CONTEXT_PIPELINE", "false").strip().lower() == "true"
     USE_GRPC_AUTO_PIPELINE = os.getenv("USE_GRPC_AUTO_PIPELINE", "false").strip().lower() == "true"
     USE_GRPC_MANUAL_PIPELINE = os.getenv("USE_GRPC_MANUAL_PIPELINE", "false").strip().lower() == "true"
@@ -107,6 +112,21 @@ class Settings:
     ANSWER_PROVIDER = os.getenv("ANSWER_PROVIDER", "openai").strip().lower()
     ANSWER_FALLBACK_PROVIDER = os.getenv("ANSWER_FALLBACK_PROVIDER", "groq").strip().lower()
     ENABLE_ANSWER_PROVIDER_FALLBACK = os.getenv("ENABLE_ANSWER_PROVIDER_FALLBACK", "true").strip().lower() == "true"
+
+    # Session-bound HTTP/gRPC routing; disabled by default.
+    # Development-only readiness; execution still requires ENABLE_SESSION_ANSWER_MODELS.
+    SESSION_ANSWER_MODELS_DEV_READY = os.getenv("SESSION_ANSWER_MODELS_DEV_READY", "false").strip().lower() == "true"
+    SESSION_ANSWER_MODELS_DEV_PROJECT_REF = os.getenv("SESSION_ANSWER_MODELS_DEV_PROJECT_REF", "").strip()
+    ENABLE_SESSION_ANSWER_MODELS = os.getenv("ENABLE_SESSION_ANSWER_MODELS", "false").strip().lower() == "true"
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip() or os.getenv("GOOGLE_API_KEY", "").strip()
+    ANSWER_MODEL_FIRST_TOKEN_SECONDS = float(os.getenv("ANSWER_MODEL_FIRST_TOKEN_SECONDS", "6"))
+    ANSWER_MODEL_IDLE_SECONDS = float(os.getenv("ANSWER_MODEL_IDLE_SECONDS", "4"))
+    ANSWER_MODEL_OVERALL_SECONDS = float(os.getenv("ANSWER_MODEL_OVERALL_SECONDS", "25"))
+    ANSWER_MODEL_FALLBACK_RESERVE_SECONDS = float(os.getenv("ANSWER_MODEL_FALLBACK_RESERVE_SECONDS", "8"))
+    ANSWER_MODEL_CODING_FIRST_TOKEN_SECONDS = float(os.getenv("ANSWER_MODEL_CODING_FIRST_TOKEN_SECONDS", "10"))
+    ANSWER_MODEL_CODING_IDLE_SECONDS = float(os.getenv("ANSWER_MODEL_CODING_IDLE_SECONDS", "6"))
+    ANSWER_MODEL_CODING_OVERALL_SECONDS = float(os.getenv("ANSWER_MODEL_CODING_OVERALL_SECONDS", "40"))
+    ANSWER_MODEL_CODING_FALLBACK_RESERVE_SECONDS = float(os.getenv("ANSWER_MODEL_CODING_FALLBACK_RESERVE_SECONDS", "12"))
 
     OPENAI_STT_MODEL = os.getenv("OPENAI_STT_MODEL", "whisper-1").strip()
     OPENAI_STT_TIMEOUT_SECONDS = float(os.getenv("OPENAI_STT_TIMEOUT_SECONDS", "30"))

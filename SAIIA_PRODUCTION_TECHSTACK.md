@@ -1,5 +1,8 @@
 # TECHSTACK: SAIIA Production-Ready Architecture
 
+> **Current model-selection status ? 2026-10-18:** Configuration-driven Electron Create Session selection, immutable backend session bindings, HTTP/gRPC answer routing, silent fallback, Retry and final-answer persistence are implemented and activated on **Saiia-dev only** (`rbmxfazjbldmkomdpyzl`). Default: Gemini 3.5 Flash-Lite; fallback: Groq GPT-OSS 120B. Selection stays locked; restricted metadata distinguishes selected and actual models. Production rollout remains separate. See [feature closeout](docs/SESSION_ANSWER_MODELS_CLOSEOUT.md) for scope, configuration/restart instructions, verification and pending checks. Earlier phase/status text below is historical for this feature; unrelated roadmap phases are unchanged.
+
+
 **Product:** SAIIA — Smart AI Interview Assistant  
 **Scope:** Production stack for both PRD A Core Edition and PRD B Protected Commercial Edition  
 **Version:** 1.1

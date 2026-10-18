@@ -1,5 +1,8 @@
 # C6.1 - Desktop Startup UI / Session Setup Flow Audit and Plan
 
+> **Current model-selection status ? 2026-10-18:** Configuration-driven Electron Create Session selection, immutable backend session bindings, HTTP/gRPC answer routing, silent fallback, Retry and final-answer persistence are implemented and activated on **Saiia-dev only** (`rbmxfazjbldmkomdpyzl`). Default: Gemini 3.5 Flash-Lite; fallback: Groq GPT-OSS 120B. Selection stays locked; restricted metadata distinguishes selected and actual models. Production rollout remains separate. See [feature closeout](SESSION_ANSWER_MODELS_CLOSEOUT.md) for scope, configuration/restart instructions, verification and pending checks. Earlier phase/status text below is historical for this feature; unrelated roadmap phases are unchanged.
+
+
 Date: 2026-08-12
 
 Scope: audit/design only. No desktop startup UI runtime code, resume selection UI, job target/JD creation UI, backend route, Supabase migration, C4.4 generation integration, cloud/local migration, billing, or admin feature was implemented.

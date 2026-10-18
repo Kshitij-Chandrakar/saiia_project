@@ -1,6 +1,5 @@
 """Private, authorized cloud context for the opt-in realtime transport."""
-import hashlib
-import re
+import uuid
 from dataclasses import dataclass
 from uuid import UUID
 from fastapi import HTTPException
@@ -91,9 +90,9 @@ class GrpcCloudContext:
                     job_description=job.job_description if job else session.job_description_preview or '',
                     profile={}, profile_context_used=bool(resume_id))
 
-    def save(self, question, answer, category, provider, model):
+    def save(self, question, answer, category, provider, model, request_id=None):
         self.load()  # Recheck expiry/ownership/lifecycle before the cloud write.
-        key = hashlib.sha256((self.session_id + '\0' + re.sub(r'[^\w]', '', question.casefold())).encode()).hexdigest()
+        key = request_id or str(uuid.uuid4())
         CloudInterviewTranscriptService().create_transcript_entry(
             user_id=self.user_id, session_id=self.session_id,
             payload={'request_id': 'grpc-' + key, 'source': 'auto', 'question_text': question,

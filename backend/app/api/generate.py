@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 import anyio
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 from app.auth.supabase_auth import AUTH_ERROR_DETAIL, CurrentUser, get_current_user
@@ -56,6 +56,8 @@ logger = logging.getLogger("generate_api")
 logging.basicConfig(level=logging.INFO)
 
 generator = AnswerGenerator(include_context=True)
+from app.session_generation import scoped_generator, dispatch_session_generation, cached_context
+generator = scoped_generator(generator)
 resume_index_service = ResumeIndexService()
 job_context_service = JobContextService()
 refinement_service = RefinementService()
@@ -289,8 +291,12 @@ def _authorize_generation_session(req: "GenerateRequest", request: Request | Non
         return current_user
     if current_user is None:
         return None
+    from app.nlp.answer_variation import variation_scope
+    variation_scope.set((current_user.user_id, session_id))
+    service = None
     try:
-        _new_cloud_interview_session_service().get_session(
+        service = _new_cloud_interview_session_service()
+        service.get_session(
             user_id=current_user.user_id,
             session_id=session_id,
         )
@@ -304,9 +310,14 @@ def _authorize_generation_session(req: "GenerateRequest", request: Request | Non
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Supabase cloud configuration is not ready.") from exc
     except CloudInterviewSessionError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Supabase cloud interview session operation failed.") from exc
+    finally:
+        close = getattr(getattr(getattr(service, '_client', None), '_session', None), 'close', None)
+        if close:
+            close()
     return current_user
 
 
+@cached_context
 def _retrieve_resume_context(
     *,
     req: "GenerateRequest",
@@ -521,6 +532,7 @@ def _session_job_context(req: "GenerateRequest") -> dict[str, Any]:
     }
 
 
+@cached_context
 def _generation_job_context(req: "GenerateRequest", *, use_job_context: bool) -> dict[str, Any]:
     if not use_job_context:
         return {"saved": False}
@@ -601,6 +613,7 @@ def _force_context_not_ready_for_json_noise(context_status: dict, json_noise_det
 
 
 class GenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     question: str
     original_question: Optional[str] = None
     followup_mode: Optional[str] = None
@@ -625,6 +638,9 @@ class GenerateRequest(BaseModel):
     session_id: Optional[str] = None
     job_context_id: Optional[str] = None
     request_id: Optional[str] = None
+    retry_attempt: int = Field(default=0, ge=0)
+    recover_turn: bool = False
+    supersedes_request_id: Optional[str] = None
     target_role: Optional[str] = None
     company_name: Optional[str] = None
     job_description: Optional[str] = None
@@ -638,6 +654,14 @@ class GenerateRequest(BaseModel):
 
 
 class GenerateResponse(BaseModel):
+    request_id: str | None = None
+    retry_attempt: int = 0
+    selected_model_key: str | None = None
+    selected_provider: str | None = None
+    selected_api_model: str | None = None
+    actual_provider: str | None = None
+    actual_api_model: str | None = None
+    reported_model: str | None = None
     answer: str
     provider: str
     model: str
@@ -1074,6 +1098,9 @@ def _store_transcript_for_response(
     source: str,
     screen_question_type: str | None,
 ) -> GenerateResponse:
+    if request is not None and getattr(getattr(request, "state", None), "session_generation_internal", False):
+        response.transcript_entry_stored = True
+        return response
     session_id = _normalize_session_id(req.session_id)
     if not session_id:
         response.transcript_entry_stored = False
@@ -1258,6 +1285,9 @@ def _followup_intent_metadata(plan: Optional[FollowUpIntentPlan], context_entrie
 
 @router.post("/stream")
 async def generate_answer_stream(req: GenerateRequest, request: Request = None):
+    managed = await dispatch_session_generation(req, request, buffered=False)
+    if managed is not None:
+        return managed
     if not settings.ENABLE_TRUE_ANSWER_STREAMING:
         raise HTTPException(status_code=404, detail="True answer streaming is disabled.")
     if not req.question or not req.question.strip():
@@ -1268,7 +1298,11 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
     request_id = req.request_id = _stream_request_id(req.request_id)
     req.source = str(req.source or "").strip().lower()
     request_started = time.perf_counter()
-    await run_in_threadpool(_authorize_generation_session, req, request)
+    authorized_user = await run_in_threadpool(_authorize_generation_session, req, request)
+    if authorized_user is not None:
+        # ContextVar writes inside the auth worker do not propagate to this task.
+        from app.nlp.answer_variation import variation_scope
+        variation_scope.set((authorized_user.user_id, _normalize_session_id(req.session_id)))
     authorization_ms = round((time.perf_counter() - request_started) * 1000, 2)
     # Coding retains the buffered contract/extraction/validation path. No second
     # contract extraction or provisional unvalidated code is introduced by Chat.
@@ -1732,6 +1766,9 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
 
 @router.post("/", response_model=GenerateResponse)
 async def generate_answer(req: GenerateRequest, request: Request = None):
+    managed = await dispatch_session_generation(req, request, buffered=True)
+    if managed is not None:
+        return managed
     if not req.question or not req.question.strip():
         raise HTTPException(status_code=400, detail="`question` field cannot be empty.")
     if not req.category or not req.category.strip():

@@ -128,10 +128,10 @@ function safeAnswerStreamEvent(event) {
     }
   }
   if (event.type === 'delta') {
-    return { type: 'delta', request_id: requestId, text: safeStreamString(event.text, 128 * 1024) }
+    return { type: 'delta', request_id: requestId, text: safeStreamString(event.text, 128 * 1024), attempt: Number.isInteger(event.attempt) && event.attempt >= 0 ? event.attempt : undefined }
   }
   if (event.type === 'replace') {
-    return { type: 'replace', request_id: requestId, answer: safeStreamString(event.answer, 512 * 1024) }
+    return { type: 'replace', request_id: requestId, answer: safeStreamString(event.answer, 512 * 1024), attempt: Number.isInteger(event.attempt) && event.attempt >= 0 ? event.attempt : undefined }
   }
   if (event.type === 'metadata') {
     return { type: 'metadata', request_id: requestId, metadata: safeAnswerStreamMetadata(event.metadata) }
@@ -144,11 +144,17 @@ function safeAnswerStreamEvent(event) {
       'stream_generation_failed',
       'stream_interrupted',
       'stream_incomplete',
+      'generation_failed',
+      'generation_uncertain',
+      'persistence_unavailable',
+      'generation_stopped',
     ])
     return {
       type: 'error',
       request_id: requestId,
       error: safeErrors.has(event.error) ? event.error : 'stream_error',
+      message: event.error === 'generation_failed' ? 'Unable to generate an answer' : event.error === 'persistence_unavailable' ? 'Answer saving is pending. Retry to recover.' : undefined,
+      retry_attempt: Number.isInteger(event.retry_attempt) && event.retry_attempt >= 0 ? event.retry_attempt : undefined,
       status_code: Number.isInteger(event.status_code) ? event.status_code : undefined,
       partial: Boolean(event.partial),
     }
@@ -2026,6 +2032,11 @@ ipcMain.handle('cloud:list-resumes', async (event) => {
   return desktopAuthSessionManager.listCloudResumes()
 })
 
+ipcMain.handle('cloud:list-answer-models', async (event) => {
+  validateAuthIpc(event)
+  return desktopAuthSessionManager.listAnswerModels()
+})
+
 ipcMain.handle('cloud:create-interview-session', async (event, payload, options) => {
   validateAuthIpc(event)
   return desktopAuthSessionManager.createInterviewSession(payload, options)
@@ -2097,6 +2108,7 @@ ipcMain.handle('generate:answer:stream:start', async (event, body) => {
         ok: false,
         status: Number.isInteger(opened?.status) ? opened.status : 502,
         reason: opened?.reason || 'generation-failed',
+        ...(opened?.code === 'generation_processing' ? { code: 'generation_processing' } : {}),
         generateRequestSent: Boolean(opened?.generateRequestSent),
       }
     }

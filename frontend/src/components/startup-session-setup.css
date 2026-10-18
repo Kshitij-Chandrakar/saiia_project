@@ -57,3 +57,16 @@
 .startup-session-setup .startup-setup-resume-summary{margin:0;overflow-wrap:anywhere;color:#667085}
 .startup-session-setup .startup-setup-quota-retry{padding:0;border:0;background:transparent;color:#4042b6;text-align:left;text-decoration:underline;font:600 9px/12px Inter,sans-serif;cursor:pointer}
 .startup-session-setup .startup-setup-field textarea{resize:none;height:110px;min-height:110px;max-height:110px;overflow-y:auto}
+/* Portal escapes the scrolling setup form; fixed bounds come from the trigger. */
+.setup-model-field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.setup-model-field>span{font:600 15px/24px Inter,sans-serif;text-transform:uppercase;color:#0b1c30}
+.startup-session-setup .setup-model-trigger{height:46px;width:100%;display:flex;align-items:center;gap:7px;border:1px solid #c5c6cd;border-radius:14px;background:white;color:#0b1c30;padding:8px 10px;text-align:left;font:400 14px/20px Setup Hanken,Inter,sans-serif;box-shadow:0 1px 2px #0000000d}
+.setup-model-trigger>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.setup-model-trigger img,.setup-model-popup img{width:18px;height:18px;object-fit:contain;flex:none}
+.setup-model-popup{box-sizing:border-box;z-index:10000;overflow:auto;overscroll-behavior:contain;padding:4px;border:1px solid #c5cbd6;border-radius:12px;background:white;box-shadow:0 8px 28px #09142630;scrollbar-width:thin;-webkit-app-region:no-drag}
+.setup-model-popup button{box-sizing:border-box;width:100%;display:flex;align-items:center;gap:10px;min-height:60px;padding:10px;border:0;border-radius:8px;background:white;color:#0b1c30;text-align:left;cursor:pointer;font:400 12px/17px Inter,sans-serif}
+.setup-model-popup button>span{flex:1;min-width:0}.setup-model-popup strong{font-size:13px;font-weight:600}.setup-model-popup button>span>span{display:block;color:#667085;overflow-wrap:anywhere}
+.setup-model-popup button[aria-selected=true]{background:#ebf0ff}.setup-model-popup button[aria-disabled=true]{opacity:.55;cursor:default}
+.setup-model-popup button:focus-visible{outline:2px solid #2170e4;outline-offset:-2px}.setup-model-popup button:hover{background:#f2f5fa}
+.setup-model-badge{display:inline-block;margin-left:7px;border-radius:4px;padding:0 4px;color:#4042b6;background:#eef0ff;font-size:10px}
+.startup-setup-model-description button{font:inherit;text-decoration:underline;border:0;background:transparent;color:#4042b6;cursor:pointer;padding:0 4px}

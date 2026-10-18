@@ -16,6 +16,23 @@ const {
   createIpcSenderValidator,
 } = require('../electron/desktop_auth_session.cjs')
 
+for (const code of ['generation_processing', 'private-provider-detail']) {
+  test(`openAnswerStream exposes only safe processing conflict code: ${code}`, async () => {
+    const ctx = createManager({ fetchImpl: async url => {
+      if (url.endsWith('/api/auth/me')) return jsonResponse(200, { user_id: 'user-1' })
+      if (url.endsWith('/api/auth/profile/bootstrap')) return jsonResponse(200, { ok: true })
+      return jsonResponse(409, { detail: { code, message: 'PRIVATE' } })
+    } })
+    try {
+      ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+      const result = await ctx.manager.openAnswerStream({ request_id: 'turn', question: 'Question', category: 'technical', session_id: 'session-one' })
+      assert.equal(result.status, 409)
+      assert.equal(result.code, code === 'generation_processing' ? code : undefined)
+      assert.doesNotMatch(JSON.stringify(result), /PRIVATE|private-provider-detail|access-token/)
+    } finally { ctx.cleanup() }
+  })
+}
+
 function jsonResponse(status, payload = {}) {
   return {
     ok: status >= 200 && status < 300,
@@ -2185,6 +2202,7 @@ test('preload exposes exact narrow auth methods without raw tokens or generic fe
     'getCloudStartupContext',
     'listInterviewSessions',
     'listCloudResumes',
+    'listAnswerModels',
     'listMyAnswers',
     'listScreenSources',
     'logoutAuth',
@@ -2325,4 +2343,47 @@ test('desktop session creation rejects blank company before any upstream request
     }
     assert.equal(ctx.calls.length, before)
   } finally { ctx.cleanup() }
+})
+
+test('answer catalog uses authenticated narrow bridge and strips execution configuration', async () => {
+  const ctx=createManager()
+  try {
+    ctx.manager.session={access_token:'private'};ctx.manager.user={user_id:'owner'};ctx.manager.status=AUTH_STATUSES.CONNECTED
+    ctx.manager._hasFreshVerification=()=>true
+    ctx.manager._backendJson=async (url,method,token) => {
+      assert.equal(url,'/api/interview-sessions/answer-models');assert.equal(method,'GET');assert.equal(token,'private')
+      return {ok:true,payload:{admission:'enabled',items:[{key:'custom',display_name:'Custom',description:'Neutral',logo_key:'future',default:true,selectable:true,api_key:'SECRET',profile:'private',url:'private'}]}}
+    }
+    const result=await ctx.manager.listAnswerModels()
+    assert.equal(result.items[0].key,'custom');assert.equal(result.items[0].selectable,true)
+    assert.equal(JSON.stringify(result).includes('SECRET'),false)
+    assert.equal('profile' in result.items[0],false)
+    const pending=deferred()
+    ctx.manager._backendJson=()=>pending.promise
+    const load=ctx.manager.listAnswerModels()
+    ctx.manager.session=null
+    pending.resolve({ok:true,payload:{admission:'enabled',items:[]}})
+    assert.equal((await load).items.length,0)
+    assert.ok((await load).error)
+  } finally {ctx.cleanup()}
+})
+
+test('model key reaches creation IPC body and authoritative binding survives the safe response', async () => {
+  const ctx=createManager()
+  try {
+    ctx.manager.session={access_token:'private'};ctx.manager.user={user_id:'owner'};ctx.manager.status=AUTH_STATUSES.CONNECTED
+    ctx.manager._hasFreshVerification=()=>true
+    ctx.manager._backendJson=async (url,method,token,body,headers) => {
+      assert.equal(body.selected_model_key,'groq:custom')
+      assert.equal(headers['X-Session-Model-Admission'],'enabled')
+      return {ok:true,payload:{session:{id:'session',selected_model_key:'groq:custom',model_selection_kind:'model_bound',secret:'SECRET'}}}
+    }
+    const result=await ctx.manager.createInterviewSession({company_name:'Company',selected_model_key:'groq:custom'},{idempotencyKey:'once',expectedModelAdmission:'enabled'})
+    assert.equal(result.session.selected_model_key,'groq:custom')
+    assert.equal(result.session.model_selection_kind,'model_bound')
+    assert.equal(JSON.stringify(result).includes('SECRET'),false)
+    ctx.manager._backendJson=async()=>({status:409,ok:false,payload:{detail:{code:'model_selection_stale',message:'SECRET'}}})
+    const stale=await ctx.manager.createInterviewSession({company_name:'Company',selected_model_key:'removed'},{idempotencyKey:'next'})
+    assert.equal(stale.code,'model_selection_stale');assert.equal(stale.error.includes('SECRET'),false)
+  } finally {ctx.cleanup()}
 })

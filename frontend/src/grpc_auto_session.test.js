@@ -176,3 +176,38 @@ test('intentional system routing diagnostics do not report cloud auth failure or
   assert.match(source, /cloudGrpcAuthStatus: reason === 'system_audio_selected' \? 'not_applicable'/)
   assert.match(source, /autoModePipeline: reason === 'system_audio_selected' \? 'existing_default'/)
 })
+
+test('generation failure clears one turn without closing capture and next turn completes', async () => {
+  const f = fixture(), session = await createGrpcAutoSession(f.options)
+  f.emit({ questionsDetectedCount: 1, currentQuestion: 'Explain REST', answerRequestId: 'turn-one' })
+  f.emit({ currentAnswer: 'failed partial' })
+  f.emit({ currentAnswer: '', answerFailureCode: 'generation_failed', answerFailureRequestId: 'turn-one', autoStatus: 'auto_listening' })
+  f.emit({})
+  assert.equal(f.answers.filter(x => x.status === 'error').length, 1)
+  assert.equal(f.answers.at(-1).answer, '')
+  assert.equal(f.answers.at(-1).requestId, 'turn-one')
+  assert.equal(f.errors.length, 0)
+  assert.equal(f.counts().closed, 0)
+  f.emit({ questionsDetectedCount: 2, currentQuestion: 'Explain SQL', answerRequestId: 'turn-two', answerFailureCode: '' })
+  f.emit({ currentAnswer: 'final replacement', answerCompletedCount: 1 })
+  assert.equal(f.answers.at(-1).status, 'complete')
+  assert.equal(f.answers.at(-1).answer, 'final replacement')
+  await session.close()
+})
+
+test('coalesced new question and failure belongs to that turn, stale failure is ignored', async () => {
+  const f = fixture(), session = await createGrpcAutoSession(f.options)
+  f.emit({ questionsDetectedCount: 1, currentQuestion: 'first', answerRequestId: 'one',
+    answerFailureCode: 'generation_failed', answerFailureRequestId: 'one', currentAnswer: '' })
+  assert.equal(f.answers.at(-1).status, 'error')
+  assert.equal(f.answers.at(-1).requestId, 'one')
+  const oldHistory = f.answers.at(-1).historyEntryId
+  f.emit({ questionsDetectedCount: 2, currentQuestion: 'second', answerRequestId: 'two',
+    answerFailureCode: 'generation_failed', answerFailureRequestId: 'one' })
+  assert.equal(f.answers.at(-1).status, 'generating')
+  assert.notEqual(f.answers.at(-1).historyEntryId, oldHistory)
+  f.emit({ answerFailureRequestId: 'two' })
+  assert.equal(f.answers.at(-1).status, 'error')
+  assert.equal(f.answers.at(-1).requestId, 'two')
+  await session.close()
+})

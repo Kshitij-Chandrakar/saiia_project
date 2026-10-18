@@ -53,7 +53,7 @@ def test_context_is_server_owned_and_save_uses_stable_idempotency_key(services,c
     context.save('Private question','Private answer','technical','openai','model')
     saves=[value for kind,value in calls if kind=='save']
     assert saves[0]['user_id']=='owner'
-    assert saves[0]['payload']['request_id']==saves[1]['payload']['request_id']
+    assert saves[0]['payload']['request_id']!=saves[1]['payload']['request_id']
     assert 'Private' not in caplog.text and 'mock-private-token' not in caplog.text
 
 @pytest.mark.parametrize('which',['resume','job'])

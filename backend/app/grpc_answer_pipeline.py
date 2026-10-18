@@ -67,7 +67,7 @@ async def detect_intake_question(text, allow_topics=False):
         _private_pipeline.reset(token)
 
 
-async def stream_question_answer(transcript, cloud_context=None):
+async def stream_question_answer(transcript, cloud_context=None, logical_turn_id=None):
     # Existing provider error logs may contain upstream content. Suppress records
     # only in this task (and its context-propagating AnyIO workers), never globally.
     token = _private_pipeline.set(True)
@@ -87,9 +87,21 @@ async def stream_question_answer(transcript, cloud_context=None):
             fields = await asyncio.wait_for(run_in_threadpool(cloud_context.load), timeout=15)
         else:
             fields = {"profile": await run_in_threadpool(_load_local_profile)}
-        response = await generate_answer_stream(GenerateRequest(
-            question=question, category=category, source="auto" if cloud_context else "audio", **fields),
-            **({"request": cloud_context.request} if cloud_context else {}))
+        from app.config import settings
+        managed = bool(cloud_context and settings.ENABLE_SESSION_ANSWER_MODELS)
+        if managed:
+            fields.update(session_id=cloud_context.session_id, request_id=logical_turn_id,
+                followup_mode='answer', followup_context=getattr(cloud_context, '_answer_history', [])[-5:])
+        try:
+            response = await generate_answer_stream(GenerateRequest(
+                question=question, category=category, source="auto" if cloud_context else "audio", **fields),
+                **({"request": cloud_context.request} if cloud_context else {}))
+        except Exception as exc:
+            from fastapi import HTTPException
+            if managed and isinstance(exc, HTTPException) and isinstance(exc.detail, dict):
+                from app.session_generation import TurnStateError
+                raise TurnStateError(exc.detail.get('code', 'generation_unrecoverable')) from None
+            raise
         answer = ""
         model = provider = "unknown"
         completed = False
@@ -112,6 +124,14 @@ async def stream_question_answer(transcript, cloud_context=None):
                 yield {"type": "result", "text": metadata.get("answer", ""),
                        "category": category, "provider": metadata.get("provider", "")}
             elif kind == "error":
+                from app.answer_generation import GenerationFailure, GenerationStopped
+                if item.get('error') == 'generation_stopped':
+                    raise GenerationStopped()
+                if item.get('error') == 'generation_failed':
+                    raise GenerationFailure(())
+                if item.get('error') in ('persistence_unavailable','generation_uncertain','generation_processing'):
+                    from app.session_generation import TurnStateError
+                    raise TurnStateError(item['error'])
                 raise RuntimeError("Answer generation unavailable.")
             elif kind == "done":
                 if completed:
@@ -121,13 +141,18 @@ async def stream_question_answer(transcript, cloud_context=None):
                 completed = True
                 if not answer.strip():
                     raise RuntimeError("Answer generation empty.")
-                if cloud_context:
+                if cloud_context and not managed:
                     yield {"type": "save_status", "code": "answer_save_pending"}
                     try:
                         await asyncio.wait_for(run_in_threadpool(cloud_context.save, question, answer, category, provider, model), timeout=20)
                         yield {"type": "save_status", "code": "answer_saved"}
                     except Exception:
                         yield {"type": "save_status", "code": "answer_save_failed"}
+                if managed:
+                    import time
+                    history = getattr(cloud_context, '_answer_history', [])
+                    cloud_context._answer_history = (history + [dict(entry_id=logical_turn_id, mode='answer', question=question[:8000],
+                        answer_excerpt=answer[:12000], category=category, created_at=time.time())])[-5:]
                 yield {"type": "completed", "category": category}
     finally:
         try:

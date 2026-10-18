@@ -31,6 +31,7 @@ export async function createGrpcAutoSession({ api, stream, source = 'microphone'
     return null
   }
   let closed = false, inFlight = false, timer, unsubscribe, deadline, cooldownTimer
+  let currentRequestId = ''
   let version = -1, questionNumber = 0, completions = 0, completedQuestion = 0, lastText = ''
   const mic = source === 'system' ? { start: async () => {}, close: () => {} } : createMic({ api, ownsStream: false, getUserMedia: async () => stream })
   const close = () => {
@@ -56,12 +57,22 @@ export async function createGrpcAutoSession({ api, stream, source = 'microphone'
     if (next.questionsDetectedCount > questionNumber) {
       clearTimeout(cooldownTimer)
       questionNumber = next.questionsDetectedCount
+      currentRequestId = next.answerRequestId || ''
       lastText = ''
       onAnswer({ question: next.currentQuestion, answer: '', category: next.answerCategory,
         provider: next.answerProvider, status: 'generating', historyEntryId: `auto-grpc-${connected.manualRun}-${questionNumber}` })
       onPhase('generating')
       clearTimeout(deadline)
       deadline = setTimeout(fail, 95000)
+    }
+    if (next.answerFailureCode && next.answerRequestId && next.answerFailureRequestId === currentRequestId && questionNumber && completedQuestion !== questionNumber) {
+      completedQuestion = questionNumber
+      clearTimeout(deadline)
+      lastText = ''
+      onAnswer({ question: next.currentQuestion, answer: '', category: next.answerCategory,
+        provider: next.answerProvider, status: 'error', error: next.answerFailureCode,
+        requestId: next.answerRequestId, historyEntryId: `auto-grpc-${connected.manualRun}-${questionNumber}` })
+      onPhase('listening')
     }
     if (questionNumber && completedQuestion !== questionNumber && (next.currentAnswer !== lastText || next.answerCompletedCount > completions)) {
       const complete = next.answerCompletedCount > completions

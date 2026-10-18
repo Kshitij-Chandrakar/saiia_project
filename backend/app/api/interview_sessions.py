@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.auth.supabase_auth import CurrentUser, CurrentUserDep
 from app.cloud.interview_sessions import (
     CloudInterviewSessionConflictError,
+    CloudInterviewSessionModelStaleError,
     CloudInterviewSessionError,
     CloudInterviewSessionNotFoundError,
     CloudInterviewSessionRecord,
@@ -105,6 +106,7 @@ class InterviewSessionCreateRequest(BaseModel):
     target_role: str = ""
     company_name: str = ""
     job_description: str = ""
+    selected_model_key: str | None = None
 
 
 class InterviewSessionResponse(BaseModel):
@@ -118,6 +120,8 @@ class InterviewSessionResponse(BaseModel):
     target_role: str | None = None
     company_name: str | None = None
     job_description_preview: str | None = None
+    selected_model_key: str | None = None
+    model_selection_kind: str = "legacy"
 
 
 class InterviewSessionListResponse(BaseModel):
@@ -330,6 +334,8 @@ def _session_response(record: CloudInterviewSessionRecord) -> InterviewSessionRe
         target_role=record.target_role,
         company_name=record.company_name,
         job_description_preview=record.job_description_preview,
+        selected_model_key=getattr(record, "selected_model_key", None),
+        model_selection_kind="model_bound" if getattr(record, "selected_model_key", None) is not None else "legacy",
     )
 
 
@@ -444,6 +450,8 @@ def _handle_cloud_error(exc: Exception) -> HTTPException:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Supabase cloud configuration is not ready.",
         )
+    if isinstance(exc, CloudInterviewSessionModelStaleError):
+        return HTTPException(status_code=409, detail={"code": "model_selection_stale", "message": "Model choices changed. Choose a model again."})
     if isinstance(exc, CloudInterviewSessionValidationError):
         return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     if isinstance(exc, CloudInterviewSessionNotFoundError):
@@ -456,6 +464,14 @@ def _handle_cloud_error(exc: Exception) -> HTTPException:
         status_code=status.HTTP_502_BAD_GATEWAY,
         detail="Supabase cloud interview session operation failed.",
     )
+
+
+@router.get("/answer-models")
+def answer_models_catalog(current_user: CurrentUserDep):
+    from app.answer_models import model_catalog
+    from app.config import settings
+    from app.cloud.interview_sessions import model_admission_status
+    return {"items": model_catalog(settings), "admission": model_admission_status()}
 
 
 @router.get("", response_model=InterviewSessionListResponse)
@@ -487,12 +503,17 @@ def create_interview_session(
     current_user: CurrentUserDep,
     service: CloudInterviewSessionServiceDep,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    model_admission: Annotated[str | None, Header(alias="X-Session-Model-Admission")] = None,
 ) -> InterviewSessionCreateResponse:
     if not idempotency_key or not idempotency_key.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Idempotency-Key header is required.",
         )
+    if model_admission is not None:
+        from app.cloud.interview_sessions import model_admission_status
+        if model_admission not in ("legacy", "enabled") or model_admission != model_admission_status():
+            raise HTTPException(409, detail={"code": "model_selection_stale", "message": "Model availability changed. Restart setup or choose a model again."})
     try:
         result: CreateInterviewSessionResult = service.create_session(
             user_id=current_user.user_id,
@@ -511,7 +532,7 @@ def get_interview_session(
     service: CloudInterviewSessionServiceDep,
 ) -> InterviewSessionResponse:
     try:
-        record = service.get_session(user_id=current_user.user_id, session_id=str(session_id))
+        record = service.get_session(user_id=current_user.user_id, session_id=str(session_id), allow_model_bound=True)
     except Exception as exc:
         raise _handle_cloud_error(exc) from exc
     return _session_response(record)

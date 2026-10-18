@@ -306,3 +306,172 @@ test('actual preload routes authenticated manual streaming IPC and forwards delt
   assert.equal(h.values.setGenerationDiagnostics.generateStreamRequestSent, true)
   assert.equal(h.values.setGenerationDiagnostics.generateFallbackRequestSent, false)
 })
+
+test('HTTP fallback replacement cancels queued primary paint and ignores late attempt deltas', async () => {
+  const h = harness()
+  let paint, cancelled = 0
+  h.context.requestAnimationFrame = callback => { paint = callback; return 9 }
+  h.context.cancelAnimationFrame = () => { cancelled++ }
+  h.context.readNdjsonStream = async (_response, { onEvent }) => {
+    onEvent({ type: 'start', request_id: 'turn' })
+    onEvent({ type: 'delta', request_id: 'turn', attempt: 0, text: 'FAILED PRIMARY' })
+    onEvent({ type: 'replace', request_id: 'turn', attempt: 1, answer: '' })
+    onEvent({ type: 'delta', request_id: 'turn', attempt: 0, text: 'LATE' })
+    onEvent({ type: 'replace', request_id: 'turn', answer: 'Fallback final' })
+    onEvent({ type: 'metadata', request_id: 'turn', metadata: { answer: 'Fallback final' } })
+    onEvent({ type: 'done', request_id: 'turn' })
+    paint() // Even an already queued paint reads the replaced canonical accumulator.
+    return { sawDone: true }
+  }
+  await h.generate({ text: 'Explain REST' })
+  assert.equal(h.values.setAnswer, 'Fallback final')
+  assert.ok(cancelled > 0)
+})
+
+test('HTTP terminal generation failure clears provisional output and preserves Retry identity', async () => {
+  const h = harness()
+  h.context.failedAnswerTurnRef = { current: null }
+  h.context.readNdjsonStream = async (_response, { onEvent }) => {
+    onEvent({ type: 'start', request_id: 'logical-turn' })
+    onEvent({ type: 'delta', request_id: 'logical-turn', text: 'partial' })
+    onEvent({ type: 'error', request_id: 'logical-turn', error: 'generation_failed', message: 'Unable to generate an answer', retry_attempt: 2 })
+  }
+  await assert.rejects(h.generate({ text: 'Explain REST' }), /Unable to generate an answer/)
+  assert.equal(h.values.setAnswer, '')
+  assert.equal(h.context.failedAnswerTurnRef.current.body.request_id, 'logical-turn')
+  assert.equal(h.context.failedAnswerTurnRef.current.body.retry_attempt, 3)
+  assert.equal(h.context.failedAnswerTurnRef.current.body.recover_turn, true)
+  assert.equal(h.values.setGenerationDiagnostics.answerRetryAvailable, true)
+})
+
+test('uncertain persistence clears provisional output without offering regeneration Retry', async () => {
+  const h = harness()
+  h.context.failedAnswerTurnRef = { current: { body: {} } }
+  h.context.readNdjsonStream = async (_response, { onEvent }) => {
+    onEvent({ type: 'start', request_id: 'uncertain-turn' })
+    onEvent({ type: 'delta', request_id: 'uncertain-turn', text: 'partial' })
+    onEvent({ type: 'error', request_id: 'uncertain-turn', error: 'generation_uncertain' })
+  }
+  await assert.rejects(h.generate({ text: 'Explain REST' }), /could not be confirmed/)
+  assert.equal(h.values.setAnswer, '')
+  assert.equal(h.context.failedAnswerTurnRef.current, null)
+  assert.equal(h.values.setGenerationDiagnostics.answerRetryAvailable, false)
+})
+
+test('actual Retry action keeps logical identity, updates existing history and suppresses double clicks', async () => {
+  const history = await import('./question_history.js')
+  const branch = source.slice(source.indexOf("        if (action === 'generation-retry') {"), source.indexOf("        if (action === 'cloud-session-ended') {"))
+  let state = history.appendQuestionHistoryEntry(history.createQuestionHistoryState(), history.createQuestionHistoryEntry({
+    id: 'history-one', mode: 'answer', requestId: 'old-ui', question: 'Explain REST', status: 'error',
+  }))
+  let resolve, calls = 0
+  const failed = { body: { request_id: 'logical-turn', retry_attempt: 1, recover_turn: true }, historyMode: 'answer', historyEntryId: 'history-one' }
+  const context = {
+    action: 'generation-retry', failedAnswerTurnRef: { current: failed }, latestGenerationRequestIdRef: { current: 'old-ui' },
+    activeGenerateAbortControllerRef: { current: null },
+    isManualGenerating: false, autoProcessing: false, Date, Math,
+    isCurrentRequest: (a,b) => a === b, updateQuestionHistoryEntry: history.updateQuestionHistoryEntry,
+    setQuestionHistoryState: update => { state = update(state) },
+    setIsManualGenerating() {}, setError() {}, setGenerationDiagnostics() {}, setProvider() {},
+    streamGenerateAnswer: options => {
+      calls++
+      assert.equal(options.body.request_id, 'logical-turn')
+      assert.equal(options.body.retry_attempt, 1)
+      return new Promise(done => { resolve = done })
+    },
+  }
+  const run = vm.runInNewContext(`(async () => { ${branch} })`, context)
+  const pending = run()
+  await run()
+  assert.equal(calls, 1)
+  resolve({ answer: 'Recovered final', provider: 'groq', model: 'openai/gpt-oss-120b' })
+  await pending
+  assert.equal(state.answer.entries.length, 1)
+  assert.equal(state.answer.entries[0].status, 'complete')
+  assert.equal(state.answer.entries[0].fullAnswer, 'Recovered final')
+  assert.equal(context.failedAnswerTurnRef.current, null)
+})
+
+for (const scenario of ['processing', 'stream-start', 'transport', 'abort', 'abort-error', 'new-request',
+  'replaced-turn', 'cleared-turn', 'logout', 'session-end', 'auth-expired', 'forbidden', 'success', 'auth-race',
+  'generation_uncertain', 'generation_failed', 'persistence_unavailable']) {
+  test(`Retry availability is fenced for ${scenario}`, async () => {
+    const branch = source.slice(source.indexOf("        if (action === 'generation-retry') {"), source.indexOf("        if (action === 'cloud-session-ended') {"))
+    const body = Object.freeze({ session_id: 'session-one', request_id: 'logical-turn', retry_attempt: 2, recover_turn: true })
+    const failed = { body }
+    const controller = new AbortController()
+    let reject, resolve, resolveAuth, calls = 0, displayedError = ''
+    let auth = { auth: { status: 'connected', endedInterviewSessionIds: [] }, cloud: { available: true } }
+    let diagnostics = { answerRetryAvailable: true }
+    const context = {
+      action: 'generation-retry', Date, Math, isManualGenerating: false, autoProcessing: false,
+      failedAnswerTurnRef: { current: failed }, latestGenerationRequestIdRef: { current: 'old-ui' },
+      activeGenerateAbortControllerRef: { current: null }, generationDiagnosticsRef: { current: {} },
+      startupSessionConfigRef: { current: { activeSessionId: 'session-one', activeSessionStatus: 'active' } },
+      window: { saiia: { getCloudStartupContext: () => scenario === 'auth-race'
+        ? new Promise(done => { resolveAuth = done }) : Promise.resolve(auth) } },
+      isCurrentRequest: (a,b) => a === b,
+      setGenerationDiagnostics: update => { diagnostics = update(diagnostics) },
+      setIsManualGenerating() {}, setError(value) { displayedError = value }, setProvider() {},
+      streamGenerateAnswer: options => {
+        calls++
+        assert.equal(options.body, body)
+        context.activeGenerateAbortControllerRef.current = controller
+        return new Promise((done, fail) => { resolve = done; reject = fail })
+      },
+    }
+    const run = vm.runInNewContext(`(async () => { ${branch} })`, context)
+    const pending = run()
+    assert.equal(diagnostics.answerRetryAvailable, false)
+    const error = Object.assign(new Error('transport interrupted'), scenario === 'processing'
+      ? { status: 409, code: 'generation_processing' } : scenario === 'stream-start' ? { status: 503 }
+        : scenario === 'forbidden' ? { status: 403 } : scenario === 'abort-error' ? { name: 'AbortError' } : {})
+    if (scenario === 'abort') controller.abort()
+    if (scenario === 'new-request') context.latestGenerationRequestIdRef.current = 'new-ui'
+    if (scenario === 'replaced-turn') context.failedAnswerTurnRef.current = { body }
+    if (scenario === 'cleared-turn' || scenario === 'logout') context.failedAnswerTurnRef.current = null
+    if (scenario === 'logout' || scenario === 'auth-expired') auth.auth.status = 'signed_out'
+    if (scenario === 'logout') context.startupSessionConfigRef.current = null
+    if (scenario === 'generation_uncertain') {
+      context.failedAnswerTurnRef.current = null
+      error.code = scenario
+      error.message = 'The previous answer could not be confirmed. Submit a new question to continue.'
+    }
+    if (['generation_failed', 'persistence_unavailable'].includes(scenario)) {
+      context.failedAnswerTurnRef.current = { body: { ...body, retry_attempt: body.retry_attempt + (scenario === 'generation_failed' ? 1 : 0) } }
+      diagnostics.answerRetryAvailable = true
+      error.code = scenario
+      error.message = 'Unable to generate an answer'
+    }
+    if (scenario === 'session-end') context.generationDiagnosticsRef.current.activeSessionEnded = true
+    if (scenario === 'success') resolve({ answer: 'Final answer', provider: 'groq' })
+    else reject(error)
+    if (scenario === 'auth-race') {
+      await new Promise(done => setImmediate(done))
+      assert.equal(typeof resolveAuth, 'function')
+      context.failedAnswerTurnRef.current = { body }
+      resolveAuth(auth)
+    }
+    await pending
+    assert.equal(diagnostics.answerRetryAvailable, ['processing', 'stream-start', 'transport', 'generation_failed', 'persistence_unavailable'].includes(scenario))
+    assert.equal(displayedError, ['abort', 'abort-error', 'new-request', 'logout', 'session-end', 'success'].includes(scenario) ? '' : error.message)
+    if (['generation_failed', 'persistence_unavailable'].includes(scenario)) {
+      assert.notEqual(context.failedAnswerTurnRef.current, failed)
+      assert.equal(context.failedAnswerTurnRef.current.body.retry_attempt, scenario === 'generation_failed' ? 3 : 2)
+      assert.equal(context.failedAnswerTurnRef.current.body.recover_turn, true)
+    }
+    assert.equal(calls, 1) // No automatic retry.
+    assert.equal(failed.body, body)
+    assert.equal(body.request_id, 'logical-turn')
+    assert.equal(body.retry_attempt, 2)
+    assert.equal(body.recover_turn, true)
+    assert.equal(failed.retrying, false)
+    if (scenario === 'success') assert.equal(context.failedAnswerTurnRef.current, null)
+  })
+}
+
+test('actual stream-start rejection preserves generation_processing classification', async () => {
+  const h = authenticatedStreamHarness()
+  h.context.window.saiia.startAnswerStream = async () => ({ ok: false, status: 409, code: 'generation_processing' })
+  await assert.rejects(manualStop(h), error => error.status === 409 && error.code === 'generation_processing')
+})
