@@ -2108,6 +2108,7 @@ ipcMain.handle('generate:answer:stream:start', async (event, body) => {
         ok: false,
         status: Number.isInteger(opened?.status) ? opened.status : 502,
         reason: opened?.reason || 'generation-failed',
+        ...(opened?.code === 'generation_processing' ? { code: 'generation_processing' } : {}),
         generateRequestSent: Boolean(opened?.generateRequestSent),
       }
     }

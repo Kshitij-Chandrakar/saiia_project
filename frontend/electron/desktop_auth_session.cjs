@@ -1204,8 +1204,16 @@ class DesktopAuthSessionManager {
         return { ok: false, status: 401, reason: 'auth-expired' }
       }
       if (!response.ok) {
+        let code
+        if (response.status === 409) {
+          try {
+            const payload = await response.json()
+            if (payload?.detail?.code === 'generation_processing') code = 'generation_processing'
+          } catch { /* Retain the HTTP failure without exposing its body. */ }
+        }
         return {
           ok: false,
+          ...(code ? { code } : {}),
           status: response.status || 502,
           reason: response.status === 404 || response.status === 501 ? 'stream-unavailable' : 'generation-failed',
         }

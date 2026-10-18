@@ -16,6 +16,23 @@ const {
   createIpcSenderValidator,
 } = require('../electron/desktop_auth_session.cjs')
 
+for (const code of ['generation_processing', 'private-provider-detail']) {
+  test(`openAnswerStream exposes only safe processing conflict code: ${code}`, async () => {
+    const ctx = createManager({ fetchImpl: async url => {
+      if (url.endsWith('/api/auth/me')) return jsonResponse(200, { user_id: 'user-1' })
+      if (url.endsWith('/api/auth/profile/bootstrap')) return jsonResponse(200, { ok: true })
+      return jsonResponse(409, { detail: { code, message: 'PRIVATE' } })
+    } })
+    try {
+      ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+      const result = await ctx.manager.openAnswerStream({ request_id: 'turn', question: 'Question', category: 'technical', session_id: 'session-one' })
+      assert.equal(result.status, 409)
+      assert.equal(result.code, code === 'generation_processing' ? code : undefined)
+      assert.doesNotMatch(JSON.stringify(result), /PRIVATE|private-provider-detail|access-token/)
+    } finally { ctx.cleanup() }
+  })
+}
+
 function jsonResponse(status, payload = {}) {
   return {
     ok: status >= 200 && status < 300,

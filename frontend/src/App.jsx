@@ -1825,9 +1825,9 @@ function MainWindow() {
             } else if (started?.reason === 'canceled') {
               throw abortError()
             } else {
-              throw new Error([401, 403].includes(started?.status)
+              throw Object.assign(new Error([401, 403].includes(started?.status)
                 ? 'Sign in again to use cloud context, or clear cloud selections.'
-                : 'Could not generate an answer right now.')
+                : 'Could not generate an answer right now.'), { status: started?.status, code: started?.code })
             }
           } finally {
             if (
@@ -6302,9 +6302,12 @@ function MainWindow() {
           setIsManualGenerating(true)
           setError('')
           setGenerationDiagnostics(current => ({ ...current, answerRetryAvailable: false }))
+          let retryController = null
           try {
-            const result = await streamGenerateAnswer({ ...failed, requestId: retryUiId })
-            if (!isCurrentRequest(latestGenerationRequestIdRef.current, retryUiId)) return
+            const pending = streamGenerateAnswer({ ...failed, requestId: retryUiId })
+            retryController = activeGenerateAbortControllerRef.current
+            const result = await pending
+            if (!isCurrentRequest(latestGenerationRequestIdRef.current, retryUiId) || failedAnswerTurnRef.current !== failed || retryController?.signal.aborted) return
             if (failed.historyMode && failed.historyEntryId) setQuestionHistoryState(current => updateQuestionHistoryEntry(
               current, failed.historyMode, failed.historyEntryId,
               { status: 'complete', fullAnswer: result.answer, displayedAnswer: result.answer, provider: result.provider,
@@ -6312,7 +6315,33 @@ function MainWindow() {
             setProvider(result.provider)
             failedAnswerTurnRef.current = null
           } catch (error) {
-            if (isCurrentRequest(latestGenerationRequestIdRef.current, retryUiId)) setError(error.message || 'Unable to generate an answer')
+            const stillCurrent = () => isCurrentRequest(latestGenerationRequestIdRef.current, retryUiId) &&
+              failedAnswerTurnRef.current === failed && !retryController?.signal.aborted && error?.name !== 'AbortError'
+            const sessionPermitsRetry = () => !generationDiagnosticsRef.current.activeSessionEnded &&
+              (!failed.body.session_id || (startupSessionConfigRef.current?.activeSessionId === failed.body.session_id &&
+                !['ended', 'abandoned'].includes(startupSessionConfigRef.current?.activeSessionStatus)))
+            const status = Number(error?.status ?? error?.status_code ?? 0)
+            const recoverable = ![401, 403, 499].includes(status) && (error?.code === 'generation_processing' ||
+              ((!error?.code || ['stream_error', 'stream_interrupted', 'stream_incomplete'].includes(error.code)) &&
+                [0, 404, 408, 429, 500, 501, 502, 503, 504].includes(status)))
+            if (stillCurrent()) {
+              setError(error.message || 'Unable to generate an answer')
+              if (recoverable && sessionPermitsRetry()) {
+                const cloudRequired = Boolean(failed.body.session_id || failed.body.selected_resume_id || failed.body.job_context_id)
+                let authPermitsRetry = !cloudRequired
+                if (cloudRequired) {
+                  try {
+                    const state = await window.saiia?.getCloudStartupContext?.()
+                    authPermitsRetry = state?.auth?.status === 'connected' && state?.cloud?.available === true &&
+                      !state.auth.endedInterviewSessionIds?.includes(failed.body.session_id)
+                  } catch { /* Unknown auth state must not enable cloud Retry. */ }
+                }
+                if (authPermitsRetry && stillCurrent() && sessionPermitsRetry()) {
+                  setGenerationDiagnostics(current => stillCurrent() && sessionPermitsRetry()
+                    ? { ...current, answerRetryAvailable: true } : current)
+                }
+              }
+            }
           } finally {
             failed.retrying = false
             if (isCurrentRequest(latestGenerationRequestIdRef.current, retryUiId)) setIsManualGenerating(false)
