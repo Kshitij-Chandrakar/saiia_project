@@ -100,6 +100,10 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
         generation_active = False
         stable_partial = None
         stable_partial_key = None
+        answer_version = 0
+        accepted_turn = 0
+        current_answer_request = ''
+        answer_identity = {}
 
         def event(request_id, kind, payload):
             nonlocal sequence
@@ -107,7 +111,11 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             return pb.InterviewServerEvent(
                 session_id=session_id or "", request_id=request_id,
                 sequence_number=sequence, timestamp_ms=int(time.time() * 1000),
-                provider=(getattr(payload, "provider", "") or ("assemblyai_streaming" if stt_enabled else "none")), **{kind: payload})
+                provider=(getattr(payload, "provider", "") or ("assemblyai_streaming" if stt_enabled else "none")),
+                **({'answer_identity': pb.AnswerIdentity(**answer_identity)}
+                   if answer_version and request_id == current_answer_request and
+                   kind in ('question_detected', 'answer_started', 'answer_delta', 'answer_replaced', 'answer_completed', 'answer_error') else {}),
+                **{kind: payload})
 
         async def emit(request_id, kind, payload):
             if audio_source == 'system':
@@ -137,7 +145,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             await intake_status()
 
         async def answer_worker():
-            nonlocal auto_cooldown_until, generation_active
+            nonlocal auto_cooldown_until, generation_active, accepted_turn, current_answer_request, answer_identity
             from app.grpc_answer_pipeline import stream_question_answer
             while True:
                 text, request_id, fingerprint, turn, is_final = await questions.get()
@@ -151,8 +159,9 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         text, request_id, fingerprint, turn, is_final = questions.get_nowait()
                     await emit(request_id, "status", pb.Status(code="auto_listening"))
                 logical_turn_id = str(uuid.uuid4())
-                if cloud_context and settings.ENABLE_SESSION_ANSWER_MODELS:
-                    request_id = logical_turn_id
+                request_id = current_answer_request = logical_turn_id
+                accepted_turn += 1
+                answer_identity = dict(retry_attempt=0, provider_attempt=0, display_revision=0, accepted_turn=accepted_turn)
                 generation_active = True
                 intake['pending_question'] = False
                 intake['pending_reason'] = ''
@@ -166,12 +175,27 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                     answer = ""
                     category = provider = ""
                     question_seen = completed = False
-                    pipeline_call = (stream_question_answer(text, cloud_context=cloud_context, logical_turn_id=logical_turn_id)
+                    pipeline_call = (stream_question_answer(text, cloud_context=cloud_context, logical_turn_id=logical_turn_id, incremental=True)
+                        if answer_version else stream_question_answer(text, cloud_context=cloud_context, logical_turn_id=logical_turn_id)
                         if cloud_context and settings.ENABLE_SESSION_ANSWER_MODELS else
                         stream_question_answer(text, cloud_context=cloud_context) if cloud_context else stream_question_answer(text))
                     async with aclosing(pipeline_call) as pipeline:
                         async for item in pipeline:
                             kind = item.get("type")
+                            if completed:
+                                continue
+                            if answer_version:
+                                attempt = item.get('attempt', answer_identity['provider_attempt'])
+                                revision = item.get('revision', answer_identity['display_revision'])
+                                retry = item.get('retry_attempt', answer_identity['retry_attempt'])
+                                if (retry != answer_identity['retry_attempt'] or
+                                    attempt < answer_identity['provider_attempt'] or revision < answer_identity['display_revision']):
+                                    continue
+                                if kind == 'delta' and (attempt, revision) != (answer_identity['provider_attempt'], answer_identity['display_revision']):
+                                    continue  # only replacement opens another display revision
+                                if kind == 'replacement' and revision <= answer_identity['display_revision']:
+                                    continue
+                                answer_identity.update(provider_attempt=attempt, display_revision=revision)
                             category = item.get("category") or category
                             provider = item.get("provider") or provider
                             if kind == "rejected":
@@ -180,6 +204,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                             elif kind == "save_status":
                                 await emit(request_id, "status", pb.Status(code=item["code"]))
                             elif kind == "question":
+                                if question_seen:
+                                    continue
                                 question_seen = True
                                 await emit(request_id, "question_detected", pb.TextEvent(text=item["text"], category=category))
                             elif kind == "started":
@@ -190,10 +216,12 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                                 if len(answer) > 262144:
                                     raise RuntimeError("Answer limit exceeded.")
                                 await emit(request_id, "answer_delta", pb.TextEvent(text=delta, category=category, provider=provider))
-                            elif kind in ("replacement", "result") and item.get("text"):
-                                answer = str(item["text"])
+                            elif kind in ("replacement", "result") and (answer_version or item.get("text")):
+                                answer = str(item.get("text") or '')
                                 if len(answer) > 262144:
                                     raise RuntimeError("Answer limit exceeded.")
+                                if answer_version and kind == 'replacement':
+                                    await emit(request_id, 'answer_replaced', pb.TextEvent(text=answer, category=category, provider=provider))
                             elif kind == "completed":
                                 if not answer.strip():
                                     raise RuntimeError("Empty answer.")
@@ -555,7 +583,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 await asyncio.gather(answer_task, return_exceptions=True)
 
         async def process_requests():
-            nonlocal system_owned, audio_source, cloud_context, auto_mode, manual_mode, manual_stopped, session_id, total_chunks, total_audio_bytes, last_request_id, stopping_stt, stt_chunks, stt_bytes, non_silent_chunks
+            nonlocal system_owned, audio_source, cloud_context, auto_mode, manual_mode, manual_stopped, session_id, total_chunks, total_audio_bytes, last_request_id, stopping_stt, stt_chunks, stt_bytes, non_silent_chunks, answer_version
             canceled = False
             try:
                 async for request in request_iterator:
@@ -618,6 +646,12 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                             # Electron bounds startup and cancels this wait on Stop/disconnect.
                             await self._system_owner.acquire()
                             system_owned = True
+                        # Negotiate before opening STT: a provider can immediately
+                        # publish a question during startup. Ack must precede it.
+                        answer_version = 1 if (start.answer_stream_version == 1 and answer_enabled and
+                                               cloud_context and settings.ENABLE_SESSION_ANSWER_MODELS) else 0
+                        if answer_version:
+                            await emit(request.request_id, 'answer_stream_capabilities', pb.AnswerStreamCapabilities(version=answer_version))
                         if stt_enabled:
                             await open_stt()
                         if audio_source in ('system', 'both'):
@@ -728,13 +762,28 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                     break
                 yield value
         finally:
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
-            # Disconnect must fence generation/persistence before a slow native
-            # release. The capture lease still remains held until close succeeds.
-            await stop_answers()
-            await close_system_capture()
-            await close_stt()
+            async def cleanup():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                # Fence answers before existing ordered audio cleanup.
+                await stop_answers()
+                await close_system_capture()
+                await close_stt()
+            if answer_version:
+                # gRPC may cancel again while closing a suspended response
+                # iterator. Do not orphan the answer worker in that window.
+                closing = asyncio.create_task(cleanup())
+                cancelled = False
+                while not closing.done():
+                    try:
+                        await asyncio.shield(closing)
+                    except asyncio.CancelledError:
+                        cancelled = True
+                closing.result()
+                if cancelled:
+                    raise asyncio.CancelledError()
+            else:
+                await cleanup()
 
 
 async def start_server(host="127.0.0.1", port=50051, max_message_mb=4):

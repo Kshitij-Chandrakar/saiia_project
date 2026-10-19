@@ -22,6 +22,8 @@ message StartSession {
   string selected_resume_id = 4;
   string selected_job_context_id = 5;
   bool cloud_context_requested = 6;
+  // Opt-in version 1; absence or an unsupported version retains legacy delivery.
+  uint32 answer_stream_version = 7;
 }
 message AudioChunk {
   bytes audio = 1;
@@ -97,6 +99,13 @@ message Status {
 }
 message TextEvent { string text = 1; string category = 2; string provider = 3; }
 message ErrorEvent { string code = 1; string message = 2; }
+message AnswerStreamCapabilities { uint32 version = 1; }
+message AnswerIdentity {
+  uint32 retry_attempt = 1;
+  uint32 provider_attempt = 2;
+  uint64 display_revision = 3;
+  uint64 accepted_turn = 4;
+}
 
 message InterviewClientEvent {
   string session_id = 1;
@@ -120,6 +129,8 @@ message InterviewServerEvent {
   uint64 sequence_number = 3;
   uint64 timestamp_ms = 4;
   string provider = 5;
+  // Only populated after answer_stream_capabilities.version == 1.
+  AnswerIdentity answer_identity = 6;
   oneof event {
     Empty ready = 10;
     Status status = 11;
@@ -133,5 +144,7 @@ message InterviewServerEvent {
     TextEvent answer_started = 19;
     TextEvent answer_completed = 20;
     ErrorEvent answer_error = 21;
+    AnswerStreamCapabilities answer_stream_capabilities = 22;
+    TextEvent answer_replaced = 23;
   }
 }

@@ -67,7 +67,7 @@ async def detect_intake_question(text, allow_topics=False):
         _private_pipeline.reset(token)
 
 
-async def stream_question_answer(transcript, cloud_context=None, logical_turn_id=None):
+async def stream_question_answer(transcript, cloud_context=None, logical_turn_id=None, incremental=False):
     # Existing provider error logs may contain upstream content. Suppress records
     # only in this task (and its context-propagating AnyIO workers), never globally.
     token = _private_pipeline.set(True)
@@ -92,10 +92,17 @@ async def stream_question_answer(transcript, cloud_context=None, logical_turn_id
         if managed:
             fields.update(session_id=cloud_context.session_id, request_id=logical_turn_id,
                 followup_mode='answer', followup_context=getattr(cloud_context, '_answer_history', [])[-5:])
+        if incremental and logical_turn_id:
+            fields.setdefault('request_id', logical_turn_id)
         try:
-            response = await generate_answer_stream(GenerateRequest(
-                question=question, category=category, source="auto" if cloud_context else "audio", **fields),
-                **({"request": cloud_context.request} if cloud_context else {}))
+            from app.answer_streaming import incremental_answers
+            policy = incremental_answers.set(incremental)
+            try:
+                response = await generate_answer_stream(GenerateRequest(
+                    question=question, category=category, source="auto" if cloud_context else "audio", **fields),
+                    **({"request": cloud_context.request} if cloud_context else {}))
+            finally:
+                incremental_answers.reset(policy)
         except Exception as exc:
             from fastapi import HTTPException
             if managed and isinstance(exc, HTTPException) and isinstance(exc.detail, dict):
@@ -105,24 +112,54 @@ async def stream_question_answer(transcript, cloud_context=None, logical_turn_id
         answer = ""
         model = provider = "unknown"
         completed = False
+        identity = dict(attempt=0, revision=0, retry_attempt=0) if incremental else {}
+        last_sequence = -1
         async for line in response.body_iterator:
             item = json.loads(line)
             kind = item.get("type")
+            if completed:
+                continue
+            if incremental:
+                if logical_turn_id and item.get('request_id') and item['request_id'] != logical_turn_id:
+                    continue
+                sequence = item.get('sequence')
+                if type(sequence) is not int or sequence < 0:
+                    raise RuntimeError('Invalid answer sequence.')
+                if sequence <= last_sequence:
+                    continue
+                if sequence != last_sequence + 1:
+                    raise RuntimeError('Answer event missing.')
+                last_sequence = sequence
+                incoming = {key: item.get(key, identity[key]) for key in identity}
+                if kind == 'replace' and 'revision' not in item:
+                    incoming['revision'] = identity['revision'] + 1
+                if any(type(value) is not int or value < 0 for value in incoming.values()):
+                    raise RuntimeError('Invalid answer identity.')
+                if kind != 'start':
+                    if (incoming['retry_attempt'] != identity['retry_attempt'] or
+                        incoming['attempt'] < identity['attempt'] or incoming['revision'] < identity['revision']):
+                        continue
+                    if kind == 'replace':
+                        if incoming['revision'] <= identity['revision']:
+                            continue
+                    elif incoming != identity:
+                        continue  # only an explicit replacement can open a revision
+                identity = incoming
             if kind == "start":
-                yield {"type": "started", "category": category, "provider": item.get("provider", "")}
+                yield {"type": "started", "category": category, "provider": item.get("provider", ""), **identity}
             elif kind == "delta":
                 answer += str(item.get("text") or "")
-                yield {"type": "delta", "text": item.get("text", ""), "category": category}
+                yield {"type": "delta", "text": item.get("text", ""), "category": category, **identity}
             elif kind == "replace":
                 answer = str(item.get("answer") or "")
-                yield {"type": "replacement", "text": item.get("answer", ""), "category": category}
+                yield {"type": "replacement", "text": item.get("answer", ""), "category": category, **identity}
             elif kind == "metadata":
                 metadata = item.get("metadata") or {}
                 answer = metadata.get("answer") or answer
                 model = metadata.get("model") or model
                 provider = metadata.get("provider") or provider
                 yield {"type": "result", "text": metadata.get("answer", ""),
-                       "category": category, "provider": metadata.get("provider", "")}
+                       "category": category, "provider": metadata.get("provider", ""), **identity}
             elif kind == "error":
                 from app.answer_generation import GenerationFailure, GenerationStopped
                 if item.get('error') == 'generation_stopped':
@@ -153,7 +190,7 @@ async def stream_question_answer(transcript, cloud_context=None, logical_turn_id
                     history = getattr(cloud_context, '_answer_history', [])
                     cloud_context._answer_history = (history + [dict(entry_id=logical_turn_id, mode='answer', question=question[:8000],
                         answer_excerpt=answer[:12000], category=category, created_at=time.time())])[-5:]
-                yield {"type": "completed", "category": category}
+                yield {"type": "completed", "category": category, **identity}
     finally:
         try:
             if response is not None:

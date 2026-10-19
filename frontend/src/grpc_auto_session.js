@@ -39,7 +39,7 @@ export async function createGrpcAutoSession({ api, stream, source = 'microphone'
     return null
   }
   let closed = false, inFlight = false, timer, unsubscribe, deadline, cooldownTimer, cleanupPromise
-  let currentRequestId = ''
+  let currentRequestId = '', lastRevision = '', activeIdentity = null
   let version = -1, questionNumber = 0, completions = 0, completedQuestion = 0, lastText = ''
   let committed = false, audioSent = source !== 'microphone', potentialCommit = false
   const trackListeners = []
@@ -82,6 +82,22 @@ export async function createGrpcAutoSession({ api, stream, source = 'microphone'
   const apply = next => {
     if (closed || !isCurrent()) return
     if (next.manualRun !== connected.manualRun || next.autoEventVersion < version) return
+    // Connection/auth can change without another answer publication.
+    if (!canContinue() || next.connectionStatus !== 'connected' || next.lastErrorMessage) { fail(next); return }
+    if (next.autoEventVersion === version) return
+    if (next.answerStreamVersion === 1 && next.questionsDetectedCount) {
+      const identity = next.answerStreamIdentity
+      if (!identity || identity.run !== connected.manualRun || identity.requestId !== next.answerRequestId ||
+          !['accepted_turn', 'display_revision', 'retry_attempt', 'provider_attempt'].every(key =>
+            /^(0|[1-9][0-9]{0,19})$/.test(identity[key]) && BigInt(identity[key]) < (1n << BigInt(key.endsWith('attempt') ? 32 : 64))) || identity.accepted_turn === '0') return
+      if (activeIdentity && (identity.epoch !== activeIdentity.epoch || identity.sessionId !== activeIdentity.sessionId ||
+          BigInt(identity.accepted_turn) < BigInt(activeIdentity.accepted_turn) ||
+          (identity.accepted_turn === activeIdentity.accepted_turn && (identity.requestId !== activeIdentity.requestId ||
+            identity.retry_attempt !== activeIdentity.retry_attempt ||
+            BigInt(identity.display_revision) < BigInt(activeIdentity.display_revision) ||
+            (activeIdentity.terminal && !identity.terminal))))) return
+      activeIdentity = identity
+    }
     if (!canContinue()) { fail(next); return }
     onCloudStatus(next)
     audioSent ||= Boolean(next.grpc_audio_sent || next.audioChunksSent)
@@ -98,8 +114,8 @@ export async function createGrpcAutoSession({ api, stream, source = 'microphone'
       questionNumber = next.questionsDetectedCount
       currentRequestId = next.answerRequestId || ''
       lastText = ''
-      onAnswer({ question: next.currentQuestion, answer: '', category: next.answerCategory,
-        provider: next.answerProvider, status: 'generating', historyEntryId: `auto-grpc-${connected.manualRun}-${questionNumber}` })
+      onAnswer({ streamIdentity: next.answerStreamIdentity, requestId: next.answerRequestId, question: next.currentQuestion, answer: '', category: next.answerCategory,
+        provider: next.answerProvider, status: 'generating', historyEntryId: `auto-grpc-${connected.manualRun}-${next.answerStreamVersion === 1 && next.answerRequestId ? next.answerRequestId : questionNumber}` })
       onPhase('generating')
       clearTimeout(deadline)
       deadline = setTimeout(() => fail(), 95000)
@@ -108,18 +124,20 @@ export async function createGrpcAutoSession({ api, stream, source = 'microphone'
       completedQuestion = questionNumber
       clearTimeout(deadline)
       lastText = ''
-      onAnswer({ question: next.currentQuestion, answer: '', category: next.answerCategory,
+      onAnswer({ streamIdentity: next.answerStreamIdentity, requestId: next.answerRequestId, question: next.currentQuestion, answer: '', category: next.answerCategory,
         provider: next.answerProvider, status: 'error', error: next.answerFailureCode,
-        requestId: next.answerRequestId, historyEntryId: `auto-grpc-${connected.manualRun}-${questionNumber}` })
+        historyEntryId: `auto-grpc-${connected.manualRun}-${next.answerStreamVersion === 1 && next.answerRequestId ? next.answerRequestId : questionNumber}` })
       onPhase('listening')
     }
-    if (questionNumber && completedQuestion !== questionNumber && (next.currentAnswer !== lastText || next.answerCompletedCount > completions)) {
-      const complete = next.answerCompletedCount > completions
+    const complete = next.answerStreamVersion === 1 ? next.lastAnswerStatus === 'answer_completed' : next.answerCompletedCount > completions
+    const revision = next.answerStreamIdentity?.display_revision || ''
+    if (questionNumber && completedQuestion !== questionNumber && (next.currentAnswer !== lastText || complete || revision !== lastRevision)) {
+      lastRevision = revision
       lastText = next.currentAnswer || ''
-      onAnswer({ question: next.currentQuestion, answer: lastText,
+      onAnswer({ streamIdentity: next.answerStreamIdentity, requestId: next.answerRequestId, question: next.currentQuestion, answer: lastText,
         category: next.answerCategory, provider: next.answerProvider,
         status: complete ? 'complete' : 'generating',
-        historyEntryId: `auto-grpc-${connected.manualRun}-${questionNumber}` })
+        historyEntryId: `auto-grpc-${connected.manualRun}-${next.answerStreamVersion === 1 && next.answerRequestId ? next.answerRequestId : questionNumber}` })
       if (complete) {
         completedQuestion = questionNumber
         completions = next.answerCompletedCount; clearTimeout(deadline); onPhase('cooldown')
@@ -138,6 +156,7 @@ export async function createGrpcAutoSession({ api, stream, source = 'microphone'
     }
   }
   unsubscribe = api.onGrpcAutoEvent?.(apply)
+  if (connected.questionsDetectedCount) apply(connected)
   try { if (!closed) await mic.start() } catch {
     // Capture creation/resume can fail after queued PCM has already reached main.
     let next
@@ -146,7 +165,7 @@ export async function createGrpcAutoSession({ api, stream, source = 'microphone'
     return { close, stop: close, failed: true }
   }
   if (closed || !isCurrent()) { close(); return { close, stop: close, failed: true } }
-  onPhase('listening')
+  if (!questionNumber) onPhase('listening')
   timer = setInterval(async () => {
     if (closed || inFlight) return
     if (!isCurrent()) { close(); return }

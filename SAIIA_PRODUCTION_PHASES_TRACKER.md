@@ -2376,3 +2376,13 @@ Implemented the Resend marketing adapter with default dry-run/offline provider b
 Live sending requires `MARKETING_EMAILS_ENABLED=true`, `EMAIL_PROVIDER_MODE=live`, secure backend `RESEND_API_KEY`, verified consent/unsubscribe and public routes, sender readiness and a reply-to decision. Support receiving is deferred because GoDaddy mailbox/forwarding requires paid setup; omit reply-to until a receiving mailbox exists. Supabase Auth SMTP is not used for marketing. Details: `docs/C10_EMAIL_SYSTEM_PLAN.md`. Campaign execution is not enabled by this foundation.
 
 C10.7A claim RPC ambiguity: forward fix `20260924120000_fix_outbound_email_event_claim_ambiguous_user_id.sql` added locally; remote application and PostgreSQL execution verification remain pending. Existing allowlist, consent rules, idempotency and deferred CHECK validation are preserved. No live smoke was executed by this fix. Details: `docs/C10_EMAIL_SYSTEM_PLAN.md`.
+
+
+## Incremental gRPC answer streaming closeout ? 2026-10-20
+
+Negotiated session answer streaming now includes real primary/fallback deltas,
+empty resets, authoritative validated completion, and fenced Electron/React/overlay
+consumers for Mic, Computer and Both. Unmanaged/no-ack clients retain documented
+legacy delivery. See `docs/ANSWER_STREAMING_CLOSEOUT.md` for exact isolated
+verification, user-reported manual acceptance, compatibility and limitations.
+The recovery-hardening migration remains paused; no hosted readiness is inferred.

@@ -1,3 +1,4 @@
+import { mergeOverlaySnapshot } from './overlay_snapshot.js'
 import WebsiteNotFound, { WebsiteRouteHistory } from './WebsiteNotFound'
 import { createGrpcAutoSession, getGrpcAutoBlockReason } from './grpc_auto_session.js'
 import { selectRealtimeRoute, realtimeRouteDiagnostics, AUTH_BLOCKS } from './realtime_router.js'
@@ -1048,26 +1049,26 @@ function OverlayWindow() {
   })
 
   useEffect(() => {
-    let unsubscribe = null
+    let unsubscribe = null, disposed = false
 
     async function loadInitialState() {
       if (!window.electronAPI?.getOverlayState) {
         return
       }
 
-      const initialState = await window.electronAPI.getOverlayState()
-      setOverlayState((current) => ({ ...current, ...initialState }))
-
       if (window.electronAPI?.onOverlayState) {
-        unsubscribe = window.electronAPI.onOverlayState((nextState) => {
-          setOverlayState((current) => ({ ...current, ...nextState }))
+        unsubscribe = window.electronAPI.onOverlayState(nextState => {
+          if (!disposed) setOverlayState(current => mergeOverlaySnapshot(current, nextState))
         })
       }
+      const initialState = await window.electronAPI.getOverlayState()
+      if (!disposed) setOverlayState(current => mergeOverlaySnapshot(current, initialState))
     }
 
     loadInitialState()
 
     return () => {
+      disposed = true
       if (unsubscribe) {
         unsubscribe()
       }
@@ -1086,6 +1087,7 @@ function MainWindow() {
   const [autoMode, setAutoMode] = useState(false)
   const [autoProcessing, setAutoProcessing] = useState(false)
   const [answer, setAnswer] = useState('')
+  const [grpcAnswerIdentity, setGrpcAnswerIdentity] = useState(null)
   const [codingAnswer, setCodingAnswer] = useState(null)
   const [fullAnswer, setFullAnswer] = useState('')
   const [answerRevealActive, setAnswerRevealActive] = useState(false)
@@ -1564,6 +1566,7 @@ function MainWindow() {
     pipelineStarted = null,
     localWithoutSaving = Boolean(startupSessionConfigRef.current?.localTestWithoutSaving),
   }) => {
+    setGrpcAnswerIdentity(null)
     activeGenerateAbortControllerRef.current?.abort()
     const controller = new AbortController()
     activeGenerateAbortControllerRef.current = controller
@@ -2072,6 +2075,7 @@ function MainWindow() {
   }, [])
 
   useElectronOverlaySync({
+    grpcAnswerIdentity,
     answer,
     codingAnswer,
     answerRevealActive,
@@ -2632,6 +2636,7 @@ function MainWindow() {
     clearAutoLoop()
     clearPendingAutoQuestion()
     clearPendingCooldownQuestion()
+    setGrpcAnswerIdentity(null)
     autoModeRef.current = false
     autoModeRunIdRef.current = ''
     currentAutoQuestionRunIdRef.current = ''
@@ -4960,6 +4965,7 @@ function MainWindow() {
           },
           onAnswer: entry => {
             if (!isCurrent()) return
+            setGrpcAnswerIdentity(entry.streamIdentity || null)
             if (entry.status === 'generating' && entry.historyEntryId !== failedAnswerTurnRef.current?.historyEntryId) {
               activeGenerateAbortControllerRef.current?.abort()
               latestGenerationRequestIdRef.current = `grpc-${entry.historyEntryId}`
@@ -4968,10 +4974,12 @@ function MainWindow() {
               setError('')
             }
             if (entry.status === 'error') {
-              const canRetry = ['generation_failed', 'persistence_unavailable'].includes(entry.error)
+              const canRetry = ['generation_failed', 'persistence_unavailable', 'generation_processing'].includes(entry.error)
               failedAnswerTurnRef.current = canRetry ? { body: { question: entry.question, category: entry.category || 'technical',
                 session_id: startupSessionConfigRef.current?.activeSessionId,
-                request_id: entry.requestId, retry_attempt: entry.error === 'generation_failed' ? 1 : 0, recover_turn: true },
+                selected_resume_id: startupSessionConfigRef.current?.selectedResumeId || undefined,
+                job_context_id: startupSessionConfigRef.current?.jobContextId || undefined,
+                request_id: entry.requestId, retry_attempt: Number(entry.streamIdentity?.retry_attempt || 0) + (entry.error === 'generation_failed' ? 1 : 0), recover_turn: true },
                 displayMode: 'answer', historyMode: 'auto', historyEntryId: entry.historyEntryId } : null
               setGenerationDiagnostics(current => ({ ...current, answerRetryAvailable: canRetry }))
               setError(entry.error === 'generation_stopped' ? 'Generation stopped.' : canRetry ? 'Unable to generate an answer' : 'The previous answer could not be confirmed. Submit a new question to continue.')
@@ -5063,6 +5071,7 @@ function MainWindow() {
       source: autoModeSourceRef.current || 'none',
     })
     if (autoGrpcSessionRef.current) setAnswerRevealActive(false)
+    setGrpcAnswerIdentity(null)
     autoModeRef.current = false
     autoModeRunIdRef.current = ''
     clearCurrentAutoQuestionRun()

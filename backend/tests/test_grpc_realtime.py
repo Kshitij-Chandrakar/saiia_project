@@ -12,13 +12,22 @@ from app.grpc_generated import interview_realtime_pb2_grpc as rpc
 from app.grpc_server import main, start_server
 
 
+@pytest.fixture(autouse=True)
+def foundation_only(monkeypatch):
+    # Foundation tests must never inherit local STT/provider activation.
+    from app import grpc_server
+    monkeypatch.setattr(grpc_server.settings, 'GRPC_STT_ENABLED', False)
+    monkeypatch.setattr(grpc_server.settings, 'GRPC_ANSWER_STREAM_ENABLED', False)
+
+
 def test_proto_event_contract():
     client = pb.InterviewClientEvent.DESCRIPTOR.oneofs_by_name['event']
     server = pb.InterviewServerEvent.DESCRIPTOR.oneofs_by_name['event']
     assert {f.name for f in client.fields} == {'start_session', 'audio_chunk', 'manual_stop', 'cancel', 'end_session', 'ping'}
     assert {f.name for f in server.fields} == {'ready', 'status', 'partial_transcript', 'final_transcript',
                                             'question_detected', 'answer_delta', 'answer_done', 'error', 'pong',
-                                            'answer_started', 'answer_completed', 'answer_error'}
+                                            'answer_started', 'answer_completed', 'answer_error',
+                                            'answer_stream_capabilities', 'answer_replaced'}
     service = pb.DESCRIPTOR.services_by_name['InterviewRealtimeService']
     method = service.methods_by_name['StreamInterview']
     assert method.client_streaming and method.server_streaming

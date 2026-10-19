@@ -1,4 +1,5 @@
 const path = require('path')
+const { AnswerStreamState, uint } = require('./answer_stream_state.cjs')
 const { randomUUID } = require('crypto')
 
 function createTransport(address, protoPath) {
@@ -69,6 +70,8 @@ class GrpcRealtimeClient {
     this.lastError = ''
     this.pending = new Map()
     this.connectionWaiters = new Set()
+    this.answerState = new AnswerStreamState()
+    this.autoPublication = null
     this.epoch = 0
     this.health = { grpc_health: 'unknown', grpc_last_health_success: null, grpc_last_health_failure: null,
       grpc_health_failure_reason: 'none', grpc_stt_available: false, grpc_answer_available: false,
@@ -80,6 +83,20 @@ class GrpcRealtimeClient {
     this.audioEverSent = false
     this.systemCleanup = null
     this.systemCleanupStatus = 'clean'
+  }
+
+  publishAuto(coalesce = false) {
+    if (coalesce && this.autoPublication !== null) return
+    if (!coalesce) { clearTimeout(this.autoPublication); this.autoPublication = null }
+    const epoch = this.epoch, identity = this.answerState.snapshot()
+    const publish = () => {
+      this.autoPublication = null
+      if (epoch !== this.epoch || (coalesce && (!identity ||
+          ['requestId', 'retry_attempt', 'provider_attempt', 'display_revision', 'accepted_turn', 'terminal'].some(key => identity[key] !== this.answerState.turn?.[key])))) return
+      try { this.onAutoEvent(this.getStatus()) } catch { /* Polling remains available. */ }
+    }
+    if (coalesce) this.autoPublication = setTimeout(publish, 16)
+    else publish()
   }
 
   checkHealth() {
@@ -144,6 +161,8 @@ class GrpcRealtimeClient {
       answerCompletedCount: this.answerCompletedCount, lastAnswerStatus: this.lastAnswerStatus,
       answerCategory: this.answerCategory, answerProvider: this.answerProvider,
       answerFailureRequestId: this.answerFailureRequestId || '', answerRequestId: this.answerRequestId || '', answerFailureCode: this.answerFailureCode || '',
+      answerStreamVersion: this.answerState.version,
+      answerStreamIdentity: this.answerState.snapshot() && { ...this.answerState.snapshot(), run: this.manualRun, epoch: this.epoch, sessionId: this.sessionId, snapshotVersion: this.autoEventVersion },
       currentQuestion: this.currentQuestion, currentAnswer: this.currentAnswer }
   }
 
@@ -182,6 +201,13 @@ class GrpcRealtimeClient {
         stream.on('data', (event) => {
           if (epoch !== this.epoch || (event.session_id && event.session_id !== this.sessionId)) return
           if (this.cloudAuthCurrent && !this.cloudAuthCurrent()) { this.fail(); this.cloudSessionVerified = this.cloudContextLoaded = false; this.cloudAuthStatus = 'failed'; this.cloudBlockedReason = 'auth_unavailable'; return }
+          const answerKind = ['question_detected', 'answer_started', 'answer_delta', 'answer_replaced', 'answer_completed', 'answer_error'].find(kind => event[kind])
+          if (this.sessionMode === 'auto_pipeline' && !this.generationCommitted && event.answer_stream_capabilities && event.session_id === this.sessionId) this.answerState.acknowledge(event)
+          if (this.answerState.version && !answerKind && !event.answer_stream_capabilities) {
+            const sequence = uint(event.sequence_number)
+            if (event.session_id !== this.sessionId || sequence === null || BigInt(sequence) <= this.answerState.sequence) return
+            this.answerState.sequence = BigInt(sequence)
+          }
           if (event.status?.system_audio) {
             this.systemAudio = { ...event.status.system_audio }
             this.backendChunksReceived = Number(event.status.total_chunks || this.backendChunksReceived)
@@ -190,6 +216,9 @@ class GrpcRealtimeClient {
           if (event.status?.question_intake) this.questionIntake = Object.fromEntries(Object.entries(event.status.question_intake)
             .filter(([key]) => !['last_ignored_transcript', 'utterance_buffer_text'].includes(key)))
           const code = event.status?.code
+          if (this.answerState.version && ['auto_cooldown', 'auto_listening', 'answer_save_pending', 'answer_saved', 'answer_save_failed'].includes(code) &&
+              this.answerRequestId && (event.request_id !== this.answerRequestId ||
+                (['auto_cooldown', 'auto_listening'].includes(code) && !this.answerState.turn?.terminal))) return
           if (code === 'auth_verified') this.cloudAuthStatus = 'verified'
           if (code === 'cloud_session_verified') this.cloudSessionVerified = true
           if (code === 'cloud_context_loaded') this.cloudContextLoaded = true
@@ -228,14 +257,15 @@ class GrpcRealtimeClient {
             this.sttStatus = ['stt_no_transcript_yet', 'stt_receiving', 'idle'].includes(event.status.stt_status) ? event.status.stt_status : 'unknown'
           }
           if (event.status?.code === 'answer_stream_enabled') this.answerStreamEnabled = true
-          const answerKind = ['question_detected', 'answer_started', 'answer_delta', 'answer_completed', 'answer_error'].find(kind => event[kind])
+          if (answerKind === 'answer_replaced' && !this.answerState.version) return
+          if (answerKind && this.answerState.version && (event.session_id !== this.sessionId || !this.answerState.accept(event, answerKind))) return
           if (answerKind) {
             if (answerKind !== 'question_detected' && this.answerRequestId && event.request_id && event.request_id !== this.answerRequestId) return
             if (answerKind !== 'question_detected' && event.request_id && this.completedAnswerRequestId === event.request_id) return
             this.generationCommitted = true
             this.questionTransport = 'grpc_realtime'
             if (answerKind !== 'question_detected') this.answerTransport = 'grpc_realtime'
-            this.questionStage = { question_detected: 'question_detected', answer_started: 'generation_started', answer_delta: 'first_delta_received', answer_completed: 'answer_completed', answer_error: 'generation_failed' }[answerKind]
+            this.questionStage = { question_detected: 'question_detected', answer_started: 'generation_started', answer_delta: 'first_delta_received', answer_replaced: 'generation_started', answer_completed: 'answer_completed', answer_error: 'generation_failed' }[answerKind]
             const payload = event[answerKind]
             const timing = { question_detected: 'question_detected_at', answer_started: 'answer_started_at', answer_delta: 'first_answer_delta_at', answer_completed: 'answer_completed_at' }[answerKind]
             if (timing) this.manualTimings[timing] ??= Date.now()
@@ -255,13 +285,15 @@ class GrpcRealtimeClient {
             else if (answerKind === 'answer_delta') {
               this.answerDeltaCount++
               this.currentAnswer = (this.currentAnswer + String(payload.text || '')).slice(0, 262144)
+            } else if (answerKind === 'answer_replaced') {
+              this.currentAnswer = String(payload.text || '').slice(0, 262144)
             } else if (answerKind === 'answer_completed') {
               this.completedAnswerRequestId = event.request_id || ''
               this.answerCompletedCount++
               this.currentAnswer = String(payload.text || '').slice(0, 262144)
-            } else if (['generation_failed', 'persistence_unavailable', 'generation_uncertain', 'generation_stopped'].includes(payload.code)) {
+            } else if (this.answerState.version === 1 || ['generation_failed', 'persistence_unavailable', 'generation_uncertain', 'generation_stopped', 'generation_processing'].includes(payload.code)) {
               this.currentAnswer = ''
-              this.answerFailureCode = payload.code
+              this.answerFailureCode = ['generation_failed', 'persistence_unavailable', 'generation_uncertain', 'generation_stopped', 'generation_processing'].includes(payload.code) ? payload.code : 'generation_uncertain'
               this.answerFailureRequestId = event.request_id || ''
               this.completedAnswerRequestId = event.request_id || ''
               this.autoStatus = 'auto_listening'
@@ -274,7 +306,7 @@ class GrpcRealtimeClient {
           }
           if (this.sessionMode === 'auto_pipeline' && (answerKind || transcriptKind || ['auto_cooldown', 'auto_listening', 'answer_save_pending', 'answer_saved', 'answer_save_failed', 'question_intake'].includes(event.status?.code))) {
             this.autoEventVersion++
-            try { this.onAutoEvent(this.getStatus()) } catch { /* Health polling remains available. */ }
+            this.publishAuto(answerKind === 'answer_delta' && this.answerState.version === 1)
           }
           const pending = this.pending.get(event.request_id)
           if (pending && event[pending.kind] !== undefined) {
@@ -436,7 +468,7 @@ class GrpcRealtimeClient {
   startSession() {
     // Server-side capture may process audio before readiness reaches Electron.
     if (['system', 'both'].includes(this.cloudStart?.source)) this.audioEverSent = true
-    return this.request({ start_session: { mode: this.sessionMode, ...this.cloudStart } }, 'ready')
+    return this.request({ start_session: { mode: this.sessionMode, ...this.cloudStart, ...(this.sessionMode === 'auto_pipeline' ? { answer_stream_version: 1 } : {}) } }, 'ready')
   }
 
   async sendAudioChunk(data, metadata = {}) {
@@ -558,6 +590,8 @@ class GrpcRealtimeClient {
     if (run !== undefined && run !== this.manualRun) return this.getStatus()
     const system = ['system', 'both'].includes(this.cloudStart?.source)
     this.epoch++
+    clearTimeout(this.autoPublication); this.autoPublication = null
+    this.answerState = new AnswerStreamState()
     const stream = this.stream, client = this.client, sessionId = this.sessionId
     this.cloudStart = null
     this.cloudAuthCurrent = null
