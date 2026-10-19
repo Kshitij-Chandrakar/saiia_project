@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 
 const app = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const names = ['clearCurrentAutoQuestionRun', 'stopAutoStreamingBridge', 'stopActiveStream', 'clearAutoLoop',
-  'resetAutoTranscriptBuffer', 'clearPendingAutoQuestion', 'clearPendingCooldownQuestion', 'stopAutoMode']
+  'resetAutoTranscriptBuffer', 'clearPendingAutoQuestion', 'clearPendingCooldownQuestion', 'stopAutoMode', 'stopActiveOperation']
 const code = names.map(name => {
   const start = app.indexOf(`  const ${name} = `)
   assert.ok(start >= 0)
@@ -16,7 +16,7 @@ function fixture(closeGrpc = async () => 'clean') {
   let diagnostics = {}, tracks = 0, grpc = 0, sockets = 0, disconnected = 0, contexts = 0, aborted = 0
   const cleared = new Set(), context = { Promise, WebSocket: { OPEN: 1 },
     clearTimeout: timer => cleared.add(timer), clearInterval: timer => cleared.add(timer),
-    createScreenOpaqueId: () => 'stopped', logAutoModeDebug: () => {},
+    createScreenOpaqueId: () => 'stopped', createManualLiveState: () => ({}), logAutoModeDebug: () => {},
     window: { electronAPI: { closeGrpcRealtime: async () => { grpc++; return {} } } } }
   for (const name of new Set(code.match(/\b\w+Ref\b/g))) context[name] = { current: null }
   for (const name of new Set(code.match(/\bset[A-Z]\w+/g))) context[name] = () => {}
@@ -37,8 +37,9 @@ function fixture(closeGrpc = async () => 'clean') {
   context.recentAutoTranscriptBufferRef.current = ['old transcript']
   context.pendingAutoQuestionRef.current = { text: 'old question' }
   context.pendingCooldownQuestionRef.current = { text: 'queued question' }
-  const stop = vm.runInNewContext(`${code}\nstopAutoMode`, context)
-  return { stop, context, cleared, diagnostics: () => diagnostics,
+  const { stop, stopActive } = vm.runInNewContext(`${code}\n({stop: stopAutoMode, stopActive: stopActiveOperation})`, context)
+  context.stopAutoMode = stop; context.stopActiveOperation = stopActive
+  return { stop, stopActive, context, cleared, diagnostics: () => diagnostics,
     counts: () => ({ tracks, grpc, sockets, disconnected, contexts, aborted }) }
 }
 
@@ -114,6 +115,7 @@ test('session-ended event stops only the matching Auto session before clearing o
   const calls = []
   const context = { action: 'cloud-session-ended', payload: { payload: { sessionId: 'other' } },
     startupSessionConfigRef: { current: { activeSessionId: 'owned' } },
+    autoStartingRef: { current: false }, autoModeRef: { current: true },
     stopAutoMode: () => calls.push('stop'), applyStartupSessionConfig: () => calls.push('clear') }
   const handle = vm.runInNewContext(`() => { ${source} }`, context)
   handle()
@@ -169,4 +171,96 @@ test('application session finalization closes gRPC even for a local session', as
   })
   assert.equal((await finalize()).skipped, true)
   assert.equal(closed, 1)
+})
+
+
+function sessionEnd(f, sessionId = 'owned') {
+  const start = app.indexOf("        if (action === 'cloud-session-ended') {")
+  const source = app.slice(start, app.indexOf("        if (['generation-refresh-cloud'", start))
+  const context = f.context
+  context.action = 'cloud-session-ended'
+  context.payload = { payload: { sessionId } }
+  context.startupSessionConfigRef = { current: { activeSessionId: 'owned' } }
+  context.applyStartupSessionConfig = next => {
+    assert.equal(context.autoModeRunIdRef.current, '')
+    assert.equal(context.manualLiveStartIdRef.current || '', '')
+    context.startupSessionConfigRef.current = next
+  }
+  vm.runInNewContext(`(() => { ${source} })()`, context)
+}
+
+for (const starting of [true, false]) test(`matching session end cancels ${starting ? 'starting' : 'active'} Auto through current refs`, () => {
+  const f = fixture()
+  f.context.autoStartingRef.current = starting
+  f.context.autoModeRef.current = !starting
+  f.context.autoMode = false // A stale closure must not determine mode.
+  sessionEnd(f)
+  assert.equal(f.context.startupSessionConfigRef.current.activeSessionId, '')
+  assert.equal(f.context.autoStartTokenRef.current, 2)
+  assert.equal(f.context.autoModeRunIdRef.current, '')
+  assert.equal(f.counts().grpc, 1)
+  assert.equal(f.counts().tracks, 1)
+})
+
+for (const recording of [true, false]) test(`matching session end cancels manual ${recording ? 'capture' : 'generation'} despite stale Auto closure`, async () => {
+  const f = fixture(), context = f.context
+  context.autoStartingRef.current = context.autoModeRef.current = false
+  context.autoMode = true // Previous Auto render; manual currently owns the operation.
+  context.autoModeRunIdRef.current = ''
+  context.autoGrpcSessionRef.current = context.autoStreamingSocketRef.current = null
+  context.autoStreamingProcessorRef.current = context.autoStreamingSourceNodeRef.current = context.autoStreamingAudioContextRef.current = null
+  context.manualLiveStartIdRef.current = 'manual'
+  let canceled = 0, recorderStops = 0, restored = 0
+  context.manualLiveSessionRef.current = { cancel: () => canceled++ }
+  const controller = new AbortController()
+  context.activeGenerateAbortControllerRef.current = controller
+  context.latestGenerationRequestIdRef.current = 'old-manual-request'
+  context.mediaRecorderRef.current = recording ? { state: 'recording', stop: () => recorderStops++ } : null
+  const transcriptCallback = app.match(/onTranscript: \(text\) => \{ if \(isCurrent\(\)\) setTranscript\(text\) \}/)[0]
+  const lateTranscript = vm.runInNewContext(`({${transcriptCallback}}).onTranscript`, {
+    isCurrent: () => context.manualLiveStartIdRef.current === 'manual', setTranscript: () => restored++,
+  })
+  sessionEnd(f)
+  assert.equal(canceled, 1)
+  assert.equal(recorderStops, recording ? 1 : 0)
+  assert.equal(context.manualLiveStartIdRef.current, '')
+  assert.equal(controller.signal.aborted, true)
+  assert.notEqual(context.latestGenerationRequestIdRef.current, 'old-manual-request')
+  lateTranscript('late audio')
+  assert.equal(restored, 0)
+  assert.equal(context.startupSessionConfigRef.current.activeSessionId, '')
+})
+
+test('unrelated session-ended event preserves current operation and identity', () => {
+  const f = fixture()
+  sessionEnd(f, 'other')
+  assert.equal(f.context.startupSessionConfigRef.current.activeSessionId, 'owned')
+  assert.equal(f.context.autoModeRunIdRef.current, 'old-run')
+  assert.equal(f.context.autoStartTokenRef.current, 1)
+  assert.deepEqual(f.counts(), { tracks: 0, grpc: 0, sockets: 0, disconnected: 0, contexts: 0, aborted: 0 })
+})
+
+test('matching end during pending Auto/manual permission releases late tracks instead of restoring capture', async () => {
+  for (const auto of [true, false]) {
+    const f = fixture(), context = f.context
+    context.autoStartingRef.current = auto
+    context.autoModeRef.current = false
+    context.autoModeRunIdRef.current = ''
+    context.manualLiveStartIdRef.current = auto ? '' : 'manual'
+    const startToken = context.autoStartTokenRef.current
+    let resolve, stopped = 0, restored = 0
+    const permission = new Promise(done => { resolve = done })
+    const guard = auto
+      ? app.match(/if \(startToken !== autoStartTokenRef.current\) \{ stream.getTracks\(\).forEach\(track => track.stop\(\)\); return \}/)[0]
+      : app.match(/if \(!isCurrent\(\)\) \{ stream.getTracks\(\).forEach\(\(track\) => track.stop\(\)\); return \}/)[0]
+    const finish = vm.runInNewContext(`async () => { const stream = await permission; ${guard}; restore() }`, {
+      permission, startToken, autoStartTokenRef: context.autoStartTokenRef,
+      isCurrent: () => context.manualLiveStartIdRef.current === 'manual', restore: () => restored++,
+    })()
+    sessionEnd(f)
+    resolve({ getTracks: () => [{ stop: () => stopped++ }] })
+    await finish
+    assert.equal(stopped, 1)
+    assert.equal(restored, 0)
+  }
 })

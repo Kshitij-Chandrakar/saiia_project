@@ -16,8 +16,8 @@ export function selectRealtimeRoute(status, context = {}, source = 'microphone',
   }
   const reason = getGrpcAutoBlockReason(status, context, source)
   if (AUTH_BLOCKS.has(reason)) return result('blocked', reason)
-  if (!transportAvailable) return result('existing_default', 'grpc_unavailable')
   if (reason) return result('existing_default', reason)
+  if (!transportAvailable) return result('existing_default', 'grpc_unavailable')
   if (status.grpc_health !== 'healthy') return result('existing_default',
     status.grpc_health_failure_reason && status.grpc_health_failure_reason !== 'none' ? status.grpc_health_failure_reason : 'grpc_health_failed')
   if (!status.grpc_stt_available || !status.grpc_answer_available || !status.grpc_auto_available) return result('existing_default', 'grpc_unavailable')

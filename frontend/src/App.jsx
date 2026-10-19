@@ -5159,7 +5159,7 @@ function MainWindow() {
       setScreenOperation(activeScreenOperationRef.current)
     }
 
-    if (autoStartingRef.current || autoModeRef.current || autoMode) {
+    if (autoStartingRef.current || autoModeRef.current) {
       stopAutoMode()
     } else if (mediaRecorderRef.current?.state && mediaRecorderRef.current.state !== 'inactive') {
       manualRecordingCancelledRef.current = true
@@ -6430,7 +6430,8 @@ function MainWindow() {
         }
         if (action === 'cloud-session-ended') {
           if (startupSessionConfigRef.current?.activeSessionId === payload?.payload?.sessionId) {
-            stopAutoMode()
+            if (autoStartingRef.current || autoModeRef.current) stopAutoMode()
+            else stopActiveOperation()
             applyStartupSessionConfig({ ...startupSessionConfigRef.current, activeSessionId: '' })
           }
           return

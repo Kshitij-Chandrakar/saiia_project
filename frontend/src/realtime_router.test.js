@@ -1,3 +1,5 @@
+import vm from 'node:vm'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { selectRealtimeRoute, realtimeRouteDiagnostics } from './realtime_router.js'
@@ -48,4 +50,50 @@ test('G9 fresh routing diagnostics clear transport, commit, cloud and save state
   assert.equal(diagnostics.cloud_session_verified, false)
   assert.equal(diagnostics.cloud_answer_save_status, 'n/a')
   assert.equal(diagnostics.grpc_fallback_used, false)
+})
+
+
+function rendererRoute(status) {
+  const app = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
+  const start = app.indexOf('      const decision = selectRealtimeRoute(grpcStatus,')
+  const source = app.slice(start, app.indexOf('      if (!blockedReason && window.electronAPI', start))
+  let diagnostics = {}, messages = []
+  vm.runInNewContext(source, { grpcStatus: status, sourceMode: 'microphone', runId: 'run',
+    startupSessionConfigRef: { current: {} }, startDiag: {}, window: { electronAPI: {} },
+    selectRealtimeRoute, realtimeRouteDiagnostics, AUTH_BLOCKS: new Set(),
+    setGenerationDiagnostics: update => { diagnostics = update(diagnostics) }, setStatus: text => messages.push(text),
+  })
+  return { diagnostics, messages }
+}
+
+test('disabled gRPC without browser bridge reports config_disabled with no fallback notification', () => {
+  for (const status of [undefined, { ...healthy, autoPipelineEnabled: false }]) {
+    const decision = selectRealtimeRoute(status, {}, 'microphone', false)
+    assert.equal(decision.route, 'existing_default')
+    assert.equal(decision.reason, 'config_disabled')
+    const { diagnostics, messages } = rendererRoute(status)
+    assert.equal(diagnostics.grpc_fallback_used, false)
+    assert.deepEqual(messages, [])
+  }
+})
+
+test('enabled gRPC without bridge retains grpc_unavailable and the standard fallback indication', () => {
+  const decision = selectRealtimeRoute(healthy, {}, 'microphone', false)
+  assert.equal(decision.reason, 'grpc_unavailable')
+  const { diagnostics, messages } = rendererRoute(healthy)
+  assert.equal(diagnostics.grpc_fallback_used, true)
+  assert.equal(messages.length, 1)
+})
+
+test('authorization blocks outrank disabled configuration and missing transport', () => {
+  for (const autoPipelineEnabled of [true, false]) {
+    for (const cloudBlockedReason of ['token_expired', 'session_owner_mismatch', 'cloud_session_ended']) {
+      const route = selectRealtimeRoute({ ...healthy, autoPipelineEnabled, cloudAuthStatus: 'failed', cloudBlockedReason },
+        { activeSessionId: 'owned' }, 'microphone', false)
+      assert.equal(route.route, 'blocked')
+      assert.equal(route.reason, cloudBlockedReason)
+    }
+    assert.equal(selectRealtimeRoute({ ...healthy, autoPipelineEnabled },
+      { activeSessionEnded: true }, 'microphone', false).reason, 'cloud_session_ended')
+  }
 })
