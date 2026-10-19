@@ -32,13 +32,107 @@ test('disabled gRPC never loads transport or connects', async () => {
   assert.equal(f.client.getStatus().connectionStatus, 'disabled')
 })
 
+test('G9 health is bounded, deduplicated and provider/auth/audio free with safe capabilities', async () => {
+  let probes = 0, closed = 0, resolveHealth
+  const client = new GrpcRealtimeClient({ env: enabled, timeoutMs: 30,
+    getCloudAuthorization: () => { throw Error('must not authenticate health') },
+    transportFactory: () => { probes++; return {
+      CheckHealth: (request, options, callback) => {
+        assert.deepEqual(request, {}); assert.ok(options.deadline <= Date.now() + 30)
+        resolveHealth = () => callback(null, { stt_available: true, answer_stream_available: true, auto_available: true,
+          cloud_context_available: true, secret: 'must not cross IPC' })
+      },
+      StreamInterview: () => { throw Error('must not open stream') }, close: () => closed++,
+    } } })
+  assert.equal(client.getStatus().grpc_health, 'unknown')
+  const first = client.checkHealth(), second = client.checkHealth()
+  assert.equal(first, second); assert.equal(client.getStatus().grpc_health, 'checking')
+  resolveHealth()
+  const status = await first
+  assert.equal(status.grpc_health, 'healthy'); assert.equal(status.grpc_stt_available, true)
+  assert.ok(status.grpc_last_health_success); assert.equal(probes, 1); assert.equal(closed, 1)
+  assert.doesNotMatch(JSON.stringify(status), /must not cross|authorization|Bearer/)
+  assert.equal(status.audioChunksSent, 0); assert.equal(status.connectionStatus, 'disconnected')
+})
+test('G9 unavailable and timed out health clear capabilities without raw errors', async () => {
+  let closed = 0
+  const client = new GrpcRealtimeClient({ env: enabled, timeoutMs: 5,
+    transportFactory: () => ({ CheckHealth: () => {}, close: () => closed++ }) })
+  const status = await client.checkHealth()
+  assert.equal(status.grpc_health, 'unavailable'); assert.equal(status.grpc_health_failure_reason, 'grpc_connection_timeout')
+  assert.ok(status.grpc_last_health_failure); assert.equal(status.grpc_answer_available, false)
+  assert.equal(closed, 1)
+  const disabled = fixture()
+  assert.equal((await disabled.client.checkHealth()).grpc_health_failure_reason, 'grpc_unavailable')
+  assert.equal(disabled.counts().calls, 0)
+})
+test('G9 main refuses direct system Auto IPC even with every flag enabled', async () => {
+  const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true' })
+  const status = await f.client.connectAuto({ source: 'system' })
+  assert.equal(status.grpc_last_failure_reason, 'system_audio_selected')
+  assert.equal(status.systemAudioPipelineSupported, false)
+  assert.equal(f.counts().calls, 0); assert.equal(f.writes.length, 0)
+})
+test('G9 silent token/user changes invalidate cloud stream on status polling without reconnect', async () => {
+  let current = true
+  const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true' }, false,
+    async () => ({ authorization: 'Bearer main-only-token', isCurrent: () => current }))
+  await f.client.connectAuto({ activeSessionId: '11111111-1111-4111-8111-111111111111' })
+  for (const code of ['auth_verified', 'cloud_session_verified', 'cloud_context_loaded']) f.stream.emit('data', { status: { code } })
+  current = false
+  const status = f.client.getStatus()
+  assert.equal(status.cloudAuthStatus, 'failed'); assert.equal(status.cloudBlockedReason, 'auth_unavailable')
+  assert.equal(status.connectionStatus, 'error'); assert.equal(status.cloudSessionVerified, false)
+  assert.equal(f.counts().calls, 1); assert.equal(f.counts().canceled, 1)
+  assert.doesNotMatch(JSON.stringify(status), /main-only-token|Bearer/)
+})
+test('G9 commit latch survives failure but explicit close and fresh Auto clear prior diagnostics', async () => {
+  const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true' })
+  await f.client.connectAuto()
+  const run = f.client.getStatus().manualRun
+  f.stream.emit('data', { question_detected: { text: 'old question' } })
+  f.stream.emit('data', { answer_delta: { text: 'keep answer' } })
+  f.stream.emit('error', Error('private failure'))
+  assert.equal(f.client.getStatus().generation_committed, true)
+  assert.equal(f.client.getStatus().currentAnswer, 'keep answer')
+  f.client.close()
+  const fresh = await f.client.connectAuto()
+  assert.ok(fresh.manualRun > run)
+  assert.equal(fresh.generation_committed, false); assert.equal(fresh.currentAnswer, '')
+  assert.equal(fresh.currentTranscript, ''); assert.equal(fresh.cloudAnswerSaveStatus, 'n/a')
+  assert.equal(fresh.grpc_last_failure_reason, 'none')
+  f.client.close()
+})
+test('G9 Stop cancels connection/auth timers and late old cleanup cannot close a newer run', async () => {
+  let authorize
+  const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true' }, false,
+    () => new Promise(resolve => { authorize = resolve }))
+  const old = f.client.connectAuto({ activeSessionId: '11111111-1111-4111-8111-111111111111' })
+  await new Promise(resolve => setImmediate(resolve))
+  const oldRun = f.client.manualRun
+  assert.equal(f.client.connectionWaiters.size, 1)
+  f.client.close()
+  assert.equal(f.client.connectionWaiters.size, 0)
+  const fresh = await f.client.connectAuto()
+  const stale = await old
+  assert.equal(stale.manualRun, oldRun); assert.equal(stale.autoPipelineReady, false)
+  f.client.close(stale.manualRun)
+  assert.equal(f.client.getStatus().connectionStatus, 'connected')
+  assert.ok(fresh.manualRun > stale.manualRun)
+  authorize({ authorization: 'Bearer late-token', isCurrent: () => true })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(f.metadata.length, 1); assert.equal(f.metadata[0], undefined)
+  assert.doesNotMatch(JSON.stringify(f.client.getStatus()), /late-token/)
+  f.client.close()
+})
+
 test('enabled loopback client handshakes, pings, and closes resources', async () => {
   const f = fixture(enabled)
   await Promise.all([f.client.connect(), f.client.connect()])
   assert.equal(f.counts().calls, 1)
   assert.equal(f.client.getStatus().connectionStatus, 'connected')
   assert.equal((await f.client.ping()).lastPingResult, 'pong')
-  assert.deepEqual(Object.keys(f.client.getStatus()).sort(), ['answerFailureRequestId', 'answerRequestId', 'answerFailureCode', 'systemAudio', 'systemAudioPipelineSupported', 'questionIntake', 'cloudAuthAvailable', 'cloudContextPipelineEnabled', 'cloudAuthStatus', 'cloudSessionVerified', 'cloudContextLoaded', 'cloudAnswerSaveStatus', 'cloudBlockedReason', 'autoPipelineEnabled', 'autoPipelineReady', 'autoStatus', 'autoEventVersion', 'manualEventVersion', 'manualRun', 'manualTimings', 'manualPipelineEnabled', 'manualPipelineReady', 'manualStatus', 'audioBytesSent', 'audioChunksSent', 'audioEnabled', 'backendBytesReceived', 'backendChunksReceived', 'connectionStatus', 'currentTranscript', 'enabled', 'finalTranscriptCount', 'lastAudioStatus', 'lastErrorMessage', 'lastPingResult', 'lastTranscriptEventType', 'partialTranscriptCount', 'pcmDiagnostics', 'sttBridgeConnected', 'sttBytesForwarded', 'sttCallbackCount', 'sttChunksForwarded', 'sttEnabled', 'sttProvider', 'sttStatus', 'nonSilentChunks', 'answerStreamEnabled', 'questionsDetectedCount', 'answerStartedCount', 'answerDeltaCount', 'answerCompletedCount', 'lastAnswerStatus', 'answerCategory', 'answerProvider', 'currentQuestion', 'currentAnswer'].sort())
+  assert.deepEqual(Object.keys(f.client.getStatus()).sort(), ['answerFailureRequestId', 'answerRequestId', 'answerFailureCode', 'grpc_health', 'grpc_last_health_success', 'grpc_last_health_failure', 'grpc_health_failure_reason', 'grpc_stt_available', 'grpc_answer_available', 'grpc_auto_available', 'grpc_cloud_context_available', 'grpc_audio_sent', 'grpc_last_failure_reason', 'generation_committed', 'question_transport', 'answer_transport', 'question_stage', 'systemAudio', 'systemAudioPipelineSupported', 'questionIntake', 'cloudAuthAvailable', 'cloudContextPipelineEnabled', 'cloudAuthStatus', 'cloudSessionVerified', 'cloudContextLoaded', 'cloudAnswerSaveStatus', 'cloudBlockedReason', 'autoPipelineEnabled', 'autoPipelineReady', 'autoStatus', 'autoEventVersion', 'manualEventVersion', 'manualRun', 'manualTimings', 'manualPipelineEnabled', 'manualPipelineReady', 'manualStatus', 'audioBytesSent', 'audioChunksSent', 'audioEnabled', 'backendBytesReceived', 'backendChunksReceived', 'connectionStatus', 'currentTranscript', 'enabled', 'finalTranscriptCount', 'lastAudioStatus', 'lastErrorMessage', 'lastPingResult', 'lastTranscriptEventType', 'partialTranscriptCount', 'pcmDiagnostics', 'sttBridgeConnected', 'sttBytesForwarded', 'sttCallbackCount', 'sttChunksForwarded', 'sttEnabled', 'sttProvider', 'sttStatus', 'nonSilentChunks', 'answerStreamEnabled', 'questionsDetectedCount', 'answerStartedCount', 'answerDeltaCount', 'answerCompletedCount', 'lastAnswerStatus', 'answerCategory', 'answerProvider', 'currentQuestion', 'currentAnswer'].sort())
   await f.client.endSession()
   assert.deepEqual(f.counts(), { calls: 1, canceled: 1, closed: 1 })
   assert.equal(f.client.pending.size, 0)
@@ -111,7 +205,7 @@ test('connection errors never expose upstream secrets and late stream errors sta
 test('diagnostics IPC validates sender and exposes only four narrow methods', async () => {
   const handlers = new Map(), f = fixture()
   registerGrpcRealtimeIpc({ handle: (name, fn) => handlers.set(name, fn) }, (event) => { if (!event.trusted) throw Error('untrusted') }, f.client)
-  assert.deepEqual([...handlers.keys()], ['grpcRealtime:getStatus', 'grpcRealtime:connect', 'grpcRealtime:connectManual', 'grpcRealtime:connectAuto', 'grpcRealtime:ping', 'grpcRealtime:close', 'grpcRealtime:uiTiming', 'grpcRealtime:audioChunk', 'grpcRealtime:manualStop'])
+  assert.deepEqual([...handlers.keys()], ['grpcRealtime:checkHealth', 'grpcRealtime:getStatus', 'grpcRealtime:connect', 'grpcRealtime:connectManual', 'grpcRealtime:connectAuto', 'grpcRealtime:ping', 'grpcRealtime:close', 'grpcRealtime:uiTiming', 'grpcRealtime:audioChunk', 'grpcRealtime:manualStop'])
   await assert.rejects(handlers.get('grpcRealtime:connect')({ trusted: false }))
   const status = await handlers.get('grpcRealtime:getStatus')({ trusted: true })
   assert.deepEqual(status, f.client.getStatus())
@@ -300,7 +394,7 @@ test('diagnostic answer events keep existing counters/preview without enabling m
 
 
 test('G7 Auto flag is independent, fresh handshake streams safe snapshots and PCM until closed', async () => {
-  const disabled = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true' })
+  const disabled = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'false' })
   await disabled.client.connectAuto()
   assert.equal(disabled.counts().calls, 0)
   const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'true' })
@@ -347,7 +441,7 @@ test('G8 attaches main-owned metadata only to cloud Auto, with no token in statu
 })
 test('G8 flag off and unavailable auth cannot create a cloud stream', async () => {
   const args = { activeSessionId: '11111111-1111-4111-8111-111111111111', source: 'microphone' }
-  const off = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'true' })
+  const off = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'true', USE_GRPC_CLOUD_CONTEXT_PIPELINE: 'false' })
   assert.equal((await off.client.connectAuto(args)).cloudBlockedReason, 'cloud_context_flag_disabled')
   assert.equal(off.counts().calls, 0)
   const missing = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'true', USE_GRPC_CLOUD_CONTEXT_PIPELINE: 'true' })
@@ -556,4 +650,15 @@ test('turn stop clears only its own provisional answer and preserves stream', as
   f.stream.emit('data', { request_id: 'one', answer_error: { code: 'generation_failed' } })
   assert.equal(f.client.getStatus().answerFailureCode, '')
   f.client.close()
+})
+
+
+test('older server without CheckHealth fails safely without opening an interview stream', async () => {
+  const f = fixture(enabled)
+  const status = await f.client.checkHealth()
+  assert.equal(status.grpc_health, 'unavailable')
+  assert.equal(status.grpc_health_failure_reason, 'grpc_health_failed')
+  assert.equal(status.grpc_auto_available, false)
+  assert.equal(f.writes.length, 0)
+  assert.equal(f.counts().closed, 1)
 })

@@ -25,6 +25,14 @@ STABLE_PARTIAL_SECONDS = 1.2
 _system_cleanup_tasks = set()
 
 class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
+    async def CheckHealth(self, request, context):
+        # Configuration readiness only: never open capture, STT, auth or an LLM.
+        stt = settings.GRPC_STT_ENABLED and bool(settings.ASSEMBLYAI_API_KEY)
+        answer = stt and settings.GRPC_ANSWER_STREAM_ENABLED
+        return pb.RealtimeHealth(stt_available=stt, answer_stream_available=answer,
+                                 auto_available=answer and settings.USE_GRPC_AUTO_PIPELINE,
+                                 cloud_context_available=settings.USE_GRPC_CLOUD_CONTEXT_PIPELINE)
+
     async def StreamInterview(self, request_iterator, context):
         # Bounded output queue lets provider events arrive independently of audio input.
         output = asyncio.Queue(maxsize=32)

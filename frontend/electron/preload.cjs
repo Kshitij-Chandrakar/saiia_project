@@ -22,9 +22,10 @@ const electronAPI = {
   },
   reportGrpcManualUiTiming: (run, field, at) => ipcRenderer.invoke('grpcRealtime:uiTiming', run, field, at),
   getGrpcRealtimeStatus: () => ipcRenderer.invoke('grpcRealtime:getStatus'),
+  checkGrpcRealtimeHealth: () => ipcRenderer.invoke('grpcRealtime:checkHealth'),
   connectGrpcRealtime: () => ipcRenderer.invoke('grpcRealtime:connect'),
   pingGrpcRealtime: () => ipcRenderer.invoke('grpcRealtime:ping'),
-  closeGrpcRealtime: () => ipcRenderer.invoke('grpcRealtime:close'),
+  closeGrpcRealtime: (run) => ipcRenderer.invoke('grpcRealtime:close', run),
   updateOverlayState: (state) => {
     ipcRenderer.send('overlay:update-state', state)
   },

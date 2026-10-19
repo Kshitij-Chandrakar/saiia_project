@@ -17,7 +17,7 @@ function fixture(overrides = {}) {
   let listener, closed = 0, captures = 0, micClosed = 0, statusCalls = 0
   let status = { ...enabled, autoPipelineReady: true, connectionStatus: 'connected', manualRun: 1, autoEventVersion: 0,
     questionsDetectedCount: 0, answerCompletedCount: 0, currentAnswer: '' }
-  const answers = [], phases = [], errors = [], transcripts = []
+  const answers = [], phases = [], errors = [], transcripts = [], fallbacks = [], lifecycle = [], startupFailures = []
   const api = {
     connectGrpcAutoPipeline: async () => status,
     closeGrpcRealtime: async () => { closed++ },
@@ -25,9 +25,10 @@ function fixture(overrides = {}) {
     onGrpcAutoEvent: cb => { listener = cb; return () => { listener = null } },
     ...overrides,
   }
-  return { api, answers, phases, errors, transcripts,
+  return { api, answers, phases, errors, transcripts, fallbacks, lifecycle, startupFailures,
     options: { api, stream: {}, onAnswer: x => answers.push(x), onPhase: x => phases.push(x),
       onError: x => errors.push(x), onTranscript: x => transcripts.push(x),
+      onFallback: x => fallbacks.push(x), onLifecycle: x => lifecycle.push(x), onStartupFailure: x => startupFailures.push(x),
       createMic: () => ({ start: async () => { captures++ }, close: () => { micClosed++ } }) },
     emit: patch => { status = { ...status, ...patch, autoEventVersion: status.autoEventVersion + 1 }; listener?.(status) },
     counts: () => ({ closed, captures, micClosed, statusCalls, subscribed: !!listener }) }
@@ -55,6 +56,74 @@ test('G7 partials only preview, deltas render before done, continuous capture an
   assert.equal(f.counts().closed, 1)
   assert.equal(f.counts().subscribed, false)
 })
+
+test('G9 failure before audio or question commitment falls back once and releases subscription/capture', async () => {
+  const f = fixture(), session = await createGrpcAutoSession(f.options)
+  f.emit({ connectionStatus: 'error' }); f.emit({ connectionStatus: 'error' })
+  await session.stop()
+  assert.deepEqual(f.fallbacks, ['grpc_connection_failed'])
+  assert.deepEqual(f.errors, [])
+  assert.equal(f.counts().micClosed, 1); assert.equal(f.counts().closed, 1)
+  assert.equal(f.counts().subscribed, false)
+  assert.equal(f.lifecycle.at(-1).stop_cleanup_status, 'clean')
+})
+for (const failurePoint of ['detected', 'started', 'delta', 'unobserved_audio']) {
+  test(`G9 ${failurePoint} commitment never falls back or duplicates answer/history`, async () => {
+    const f = fixture(), session = await createGrpcAutoSession(f.options)
+    if (failurePoint === 'unobserved_audio') f.emit({ grpc_audio_sent: true })
+    else {
+      f.emit({ questionsDetectedCount: 1, currentQuestion: 'Explain transactions' })
+      if (failurePoint === 'started') f.emit({ answerStartedCount: 1 })
+      if (failurePoint === 'delta') f.emit({ currentAnswer: 'Preserved answer', answerDeltaCount: 1 })
+    }
+    const answers = structuredClone(f.answers)
+    f.emit({ connectionStatus: 'error', lastErrorMessage: 'private upstream error' })
+    f.emit({ currentAnswer: 'late answer', answerCompletedCount: 1 })
+    await session.close()
+    assert.deepEqual(f.fallbacks, [])
+    assert.equal(f.errors.length, 1)
+    assert.deepEqual(f.answers, answers)
+    assert.doesNotMatch(f.errors[0], /private upstream/)
+  })
+}
+test('G9 cloud rejection is distinct from a transport failure and never falls back', async () => {
+  const f = fixture(), session = await createGrpcAutoSession(f.options)
+  f.emit({ connectionStatus: 'error', cloudAuthStatus: 'failed', cloudBlockedReason: 'cloud_session_ended' })
+  assert.deepEqual(f.fallbacks, [])
+  assert.match(f.errors[0], /Cloud session unavailable/)
+  await session.stop()
+})
+test('G9 startup failure exposes exact sanitized transport/auth reason', async () => {
+  for (const reason of ['grpc_connection_timeout', 'grpc_start_failed', 'cloud_session_invalid']) {
+    const f = fixture({ connectGrpcAutoPipeline: async () => ({ connectionStatus: 'error', grpc_last_failure_reason: reason,
+      ...(reason === 'cloud_session_invalid' ? { cloudAuthStatus: 'failed', cloudBlockedReason: reason } : {}) }) })
+    assert.equal(await createGrpcAutoSession(f.options), null)
+    assert.deepEqual(f.startupFailures, [reason]); assert.equal(f.counts().captures, 0)
+  }
+})
+test('G9 capture-start failure after PCM was sent cannot trigger startup fallback', async () => {
+  const f = fixture({ getGrpcRealtimeStatus: async () => ({ grpc_audio_sent: true }) })
+  const session = await createGrpcAutoSession({ ...f.options, createMic: () => ({ start: async () => { throw Error('resume failed') }, close: () => {} }) })
+  assert.equal(session.failed, true); assert.deepEqual(f.fallbacks, [])
+  assert.equal(f.errors.length, 1)
+  await session.stop()
+})
+test('G9 stop twice removes cooldown/deadline/polling, restart has fresh question identity', async () => {
+  const f = fixture(), session = await createGrpcAutoSession({ ...f.options, pollMs: 1 })
+  f.emit({ questionsDetectedCount: 1, currentQuestion: 'old question' })
+  f.emit({ answerCompletedCount: 1, currentAnswer: 'old answer' })
+  const oldId = f.answers.at(-1).historyEntryId
+  await session.stop(); await session.stop()
+  const phases = f.phases.length, polls = f.counts().statusCalls
+  await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(f.phases.length, phases); assert.equal(f.counts().statusCalls, polls)
+  f.emit({ manualRun: 2, questionsDetectedCount: 0, answerCompletedCount: 0, currentAnswer: '', currentTranscript: '' })
+  const restarted = await createGrpcAutoSession(f.options)
+  f.emit({ questionsDetectedCount: 1, currentQuestion: 'fresh question' })
+  assert.notEqual(f.answers.at(-1).historyEntryId, oldId)
+  assert.equal(f.answers.at(-1).answer, '')
+  await restarted.stop()
+})
 test('G7 unavailable startup permits fallback without starting audio', async () => {
   const f = fixture({ connectGrpcAutoPipeline: async () => { throw Error('token secret') } })
   assert.equal(await createGrpcAutoSession(f.options), null)
@@ -63,7 +132,7 @@ test('G7 unavailable startup permits fallback without starting audio', async () 
 })
 test('G7 midstream failure is sanitized and stops instead of duplicate fallback generation', async () => {
   const f = fixture(), session = await createGrpcAutoSession(f.options)
-  f.emit({ connectionStatus: 'error', lastErrorMessage: 'token secret transcript' })
+  f.emit({ questionsDetectedCount: 1, connectionStatus: 'error', lastErrorMessage: 'token secret transcript' })
   assert.equal(f.errors.length, 1)
   assert.doesNotMatch(f.errors[0], /secret|token|transcript/)
   assert.equal(f.counts().micClosed, 1)

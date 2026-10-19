@@ -18,7 +18,20 @@ from app.services.resume_index_service import ResumeIndexError, ResumeIndexServi
 async def lifespan(app):
     from app.cloud.interview_sessions import validate_session_model_dev_activation
     validate_session_model_dev_activation()
-    yield
+    server = None
+    if settings.GRPC_REALTIME_ENABLED:
+        try:
+            from app.grpc_server import start_server
+            server, _ = await start_server(settings.GRPC_REALTIME_HOST, settings.GRPC_REALTIME_PORT,
+                                           settings.GRPC_MAX_MESSAGE_MB)
+        except Exception:
+            # REST remains available; Electron's bounded health probe selects fallback.
+            logging.getLogger("realtime").warning("Local gRPC service unavailable; standard transport remains available.")
+    try:
+        yield
+    finally:
+        if server is not None:
+            await server.stop(grace=2)
 
 
 app = FastAPI(title="SAIIA Backend", lifespan=lifespan)

@@ -2,10 +2,17 @@ syntax = "proto3";
 package intervuai.realtime.v1;
 
 service InterviewRealtimeService {
+  rpc CheckHealth(Empty) returns (RealtimeHealth);
   rpc StreamInterview(stream InterviewClientEvent) returns (stream InterviewServerEvent);
 }
 
 message Empty {}
+message RealtimeHealth {
+  bool stt_available = 1;
+  bool answer_stream_available = 2;
+  bool auto_available = 3;
+  bool cloud_context_available = 4;
+}
 message StartSession {
   string mode = 1;
   string source = 2;

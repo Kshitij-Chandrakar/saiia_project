@@ -1356,6 +1356,7 @@ function resetStartupFlow() {
 }
 
 async function finalizeActiveInterviewSession(reason = 'ended') {
+  grpcRealtimeClient.close()
   if (!desktopAuthSessionManager?.hasActiveInterviewSession?.()) {
     return { ok: true, skipped: true }
   }
@@ -1906,6 +1907,8 @@ app.on('ready', async () => {
 
   buildApplicationMenu()
   createMainWindow()
+  // Nonblocking, provider-free probe. No capture, auth or interview stream is started.
+  void grpcRealtimeClient.checkHealth()
   startForegroundWindowTracking()
 
   if (process.platform === 'darwin' && typeof systemPreferences.subscribeNotification === 'function') {
@@ -2049,6 +2052,7 @@ ipcMain.handle('cloud:list-interview-sessions', async (event, options) => {
 
 ipcMain.handle('cloud:end-interview-session', async (event, sessionId) => {
   validateAuthIpc(event)
+  if (grpcRealtimeClient.cloudStart?.active_session_id === sessionId) grpcRealtimeClient.close()
   const result = await desktopAuthSessionManager.endInterviewSession(sessionId)
   if (result?.session?.id === sessionId && result.session.status === 'ended') broadcastToolbarAction('cloud-session-ended', { sessionId })
   return result
