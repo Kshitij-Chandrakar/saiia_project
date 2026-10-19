@@ -12,8 +12,8 @@ class Settings:
     ANSWER_FALLBACK_MODEL = os.getenv("ANSWER_FALLBACK_MODEL", "groq:openai/gpt-oss-120b")
     ANSWER_DISABLED_MODELS = os.getenv("ANSWER_DISABLED_MODELS", "")
     ANSWER_MODEL_OVERRIDES = os.getenv("ANSWER_MODEL_OVERRIDES", "{}")
-    USE_GRPC_CLOUD_CONTEXT_PIPELINE = os.getenv("USE_GRPC_CLOUD_CONTEXT_PIPELINE", "false").strip().lower() == "true"
-    USE_GRPC_AUTO_PIPELINE = os.getenv("USE_GRPC_AUTO_PIPELINE", "false").strip().lower() == "true"
+    USE_GRPC_CLOUD_CONTEXT_PIPELINE = os.getenv("USE_GRPC_CLOUD_CONTEXT_PIPELINE", "true").strip().lower() == "true"
+    USE_GRPC_AUTO_PIPELINE = os.getenv("USE_GRPC_AUTO_PIPELINE", "true").strip().lower() == "true"
     USE_GRPC_MANUAL_PIPELINE = os.getenv("USE_GRPC_MANUAL_PIPELINE", "false").strip().lower() == "true"
     GRPC_ANSWER_STREAM_ENABLED = os.getenv("GRPC_ANSWER_STREAM_ENABLED", "false").strip().lower() == "true"
     GRPC_STT_ENABLED = os.getenv("GRPC_STT_ENABLED", "false").strip().lower() == "true"

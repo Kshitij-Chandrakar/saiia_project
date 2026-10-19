@@ -34,6 +34,11 @@ class InterviewRealtimeServiceStub(object):
         Args:
             channel: A grpc.Channel.
         """
+        self.CheckHealth = channel.unary_unary(
+                '/intervuai.realtime.v1.InterviewRealtimeService/CheckHealth',
+                request_serializer=interview__realtime__pb2.Empty.SerializeToString,
+                response_deserializer=interview__realtime__pb2.RealtimeHealth.FromString,
+                _registered_method=True)
         self.StreamInterview = channel.stream_stream(
                 '/intervuai.realtime.v1.InterviewRealtimeService/StreamInterview',
                 request_serializer=interview__realtime__pb2.InterviewClientEvent.SerializeToString,
@@ -44,6 +49,12 @@ class InterviewRealtimeServiceStub(object):
 class InterviewRealtimeServiceServicer(object):
     """Missing associated documentation comment in .proto file."""
 
+    def CheckHealth(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def StreamInterview(self, request_iterator, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -53,6 +64,11 @@ class InterviewRealtimeServiceServicer(object):
 
 def add_InterviewRealtimeServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'CheckHealth': grpc.unary_unary_rpc_method_handler(
+                    servicer.CheckHealth,
+                    request_deserializer=interview__realtime__pb2.Empty.FromString,
+                    response_serializer=interview__realtime__pb2.RealtimeHealth.SerializeToString,
+            ),
             'StreamInterview': grpc.stream_stream_rpc_method_handler(
                     servicer.StreamInterview,
                     request_deserializer=interview__realtime__pb2.InterviewClientEvent.FromString,
@@ -68,6 +84,33 @@ def add_InterviewRealtimeServiceServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class InterviewRealtimeService(object):
     """Missing associated documentation comment in .proto file."""
+
+    @staticmethod
+    def CheckHealth(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/intervuai.realtime.v1.InterviewRealtimeService/CheckHealth',
+            interview__realtime__pb2.Empty.SerializeToString,
+            interview__realtime__pb2.RealtimeHealth.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def StreamInterview(request_iterator,

@@ -3,8 +3,12 @@ import { createPcmMicCapture } from './live_mic_transport.js'
 // Shared experimental PCM capture for diagnostics and opt-in G6 manual sessions.
 export function createGrpcMicTest({ api, getUserMedia = (constraints) => navigator.mediaDevices.getUserMedia(constraints), createCapture = createPcmMicCapture, ownsStream = true }) {
   let capture, stream, running = false, pending = false, generation = 0, queued = 0, sending = Promise.resolve()
+  const pacing = new Map()
   const stopCapture = () => {
     generation++
+    for (const [timer, resolve] of pacing) { clearTimeout(timer); resolve() }
+    pacing.clear()
+    queued = 0; pending = false; sending = Promise.resolve()
     tail = new Uint8Array(0)
     running = false
     capture?.close()
@@ -33,17 +37,21 @@ export function createGrpcMicTest({ api, getUserMedia = (constraints) => navigat
         sending = sending.then(async () => {
           if (run !== generation) return null
           const result = await api.sendGrpcRealtimeAudioChunk(data, metadata())
+          if (run !== generation) return null
           // Keep G4 frames near realtime, including when one capture callback produces several frames.
           if (status.sttEnabled) {
             const now = Date.now()
             nextSlot = Math.max((nextSlot || now) + 100, now - 1000)
             const wait = nextSlot - now
-            if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait))
+            if (wait > 0) await new Promise(resolve => {
+              const timer = setTimeout(() => { pacing.delete(timer); resolve() }, wait)
+              pacing.set(timer, resolve)
+            })
           }
           return result
         }).then((result) => {
           if (run === generation && result?.connectionStatus !== 'connected') stopCapture()
-        }).catch(() => { if (run === generation) stopCapture() }).finally(() => { queued--; pending = queued > 0 })
+        }).catch(() => { if (run === generation) stopCapture() }).finally(() => { if (run === generation) { queued--; pending = queued > 0 } })
       }
       capture = createCapture({ stream, contextSampleRate: status.sttEnabled ? 16000 : undefined,
         isActive: () => running && (status.sttEnabled ? queued <= 8 : !pending),

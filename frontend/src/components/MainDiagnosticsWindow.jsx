@@ -1863,6 +1863,13 @@ export default function MainDiagnosticsWindow(props) {
                   <MetaRow label="Manual phase" value={manualLiveState?.phase || 'idle'} />
                   <MetaRow label="Manual transport" value={manualLiveState?.transport || 'REST/WebSocket'} />
                   <MetaRow label="Auto Mode pipeline" value={generationDiagnostics?.autoModePipeline || 'existing_default'} />
+                  {['realtime_default_route', 'selected_realtime_pipeline', 'pipeline_selection_reason', 'grpc_health',
+                    'grpc_connection_status', 'grpc_last_failure_reason', 'grpc_last_health_success', 'grpc_last_health_failure',
+                    'grpc_fallback_available', 'grpc_fallback_used', 'grpc_fallback_reason', 'active_audio_source',
+                    'cloud_grpc_auth_status', 'cloud_session_verified', 'cloud_context_loaded', 'cloud_answer_save_status',
+                    'auto_run_id', 'question_transport', 'answer_transport', 'generation_committed', 'question_stage', 'stop_cleanup_status'].map(field => (
+                    <MetaRow key={field} label={field} value={String(generationDiagnostics?.[field] ?? 'n/a')} />
+                  ))}
                   <MetaRow label="Auto gRPC flag enabled" value={generationDiagnostics?.autoGrpcFlagEnabled ? 'yes' : 'no'} />
                   <MetaRow label="Auto gRPC eligibility" value={generationDiagnostics?.autoGrpcEligible ? 'yes' : 'no'} />
                   <MetaRow label="Auto gRPC blocked reason" value={generationDiagnostics?.autoGrpcBlockedReason || 'unknown'} />

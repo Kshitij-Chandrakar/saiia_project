@@ -47,6 +47,21 @@ test('backend disconnect during audio acknowledgement stops the microphone safel
   assert.equal(f.counts().stopped, 1)
   assert.equal(f.counts().closed, 1)
 })
+test('G9 close discards queued PCM and pacing work without sending into a new run', async () => {
+  const f = fixture({ audioEnabled: true, sttEnabled: true, connectionStatus: 'connected' })
+  let resolve
+  f.api.sendGrpcRealtimeAudioChunk = async data => { f.sent.push(data); return new Promise(done => { resolve = done }) }
+  await f.mic.start()
+  f.capture().onChunk(new Int16Array(4800).buffer) // Three frames, one IPC in flight.
+  await flush()
+  assert.equal(f.sent.length, 1)
+  f.mic.close(); f.mic.close()
+  resolve({ connectionStatus: 'connected' })
+  await flush(); await flush()
+  assert.equal(f.sent.length, 1)
+  assert.equal(f.capture().isActive(), false)
+  assert.equal(f.counts().stopped, 1)
+})
 
 test('canceling pending microphone permission releases late tracks without capture', async () => {
   let resolve, stopped = 0
@@ -136,4 +151,19 @@ test('fixed frame slots catch up after send jitter without adding another full i
   state.now = 4000
   vm.runInNewContext(schedule, state)
   assert.equal(state.nextSlot, 3000) // Catch-up remains bounded to one second.
+})
+
+
+test('permission rejection never creates capture or sends PCM and exposes no raw error', async () => {
+  let captures = 0, sent = 0
+  const mic = createGrpcMicTest({
+    api: { getGrpcRealtimeStatus: async () => ({ audioEnabled: true, connectionStatus: 'connected' }),
+      sendGrpcRealtimeAudioChunk: async () => { sent++ } },
+    getUserMedia: async () => { throw Error('private permission rejection') },
+    createCapture: () => { captures++; return { close() {} } },
+  })
+  await assert.rejects(mic.start(), error => /microphone permission/.test(error.message) && !/private/.test(error.message))
+  mic.close(); mic.close()
+  assert.equal(captures, 0)
+  assert.equal(sent, 0)
 })
