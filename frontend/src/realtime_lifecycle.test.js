@@ -66,6 +66,19 @@ test('G9 late cleanup cannot change diagnostics of a restarted run', async () =>
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(f.diagnostics().stop_cleanup_status, 'cleaning')
 })
+
+test('combined Stop during transport startup closes the owned RPC before the session factory returns', async () => {
+  const f = fixture()
+  f.context.autoModeSourceRef.current = 'both'
+  f.context.autoStartingRef.current = true
+  f.context.autoGrpcSessionRef.current = null
+  f.stop()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(f.counts().grpc, 1)
+  assert.equal(f.counts().tracks, 1)
+  assert.equal(f.context.autoModeRunIdRef.current, '')
+  assert.equal(f.diagnostics().stop_cleanup_status, 'clean')
+})
 test('G9 old standard generation completion cannot unlock a new run or clear its question', async () => {
   const start = app.indexOf('  const processAutoQuestion = ')
   const processCode = app.slice(start, app.indexOf('\n  }\n', start) + 4)
@@ -189,8 +202,9 @@ function sessionEnd(f, sessionId = 'owned') {
   vm.runInNewContext(`(() => { ${source} })()`, context)
 }
 
-for (const starting of [true, false]) test(`matching session end cancels ${starting ? 'starting' : 'active'} Auto through current refs`, () => {
+for (const source of ['microphone', 'both']) for (const starting of [true, false]) test(`matching session end cancels ${starting ? 'starting' : 'active'} ${source} Auto through current refs`, () => {
   const f = fixture()
+  f.context.autoModeSourceRef.current = source
   f.context.autoStartingRef.current = starting
   f.context.autoModeRef.current = !starting
   f.context.autoMode = false // A stale closure must not determine mode.

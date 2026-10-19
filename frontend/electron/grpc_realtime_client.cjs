@@ -72,18 +72,21 @@ class GrpcRealtimeClient {
     this.epoch = 0
     this.health = { grpc_health: 'unknown', grpc_last_health_success: null, grpc_last_health_failure: null,
       grpc_health_failure_reason: 'none', grpc_stt_available: false, grpc_answer_available: false,
-      grpc_auto_available: false, grpc_cloud_context_available: false }
+      grpc_auto_available: false, grpc_cloud_context_available: false, grpc_system_audio_available: false, grpc_combined_audio_available: false }
     this.generationCommitted = false
     this.questionTransport = this.answerTransport = 'none'
     this.questionStage = 'idle'
     this.lastFailureReason = 'none'
     this.audioEverSent = false
+    this.systemCleanup = null
+    this.systemCleanupStatus = 'clean'
   }
 
   checkHealth() {
     if (this.healthChecking) return this.healthChecking
     const task = (async () => {
       let probe
+      if (this.systemCleanup) await this.systemCleanup
       this.health.grpc_health = 'checking'
       try {
         if (!this.enabled) throw Error('grpc_unavailable')
@@ -102,11 +105,13 @@ class GrpcRealtimeClient {
         this.health = { ...this.health, grpc_health: 'healthy', grpc_last_health_success: Date.now(),
           grpc_health_failure_reason: 'none', grpc_stt_available: result.stt_available === true,
           grpc_answer_available: result.answer_stream_available === true, grpc_auto_available: result.auto_available === true,
-          grpc_cloud_context_available: result.cloud_context_available === true }
+          grpc_cloud_context_available: result.cloud_context_available === true,
+          grpc_system_audio_available: result.system_audio_available === true, grpc_combined_audio_available: result.combined_audio_available === true }
+        if (result.system_audio_available === true && !this.stream) this.systemCleanupStatus = 'clean'
       } catch (error) {
         this.health = { ...this.health, grpc_health: 'unavailable', grpc_last_health_failure: Date.now(),
           grpc_health_failure_reason: ['grpc_unavailable', 'grpc_connection_timeout'].includes(error.message) ? error.message : 'grpc_health_failed',
-          grpc_stt_available: false, grpc_answer_available: false, grpc_auto_available: false, grpc_cloud_context_available: false }
+          grpc_stt_available: false, grpc_answer_available: false, grpc_auto_available: false, grpc_cloud_context_available: false, grpc_system_audio_available: false, grpc_combined_audio_available: false }
       } finally { try { probe?.close() } catch { /* Probe owns only its channel. */ } }
       return this.getStatus()
     })()
@@ -124,7 +129,7 @@ class GrpcRealtimeClient {
     return { ...this.health, grpc_audio_sent: this.audioEverSent,
       grpc_last_failure_reason: this.lastFailureReason !== 'none' ? this.lastFailureReason : this.health.grpc_health === 'unavailable' ? this.health.grpc_health_failure_reason : 'none', generation_committed: this.generationCommitted,
       question_transport: this.questionTransport, answer_transport: this.answerTransport, question_stage: this.questionStage,
-      systemAudioPipelineSupported: false, systemAudio: { ...this.systemAudio }, questionIntake: { ...this.questionIntake, low_audio_warning: this.sttStatus === 'mic_audio_too_low', mic_rms_level: this.pcmDiagnostics.rms || 0, mic_peak_level: this.pcmDiagnostics.peak || 0 }, cloudAuthAvailable: Boolean(this.getCloudAuthAvailable()), cloudContextPipelineEnabled: this.cloudContextPipelineEnabled, cloudAuthStatus: this.cloudAuthStatus,
+      systemCleanupStatus: this.systemCleanupStatus, systemAudioPipelineSupported: this.health.grpc_system_audio_available === true, systemAudio: { ...this.systemAudio }, questionIntake: { ...this.questionIntake, low_audio_warning: this.sttStatus === 'mic_audio_too_low', mic_rms_level: this.pcmDiagnostics.rms || 0, mic_peak_level: this.pcmDiagnostics.peak || 0 }, cloudAuthAvailable: Boolean(this.getCloudAuthAvailable()), cloudContextPipelineEnabled: this.cloudContextPipelineEnabled, cloudAuthStatus: this.cloudAuthStatus,
       cloudSessionVerified: this.cloudSessionVerified, cloudContextLoaded: this.cloudContextLoaded,
       cloudAnswerSaveStatus: this.cloudAnswerSaveStatus, cloudBlockedReason: this.cloudBlockedReason, autoPipelineEnabled: this.autoPipelineEnabled, autoPipelineReady: this.autoPipelineReady, autoStatus: this.autoStatus, autoEventVersion: this.autoEventVersion, manualEventVersion: this.manualEventVersion, manualRun: this.manualRun, manualTimings: { ...this.manualTimings }, manualPipelineEnabled: this.manualPipelineEnabled, manualPipelineReady: this.manualPipelineReady, manualStatus: this.manualStatus, enabled: this.enabled, connectionStatus: this.status, lastPingResult: this.lastPing, lastErrorMessage: this.lastError,
       audioEnabled: this.enabled && this.audioEnabled, audioChunksSent: this.audioChunksSent, audioBytesSent: this.audioBytesSent,
@@ -175,14 +180,15 @@ class GrpcRealtimeClient {
         const stream = metadata ? this.client.StreamInterview(metadata) : this.client.StreamInterview()
         this.stream = stream
         stream.on('data', (event) => {
-          if (epoch !== this.epoch) return
+          if (epoch !== this.epoch || (event.session_id && event.session_id !== this.sessionId)) return
           if (this.cloudAuthCurrent && !this.cloudAuthCurrent()) { this.fail(); this.cloudSessionVerified = this.cloudContextLoaded = false; this.cloudAuthStatus = 'failed'; this.cloudBlockedReason = 'auth_unavailable'; return }
           if (event.status?.system_audio) {
             this.systemAudio = { ...event.status.system_audio }
             this.backendChunksReceived = Number(event.status.total_chunks || this.backendChunksReceived)
             this.backendBytesReceived = Number(event.status.total_audio_bytes || this.backendBytesReceived)
           }
-          if (event.status?.question_intake) this.questionIntake = { ...event.status.question_intake }
+          if (event.status?.question_intake) this.questionIntake = Object.fromEntries(Object.entries(event.status.question_intake)
+            .filter(([key]) => !['last_ignored_transcript', 'utterance_buffer_text'].includes(key)))
           const code = event.status?.code
           if (code === 'auth_verified') this.cloudAuthStatus = 'verified'
           if (code === 'cloud_session_verified') this.cloudSessionVerified = true
@@ -279,7 +285,8 @@ class GrpcRealtimeClient {
             const emptyManual = this.sessionMode === 'manual_pipeline' && event.error.code === 'no_transcript'
             this.fail()
             if (emptyManual) this.manualStatus = 'manual_no_question'
-            this.lastError = event.error.code === 'no_transcript'
+            if (event.error.code.startsWith('system_')) this.lastFailureReason = event.error.code
+            this.lastError = event.error.code.startsWith('system_') ? 'Computer audio unavailable. Stop and restart Auto Mode; restart the local backend if cleanup remains incomplete.' : event.error.code === 'no_transcript'
               ? 'No final speech transcript received. Check microphone input and retry.'
               : cloudAuthCodes.includes(event.error.code)
                 ? 'Cloud session unavailable. Sign in again or restart the session.'
@@ -354,8 +361,12 @@ class GrpcRealtimeClient {
       if (context[key] != null && (typeof context[key] !== 'string' || (context[key] && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(context[key])))) throw Error('invalid context')
     }
     if (context.source && !['microphone', 'system', 'both'].includes(context.source)) throw Error('invalid source')
-    if (context.source && context.source !== 'microphone') {
-      this.lastFailureReason = 'system_audio_selected'
+    if (context.source === 'both' && (this.health.grpc_health !== 'healthy' || !this.health.grpc_combined_audio_available)) {
+      this.lastFailureReason = 'combined_audio_unavailable'
+      return this.getStatus()
+    }
+    if (context.source === 'system' && (this.health.grpc_health !== 'healthy' || !this.health.grpc_system_audio_available)) {
+      this.lastFailureReason = 'system_audio_unavailable'
       return this.getStatus()
     }
     const cloud = Boolean(context.activeSessionId || context.selectedResumeId || context.jobContextId)
@@ -366,7 +377,20 @@ class GrpcRealtimeClient {
     }
     if (!this.enabled || !this.audioEnabled || !this.autoPipelineEnabled) return this.getStatus()
     if (this.sessionMode === 'auto_pipeline' && ['connecting', 'connected'].includes(this.status) && this.cloudAuthStatus !== 'failed' && (this.cloudStart?.active_session_id || '') === (context.activeSessionId || '') && (this.cloudStart?.selected_resume_id || '') === (context.selectedResumeId || '') && (this.cloudStart?.selected_job_context_id || '') === (context.jobContextId || '') && (this.cloudStart?.source || 'microphone') === (context.source || 'microphone')) return this.connect()
-    this.close()
+    const cleanup = this.close()
+    const openingEpoch = this.epoch
+    if (cleanup?.then) {
+      const result = await cleanup
+      if (openingEpoch !== this.epoch) return { autoPipelineReady: false, connectionStatus: 'disconnected' }
+      if (result.systemCleanupStatus !== 'clean') {
+        this.lastFailureReason = 'system_cleanup_failed'
+        return this.getStatus()
+      }
+    }
+    if (['system', 'both'].includes(context.source) && this.systemCleanupStatus !== 'clean') {
+      this.lastFailureReason = 'system_cleanup_failed'
+      return this.getStatus()
+    }
     this.manualRun++
     this.generationCommitted = false
     this.questionTransport = this.answerTransport = 'none'
@@ -409,9 +433,14 @@ class GrpcRealtimeClient {
     return true
   }
 
-  startSession() { return this.request({ start_session: { mode: this.sessionMode, ...this.cloudStart } }, 'ready') }
+  startSession() {
+    // Server-side capture may process audio before readiness reaches Electron.
+    if (['system', 'both'].includes(this.cloudStart?.source)) this.audioEverSent = true
+    return this.request({ start_session: { mode: this.sessionMode, ...this.cloudStart } }, 'ready')
+  }
 
   async sendAudioChunk(data, metadata = {}) {
+    if (this.cloudStart?.source === 'system') { this.lastAudioStatus = 'unsupported_source'; return this.getStatus() }
     if (this.cloudAuthCurrent && !this.cloudAuthCurrent()) {
       this.fail()
       this.cloudSessionVerified = this.cloudContextLoaded = false
@@ -453,7 +482,9 @@ class GrpcRealtimeClient {
     }
     const task = (async () => {
       try {
-        const response = await this.request({ audio_chunk: { audio, sample_rate: 16000, channels: 1, encoding: 'linear16' } }, 'status')
+        const capturedAt = this.cloudStart?.source === 'both' && Number.isFinite(metadata?.captureTimestampMs) &&
+          Math.abs(Date.now() - metadata.captureTimestampMs) <= 1000 ? metadata.captureTimestampMs : Date.now()
+        const response = await this.request({ sequence_number: this.audioChunksSent + 1, timestamp_ms: capturedAt, audio_chunk: { audio, sample_rate: 16000, channels: 1, encoding: 'linear16' } }, 'status')
         if (epoch !== this.epoch) return
         if (this.sttEnabled) this.pcmDiagnostics.backendEvenByteLength = response.status.code === 'audio_chunk_received'
         if (this.sttEnabled && this.pcmDiagnostics.rms < 0.005) this.sttStatus = 'mic_audio_too_low'
@@ -492,6 +523,7 @@ class GrpcRealtimeClient {
   }
 
   async finish(kind) {
+    if (['system', 'both'].includes(this.cloudStart?.source)) return this.close()
     try { if (this.stream) await this.request({ [kind]: {} }, 'status') } catch { /* Safe local cleanup below. */ }
     return this.close()
   }
@@ -524,8 +556,9 @@ class GrpcRealtimeClient {
   close(run) {
     if (run !== undefined && (!Number.isInteger(run) || run < 1)) throw Error('invalid run')
     if (run !== undefined && run !== this.manualRun) return this.getStatus()
+    const system = ['system', 'both'].includes(this.cloudStart?.source)
     this.epoch++
-    const stream = this.stream, client = this.client
+    const stream = this.stream, client = this.client, sessionId = this.sessionId
     this.cloudStart = null
     this.cloudAuthCurrent = null
     this.cloudAuthStatus = 'not_started'
@@ -561,12 +594,39 @@ class GrpcRealtimeClient {
     this.connectionWaiters.clear()
     for (const item of this.pending.values()) { clearTimeout(item.timer); item.reject(Error('closed')) }
     this.pending.clear()
-    try { stream?.cancel() } catch { /* Already closed. */ }
-    try { client?.close() } catch { /* Already closed. */ }
+    if (system && stream) {
+      this.systemCleanupStatus = 'cleaning'
+      const requestId = randomUUID()
+      const cleanup = new Promise(resolve => {
+        const finish = clean => {
+          clearTimeout(timer)
+          stream.removeListener('data', onData); stream.removeListener('end', onEnd); stream.removeListener('error', onEnd)
+          try { stream.cancel() } catch { /* Already closed. */ }
+          try { client?.close() } catch { /* Already closed. */ }
+          this.systemCleanupStatus = clean ? 'clean' : 'failed'
+          resolve({ systemCleanupStatus: this.systemCleanupStatus })
+        }
+        let settled = false
+        const settle = clean => { if (!settled) { settled = true; finish(clean) } }
+        const onEnd = () => settle(false)
+        const onData = event => {
+          if (event.session_id === sessionId && event.request_id === requestId &&
+              ['ended', 'system_cleanup_pending'].includes(event.status?.code)) settle(event.status.code === 'ended')
+        }
+        const timer = setTimeout(onEnd, this.timeoutMs + 5000)
+        stream.on('data', onData); stream.on('end', onEnd); stream.on('error', onEnd)
+        try { stream.write({ session_id: sessionId, request_id: requestId, end_session: {} }) } catch { onEnd() }
+      })
+      this.systemCleanup = cleanup
+      void cleanup.then(() => { if (this.systemCleanup === cleanup) this.systemCleanup = null })
+    } else {
+      try { stream?.cancel() } catch { /* Already closed. */ }
+      try { client?.close() } catch { /* Already closed. */ }
+    }
     this.status = this.enabled ? 'disconnected' : 'disabled'
     this.lastPing = 'not sent'
     this.lastError = ''
-    return this.getStatus()
+    return this.systemCleanup || this.getStatus()
   }
 }
 

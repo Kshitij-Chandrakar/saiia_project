@@ -73,6 +73,9 @@ class StreamingLoopbackSession:
     stats_rms_accumulator: float = 0.0
     stats_effective_gain_max: float = 0.0
     stats_clipping_detected: bool = False
+    monitor_default: bool = False
+    next_device_check_at: float = 0.0
+    continuous_resampler: Any | None = None
 
 
 @dataclass
@@ -171,7 +174,10 @@ class SystemAudioCaptureService:
 
     def list_wasapi_loopback_devices(self) -> list[dict[str, Any]]:
         devices = self._list_devices_internal()
-        default_index = devices[0].device_index if devices else None
+        try:
+            default_index = self.get_default_loopback_device().device_index
+        except SystemAudioCaptureError:
+            default_index = None
         return [
             {
                 "device_index": device.device_index,
@@ -185,14 +191,20 @@ class SystemAudioCaptureService:
         ]
 
     def get_default_loopback_device(self) -> LoopbackDevice:
-        devices = self._list_devices_internal()
-        if not devices:
-            raise SystemAudioCaptureError(
-                "No WASAPI loopback device found.",
-                public_message="No WASAPI loopback device found.",
-                status_code=400,
-            )
-        return devices[0]
+        pyaudio = self._get_pyaudio()
+        pa = pyaudio.PyAudio()
+        try:
+            # PyAudioWPatch resolves the WASAPI default output and its loopback analogue.
+            # Enumeration order is not Windows default-device identity.
+            info = pa.get_default_wasapi_loopback()
+            return LoopbackDevice(device_index=int(info["index"]), name=str(info["name"]),
+                channels=max(1, int(info["maxInputChannels"])), sample_rate=int(info["defaultSampleRate"]),
+                is_loopback=True, use_as_loopback=False)
+        except Exception as exc:
+            raise SystemAudioCaptureError("Default WASAPI loopback unavailable.",
+                public_message="Windows default output loopback unavailable. Check the output device and restart Auto Mode.") from exc
+        finally:
+            pa.terminate()
 
     def _find_device_by_index(self, device_index: int) -> LoopbackDevice:
         for device in self._list_devices_internal():
@@ -361,6 +373,7 @@ class SystemAudioCaptureService:
         target_sample_rate: int = 16000,
         chunk_ms: int = 100,
         debug_save_enabled: bool | None = None,
+        monitor_default: bool = False,
     ) -> StreamingLoopbackSession:
         device = self._find_device_by_index(device_index) if device_index is not None else self.get_default_loopback_device()
         pyaudio = self._get_pyaudio()
@@ -407,6 +420,7 @@ class SystemAudioCaptureService:
             stats_started_at=time.perf_counter(),
             debug_wav_path=debug_wav_path,
             debug_wave_writer=debug_wave_writer,
+            monitor_default=monitor_default and device_index is None,
         )
 
     def _open_debug_wave_if_enabled(
@@ -427,36 +441,64 @@ class SystemAudioCaptureService:
         wf.setframerate(target_sample_rate)
         return str(debug_path), wf
 
-    def close_streaming_loopback_session(self, session: StreamingLoopbackSession | None) -> None:
+    def close_streaming_loopback_session(self, session: StreamingLoopbackSession | None) -> bool:
         if session is None:
-            return
+            return True
+        clean = True
         if session.debug_wave_writer is not None:
             try:
                 session.debug_wave_writer.close()
             except Exception:
+                clean = False
                 logger.debug("Failed to close debug system stream WAV.", exc_info=True)
         try:
             session.stream.stop_stream()
         except Exception:
+            clean = False
             logger.debug("Failed to stop streaming loopback stream.", exc_info=True)
         try:
             session.stream.close()
         except Exception:
+            clean = False
             logger.debug("Failed to close streaming loopback stream.", exc_info=True)
         try:
             session.pyaudio_instance.terminate()
         except Exception:
+            clean = False
             logger.debug("Failed to terminate PyAudio streaming session.", exc_info=True)
 
+        return clean
+
+    def enable_continuous_resampling(self, session: StreamingLoopbackSession) -> None:
+        from app.pcm_mixer import StreamingResampler
+        session.continuous_resampler = StreamingResampler(session.sample_rate, session.target_sample_rate)
+
     def read_streaming_pcm_chunk(self, session: StreamingLoopbackSession) -> StreamingChunkResult:
+        if session.monitor_default and time.monotonic() >= session.next_device_check_at:
+            current = self.get_default_loopback_device()
+            if (current.device_index, current.name, current.sample_rate, current.channels) != (
+                    session.device.device_index, session.device.name, session.sample_rate, session.channels):
+                raise SystemAudioCaptureError("Default output changed. Stop and restart Auto Mode.")
+            session.next_device_check_at = time.monotonic() + 1
         raw_bytes = session.stream.read(session.frames_per_buffer, exception_on_overflow=False)
         conversion_started = time.perf_counter()
-        pcm_bytes, rms_level, peak_level, clipping_detected, effective_gain = self._convert_loopback_bytes_to_pcm16_mono(
-            raw_bytes,
-            source_channels=session.channels,
-            source_sample_rate=session.sample_rate,
-            target_sample_rate=session.target_sample_rate,
-        )
+        continuous = getattr(session, 'continuous_resampler', None)
+        if continuous is not None:
+            if len(raw_bytes) % (2 * session.channels):
+                raise SystemAudioCaptureError('Invalid native PCM boundary')
+            samples = np.frombuffer(raw_bytes, dtype='<i2').astype(np.float64).reshape(-1, session.channels).mean(axis=1)
+            converted = continuous.process(samples)
+            pcm_bytes = np.clip(converted, -32768, 32767).astype('<i2').tobytes()
+            peak_level = float(np.max(np.abs(converted)) / 32768) if len(converted) else 0.
+            rms_level = float(np.sqrt(np.mean(converted ** 2)) / 32768) if len(converted) else 0.
+            clipping_detected, effective_gain = False, 1.
+        else:
+            pcm_bytes, rms_level, peak_level, clipping_detected, effective_gain = self._convert_loopback_bytes_to_pcm16_mono(
+                raw_bytes,
+                source_channels=session.channels,
+                source_sample_rate=session.sample_rate,
+                target_sample_rate=session.target_sample_rate,
+            )
         resample_latency_ms = (time.perf_counter() - conversion_started) * 1000
         dropped_silence = False
         if not pcm_bytes:

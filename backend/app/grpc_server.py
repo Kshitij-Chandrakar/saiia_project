@@ -6,6 +6,8 @@ from collections import deque
 from contextlib import aclosing
 import asyncio
 import ipaddress
+import importlib.util
+import platform
 import json
 import time
 import uuid
@@ -24,14 +26,32 @@ STABLE_PARTIAL_SECONDS = 1.2
 
 _system_cleanup_tasks = set()
 
+def question_intake_diagnostics(values):
+    # Transcript content belongs in explicit UI events, not diagnostics.
+    return pb.QuestionIntake(**{key: value for key, value in values.items()
+                               if key not in ('last_ignored_transcript', 'utterance_buffer_text')})
+
+def system_capture_available():
+    # Capability only: no PyAudio instance, device enumeration or provider calls.
+    return platform.system() == "Windows" and importlib.util.find_spec("pyaudiowpatch") is not None
+
+
 class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
+    def __init__(self):
+        self._system_owner = asyncio.Lock()
+        self._system_cleanup_failed = False
+
     async def CheckHealth(self, request, context):
         # Configuration readiness only: never open capture, STT, auth or an LLM.
         stt = settings.GRPC_STT_ENABLED and bool(settings.ASSEMBLYAI_API_KEY)
         answer = stt and settings.GRPC_ANSWER_STREAM_ENABLED
         return pb.RealtimeHealth(stt_available=stt, answer_stream_available=answer,
                                  auto_available=answer and settings.USE_GRPC_AUTO_PIPELINE,
-                                 cloud_context_available=settings.USE_GRPC_CLOUD_CONTEXT_PIPELINE)
+                                 cloud_context_available=settings.USE_GRPC_CLOUD_CONTEXT_PIPELINE,
+                                 combined_audio_available=answer and settings.USE_GRPC_AUTO_PIPELINE and system_capture_available()
+                                 and not self._system_owner.locked() and not self._system_cleanup_failed,
+                                 system_audio_available=answer and settings.USE_GRPC_AUTO_PIPELINE and system_capture_available()
+                                 and not self._system_owner.locked() and not self._system_cleanup_failed)
 
     async def StreamInterview(self, request_iterator, context):
         # Bounded output queue lets provider events arrive independently of audio input.
@@ -48,7 +68,12 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
         audio_source = 'microphone'
         system_capture = system_session = system_reader = system_sender = read_future = None
         system_metrics = {}
+        system_owned = False
+        system_open_future = system_cleanup = None
         system_queue = asyncio.Queue(maxsize=3)
+        from app.pcm_mixer import PcmMixer
+        mixer = PcmMixer()
+        mixed_started = False
         cloud_context = None
         auto_mode = False
         auto_cooldown_until = 0.0
@@ -101,7 +126,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
         async def intake_status():
             if auto_mode:
                 intake.update(utterance.snapshot())
-                await emit(last_request_id, 'status', pb.Status(code='question_intake', question_intake=pb.QuestionIntake(**intake)))
+                await emit(last_request_id, 'status', pb.Status(code='question_intake', question_intake=question_intake_diagnostics(intake)))
 
         async def ignored(text, reason, final=True):
             if final: intake['final_transcripts_ignored'] += 1
@@ -361,12 +386,16 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 await output.put(None)
 
         async def open_system_capture():
-            nonlocal system_capture, system_session, system_reader, system_sender
+            nonlocal system_capture, system_session, system_reader, system_sender, system_open_future
             from app.services.system_audio_capture import SystemAudioCaptureService
             from starlette.concurrency import run_in_threadpool
             system_capture = SystemAudioCaptureService()
-            system_metrics.update(system_capture_started_at=time.time()*1000, active_audio_source='system', transcript_source='system', question_source='system', answer_source_audio='system', system_target_rate=16000, system_dropped_chunks=0)
-            system_session = await run_in_threadpool(system_capture.open_streaming_loopback_session, target_sample_rate=16000, chunk_ms=100, debug_save_enabled=False)
+            system_metrics.update(system_capture_started_at=time.time()*1000, active_audio_source=audio_source, transcript_source=audio_source, question_source=audio_source, answer_source_audio=audio_source, system_target_rate=16000, system_dropped_chunks=0)
+            system_open_future = asyncio.ensure_future(run_in_threadpool(system_capture.open_streaming_loopback_session,
+                target_sample_rate=16000, chunk_ms=100, debug_save_enabled=False, monitor_default=True))
+            system_session = await asyncio.shield(system_open_future)
+            if audio_source == 'both':
+                system_capture.enable_continuous_resampling(system_session)
             async def capture():
                 nonlocal read_future
                 tail = b''
@@ -379,9 +408,12 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         if chunk.rms_level > .005 and not system_metrics.get('system_first_non_silent_chunk_at'): system_metrics['system_first_non_silent_chunk_at'] = now
                         if not chunk.pcm_bytes: system_metrics['system_dropped_chunks'] += 1
                         if len(chunk.pcm_bytes) % 2: raise RuntimeError('invalid PCM')
-                        tail += chunk.pcm_bytes
                         system_metrics.update(system_sample_rate=chunk.input_sample_rate, system_rms=chunk.rms_level, system_peak=chunk.peak_level,
                             system_resample_latency_ms=chunk.resample_latency_ms)
+                        if audio_source == 'both':
+                            mixer.push('system', chunk.pcm_bytes, time.monotonic())
+                            continue
+                        tail += chunk.pcm_bytes
                         while len(tail) >= 3200:
                             frame, tail = tail[:3200], tail[3200:]
                             if system_queue.full():
@@ -391,22 +423,45 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         if len(tail) > 65536: raise RuntimeError('capture buffer exceeded')
                 except asyncio.CancelledError: raise
                 except Exception:
-                    await emit(last_request_id,'error',pb.ErrorEvent(code='system_audio_unavailable',message='System audio capture unavailable. Stop and retry the existing flow.'))
+                    await emit(last_request_id,'error',pb.ErrorEvent(code='system_audio_unavailable',message='Computer audio capture lost. Stop and restart Auto Mode.'))
                     await output.put(None)
             async def send():
-                nonlocal total_chunks, total_audio_bytes, stt_chunks, stt_bytes, non_silent_chunks
+                nonlocal total_chunks, total_audio_bytes, stt_chunks, stt_bytes, non_silent_chunks, mixed_started
+                deadline = time.monotonic() + .3
+                startup_deadline = time.monotonic() + 5
                 try:
                     while True:
-                        frame = await system_queue.get()
-                        system_metrics.update(system_chunk_bytes=len(frame),system_pcm_duration_ms=len(frame)/32,system_buffer_queue_depth=system_queue.qsize(),
+                        if audio_source == 'both':
+                            now = time.monotonic()
+                            if not mixed_started:
+                                if not all(s['seen'] for s in mixer.sources.values()):
+                                    if now > startup_deadline: raise RuntimeError('Required source did not start')
+                                    await asyncio.sleep(.01)
+                                    continue
+                                mixed_started = True
+                                deadline = now + .2
+                            await asyncio.sleep(max(0, deadline - now))
+                            now = time.monotonic()
+                            if any(now - s['last'] > 2 for s in mixer.sources.values()):
+                                raise RuntimeError('Required source lost')
+                            if now - deadline > .3:
+                                raise RuntimeError('Mixer stalled; explicit restart required')
+                            frame = mixer.render()
+                            system_metrics.update(system_dropped_chunks=mixer.dropped,
+                                system_buffer_queue_depth=max(max(0, s['end'] - mixer.position) for s in mixer.sources.values()) / mixer.frame_samples)
+                            deadline += .1
+                        else:
+                            frame = await system_queue.get()
+                        system_metrics.update(system_chunk_bytes=len(frame),system_pcm_duration_ms=len(frame)/32,
                             system_silence_ratio=sum(frame[i:i+2] == b'\0\0' for i in range(0,len(frame),2))/(len(frame)//2))
+                        if audio_source == 'system': system_metrics['system_buffer_queue_depth'] = system_queue.qsize()
                         if not system_metrics.get('system_first_chunk_sent_to_grpc_at'): system_metrics['system_first_chunk_sent_to_grpc_at'] = time.time()*1000
                         await asyncio.wait_for(socket.send(frame),timeout=2)
                         total_chunks += 1; total_audio_bytes += len(frame); stt_chunks += 1; stt_bytes += len(frame)
                         if any(frame): non_silent_chunks += 1
                         await emit(last_request_id,'status',pb.Status(code='system_audio_metrics',total_chunks=total_chunks,total_audio_bytes=total_audio_bytes,
                             stt_chunks_forwarded=stt_chunks,stt_bytes_forwarded=stt_bytes,stt_bridge_connected=True,
-                            system_audio=pb.SystemAudioDiagnostics(**system_metrics),question_intake=pb.QuestionIntake(**{**intake,**utterance.snapshot()})))
+                            system_audio=pb.SystemAudioDiagnostics(**system_metrics),question_intake=question_intake_diagnostics({**intake,**utterance.snapshot()})))
                 except asyncio.CancelledError: raise
                 except Exception:
                     await emit(last_request_id,'error',pb.ErrorEvent(code='system_audio_unavailable',message='System audio stream unavailable. Stop and retry.'))
@@ -416,28 +471,41 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             await emit(last_request_id,'status',pb.Status(code='system_audio_metrics',system_audio=pb.SystemAudioDiagnostics(**system_metrics)))
 
         async def close_system_capture():
-            nonlocal system_session
-            for task in (system_reader, system_sender):
-                if task: task.cancel()
-            await asyncio.gather(*(task for task in (system_reader,system_sender) if task),return_exceptions=True)
-            if read_future and not read_future.done():
-                await asyncio.wait({read_future}, timeout=1)
-            if system_session:
-                from starlette.concurrency import run_in_threadpool
-                session = system_session
-                system_session = None
-                if read_future and not read_future.done():
-                    # A timed-out native read still owns the device. Defer close,
-                    # rather than race it or block RPC shutdown indefinitely.
-                    async def deferred_close():
-                        await asyncio.gather(read_future, return_exceptions=True)
-                        await run_in_threadpool(system_capture.close_streaming_loopback_session, session)
-                    task = asyncio.create_task(deferred_close())
-                    _system_cleanup_tasks.add(task)
-                    task.add_done_callback(_system_cleanup_tasks.discard)
-                else:
-                    if read_future: await asyncio.gather(read_future, return_exceptions=True)
-                    await run_in_threadpool(system_capture.close_streaming_loopback_session, session)
+            nonlocal system_session, system_cleanup
+            mixer.clear()
+            if not system_owned:
+                return True
+            if system_cleanup is None:
+                async def release():
+                    nonlocal system_session
+                    try:
+                        for task in (system_reader, system_sender):
+                            if task: task.cancel()
+                        await asyncio.gather(*(t for t in (system_reader, system_sender) if t), return_exceptions=True)
+                        # Native open/read cannot be canceled safely. Keep ownership until both settle.
+                        if system_open_future:
+                            try:
+                                system_session = await asyncio.shield(system_open_future)
+                            except Exception:
+                                pass  # An unsuccessful open has no device handle to close.
+                        if read_future:
+                            await asyncio.gather(read_future, return_exceptions=True)
+                        if system_session:
+                            from starlette.concurrency import run_in_threadpool
+                            if await run_in_threadpool(system_capture.close_streaming_loopback_session, system_session) is False:
+                                raise RuntimeError("Native capture cleanup failed")
+                            system_session = None
+                        self._system_owner.release()
+                        return True
+                    except Exception:
+                        # Unknown native ownership must not permit a second open. Backend restart required.
+                        self._system_cleanup_failed = True
+                        return False
+                system_cleanup = asyncio.create_task(release())
+                _system_cleanup_tasks.add(system_cleanup)
+                system_cleanup.add_done_callback(_system_cleanup_tasks.discard)
+            done, _ = await asyncio.wait({system_cleanup}, timeout=3)
+            return bool(done and system_cleanup.result())
 
         async def close_stt():
             nonlocal socket, receiver, stable_partial, endpoint_task
@@ -483,7 +551,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 await asyncio.gather(answer_task, return_exceptions=True)
 
         async def process_requests():
-            nonlocal audio_source, cloud_context, auto_mode, manual_mode, manual_stopped, session_id, total_chunks, total_audio_bytes, last_request_id, stopping_stt, stt_chunks, stt_bytes, non_silent_chunks
+            nonlocal system_owned, audio_source, cloud_context, auto_mode, manual_mode, manual_stopped, session_id, total_chunks, total_audio_bytes, last_request_id, stopping_stt, stt_chunks, stt_bytes, non_silent_chunks
             canceled = False
             try:
                 async for request in request_iterator:
@@ -493,10 +561,11 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         await emit(request.request_id, "pong", pb.Empty())
                     elif kind in ("cancel", "end_session"):
                         await stop_answers()
-                        await close_system_capture()
+                        cleaned = await close_system_capture()
                         await close_stt()
                         await emit(request.request_id, "status", pb.Status(
-                            code="canceled" if kind == "cancel" else "ended", message="Stream closed."))
+                            code=("canceled" if kind == "cancel" else "ended") if cleaned else "system_cleanup_pending",
+                            message="Stream closed." if cleaned else "Computer capture cleanup incomplete. Wait and restart; restart backend if it persists."))
                         return
                     elif kind == "start_session":
                         if session_id is not None or not request.session_id or len(request.session_id) > 128:
@@ -514,11 +583,11 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         session_id = request.session_id
                         start = request.start_session
                         audio_source = start.source or 'microphone'
-                        if audio_source not in ('microphone','system') or (audio_source == 'system' and not auto_mode):
+                        if audio_source not in ('microphone','system','both') or (audio_source in ('system','both') and not auto_mode):
                             await emit(request.request_id,'error',pb.ErrorEvent(code='unsupported_source',message='Audio source is unavailable.'))
                             return
                         if start.cloud_context_requested:
-                            if not settings.USE_GRPC_CLOUD_CONTEXT_PIPELINE or not auto_mode or start.source not in ("microphone", "system"):
+                            if not settings.USE_GRPC_CLOUD_CONTEXT_PIPELINE or not auto_mode or start.source not in ("microphone", "system", "both"):
                                 await emit(request.request_id, "error", pb.ErrorEvent(code="cloud_context_flag_disabled", message="Cloud realtime context unavailable."))
                                 return
                             from app.grpc_cloud_context import GrpcCloudContext, CloudContextRejected
@@ -536,9 +605,26 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         elif start.active_session_id or start.selected_resume_id or start.selected_job_context_id:
                             await emit(request.request_id, "error", pb.ErrorEvent(code="auth_context_required", message="Cloud context requires verified authentication."))
                             return
+                        if audio_source in ('system', 'both'):
+                            if self._system_cleanup_failed:
+                                await emit(request.request_id, "error", pb.ErrorEvent(code="system_cleanup_failed", message="Restart the local backend before Computer Auto."))
+                                return
+                            # Await in this RPC task: canceling a wait_for child after it acquired
+                            # the lock can orphan ownership before system_owned is set.
+                            # Electron bounds startup and cancels this wait on Stop/disconnect.
+                            await self._system_owner.acquire()
+                            system_owned = True
                         if stt_enabled:
                             await open_stt()
-                        if audio_source == 'system': await open_system_capture()
+                        if audio_source in ('system', 'both'):
+                            try:
+                                await open_system_capture()
+                            except asyncio.CancelledError:
+                                raise
+                            except Exception:
+                                await emit(request.request_id, 'error', pb.ErrorEvent(code='system_audio_unavailable',
+                                    message='Computer capture could not start. Check Windows default output and restart Auto Mode.'))
+                                return
                         if auto_mode:
                             await emit(request.request_id, "status", pb.Status(code="auto_pipeline_ready", message="Experimental Auto pipeline ready.", system_audio=pb.SystemAudioDiagnostics(active_audio_source=audio_source, transcript_source=audio_source, question_source=audio_source, answer_source_audio=audio_source)))
                         if manual_mode:
@@ -566,7 +652,9 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                                 await emit(request.request_id, "error", pb.ErrorEvent(
                                     code="invalid_audio", message="Expected bounded mono 16 kHz linear16 PCM."))
                                 return
-                            if stt_enabled:
+                            if audio_source == 'both':
+                                mixer.push('microphone', chunk.audio, time.monotonic(), request.sequence_number, request.timestamp_ms)
+                            elif stt_enabled:
                                 if socket is None:
                                     await open_stt()
                                 await asyncio.wait_for(socket.send(chunk.audio), timeout=2)
@@ -605,7 +693,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         await emit(request.request_id, "status", pb.Status(
                             code="audio_chunk_received" if kind == "audio_chunk" else "audio_stopped",
                             message=("Audio accepted; experimental answers enabled." if answer_enabled else "Audio accepted; no answer generation.") if stt_enabled else "Audio counted only; transcription and generation are not implemented.",
-                            question_intake=pb.QuestionIntake(**{**intake, **utterance.snapshot()}) if auto_mode else None,
+                            question_intake=question_intake_diagnostics({**intake, **utterance.snapshot()}) if auto_mode else None,
                             total_chunks=total_chunks, total_audio_bytes=total_audio_bytes,
                             stt_chunks_forwarded=stt_chunks, stt_bytes_forwarded=stt_bytes,
                             stt_bridge_connected=bool(socket and provider_started.is_set()),
@@ -638,9 +726,11 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+            # Disconnect must fence generation/persistence before a slow native
+            # release. The capture lease still remains held until close succeeds.
+            await stop_answers()
             await close_system_capture()
             await close_stt()
-            await stop_answers()
 
 
 async def start_server(host="127.0.0.1", port=50051, max_message_mb=4):

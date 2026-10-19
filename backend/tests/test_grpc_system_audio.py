@@ -82,6 +82,6 @@ def test_system_gRPC_frames_shared_intake_metrics_and_cleanup(monkeypatch,caplog
                 call.cancel()
         finally:await server.stop(0)
     asyncio.run(exercise())
-    assert opened==[dict(target_sample_rate=16000,chunk_ms=100,debug_save_enabled=False)]
+    assert opened==[dict(target_sample_rate=16000,chunk_ms=100,debug_save_enabled=False,monitor_default=True)]
     assert sorted(closed)==['capture','socket']
     assert 'private answer' not in caplog.text and 'Explain SQL' not in caplog.text

@@ -1,5 +1,5 @@
 // Shared microphone PCM capture. Callers own transport and generation.
-export function createPcmMicCapture({ stream, isActive, downsample = downsampleToInt16Mono, onChunk, AudioContextClass = window.AudioContext, contextSampleRate }) {
+export function createPcmMicCapture({ stream, isActive, downsample = downsampleToInt16Mono, onChunk, AudioContextClass = window.AudioContext, contextSampleRate, continuous = false }) {
   let audioContext, sourceNode, processor, closed = false
   const close = () => {
     if (closed) return
@@ -10,6 +10,7 @@ export function createPcmMicCapture({ stream, isActive, downsample = downsampleT
   }
   try {
     audioContext = new AudioContextClass(contextSampleRate ? { sampleRate: contextSampleRate } : undefined)
+    if (continuous) downsample = createContinuousDownsampler()
     sourceNode = audioContext.createMediaStreamSource(stream)
     processor = audioContext.createScriptProcessor(4096, 1, 1)
     processor.onaudioprocess = (event) => {
@@ -21,6 +22,29 @@ export function createPcmMicCapture({ stream, isActive, downsample = downsampleT
     processor.connect(audioContext.destination)
   } catch (error) { close(); throw error }
   return { audioContext, sourceNode, processor, close }
+}
+
+// Browser AudioContext performs native rate conversion when 16 kHz is honored.
+// Carry fractional sample areas when a device/context supplies another rate.
+export function createContinuousDownsampler() {
+  let area = 0, filled = 0
+  return (samples, inputRate, outputRate = 16000) => {
+    if (inputRate < outputRate) throw Error('Unsupported microphone sample rate')
+    const width = inputRate / outputRate, output = []
+    for (const sample of samples) {
+      let remaining = 1
+      while (remaining > 1e-9) {
+        const used = Math.min(remaining, width - filled)
+        area += sample * used; filled += used; remaining -= used
+        if (filled >= width - 1e-9) {
+          const value = Math.max(-1, Math.min(1, area / width))
+          output.push(value < 0 ? value * 32768 : value * 32767)
+          area = filled = 0
+        }
+      }
+    }
+    return Int16Array.from(output)
+  }
 }
 
 export function createLiveMicTransport({ stream, url, isActive, downsample, WebSocketClass = WebSocket, AudioContextClass = window.AudioContext }) {

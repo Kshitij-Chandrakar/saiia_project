@@ -1,7 +1,7 @@
 import { createPcmMicCapture } from './live_mic_transport.js'
 
 // Shared experimental PCM capture for diagnostics and opt-in G6 manual sessions.
-export function createGrpcMicTest({ api, getUserMedia = (constraints) => navigator.mediaDevices.getUserMedia(constraints), createCapture = createPcmMicCapture, ownsStream = true }) {
+export function createGrpcMicTest({ api, getUserMedia = (constraints) => navigator.mediaDevices.getUserMedia(constraints), createCapture = createPcmMicCapture, ownsStream = true, continuous = false }) {
   let capture, stream, running = false, pending = false, generation = 0, queued = 0, sending = Promise.resolve()
   const pacing = new Map()
   const stopCapture = () => {
@@ -32,11 +32,14 @@ export function createGrpcMicTest({ api, getUserMedia = (constraints) => navigat
         inputChannelCount: stream?.getAudioTracks?.()[0]?.getSettings?.().channelCount || 1 })
       let nextSlot = 0
       enqueue = (data) => {
+        const capturedAt = Date.now()
         pending = true
         queued++
         sending = sending.then(async () => {
           if (run !== generation) return null
-          const result = await api.sendGrpcRealtimeAudioChunk(data, metadata())
+          // Combined audio must not replay a renderer backlog after an IPC stall.
+          if (continuous && Date.now() - capturedAt > 300) return { connectionStatus: 'connected' }
+          const result = await api.sendGrpcRealtimeAudioChunk(data, { ...metadata(), ...(continuous ? { captureTimestampMs: capturedAt } : {}) })
           if (run !== generation) return null
           // Keep G4 frames near realtime, including when one capture callback produces several frames.
           if (status.sttEnabled) {
@@ -54,6 +57,7 @@ export function createGrpcMicTest({ api, getUserMedia = (constraints) => navigat
         }).catch(() => { if (run === generation) stopCapture() }).finally(() => { if (run === generation) { queued--; pending = queued > 0 } })
       }
       capture = createCapture({ stream, contextSampleRate: status.sttEnabled ? 16000 : undefined,
+        continuous,
         isActive: () => running && (status.sttEnabled ? queued <= 8 : !pending),
         onChunk: (data) => {
           if (!status.sttEnabled) { enqueue(data); return }
