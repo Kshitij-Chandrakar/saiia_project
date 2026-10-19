@@ -67,6 +67,77 @@ def pcm(value, count=1600):
     return np.full(count, value, dtype='<i2').tobytes()
 
 
+@pytest.mark.parametrize('scenario', ['recover', 'empty_timeout', 'malformed', 'computer'])
+def test_native_empty_reads_preserve_liveness_accounting_and_cleanup(monkeypatch, scenario):
+    from app import pcm_mixer
+    mixers, closed, reads = [], [], []
+    class Mixer(PcmMixer):
+        def __init__(self):
+            super().__init__()
+            mixers.append(self)
+        def push(self, source, data, now, *args):
+            assert data  # Empty reads must never reach the mixer.
+            return super().push(source, data, now, *args)
+    monkeypatch.setattr(pcm_mixer, 'PcmMixer', Mixer)
+    class Capture:
+        def open_streaming_loopback_session(self, **kwargs): return NS()
+        def enable_continuous_resampling(self, session): pass
+        def read_streaming_pcm_chunk(self, session):
+            time.sleep(.05)
+            reads.append(time.monotonic())
+            result = chunk()
+            if scenario == 'empty_timeout':
+                result.pcm_bytes = pcm(8000) if len(reads) == 1 else b''
+            elif scenario == 'malformed':
+                result.pcm_bytes = b'\x01'
+            else:
+                result.pcm_bytes = b'' if len(reads) == 1 else pcm(8000)
+            return result
+        def close_streaming_loopback_session(self, session): closed.append(True); return True
+    sockets = configure(monkeypatch, Capture)
+    async def exercise():
+        server, port = await grpc_server.start_server(port=0)
+        feeder = None
+        try:
+            async with grpc.aio.insecure_channel(f'127.0.0.1:{port}') as channel:
+                stub = rpc.InterviewRealtimeServiceStub(channel)
+                call = await start(stub, session='empty-test', source='system' if scenario == 'computer' else 'both')
+                await until(call, lambda e: e.HasField('ready'))
+                async def microphone():
+                    while True:
+                        await call.write(pb.InterviewClientEvent(session_id='empty-test', audio_chunk=pb.AudioChunk(
+                            audio=pcm(12000), sample_rate=16000, channels=1, encoding='linear16')))
+                        await asyncio.sleep(.1)
+                if scenario != 'computer': feeder = asyncio.create_task(microphone())
+                if scenario in ('empty_timeout', 'malformed'):
+                    error = await asyncio.wait_for(until(call, lambda e: e.HasField('error')), 4)
+                    assert error.error.code == 'system_audio_unavailable'
+                    assert await call.read() is grpc.aio.EOF
+                    if scenario == 'empty_timeout':
+                        assert time.monotonic() - reads[0] >= 1.9
+                        assert mixers[0].sources['system']['last'] < reads[1]
+                        assert len(reads) > 10
+                else:
+                    metrics = await asyncio.wait_for(until(call, lambda e: e.status.system_audio.system_chunk_bytes == 3200), 3)
+                    assert metrics.status.system_audio.system_dropped_chunks >= 1
+                    frames = [data for data in sockets[0].sent if isinstance(data, bytes)]
+                    expected = 8000 if scenario == 'computer' else 10000
+                    assert any(np.max(np.frombuffer(frame, '<i2')) == expected for frame in frames)
+                    if feeder:
+                        feeder.cancel(); await asyncio.gather(feeder, return_exceptions=True)
+                    await call.write(pb.InterviewClientEvent(session_id='empty-test', request_id='stop', end_session=pb.Empty()))
+                    await until(call, lambda e: e.status.code == 'ended')
+                    assert await call.read() is grpc.aio.EOF
+                assert closed == [True]
+                assert all(not np.any(s['data']) for s in mixers[0].sources.values())
+                assert (await stub.CheckHealth(pb.Empty())).system_audio_available
+        finally:
+            if feeder:
+                feeder.cancel(); await asyncio.gather(feeder, return_exceptions=True)
+            await server.stop(0)
+    asyncio.run(exercise())
+
+
 def test_mix_headroom_silence_bounds_late_and_overflow():
     mixer = PcmMixer()
     mixer.push('microphone', pcm(12000), 0, 1, 10000)

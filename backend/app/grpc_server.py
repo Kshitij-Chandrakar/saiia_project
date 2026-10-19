@@ -387,6 +387,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
 
         async def open_system_capture():
             nonlocal system_capture, system_session, system_reader, system_sender, system_open_future
+            empty_native_chunks = 0
             from app.services.system_audio_capture import SystemAudioCaptureService
             from starlette.concurrency import run_in_threadpool
             system_capture = SystemAudioCaptureService()
@@ -397,7 +398,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             if audio_source == 'both':
                 system_capture.enable_continuous_resampling(system_session)
             async def capture():
-                nonlocal read_future
+                nonlocal read_future, empty_native_chunks
                 tail = b''
                 try:
                     while True:
@@ -406,12 +407,15 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         now = time.time()*1000
                         if not system_metrics.get('system_first_pcm_chunk_at'): system_metrics['system_first_pcm_chunk_at'] = now
                         if chunk.rms_level > .005 and not system_metrics.get('system_first_non_silent_chunk_at'): system_metrics['system_first_non_silent_chunk_at'] = now
-                        if not chunk.pcm_bytes: system_metrics['system_dropped_chunks'] += 1
+                        if not chunk.pcm_bytes:
+                            empty_native_chunks += 1
+                            system_metrics['system_dropped_chunks'] += 1
                         if len(chunk.pcm_bytes) % 2: raise RuntimeError('invalid PCM')
                         system_metrics.update(system_sample_rate=chunk.input_sample_rate, system_rms=chunk.rms_level, system_peak=chunk.peak_level,
                             system_resample_latency_ms=chunk.resample_latency_ms)
                         if audio_source == 'both':
-                            mixer.push('system', chunk.pcm_bytes, time.monotonic())
+                            if chunk.pcm_bytes:
+                                mixer.push('system', chunk.pcm_bytes, time.monotonic())
                             continue
                         tail += chunk.pcm_bytes
                         while len(tail) >= 3200:
@@ -447,7 +451,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                             if now - deadline > .3:
                                 raise RuntimeError('Mixer stalled; explicit restart required')
                             frame = mixer.render()
-                            system_metrics.update(system_dropped_chunks=mixer.dropped,
+                            system_metrics.update(system_dropped_chunks=mixer.dropped + empty_native_chunks,
                                 system_buffer_queue_depth=max(max(0, s['end'] - mixer.position) for s in mixer.sources.values()) / mixer.frame_samples)
                             deadline += .1
                         else:
