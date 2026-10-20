@@ -1,5 +1,8 @@
 # Phase 3: Microphone + Computer gRPC Auto
 
+> Superseding limitation (PR #50 review, 2026-10-20): default-output changes are **not reliably detected during active capture**. Capture may remain attached to the original output device, including when it stays connected and becomes silent. After changing Windows output devices, users must **Stop Auto Mode and restart**. Reliable endpoint mapping/detection is deferred to [issue #51](https://github.com/Kshitij-Chandrakar/saiia_project/issues/51); no automatic device switching is provided. Earlier detection claims and manual expectations below are historical and superseded by this limitation.
+
+
 > Phase 4 update: Final verification and focused audio integration are recorded in [G12 closeout](G12_GRPC_AUDIO_CLOSEOUT.md). The user reports that Windows checks for both sources, overlap, Stop/restart, permission denial, device loss, logout and session end passed. Earlier staging and manual-test statements below are historical phase evidence. Answer-token streaming remains deferred; the model-recovery migration remains paused.
 
 ## Baseline and audit
@@ -15,7 +18,7 @@ Audit integration points:
 | Selection/start/Stop | `App.jsx`: `startAutoMode`, `stopAutoMode`; remove only the Auto combined guard, acquire microphone once, retain late-permission token fencing, extend pending-RPC cleanup to `both`. Manual combined recording remains unsupported. |
 | Routing/readiness | `realtime_router.selectRealtimeRoute`, `getGrpcAutoBlockReason`, Electron `connectAuto` and `CheckHealth`: combined requires explicit capability, configured gRPC and authorized session. No HTTP/WS fallback. |
 | Microphone | `grpc_mic_test.createGrpcMicTest`, `live_mic_transport.createPcmMicCapture`: existing mono PCM/IPC path, optional stateful conversion and stale-queue discard for combined only. |
-| Native source | `SystemAudioCaptureService`: existing default-WASAPI resolution, device-change/read failure handling and native-close result; optional continuous conversion for combined only. |
+| Native source | `SystemAudioCaptureService`: existing default-WASAPI resolution, cached device-metadata comparison/read failure handling and native-close result; optional continuous conversion for combined only. |
 | STT and ownership | `InterviewRealtimeService.StreamInterview`: existing exclusive system lease and shielded native operations, one existing STT connection/receiver, one new mixer sender instead of forwarding microphone separately. |
 | Answers | Existing utterance buffer, question queue, answer worker, cloud-context/session-selected model, Retry and single final-save owner are reused. No new generation, persistence or token-streaming feature. |
 
@@ -92,7 +95,7 @@ Coverage includes known mixed amplitudes/headroom, native stereo conversion, spl
 2. Use headphones. Select Microphone + Computer and Auto. Grant microphone permission. Confirm pending startup becomes listening only after both captures initialize; verify one gRPC session and no legacy system capture. Play sanitized audio yourself, then speak yourself, then overlap both. Confirm transcription/questions/answers and selected-session model behavior; verify one final saved answer per logical turn.
 3. Test quiet playback, microphone silence and both silent. Listening should continue. Mono mixing provides no reliable source attribution/diarization and no echo cancellation; do not use speakers for the initial test.
 4. Stop during permission, capture startup, listening and generation. Restart rapidly, stop twice and deny permission. Verify indicators/tracks end, no delayed permission result restarts work, old events are ignored and native capture does not reopen before owned cleanup.
-5. Remove microphone or change/remove default output. Both sources must stop with restart guidance. Do not expect automatic rebinding or one-source fallback. Restore the device, wait for cleanup, then explicitly restart. Restart backend if cleanup remains uncertain/failed.
+5. Remove microphone or disconnect the captured output to exercise detected source failure and restart guidance. Separately change Windows default output while the old device remains connected: automatic detection is not guaranteed; Stop Auto Mode and restart to capture the new output. Do not expect automatic rebinding or one-source fallback. Restore the device, wait for cleanup, then explicitly restart. Restart backend if cleanup remains uncertain/failed.
 6. Repeat transport disconnect, logout and matching cloud-session end during startup/listening/generation; unrelated session-end events must be ignored. No old audio, transcript or answer may restore ended work.
 7. Recheck microphone-only and Computer-only, including Computer-only with microphone permission denied. Manual mode is unchanged. Run a longer combined session to assess drift correction, CPU/memory, latency, quiet-source gain and actual driver behavior.
 

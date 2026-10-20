@@ -1,6 +1,6 @@
 # G13: Audio clock and endpoint review (2026-10-20)
 
-This review concerns PR #50, branch `feat/grpc-computer-combined-audio`, at `b8b6dc7`. The current working branch additionally contains local answer-streaming commit `cd5b899`; it is excluded from this audio patch. All fixes in this review remain unstaged/uncommitted. No environment, protobuf, migration, runtime activation, physical capture/playback or live provider operation is part of this work. The recovery migration remains paused.
+This review concerns PR #50, branch `feat/grpc-computer-combined-audio`, at `b8b6dc7`. The current working branch additionally contains local answer-streaming commit `cd5b899`; it is excluded from this audio patch. Historical verification below describes the pre-commit review. The timestamp fix was published in `5c5abd3`; the subsequent suspended-clock fix and documentation disposition are published separately on PR #50. No environment, protobuf, migration, runtime activation, physical capture/playback or live provider operation is part of this work. The recovery migration remains paused.
 
 ## Windows endpoint finding: confirmed, native follow-up explicitly deferred
 
@@ -19,7 +19,7 @@ Required native follow-up:
 - Initialize COM on its owning worker, handle apartment initialization results correctly, release interfaces/allocated ID memory on that worker and balance successful initialization with uninitialization. Do not share raw apartment-bound interfaces across capture/threadpool workers.
 - Test the independent Windows query boundary, stable IDs despite identical names/formats, role differences, startup races, bounded query errors/stalls, COM cleanup and worker shutdown. Existing mocked `get_default_loopback_device` tests do **not** verify this.
 
-No independent Core Audio monitor is implemented/tested by this timestamp patch. The endpoint finding remains open, rather than being declared fixed from mocks.
+No independent Core Audio monitor is implemented/tested by this timestamp patch. Reliable endpoint detection remains unimplemented and is tracked in [native follow-up #51](https://github.com/Kshitij-Chandrakar/saiia_project/issues/51). The PR thread is addressed through its offered documented-limitation alternative, not by claiming a runtime fix.
 
 ## Microphone timestamps: confirmed and fixed
 
@@ -61,7 +61,7 @@ No native endpoint mapping/COM boundary was added, so no mocked result is presen
 - Verify wall-clock adjustment does not change the sample timeline or revive old queued audio. Assess actual input latency/clock accuracy and long-duration drift separately; synthetic tests do not establish these physical properties.
 - Real output-endpoint switching, duplicate endpoint names, role-specific defaults and COM ownership acceptance belong to the deferred native follow-up. Earlier user-reported device-loss success does not prove the cache issue is resolved.
 
-These audio hunks should be reviewed on PR #50's audio branch. Do not push the local answer-streaming commit as a dependency, and do not claim the native endpoint finding is closed.
+These audio hunks should be reviewed on PR #50's audio branch. Do not push the local answer-streaming commit as a dependency, and do not claim reliable native endpoint detection is implemented.
 
 
 ### Suspended AudioContext follow-up
@@ -84,3 +84,21 @@ fractional resampler reset, tail/queue invalidation and termination fencing.
 Windows acceptance still requires user-controlled suspension/resume and verifying
 that an already terminated Auto run stays stopped; mocks establish neither real
 hardware timing accuracy nor physical device behavior.
+
+
+## Accepted Windows default-output limitation
+
+Default-output changes are **not reliably detected during active capture**.
+Capture may remain attached to the original output device while it remains
+connected, even if that stream becomes silent. Users must **Stop Auto Mode and
+restart after changing Windows output devices**. Reliable endpoint mapping and
+detection are deferred to [issue #51](https://github.com/Kshitij-Chandrakar/saiia_project/issues/51).
+No native binding, capture library or runtime behavior changes implement that
+follow-up here; independent Core Audio queries alone cannot establish the actual
+captured endpoint's identity.
+
+The existing `test_output_change_requires_restart_before_another_native_read`
+replaces `get_default_loopback_device` with changed metadata. It establishes that
+such a supplied change raises before another native read; it does not test live
+Windows defaults, PortAudio cache refresh, or stable endpoint mapping. The test
+is retained. G10/G11/G12 historical records now carry superseding limitations.

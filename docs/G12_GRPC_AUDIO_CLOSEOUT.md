@@ -1,5 +1,8 @@
 # G12: gRPC Auto audio closeout (Phase 4)
 
+> Superseding limitation (PR #50 review, 2026-10-20): default-output changes are **not reliably detected during active capture**. Capture may remain attached to the original output device, including when it stays connected and becomes silent. After changing Windows output devices, users must **Stop Auto Mode and restart**. Reliable endpoint mapping/detection is deferred to [issue #51](https://github.com/Kshitij-Chandrakar/saiia_project/issues/51); no automatic device switching is provided. Earlier detection claims and manual expectations below are historical and superseded by this limitation.
+
+
 ## Status and acceptance
 
 Computer-only and Microphone + Computer Auto are complete for focused local integration. Microphone-only remains supported. This closes the audio verification/documentation phase; answer-token streaming is a separate deferred task.
@@ -26,7 +29,7 @@ Baseline status, tracked diff, file hashes (including real environment files, wi
 
 Wire audio remains bounded mono 16 kHz signed little-endian PCM. Output frames are 3,200 bytes / 100 ms. Computer rejects client PCM. Combined validates the same microphone PCM contract, sequences and optional timestamps. Additive health fields `system_audio_available = 5` and `combined_audio_available = 6` distinguish capabilities from older servers; health opens no device, provider or interview. RPC signatures and audio messages are unchanged, and matching Python message bindings are regenerated.
 
-Default output uses PyAudioWPatch's default-WASAPI loopback resolver, never first-enumerated-device selection. Reads monitor output changes; no automatic device rebinding. Manual combined recording remains unsupported. The selected Auto path cannot also start the legacy system HTTP/WebSocket flow.
+Default output uses PyAudioWPatch's default-WASAPI loopback resolver, never first-enumerated-device selection. Reads compare cached metadata; live default-output changes are not reliably detected. No automatic device rebinding. Manual combined recording remains unsupported. The selected Auto path cannot also start the legacy system HTTP/WebSocket flow.
 
 The mixer has 500 ms / 8,000 samples per source, fixed 0.5 gains and wide accumulation/clamping. Fractional sample-area conversion is stateful across chunks. Output waits for both sources, then uses the backend monotonic cadence and a 200 ms initial jitter allowance. Underflow zero-fills; overflow discards bounded backlog and reanchors. New renderer frames older than 300 ms are discarded before IPC; elapsed sender timestamp durations are anchored to backend arrival rather than comparing unrelated clocks. Legacy absent metadata remains supported with arrival ordering. Delivery absence over two seconds, five-second initial source timeout or excessive mixer scheduling delay ends the run; PCM silence alone does not.
 
