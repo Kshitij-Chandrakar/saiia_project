@@ -341,7 +341,9 @@ def test_proto_copy_and_regenerated_messages_match(tmp_path):
     assert source.read_bytes() == (root / 'frontend/electron/protos/interview_realtime.proto').read_bytes()
     assert protoc.main(['protoc', '-I' + str(source.parent), '--python_out=' + str(tmp_path),
                         '--grpc_python_out=' + str(tmp_path), str(source)]) == 0
-    assert (tmp_path / 'interview_realtime_pb2.py').read_bytes() == (root / 'backend/app/grpc_generated/interview_realtime_pb2.py').read_bytes()
+    # Git may check generated source out with CRLF on Windows. Compare text
+    # while still requiring every generated declaration to match exactly.
+    assert (tmp_path / 'interview_realtime_pb2.py').read_text() == (root / 'backend/app/grpc_generated/interview_realtime_pb2.py').read_text()
     binding = (tmp_path / 'interview_realtime_pb2_grpc.py').read_text().replace(
         'import interview_realtime_pb2 as', 'from . import interview_realtime_pb2 as')
     assert binding == (root / 'backend/app/grpc_generated/interview_realtime_pb2_grpc.py').read_text()

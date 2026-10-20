@@ -400,3 +400,11 @@ def test_end_session_raises_conflict_when_empty_patch_recheck_is_still_active() 
 
     assert len(session.patch_calls) == 1
     assert len(session.get_calls) == 1
+
+
+@pytest.fixture(autouse=True)
+def legacy_session_routing(monkeypatch):
+    # These fixtures model the legacy path; developer .env must not opt them
+    # into model-bound session execution. Dedicated model suites test that path.
+    from app.config import settings
+    monkeypatch.setattr(settings, 'ENABLE_SESSION_ANSWER_MODELS', False)

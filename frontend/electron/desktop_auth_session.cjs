@@ -248,6 +248,7 @@ class DesktopAuthSessionManager {
     this.sessionPath = options.sessionPath || ''
     this.now = options.now || (() => Date.now())
     this.beforeCacheWriteForTest = options.beforeCacheWriteForTest || null
+    this.onScreenContextBoundary = options.onScreenContextBoundary || (() => {})
 
     this.status = AUTH_STATUSES.SIGNED_OUT
     this.error = ''
@@ -582,6 +583,7 @@ class DesktopAuthSessionManager {
     if (record.attempt_generation !== this.loginAttemptGeneration) {
       return this.getSafeState()
     }
+    this.onScreenContextBoundary()
     this._abortActiveAnswerStreams()
     this.session = session
     this.sessionGeneration += 1
@@ -690,6 +692,7 @@ class DesktopAuthSessionManager {
       return this.getSafeState()
     }
     if (this.user?.user_id && nextUser.user_id && this.user.user_id !== nextUser.user_id) {
+      this.onScreenContextBoundary()
       this._clearVerificationCache()
       this._clearCloudCache()
     }
@@ -767,6 +770,7 @@ class DesktopAuthSessionManager {
   }
 
   async logout() {
+    this.onScreenContextBoundary()
     const session = this.session
     const logoutLoginGeneration = this.loginAttemptGeneration
     const logoutSessionGeneration = this.sessionGeneration
@@ -933,6 +937,7 @@ class DesktopAuthSessionManager {
           }
         }
         const sessionRecord = safeInterviewSessionItem(response.payload?.session)
+        if (sessionRecord?.id !== this.activeInterviewSession?.id) this.onScreenContextBoundary()
         this.activeInterviewSession = sessionRecord
         return {
           session: sessionRecord,
@@ -994,6 +999,7 @@ class DesktopAuthSessionManager {
     if (!normalizedSessionId) {
       return { session: null, error: 'Interview session id is required.' }
     }
+    if (this.activeInterviewSession?.id === normalizedSessionId) this.onScreenContextBoundary()
     if (!this.session?.access_token) {
       this.activeInterviewSession = null
       return { session: null, error: '' }
@@ -1094,6 +1100,10 @@ class DesktopAuthSessionManager {
 
   isGrpcCloudAuthAvailable() {
     return Boolean(this.status === AUTH_STATUSES.CONNECTED && this.session?.access_token && this.user?.user_id)
+  }
+
+  async getScreenCloudAuthorization() {
+    return this.getGrpcCloudAuthorization()
   }
 
   async getGrpcCloudAuthorization() {
@@ -1478,6 +1488,7 @@ class DesktopAuthSessionManager {
   }
 
   _clearLocalSession(status, message = '', errorCode = '') {
+    this.onScreenContextBoundary()
     if (status === AUTH_STATUSES.SIGNED_OUT) {
       this.endedInterviewSessionIds.clear()
       this.endedInterviewSessionUserId = null

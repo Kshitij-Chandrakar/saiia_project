@@ -9,6 +9,7 @@ const {
   shell,
   safeStorage,
   systemPreferences,
+  nativeImage,
 } = require('electron')
 const { execFile } = require('child_process')
 const { randomUUID } = require('crypto')
@@ -20,6 +21,8 @@ const {
   createIpcSenderValidator,
 } = require('./desktop_auth_session.cjs')
 const { createStartupWindowController } = require('./startup_window_controller.cjs')
+const { createScreenContextController } = require('./screen_context_controller.cjs')
+const { createScreenContextExecution, registerScreenContextIpc } = require('./screen_context_execution.cjs')
 const { readNdjsonStream } = require('./answer_stream_protocol.cjs')
 const { fenceOverlayAnswer } = require('./answer_stream_state.cjs')
 const { GrpcRealtimeClient, registerGrpcRealtimeIpc } = require('./grpc_realtime_client.cjs')
@@ -49,7 +52,11 @@ let mainWindow
 let overlayWindow
 let isScreenSharing = false
 let startupFlowComplete = false
+let screenRuntimeEnding = false
+let screenLogoutPending = 0
 let overlayVisible = false
+let overlayVisibilityIntent = 0
+let captureWindowQueue = Promise.resolve()
 let overlayOpacity = 1
 let overlayBoundsState = null
 let overlayBoundsSaveTimer = null
@@ -58,6 +65,11 @@ let lastExternalCaptureTarget = null
 let foregroundWindowPollTimer = null
 let foregroundWindowPollInFlight = null
 let desktopAuthSessionManager = null
+let screenExecution = null
+const screenContext = createScreenContextController({
+  inspectImage: buffer => nativeImage.createFromBuffer(buffer).getSize(),
+  onBoundary: () => screenExecution?.boundary(),
+})
 let validateMainWindowIpcSender = null
 let validateOverlayWindowIpcSender = null
 let bufferedDesktopAuthCallbacks = []
@@ -529,6 +541,7 @@ function createDesktopAuthSessionManager() {
     sessionPath: getDesktopAuthSessionPath(),
     safeStorage,
     openExternal: (url) => shell.openExternal(url),
+    onScreenContextBoundary: () => screenContext.invalidate(),
   })
 }
 
@@ -984,42 +997,51 @@ function getWindowVisibilitySnapshot(targetWindow) {
   }
 }
 
-async function withSaiiaWindowsHidden(task) {
-  const snapshots = [getWindowVisibilitySnapshot(mainWindow), getWindowVisibilitySnapshot(overlayWindow)].filter(Boolean)
-  let hidWindows = false
-
-  try {
-    for (const snapshot of snapshots) {
-      if (snapshot.wasVisible) {
-        snapshot.window.hide()
-        hidWindows = true
+async function withSaiiaWindowsHidden(task, { isCurrent = () => true, canRestore = () => true } = {}) {
+  // All capture entry points share hide/restore ownership, including legacy batch capture.
+  const result = captureWindowQueue.then(async () => {
+    if (screenRuntimeEnding || quittingAfterSessionFinalize || !isCurrent()) throw Object.assign(new Error('stale_attempt'), { code: 'stale_attempt' })
+    const visibilityIntent = overlayVisibilityIntent
+    const snapshots = [getWindowVisibilitySnapshot(mainWindow), getWindowVisibilitySnapshot(overlayWindow)].filter(Boolean)
+    let hidWindows = false
+    try {
+      for (const snapshot of snapshots) {
+        snapshot.hid = false
+        snapshot.intentChanged = false
+        snapshot.onIntent = () => { snapshot.intentChanged = true }
+        snapshot.onHide = () => {
+          // The capture's own hide event may arrive after hide() returns.
+          if (snapshot.pendingHide) snapshot.pendingHide = false
+          else snapshot.intentChanged = true
+        }
+        snapshot.window.on('hide', snapshot.onHide)
+        for (const event of ['show', 'minimize', 'close']) snapshot.window.on(event, snapshot.onIntent)
+        if (snapshot.wasVisible) {
+          snapshot.pendingHide = true
+          snapshot.window.hide(); snapshot.hid = true; hidWindows = true
+        }
+      }
+      if (hidWindows) await delay(ANALYZE_SCREEN_HIDE_DELAY_MS)
+      if (!isCurrent()) throw Object.assign(new Error('stale_attempt'), { code: 'stale_attempt' })
+      return { ...await task(), hidSaiiaWindows: hidWindows }
+    } finally {
+      for (const snapshot of snapshots) {
+        if (snapshot.onHide) snapshot.window.removeListener('hide', snapshot.onHide)
+        for (const event of ['show', 'minimize', 'close']) {
+          if (snapshot.onIntent) snapshot.window.removeListener(event, snapshot.onIntent)
+        }
+        if (!snapshot.hid || snapshot.intentChanged || snapshot.window.isDestroyed() || screenRuntimeEnding || quittingAfterSessionFinalize) continue
+        if (snapshot.window === overlayWindow) {
+          if (canRestore() && visibilityIntent === overlayVisibilityIntent) snapshot.window.showInactive()
+        } else if (snapshot.window === mainWindow) {
+          // Context invalidation must not strand the still-current main/login window.
+          snapshot.window.show()
+        }
       }
     }
-    if (hidWindows) {
-      await delay(ANALYZE_SCREEN_HIDE_DELAY_MS)
-    }
-    const result = await task()
-    return {
-      ...result,
-      hidSaiiaWindows: hidWindows,
-    }
-  } finally {
-    for (const snapshot of snapshots) {
-      if (!snapshot.wasVisible) {
-        continue
-      }
-      if (snapshot.window.isDestroyed()) {
-        continue
-      }
-      if (snapshot.window === overlayWindow && overlayVisible) {
-        snapshot.window.showInactive()
-      } else if (snapshot.window === mainWindow) {
-        snapshot.window.show()
-      } else {
-        snapshot.window.show()
-      }
-    }
-  }
+  })
+  captureWindowQueue = result.catch(() => {})
+  return result
 }
 
 function getOverlayBoundsStatePath() {
@@ -1266,6 +1288,7 @@ function broadcastToolbarAction(action, payload = {}) {
 }
 
 function syncOverlayVisibility(visible) {
+  overlayVisibilityIntent += 1
   if (!startupFlowComplete) {
     visible = false
   }
@@ -1292,8 +1315,14 @@ function syncOverlayVisibility(visible) {
 }
 
 function completeStartupFlow() {
+  if (screenRuntimeEnding || screenLogoutPending) return { ok: false, reason: 'lifecycle-ending' }
   startupWindowController.reset()
   startupFlowComplete = true
+  screenContext.adoptSession({
+    runtimeSessionId: randomUUID(),
+    accountGeneration: desktopAuthSessionManager.sessionGeneration,
+    cloudSessionId: desktopAuthSessionManager.getActiveInterviewSession()?.id || null,
+  })
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.setMinimumSize(420, 260)
     mainWindow.setSize(620, 860)
@@ -1358,6 +1387,7 @@ function resetStartupFlow() {
 }
 
 async function finalizeActiveInterviewSession(reason = 'ended') {
+  screenContext.invalidate()
   grpcRealtimeClient.close()
   if (!desktopAuthSessionManager?.hasActiveInterviewSession?.()) {
     return { ok: true, skipped: true }
@@ -1685,7 +1715,9 @@ async function resolveCaptureTargetForAnalyze(options = {}) {
   throw createActiveWindowNotIdentifiedError(desktopFallback?.reason || 'no_valid_target')
 }
 
-async function captureActiveWindowSource() {
+async function captureActiveWindowSource(ownership = {}) {
+  const check = () => { if (ownership.isCurrent && !ownership.isCurrent()) throw Object.assign(new Error('stale_attempt'), { code: 'stale_attempt' }) }
+  check()
   let preHideTarget = null
   try {
     preHideTarget = await resolveCaptureTargetForAnalyze({
@@ -1695,12 +1727,13 @@ async function captureActiveWindowSource() {
   } catch {
     preHideTarget = null
   }
-
+  check()
   return withSaiiaWindowsHidden(async () => {
     const frozenTarget = preHideTarget || (await resolveCaptureTargetForAnalyze())
+    check()
     const targetWindow = frozenTarget
     return captureWindowThumbnailForTarget(targetWindow)
-  })
+  }, ownership)
 }
 
 async function captureActiveWindowSequence() {
@@ -1787,10 +1820,10 @@ function createMainWindow() {
       nodeIntegration: false,
     },
   })
-
   loadWindow(mainWindow, 'main')
 
   mainWindow.on('closed', () => {
+    screenContext.dispose()
     mainWindow = null
     startupWindowController.reset()
   })
@@ -1994,6 +2027,42 @@ function validateTrustedRendererIpc(event) {
   throw errors[0] || new Error('Desktop IPC is not ready.')
 }
 
+screenExecution = createScreenContextExecution({
+  developmentDiagnostics: !app.isPackaged,
+  diagnose: diagnostic => {
+    if (!app.isPackaged) console.info('[screen-context]', JSON.stringify(diagnostic))
+  },
+  controller: screenContext,
+  capture: ownership => captureActiveWindowSource(ownership),
+  backendUrl: getDesktopAuthConfig().backendUrl,
+  authorize: async token => {
+    if (token.cloudSessionId) {
+      const manager = desktopAuthSessionManager
+      // sessionGeneration also advances for same-account verification. True account/session
+      // replacements invalidate the controller through onScreenContextBoundary instead.
+      if (manager?.getActiveInterviewSession()?.id !== token.cloudSessionId) throw Error('auth_required')
+      return manager.getScreenCloudAuthorization()
+    }
+    // Local mode has no credentials and must reach the backend through loopback.
+    const host = new URL(getDesktopAuthConfig().backendUrl).hostname
+    if (!['localhost', '127.0.0.1', '[::1]'].includes(host)) throw Error('auth_required')
+    return { isCurrent: () => !screenContext.metadata().cloudSessionId }
+  },
+  publish: snapshot => {
+    if (!app.isPackaged) console.info('[screen-context-status]', JSON.stringify({
+      phase: snapshot.phase || snapshot.status, errorCode: snapshot.errorCode ?? null,
+      revision: snapshot.revision, acceptedImageCount: snapshot.acceptedImageCount,
+      retryAvailable: snapshot.retryAvailable,
+    }))
+    for (const win of [mainWindow, overlayWindow]) {
+      if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+        try { win.webContents.send('screen:context-event', snapshot) } catch { /* A closing window must not block lifecycle cleanup. */ }
+      }
+    }
+  },
+})
+registerScreenContextIpc(ipcMain, validateTrustedRendererIpc, () => startupFlowComplete && !screenRuntimeEnding && !screenLogoutPending, screenExecution)
+
 registerGrpcRealtimeIpc(ipcMain, validateTrustedRendererIpc, grpcRealtimeClient, timing => {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('grpcRealtime:uiTiming', timing)
 }, snapshot => {
@@ -2014,12 +2083,18 @@ ipcMain.handle('auth:start-login', async (event) => {
 
 ipcMain.handle('auth:logout', async (event) => {
   validateAuthIpc(event)
+  screenLogoutPending += 1
+  screenContext.invalidate()
   grpcRealtimeClient.close()
-  const state = await desktopAuthSessionManager.logout()
-  if (state.status === 'signed-out' || state.status === 'token-expired') {
-    resetStartupFlow()
+  try {
+    const state = await desktopAuthSessionManager.logout()
+    if (state.status === 'signed-out' || state.status === 'token-expired') {
+      resetStartupFlow()
+    }
+    return state
+  } finally {
+    screenLogoutPending -= 1
   }
-  return state
 })
 
 ipcMain.handle('cloud:get-startup-context', (event) => {
@@ -2249,6 +2324,12 @@ ipcMain.handle('toolbar:trigger', async (_event, action, payload) => {
     return { ok: false, reason: 'startup-incomplete' }
   }
 
+  if (action === 'end-session') { validateTrustedRendererIpc(_event); screenRuntimeEnding = true; screenContext.invalidate() }
+  if (action === 'stop-active-operation') {
+    validateTrustedRendererIpc(_event)
+    try { screenExecution.cancel(payload?.screenExpected ? { expected: payload.screenExpected } : undefined) }
+    catch { return { ok: false, reason: 'stale-command' } }
+  }
   broadcastToolbarAction(action, payload)
   if (action === 'end-session') {
     await finalizeActiveInterviewSession('ended')
@@ -2277,6 +2358,8 @@ ipcMain.handle('screen:capture-active-window', async () => captureActiveWindowSo
 ipcMain.handle('screen:capture-active-window-sequence', async () => captureActiveWindowSequence())
 
 app.on('will-quit', () => {
+  screenContext.dispose()
+  screenRuntimeEnding = true
   grpcRealtimeClient.close()
   cancelAllAnswerStreams()
   stopForegroundWindowTracking()
@@ -2298,6 +2381,8 @@ app.on('will-quit', () => {
 })
 
 app.on('before-quit', (event) => {
+  screenContext.invalidate()
+  screenRuntimeEnding = true
   if (quittingAfterSessionFinalize || !desktopAuthSessionManager?.hasActiveInterviewSession?.()) {
     return
   }

@@ -1275,3 +1275,11 @@ def test_invalid_auth_blocks_explicit_cloud_generation(monkeypatch, field):
         generate_api._authorize_generation_session(req, request)
     assert exc.value.status_code == 401
     assert "Sign in again" in exc.value.detail
+
+
+@pytest.fixture(autouse=True)
+def legacy_session_routing(monkeypatch):
+    # These fixtures model the legacy path; developer .env must not opt them
+    # into model-bound session execution. Dedicated model suites test that path.
+    from app.config import settings
+    monkeypatch.setattr(settings, 'ENABLE_SESSION_ANSWER_MODELS', False)

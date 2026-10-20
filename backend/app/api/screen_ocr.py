@@ -10,8 +10,10 @@ from app.services.normalized_question_service import with_screen_extraction_enve
 from app.services.screen_intelligence_orchestrator import ScreenIntelligenceOrchestrator
 from app.services.screen_ocr_service import ScreenOcrError, ScreenOcrService
 from app.services.screen_vision_service import ScreenVisionService
+from app.api.screen_context import router as screen_context_router
 
 router = APIRouter(prefix="/api/screen", tags=["Screen OCR"])
+router.include_router(screen_context_router)
 logger = logging.getLogger("screen_ocr_api")
 logging.basicConfig(level=logging.INFO)
 

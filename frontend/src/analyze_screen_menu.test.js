@@ -18,37 +18,14 @@ function sourceBetween(source, start, end) {
   return source.slice(startIndex, endIndex)
 }
 
-test('Analyze Screen toolbar button starts OCR directly', () => {
-  const clickHandler = sourceBetween(
-    overlaySource,
-    'const handleAnalyzeScreen = useCallback(() => {',
-    'const handleAnalyzeMenuKeyDown'
-  )
-
-  assert.match(clickHandler, /setActiveTab\('analyzeScreen'\)/)
-  assert.match(clickHandler, /setAnalyzeMenuOpen\(false\)/)
-  assert.match(clickHandler, /triggerToolbarAction\('analyze-screen-ocr'/)
-  assert.doesNotMatch(clickHandler, /handleScreenCapture/)
-})
-
-test('Analyze Screen toolbar action starts OCR capture', () => {
-  const appAnalyzeBranch = sourceBetween(
-    appSource,
-    "if (action === 'analyze-screen') {",
-    "if (action === 'analyze-screen-ocr') {"
-  )
-
-  assert.match(appAnalyzeBranch, /await handleScreenCapture\(\)/)
-  assert.match(appAnalyzeBranch, /return/)
-  assert.doesNotMatch(appAnalyzeBranch, /handleGenerateFromProvidedScreenText/)
-  assert.doesNotMatch(appAnalyzeBranch, /classifyAndGenerate/)
-  assert.doesNotMatch(appAnalyzeBranch, /appendQuestionHistory/)
-})
-
-test('OCR menu selection is the only topbar path that starts existing screen capture', () => {
-  assert.equal((overlaySource.match(/handleAnalyzeMenuAction\('analyze-screen-ocr'\)/g) || []).length, 1)
-  assert.match(appSource, /if \(action === 'analyze-screen-ocr'\) \{\s*await handleScreenCapture\(\)\s*return\s*\}/)
-  assert.match(answerPanelSource, /triggerToolbarAction\?\.\('analyze-screen-ocr'/)
+test('Analyze Screen entry points only open the passive chooser', () => {
+  const clickHandler = sourceBetween(overlaySource, 'const handleAnalyzeScreen = useCallback(() => {', 'const handleAnalyzeMenuKeyDown')
+  assert.match(clickHandler, /setAnalyzeMenuOpen\(true\)/)
+  assert.doesNotMatch(clickHandler, /triggerToolbarAction|executeScreenContext|handleScreenCapture/)
+  const action = sourceBetween(appSource, "if (action === 'analyze-screen') {", "if (action === 'analyze-screen-ocr') {")
+  assert.doesNotMatch(action, /handleScreenCapture|appendQuestionHistory|beginScreenOperation/)
+  assert.match(answerPanelSource, /triggerToolbarAction\?\.\('analyze-screen'/)
+  assert.match(overlaySource, /executeScreenContext\(command\)/)
 })
 
 test('OCR active path uses one capture and one direct screen-model request', () => {
@@ -74,7 +51,7 @@ test('OCR active path uses one capture and one direct screen-model request', () 
 test('normal active-window OCR freezes foreground before hiding, then falls back after hide', () => {
   const activeCaptureHandler = sourceBetween(
     mainSource,
-    'async function captureActiveWindowSource() {',
+    'async function captureActiveWindowSource(',
     'async function captureActiveWindowSequence() {'
   )
 
@@ -105,7 +82,7 @@ test('active-window resolver does not prefer stale browser cache over exact fore
   const resolver = sourceBetween(
     mainSource,
     'async function resolveCaptureTargetForAnalyze(options = {}) {',
-    'async function captureActiveWindowSource() {'
+    'async function captureActiveWindowSource('
   )
 
   assert.match(mainSource, /const LAST_EXTERNAL_TARGET_TTL_MS = 30000/)
@@ -315,11 +292,7 @@ test('Extension menu selection reports unavailable without capture, generation, 
     "if (action === 'analyze-screen-extension') {",
     "if (action === 'capture-screen-source') {"
   )
-  const extensionMenu = sourceBetween(
-    overlaySource,
-    "handleAnalyzeMenuAction('analyze-screen-extension')",
-    '</button>'
-  )
+  const extensionMenu = readFileSync(new URL('./components/ScreenContextControls.jsx', import.meta.url), 'utf8')
 
   assert.match(extensionBranch, /Browser extension connection is not available yet\./)
   assert.match(extensionBranch, /beginScreenOperation\('browser_extension'\)/)
@@ -341,18 +314,18 @@ test('Extension menu selection reports unavailable without capture, generation, 
 test('Analyze Screen menu has keyboard, focus-return, and outside-click handling', () => {
   assert.match(overlaySource, /event\.key === 'Escape'/)
   assert.match(overlaySource, /event\.key === 'ArrowDown' \|\| event\.key === 'ArrowUp'/)
-  assert.match(overlaySource, /analyzeMenuItemRefs\.current\[0\]\?\.focus\(\)/)
+  assert.match(overlaySource, /querySelector\('input:not\(:disabled\)'\)\?\.focus\(\)/)
   assert.match(overlaySource, /analyzeButtonRef\.current\?\.focus\(\)/)
   assert.match(overlaySource, /window\.addEventListener\('pointerdown', handlePointerDown\)/)
   assert.match(overlaySource, /closeAnalyzeMenu\(true\)/)
 })
 
-test('Ctrl+Shift+Enter starts Analyze Screen OCR directly', () => {
+test('Ctrl+Shift+Enter opens the passive Analyze Screen chooser', () => {
   assert.match(mainSource, /globalShortcut\.register\('Control\+Shift\+Enter'[\s\S]*broadcastToolbarAction\('analyze-screen'\)/)
   assert.match(overlaySource, /payload\?\.action === 'analyze-screen'[\s\S]*setActiveTab\('analyzeScreen'\)/)
   assert.match(
     sourceBetween(appSource, "if (action === 'analyze-screen') {", "if (action === 'analyze-screen-ocr') {"),
-    /await handleScreenCapture\(\)/
+    /Passive chooser/
   )
 })
 

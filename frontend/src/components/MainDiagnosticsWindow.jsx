@@ -922,7 +922,7 @@ export default function MainDiagnosticsWindow(props) {
               <button
                 className="icon-pill"
                 onClick={handleScreenCapture}
-                disabled={recording || autoMode || autoProcessing || ocrProcessing}
+                disabled={recording || autoMode || autoProcessing}
               >
                 {ocrProcessing ? 'Analyzing Active Window...' : 'Analyze Active Window'}
               </button>
@@ -1055,7 +1055,7 @@ export default function MainDiagnosticsWindow(props) {
                           type="button"
                           className="icon-pill"
                           onClick={handleScreenCapture}
-                          disabled={screenBusy || recording}
+                          disabled={recording}
                         >
                           Analyze Screen
                         </button>
@@ -1095,7 +1095,7 @@ export default function MainDiagnosticsWindow(props) {
                           type="button"
                           className="icon-pill"
                           onClick={handleScreenCapture}
-                          disabled={screenBusy || recording}
+                          disabled={recording}
                         >
                           Analyze Screen
                         </button>

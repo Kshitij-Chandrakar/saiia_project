@@ -13,6 +13,83 @@
 
 ---
 
+## Analyze Screen Context Foundation — Phase 1 (2026-10-18)
+
+- [x] Internal main-process temporary context, separate evidence/answers, immutable
+  retry input, identity/revision fences and configurable bounded retention.
+- [x] Cleanup before session finalization/logout/account replacement, session
+  switching, owning-window disposal and shutdown; history remains separate.
+- [x] Focused behavioral tests and frontend regressions: 431 tests passed.
+- [x] Repository audit excluding backend tests: build, compile, syntax, whitespace,
+  staged-file checks and 124 Extension tests passed. Full audit is not green:
+  fail-fast backend rerun reproduced an untouched session-generation test failure
+  after 90 passes; see the Phase 1 record. No live Electron run was performed.
+- [x] Chooser and contextual runtime integration implemented in Phase 3 below.
+- [ ] Native Electron/provider acceptance remains pending; automated integration
+  does not establish live capture quality or deployment readiness.
+
+Details and provisional limits: [Phase 1 record](docs/SCREEN_CONTEXT_PHASE1.md).
+
+## Analyze Screen Backend Continuity — Phase 2 (2026-10-18)
+
+- [x] Additive strict `/api/screen/analyze-context` v1 contract; legacy OCR remains
+  unchanged. Ordered same-question images/evidence and fallible AI answers are
+  separate; validated outcomes include committable incomplete evidence.
+- [x] User-confirmed policy: clarification never commits; unauthenticated local
+  requests are loopback-only, cloud requests require verified owner/active session.
+- [x] Bounded memory-only multipart parsing, decoding, concurrency and deadlines;
+  contextual requests disable SDK retries and provider response storage.
+- [x] 112 backend tests, 48 frontend/controller tests and repository audit with
+  backend tests skipped passed (including 124 Extension tests). Phase 2 is complete
+  locally; see the phase record for commands and the reproduced backend baseline failure.
+- [x] Phase 3 runtime/UI integration implemented locally; optional bounded user
+  clarification response added with user approval. Live acceptance remains pending.
+
+Contract, limits and verification: [Phase 2 record](docs/SCREEN_CONTEXT_PHASE2.md).
+
+## Analyze Screen Frontend and Electron Integration — Phase 3 (2026-10-18)
+
+- [x] Passive chooser from toolbar, shortcut action and result/diagnostics entry
+  points; explicit New question / Passage / Data / Continue + OCR, no capture or
+  context mutation on selection. Reference acceptance has no answer/history entry.
+- [x] Main-owned capture, frozen multipart, verified cloud auth/loopback local use,
+  bounded upload/response, cancellation, lifecycle fences and validated commits.
+- [x] Evidence-only More content needed, non-committable clarification with bound
+  text/item/replacement resolution, retry without recapture, stable batch sidecars
+  and isolated New execution. Existing display/history remain separate.
+- [x] Focused reference revision: replacement/isolation and passage → two independent
+  questions retain raw source images and separate fallible AI answers. Failed reset
+  remains empty; retry/clarification/lifecycle guards and all limits remain intact.
+- [x] 561 frontend tests, 132 focused backend regressions and seven real-view
+  Playwright tests with mocked native/provider boundaries passed locally. Repository
+  audit excluding backend tests passed, including build and 124 Extension tests.
+- [ ] Live Windows capture/native shortcut, provider reasoning/fidelity, cloud
+  deployment and resource measurements remain pending. Phase 4 is recorded below.
+- [x] Contract audit: shared outcome rules, explicit source/reference/replacement
+  provenance and retained accepted clarification; repeated stable targets verified.
+  588 frontend tests, 126 contextual + 67 legacy backend checks, eight mocked
+  Playwright tests and repository audit/build (full backend suite skipped) passed.
+- [ ] Historical invalid_output predicates are known, but old payload direction/schema
+  fingerprint was not retained. Current schema-conforming mocked outputs pass;
+  live provider acceptance remains open. See [audit](docs/SCREEN_CONTEXT_CONTRACT_AUDIT.md).
+
+Files, contracts, commands, manual acceptance and rollback:
+[Phase 3 record](docs/SCREEN_CONTEXT_PHASE3.md).
+
+## Analyze Screen Lifecycle and Concurrency — Phase 4 (2026-10-19)
+
+- [x] Main-owned command fences, synchronous admission/invalidation, cancellation,
+  supersession and lifecycle-aware native visibility restoration hardened.
+- [x] Bounded in-memory committed-result delivery and exact history acknowledgement;
+  no new permanent storage or changes to existing saved-history retention.
+- [x] 602 frontend tests, 184 selected backend tests, 10 mocked Playwright tests and repository build/audit
+  (including 124 Extension tests) passed. See the phase record for browser results.
+- [ ] Native Windows/live-provider/resource acceptance remains pending.
+- [ ] Phase 5 not started; the entire feature is not marked complete.
+
+Ownership map, transitions, verified protections, limitations and manual checks:
+[Phase 4 record](docs/SCREEN_CONTEXT_PHASE4.md).
+
 ## 0. Source of Truth
 
 Production work must follow these documents:
