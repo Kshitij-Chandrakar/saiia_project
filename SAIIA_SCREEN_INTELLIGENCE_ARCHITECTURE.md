@@ -1,5 +1,27 @@
 # SAIIA Screen Intelligence Architecture
 
+**2026-10-18 narrowly scoped continuity amendment:**
+[Screen Context Phase 3](docs/SCREEN_CONTEXT_PHASE3.md) connects the passive
+Analyze Screen chooser to main-owned temporary New question / Passage / Data /
+Continue previous question context. OCR and
+Extension remain the two source actions; context choices alone execute nothing.
+Each explicit OCR action captures one screenshot and uses one normal-path Screen
+model call. Relevant partial screenshots may accumulate until combined evidence
+is sufficient; missing details are never invented. Independent questions in one
+screenshot remain separate batch items with stable IDs and explicit continuation
+targeting. Images remain temporary and are released at lifecycle boundaries;
+saved history stays separate. Extension remains controlled/unavailable and gains
+no continuity or bridge. This amendment supersedes older complete-per-screenshot
+and exactly-two-menu-controls wording where necessary; other protections remain.
+
+Passage / Data is an explicit fresh reference capture, not a missing-question
+fallback. It replaces prior working context on OCR execution, retains validated
+source evidence and the original image, returns `reference_accepted` and produces
+no solution or completed history. Continue can answer successive independent
+questions using that reference; it does not automatically target the first answer.
+New question executes a fresh isolated solve. Selection alone never resets or
+captures. These additive v1 intents preserve all existing ownership and limits.
+
 **Product:** SAIIA - Smart AI Interview Assistant  
 **Document type:** Screen Intelligence architecture source of truth  
 **Version:** 1.1  

@@ -28,7 +28,8 @@ import {
   snapshotOverlayState,
 } from '../overlay_mode_state'
 import { createOverlayAuthStateTracker } from '../overlay_auth_state_tracker'
-import { shouldStartInitialScreenAnalysis } from '../screen_mode_state'
+import { ScreenContextChooser, useScreenContextStatus } from './ScreenContextControls'
+import { screenContextCommandFence } from '../screen_context_events'
 
 function formatElapsedTime(startedAt) {
   const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
@@ -116,10 +117,11 @@ export default function OverlayWindow({ overlayState }) {
     email: null,
   }))
   const [analyzeMenuOpen, setAnalyzeMenuOpen] = useState(false)
+  const screenContextStatus = useScreenContextStatus()
+  const [screenChooserError, setScreenChooserError] = useState('')
   const menuRef = useRef(null)
   const analyzeButtonRef = useRef(null)
   const analyzeMenuRef = useRef(null)
-  const analyzeMenuItemRefs = useRef([])
   const lastAutoFocusAnswerKeyRef = useRef('')
   const authStateTrackerRef = useRef(null)
   const [collapsed, setCollapsed] = useState(false)
@@ -195,16 +197,13 @@ export default function OverlayWindow({ overlayState }) {
     setActiveTab('analyzeScreen')
     setCollapsed(false)
     setMenuOpen(false)
-    setAnalyzeMenuOpen(false)
-    if (shouldStartInitialScreenAnalysis(overlayState)) {
-      triggerToolbarAction('analyze-screen-ocr', {
-        trigger: 'toolbar_analyze_screen',
-      })
-    }
-  }, [overlayState])
+    setScreenChooserError('')
+    setAnalyzeMenuOpen(true)
+  }, [])
 
   const handleAnalyzeMenuKeyDown = useCallback((event) => {
-    const items = analyzeMenuItemRefs.current.filter(Boolean)
+    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(event.target.tagName) && event.key !== 'Escape') return
+    const items = [...(analyzeMenuRef.current?.querySelectorAll('button:not(:disabled), input:not(:disabled), select') || [])]
     const currentIndex = items.indexOf(document.activeElement)
 
     if (event.key === 'Escape') {
@@ -385,7 +384,7 @@ export default function OverlayWindow({ overlayState }) {
     }
 
     const frameId = window.requestAnimationFrame(() => {
-      analyzeMenuItemRefs.current[0]?.focus()
+      analyzeMenuRef.current?.querySelector('input:not(:disabled)')?.focus()
     })
 
     return () => window.cancelAnimationFrame(frameId)
@@ -430,7 +429,8 @@ export default function OverlayWindow({ overlayState }) {
       if (payload?.action === 'analyze-screen') {
         setActiveTab('analyzeScreen')
         setCollapsed(false)
-        setAnalyzeMenuOpen(false)
+        setScreenChooserError('')
+        setAnalyzeMenuOpen(true)
       }
     })
 
@@ -589,7 +589,7 @@ export default function OverlayWindow({ overlayState }) {
                   active={activeTab === 'analyzeScreen'}
                   ariaControls={analyzeMenuOpen ? analyzeMenuId : undefined}
                   ariaExpanded={analyzeMenuOpen}
-                  ariaHaspopup="menu"
+                  ariaHaspopup="dialog"
                   buttonRef={analyzeButtonRef}
                   label="Analyze Screen"
                   onClick={handleAnalyzeScreen}
@@ -604,46 +604,22 @@ export default function OverlayWindow({ overlayState }) {
                     id={analyzeMenuId}
                     ref={analyzeMenuRef}
                     className="topbar-analyze-menu no-drag"
-                    role="menu"
+                    role="dialog"
                     aria-label="Analyze Screen"
                     onKeyDown={handleAnalyzeMenuKeyDown}
                   >
                     <div className="topbar-analyze-menu__heading">Analyze Screen</div>
-                    <button
-                      type="button"
-                      ref={(node) => {
-                        analyzeMenuItemRefs.current[0] = node
+                    <ScreenContextChooser status={screenContextStatus}
+                      blocked={Boolean(overlayState.recording || overlayState.autoMode || overlayState.autoProcessing)}
+                      onExecute={async command => {
+                        try {
+                          await window.electronAPI.executeScreenContext(command)
+                          closeAnalyzeMenu(true)
+                        } catch { setScreenChooserError('Screen action unavailable. Refresh the chooser and try again.') }
                       }}
-                      className="topbar-analyze-menu__item no-drag"
-                      role="menuitem"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        handleAnalyzeMenuAction('analyze-screen-ocr')
-                      }}
-                    >
-                      <span className="topbar-analyze-menu__title">OCR</span>
-                      <span className="topbar-analyze-menu__description">
-                        Read visible screen content using screen capture, vision, and OCR.
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      ref={(node) => {
-                        analyzeMenuItemRefs.current[1] = node
-                      }}
-                      className="topbar-analyze-menu__item no-drag"
-                      role="menuitem"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        handleAnalyzeMenuAction('analyze-screen-extension')
-                      }}
-                    >
-                      <span className="topbar-analyze-menu__title">Extension</span>
-                      <span className="topbar-analyze-menu__description">
-                        Read the coding problem automatically from the active tab in the paired browser.
-                      </span>
-                      <span className="topbar-analyze-menu__status">Extension setup required</span>
-                    </button>
+                      onExtension={() => handleAnalyzeMenuAction('analyze-screen-extension')}
+                    />
+                    {screenChooserError ? <p role="alert">{screenChooserError}</p> : null}
                   </div>
                 ) : null}
               </div>
@@ -658,7 +634,7 @@ export default function OverlayWindow({ overlayState }) {
 
               <button
                 type="button"
-                onClick={() => triggerToolbarAction('stop-active-operation')}
+                onClick={() => triggerToolbarAction('stop-active-operation', screenContextStatus ? { screenExpected: screenContextCommandFence(screenContextStatus) } : undefined)}
                 className="topbar-toolbar-stop-button no-drag"
                 title="Stop current operation"
                 aria-label="Stop current operation"

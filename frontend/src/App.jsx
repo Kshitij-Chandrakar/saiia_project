@@ -1,4 +1,5 @@
 import { mergeOverlaySnapshot } from './overlay_snapshot.js'
+import { isCurrentScreenDelivery, screenContextCommandFence, screenContextDisplayPayload } from './screen_context_events'
 import WebsiteNotFound, { WebsiteRouteHistory } from './WebsiteNotFound'
 import { createGrpcAutoSession, getGrpcAutoBlockReason } from './grpc_auto_session.js'
 import { selectRealtimeRoute, realtimeRouteDiagnostics, AUTH_BLOCKS } from './realtime_router.js'
@@ -1249,6 +1250,11 @@ function MainWindow() {
   const [screenAnswerCommittedToOverlay, setScreenAnswerCommittedToOverlay] = useState(false)
   const [screenPanelMode, setScreenPanelMode] = useState('preview')
   const [screenAnswerLoading, setScreenAnswerLoading] = useState(false)
+  const [screenDisplayedThreadId, setScreenDisplayedThreadId] = useState(null)
+  const screenContextSequenceRef = useRef(-1)
+  const screenContextSeenSequenceRef = useRef(-1)
+  const screenContextStatusRef = useRef(null)
+  const screenContextAcknowledgedRef = useRef(new Set())
   const [screenOperation, setScreenOperation] = useState(null)
   const [eventLog, setEventLog] = useState([])
   const [lastError, setLastError] = useState('')
@@ -1445,6 +1451,7 @@ function MainWindow() {
 
     if (historyMode === 'screen') {
       const metadata = entry.metadata || {}
+      setScreenDisplayedThreadId(metadata.contextIdentity?.threadId || null)
       setOcrText(entry.question || '')
       setFinalExtractedScreenQuestion(entry.question || '')
       setExtractedScreenQuestion(entry.question || '')
@@ -2136,6 +2143,7 @@ function MainWindow() {
     screenAnswerCommittedToOverlay,
     screenPanelMode,
     screenAnswerLoading,
+    screenDisplayedThreadId,
     screenError,
     screenOperation,
     microphoneEnabled: audioSources.microphone,
@@ -5144,6 +5152,7 @@ function MainWindow() {
   }
 
   const stopActiveOperation = () => {
+    if (screenContextStatusRef.current) void window.electronAPI?.cancelScreenContext?.({ expected: screenContextCommandFence(screenContextStatusRef.current) }).catch(() => {})
     manualLiveStartIdRef.current = ''
     manualLiveSessionRef.current?.cancel()
     manualLiveSessionRef.current = null
@@ -5485,6 +5494,7 @@ function MainWindow() {
       return
     }
     markScreenOperationCommitted(operation.operationId)
+    setScreenDisplayedThreadId(payload.contextIdentity?.threadId || null)
     const screenAnswerItems = Array.isArray(payload.items) ? payload.items : []
     const questionCount = Number(payload.question_count || screenAnswerItems.length || 1)
     const incompleteQuestionCount = Number(payload.incomplete_question_count || 0)
@@ -5556,6 +5566,7 @@ function MainWindow() {
           completedAt: new Date().toISOString(),
           metadata: {
             source: 'screen',
+            contextIdentity: payload.contextIdentity || null,
             operationId: operation.operationId,
             requestId: operation.requestId,
             screenQuestionType: questionType,
@@ -5667,6 +5678,60 @@ function MainWindow() {
     setStatus(questionCount > 1 ? 'Answers ready' : 'Answer ready')
     finishCurrentScreenOperation(operation)
   }
+
+  useEffect(() => {
+    let mounted = true
+    const accept = async event => {
+      if (Number.isSafeInteger(event?.sequence)) screenContextSeenSequenceRef.current = Math.max(screenContextSeenSequenceRef.current, event.sequence)
+      try {
+        const current = await window.electronAPI.getScreenContextStatus()
+        if (!mounted || current.sequence < screenContextSeenSequenceRef.current || current.sequence < screenContextSequenceRef.current) return
+        screenContextStatusRef.current = current
+        screenContextSequenceRef.current = current.sequence
+        // Recover committed results after a missed notification. History is the ack boundary.
+        for (const delivery of current.deliveries || []) {
+          if (!isCurrentScreenDelivery(delivery, current)) continue
+          const alreadySaved = questionHistoryRef.current.screen?.entries?.some(entry => entry.metadata?.contextIdentity?.requestId === delivery.identity.requestId)
+          if (alreadySaved || committedScreenOperationIdsRef.current.has(delivery.identity.operationId)) continue
+          const operation = createScreenOperation({ sourceType: 'screen_capture', operationId: delivery.identity.operationId,
+            requestId: delivery.identity.requestId })
+          activeScreenOperationRef.current = operation
+          setScreenOperation(operation)
+          commitDirectScreenAnswer(screenContextDisplayPayload(delivery), { operation, pipelineStarted: performance.now() })
+        }
+        event = current
+        const busy = ['capturing', 'processing'].includes(event.phase)
+        setOcrProcessing(busy)
+        setScreenAnswerLoading(busy)
+        if (busy && event.identity) {
+          const operation = createScreenOperation({ sourceType: 'screen_capture',
+            operationId: event.identity.operationId, requestId: event.identity.requestId })
+          activeScreenOperationRef.current = operation
+          setScreenOperation(operation)
+          setScreenError('')
+        }
+        if (!busy && activeScreenOperationRef.current?.isCurrent && activeScreenOperationRef.current.sourceType === 'screen_capture') {
+          activeScreenOperationRef.current = cancelScreenOperation(activeScreenOperationRef.current)
+          setScreenOperation(activeScreenOperationRef.current)
+        }
+      } catch { /* Safe status controls expose failures; never render unvalidated results. */ }
+    }
+    const unsubscribe = window.electronAPI?.onScreenContextEvent?.(accept)
+    if (window.electronAPI?.getScreenContextStatus) void accept()
+    return () => { mounted = false; unsubscribe?.() }
+  }, [])
+
+  useEffect(() => {
+    if (!window.electronAPI?.acknowledgeScreenContextResult) return
+    for (const entry of questionHistory.screen?.entries || []) {
+      const identity = entry.metadata?.contextIdentity
+      if (!identity || screenContextAcknowledgedRef.current.has(identity.requestId)) continue
+      void window.electronAPI.acknowledgeScreenContextResult(identity).then(() => {
+        screenContextAcknowledgedRef.current.add(identity.requestId)
+        if (screenContextAcknowledgedRef.current.size > 50) screenContextAcknowledgedRef.current.delete(screenContextAcknowledgedRef.current.values().next().value)
+      }).catch(() => {})
+    }
+  }, [questionHistory])
 
   const handleElectronScreenSourceCapture = async (sourceId) => {
     if (!window.saiia?.captureScreen) {
@@ -6505,16 +6570,15 @@ function MainWindow() {
         }
 
         if (action === 'analyze-screen') {
-          await handleScreenCapture()
-          return
+          return // Passive chooser is owned by the overlay.
         }
 
         if (action === 'analyze-screen-ocr') {
-          await handleScreenCapture()
-          return
+          return // Execution requires the narrow main-process Screen command.
         }
 
         if (action === 'analyze-screen-extension') {
+          if (screenContextStatusRef.current) await window.electronAPI?.cancelScreenContext?.({ expected: screenContextCommandFence(screenContextStatusRef.current) })
           const message = 'Browser extension connection is not available yet.'
           const operation = beginScreenOperation('browser_extension')
           setAnswerDisplayMode('screen')
@@ -6714,7 +6778,7 @@ function MainWindow() {
       handleRecordToggle={handleRecordToggle}
       startAutoMode={startAutoMode}
       stopAutoMode={stopAutoMode}
-      handleScreenCapture={handleScreenCapture}
+      handleScreenCapture={() => window.electronAPI?.triggerToolbarAction?.('analyze-screen')}
       status={status}
       error={error}
       lastError={lastError}

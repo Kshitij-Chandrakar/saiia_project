@@ -257,7 +257,7 @@ test('electron main window loads the desktop route instead of the public landing
 
 test('startup view validation and completion clear stale presentation state safely', () => {
   assert.match(mainSource, /function resizeStartupWindow\(view\)\s*\{[\s\S]*?typeof view !== 'string'[\s\S]*?hasOwnProperty\.call\(STARTUP_WINDOW_LAYOUTS, view\)/)
-  assert.match(mainSource, /function completeStartupFlow\(\)\s*\{\s*startupWindowController\.reset\(\)\s*startupFlowComplete = true[\s\S]*?mainWindow\.setSize\(620, 860\)/)
+  assert.match(mainSource, /function completeStartupFlow\(\)[\s\S]*?startupWindowController\.reset\(\)\s*startupFlowComplete = true[\s\S]*?mainWindow\.setSize\(620, 860\)/)
   assert.match(mainSource, /ipcMain\.handle\('startup:restore', \(event\) => \{[\s\S]*?startupFlowComplete[\s\S]*?reason: 'startup-complete'[\s\S]*?return restoreStartupWindow\(\)/)
 })
 

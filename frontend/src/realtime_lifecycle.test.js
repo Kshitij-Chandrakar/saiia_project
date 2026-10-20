@@ -164,6 +164,7 @@ test('main session end cancels only its matching gRPC connection before cloud I/
 test('main logout cancels gRPC before auth I/O and renderer reset', async () => {
   const calls = []
   const handler = mainHandler('auth:logout', {
+    screenLogoutPending: 0,
     validateAuthIpc() {}, screenContext: { invalidate() {} },
     grpcRealtimeClient: { close: () => calls.push('close') },
     desktopAuthSessionManager: { logout: async () => { calls.push('logout'); return { status: 'signed-out' } } },

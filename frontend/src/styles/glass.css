@@ -4926,3 +4926,24 @@ html[data-startup-mascot] #root {
     background: #0058be;
   }
 }
+/* Screen continuity stays inside the existing compact overlay. */
+.screen-context-choices, .screen-context-status fieldset {
+  display: grid; gap: 8px; border: 0; margin: 6px 0 10px; padding: 8px;
+}
+.screen-context-choices legend, .screen-context-status legend { font-size: 11px; color: #b6c1d3; }
+.screen-context-choices label, .screen-context-status label { font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.screen-context-choices label:has(input:disabled) { opacity: .55; }
+.screen-context-choices input[type="radio"], .screen-context-status input[type="checkbox"] {
+  width: 14px; height: 14px; min-height: 0; flex: 0 0 14px; margin: 0; padding: 0; appearance: auto;
+}
+.screen-context-field { display: grid !important; gap: 6px; padding: 8px; font-size: 12px; }
+.screen-context-field select, .screen-context-field textarea {
+  box-sizing: border-box; width: 100%; color: #edf2fa; background: #182232;
+  border: 1px solid #53647c; border-radius: 6px; padding: 7px; font: inherit;
+}
+.screen-context-field textarea { min-height: 64px; resize: vertical; }
+.screen-context-status { font-size: 12px; line-height: 1.5; padding: 10px; margin-bottom: 10px; border: 1px solid #53647c; border-radius: 8px; }
+.screen-context-status p { margin: 6px 0; }
+.screen-context-status button { background: #263950; color: #f3f6fc; border: 1px solid #637a98; border-radius: 6px; padding: 6px 8px; margin: 5px 6px 0 0; font: inherit; cursor: pointer; }
+.screen-context-status button:disabled { opacity: .5; cursor: default; }
+.screen-context-status :focus-visible, .screen-context-choices :focus-visible { outline: 2px solid #8bc4ff; outline-offset: 3px; }

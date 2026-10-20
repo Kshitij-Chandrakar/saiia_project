@@ -17,7 +17,7 @@ test('floating toolbar places Stop between Chat and timer', () => {
   const source = readFileSync(new URL('./components/OverlayWindow.jsx', import.meta.url), 'utf8')
 
   const chatIndex = source.indexOf('label="Chat"')
-  const stopIndex = source.indexOf("triggerToolbarAction('stop-active-operation')")
+  const stopIndex = source.indexOf("triggerToolbarAction('stop-active-operation'")
   const timerIndex = source.indexOf('topbar-toolbar-time')
 
   assert.ok(chatIndex > 0)

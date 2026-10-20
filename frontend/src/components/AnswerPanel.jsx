@@ -1,3 +1,4 @@
+import { ScreenContextStatus, useScreenContextStatus } from './ScreenContextControls'
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronLeft,
@@ -553,6 +554,7 @@ export default function AnswerPanel({
   onCancelChat,
   onClose,
 }) {
+  const screenContextStatus = useScreenContextStatus()
   const [size, setSize] = useState({ w: 520, h: 280 })
   const [collapsed, setCollapsed] = useState(false)
   const [chatDraft, setChatDraft] = useState('')
@@ -797,10 +799,7 @@ export default function AnswerPanel({
   const snippet = `${visibleBody.replace(/\n/g, ' ').slice(0, 80)}${visibleBody.length > 80 ? '...' : ''}`
 
   const handleAnalyzeScreenAction = async () => {
-    if (screenBusy) {
-      return
-    }
-    await window.electronAPI?.triggerToolbarAction?.('analyze-screen-ocr', {
+    await window.electronAPI?.triggerToolbarAction?.('analyze-screen', {
       trigger: screenHasError && !screenHasResult
         ? 'retry_analysis'
         : screenHasResult
@@ -1030,6 +1029,7 @@ export default function AnswerPanel({
       >
         {mode === 'analyzeScreen' ? (
           <div className="topbar-screen-panel">
+            <ScreenContextStatus status={screenContextStatus} displayedThreadId={overlayState.screenDisplayedThreadId} />
             {screenBusy && screenHasResult ? (
               <div className="topbar-chat-panel__status" style={{ marginBottom: 10 }}>
                 <LoaderCircle size={13} className="topbar-screen-panel__spinner" />
@@ -1045,7 +1045,7 @@ export default function AnswerPanel({
                     type="button"
                     className="topbar-screen-panel__button"
                     onClick={handleAnalyzeScreenAction}
-                    disabled={screenBusy || overlayState.recording || overlayState.autoMode}
+                    disabled={overlayState.recording || overlayState.autoMode}
                   >
                     Retry Analyze Screen
                   </button>
@@ -1144,7 +1144,7 @@ export default function AnswerPanel({
                     type="button"
                     className="topbar-screen-panel__button topbar-screen-panel__button--ghost"
                     onClick={handleAnalyzeScreenAction}
-                    disabled={screenBusy || overlayState.recording || overlayState.autoMode}
+                    disabled={overlayState.recording || overlayState.autoMode}
                   >
                     Analyze Screen
                   </button>
@@ -1171,8 +1171,6 @@ export default function AnswerPanel({
                     className="topbar-screen-panel__button"
                     onClick={handleAnalyzeScreenAction}
                     disabled={
-                      overlayState.ocrProcessing ||
-                      overlayState.screenAnswerLoading ||
                       overlayState.recording ||
                       overlayState.autoMode
                     }

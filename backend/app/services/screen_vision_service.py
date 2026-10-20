@@ -583,6 +583,11 @@ class ScreenVisionService:
             "editor_text": editor_text,
         }
 
+    async def answer_context(self, request, files):
+        from app.services.screen_context_service import answer_context
+
+        return await answer_context(self, request, files)
+
     def answer_image(
         self,
         *,

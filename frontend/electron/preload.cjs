@@ -1,6 +1,18 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 const electronAPI = {
+  getScreenContextStatus: () => ipcRenderer.invoke('screen:context-status'),
+  executeScreenContext: command => ipcRenderer.invoke('screen:context-execute', command),
+  cancelScreenContext: command => ipcRenderer.invoke('screen:context-cancel', command),
+  retryScreenContext: command => ipcRenderer.invoke('screen:context-retry', command),
+  acknowledgeScreenContextResult: identity => ipcRenderer.invoke('screen:context-ack', identity),
+  resolveScreenClarification: command => ipcRenderer.invoke('screen:context-resolve', command),
+  onScreenContextEvent: callback => {
+    if (typeof callback !== 'function') throw Error('Invalid Screen subscription.')
+    const listener = (_event, snapshot) => callback(snapshot)
+    ipcRenderer.on('screen:context-event', listener)
+    return () => ipcRenderer.removeListener('screen:context-event', listener)
+  },
   sendGrpcRealtimeAudioChunk: (data, metadata) => ipcRenderer.invoke('grpcRealtime:audioChunk', data, metadata),
   stopGrpcRealtimeAudio: () => ipcRenderer.invoke('grpcRealtime:manualStop'),
   connectGrpcAutoPipeline: (context) => ipcRenderer.invoke('grpcRealtime:connectAuto', context),
