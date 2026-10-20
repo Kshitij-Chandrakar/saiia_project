@@ -332,8 +332,8 @@ STT-frame consumption, waits for both sources before exercising turns, and stops
 and awaits the feeder before explicit End. It never cancels an in-flight gRPC
 write (which can cancel the RPC). EOF and all existing failure/next-turn/final-
 replacement/save assertions remain. Unexpected transport/source errors now fail
-immediately; provider finalization, socket/capture closure and empty background
-cleanup tracking are also asserted. The same six parameterized cases remain.
+immediately; provider finalization, socket/capture closure and absence of newly orphaned background
+cleanup work are also asserted. The same six parameterized cases remain.
 Production lifecycle, liveness deadlines and audio review fixes are unchanged.
 Actual source loss/Stop/disconnect still close and clean up in the existing
 combined, cancellation and negotiated-streaming regressions.
@@ -371,3 +371,13 @@ only one case; the recorded 30-case check above uses independent subprocesses.
 The diagnostic clock probe is outside the commit. No production code, workflow,
 model policy, migration, environment file or runtime setting changes are included.
 The user's original checkout/staged conflicts are untouched.
+
+
+The first follow-up CI run (`39399020982`) delivered the expected turn and End
+semantics but exposed an overbroad new assertion: a process-wide cleanup registry
+contained the same earlier RPC task in all six cases. Provider finalization and
+this fixture's closure checks had passed. The assertion now compares against its
+entry snapshot, so it requires no newly orphaned cleanup work without making
+claims about other RPCs. The permanent fixture seeds a foreign pending task in all six cases to
+verify this distinction, then cancels/awaits that synthetic task itself. No
+production exception is swallowed or source failure suppressed.

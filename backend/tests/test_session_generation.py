@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace as NS
 
 import pytest
+import pytest_asyncio
 from fastapi import HTTPException
 from starlette.requests import Request
 
@@ -390,10 +391,25 @@ async def test_missing_gemini_key_actual_handler_falls_back(setup,monkeypatch):
     assert len(store.saves)==1
 
 
+@pytest_asyncio.fixture
+async def unrelated_grpc_cleanup():
+    """Another RPC may still own an uncancelable native read during cleanup."""
+    from app import grpc_server
+    task = asyncio.create_task(asyncio.Event().wait())
+    grpc_server._system_cleanup_tasks.add(task)
+    try:
+        yield task
+    finally:
+        grpc_server._system_cleanup_tasks.discard(task)
+        task.cancel()
+        result = await asyncio.gather(task, return_exceptions=True)
+        assert all(isinstance(value, asyncio.CancelledError) for value in result)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize('stopped', [False, True])
 @pytest.mark.parametrize('source', ['microphone', 'system', 'both'])
-async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement(setup,monkeypatch,stopped,source):
+async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement(setup,monkeypatch,stopped,source,unrelated_grpc_cleanup):
     import grpc
     from app import grpc_server,grpc_answer_pipeline
     from app.grpc_cloud_context import GrpcCloudContext
@@ -407,6 +423,7 @@ async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement
     capture_closed = asyncio.Event()
     socket_closed = asyncio.Event()
     provider_closed = []
+    cleanup_before = set(grpc_server._system_cleanup_tasks)
     for name in ('USE_GRPC_AUTO_PIPELINE','GRPC_STT_ENABLED','GRPC_ANSWER_STREAM_ENABLED','USE_GRPC_CLOUD_CONTEXT_PIPELINE'):
         monkeypatch.setattr(grpc_server.settings,name,True)
     monkeypatch.setattr(grpc_server,'AUTO_COOLDOWN_SECONDS',.01)
@@ -516,7 +533,9 @@ async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement
             await until(lambda item:item.status.code=='ended')
             assert socket_closed.is_set()
             if source in ('system', 'both'): assert capture_closed.is_set()
-            assert provider_closed == calls and not grpc_server._system_cleanup_tasks
+            assert provider_closed == calls
+            assert not (grpc_server._system_cleanup_tasks - cleanup_before)
+            assert not unrelated_grpc_cleanup.done()
             call.cancel()
     finally:
         await server.stop(0)
