@@ -1061,3 +1061,11 @@ async def test_local_endpoints_generate_with_optional_invalid_auth(monkeypatch, 
         assert any(event.get("type") == "done" for event in events)
     else:
         assert response.answer == "Deep learning uses neural networks."
+
+
+@pytest.fixture(autouse=True)
+def legacy_session_routing(monkeypatch):
+    # These fixtures model the legacy path; developer .env must not opt them
+    # into model-bound session execution. Dedicated model suites test that path.
+    from app.config import settings
+    monkeypatch.setattr(settings, 'ENABLE_SESSION_ANSWER_MODELS', False)

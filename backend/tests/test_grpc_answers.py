@@ -171,3 +171,11 @@ def test_adapter_done_requires_nonempty_answer_before_cloud_save(monkeypatch, an
             asyncio.run(exercise())
         assert not saves
         assert not any(e['type'] in ('completed', 'save_status') for e in events)
+
+
+@pytest.fixture(autouse=True)
+def legacy_session_routing(monkeypatch):
+    # These fixtures model the legacy path; developer .env must not opt them
+    # into model-bound session execution. Dedicated model suites test that path.
+    from app.config import settings
+    monkeypatch.setattr(settings, 'ENABLE_SESSION_ANSWER_MODELS', False)

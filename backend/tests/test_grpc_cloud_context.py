@@ -210,3 +210,11 @@ def test_wrong_returned_session_identity_is_rejected(services):
     session.user_id = 'owner'; session.id = RID
     with pytest.raises(cloud.CloudContextRejected, match='cloud_session_invalid'):
         cloud.GrpcCloudContext.authorize(start(), [('authorization', 'Bearer mock')])
+
+
+@pytest.fixture(autouse=True)
+def legacy_session_routing(monkeypatch):
+    # These fixtures model the legacy path; developer .env must not opt them
+    # into model-bound session execution. Dedicated model suites test that path.
+    from app.config import settings
+    monkeypatch.setattr(settings, 'ENABLE_SESSION_ANSWER_MODELS', False)
