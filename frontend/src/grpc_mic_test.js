@@ -31,17 +31,18 @@ export function createGrpcMicTest({ api, getUserMedia = (constraints) => navigat
       running = true
       const metadata = () => ({ inputSampleRate: capture?.audioContext?.sampleRate || 0,
         inputChannelCount: stream?.getAudioTracks?.()[0]?.getSettings?.().channelCount || 1 })
-      let nextSlot = 0
+      let nextSlot = 0, captureEpoch = 0
       tailStart = nextChunkStart = undefined
       // One fixed conversion for this run. Later wall-clock changes cannot
       // rewrite elapsed audio time, and monotonic values never cross IPC.
       const epochOffset = wallNow() - monotonicNow()
       enqueue = (data, frameStart = monotonicNow()) => {
-        const queuedAt = monotonicNow()
+        const queuedAt = monotonicNow(), epoch = captureEpoch
         pending = true
         queued++
         sending = sending.then(async () => {
           if (run !== generation) return null
+          if (epoch !== captureEpoch) return { connectionStatus: 'connected' }
           // Combined audio must not replay a renderer backlog after an IPC stall.
           // 500 ms includes a 256 ms capture block plus a retained 100 ms tail.
           if (continuous && (monotonicNow() - queuedAt > 300 || monotonicNow() - frameStart > 500)) return { connectionStatus: 'connected' }
@@ -73,7 +74,10 @@ export function createGrpcMicTest({ api, getUserMedia = (constraints) => navigat
           if (outputRate !== 16000) { stopCapture(); return }
           const chunkStart = Number.isFinite(timing?.startMonotonicMs) ? timing.startMonotonicMs :
             nextChunkStart ?? monotonicNow() - data.byteLength / 2 / outputRate * 1000
-          if (continuous && timing?.discontinuity) { tail = new Uint8Array(0); tailStart = undefined }
+          if (continuous && timing?.discontinuity) {
+            captureEpoch++ // Invalidate unsent pre-gap frames without reopening the run.
+            tail = new Uint8Array(0); tailStart = undefined; nextSlot = 0
+          }
           const mergedStart = tail.length ? tailStart : chunkStart
           // Explicit signed PCM16 little-endian; no Float32 buffer crosses IPC.
           const samples = new Int16Array(data)

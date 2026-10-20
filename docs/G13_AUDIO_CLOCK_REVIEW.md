@@ -62,3 +62,25 @@ No native endpoint mapping/COM boundary was added, so no mocked result is presen
 - Real output-endpoint switching, duplicate endpoint names, role-specific defaults and COM ownership acceptance belong to the deferred native follow-up. Earlier user-reported device-loss success does not prove the cache issue is resolved.
 
 These audio hunks should be reviewed on PR #50's audio branch. Do not push the local answer-streaming commit as a dependency, and do not claim the native endpoint finding is closed.
+
+
+### Suspended AudioContext follow-up
+
+Continuous capture compares monotonic elapsed time against AudioContext elapsed
+time from the current clock anchor. Divergence greater than 300 ms matches the
+backend mixer's late-frame tolerance. Scheduling delay advancing both clocks
+alone does not reset continuity. On divergence or an inactive capture callback,
+the next active block re-anchors the nominal Web Audio timeline and resets the
+continuous resampler/sample count. These remain nominal Web Audio timestamps,
+not hardware ADC timestamps.
+
+The discontinuity discards retained tail bytes and invalidates unsent pre-gap
+frames. An already submitted IPC call cannot be recalled; its backend failure
+still closes capture. No session is reopened automatically. Backend source-loss
+termination requires explicit restart. Non-continuous capture is unchanged.
+
+Synthetic fake-clock regressions cover repeated freezes/resumes, jitter,
+fractional resampler reset, tail/queue invalidation and termination fencing.
+Windows acceptance still requires user-controlled suspension/resume and verifying
+that an already terminated Auto run stays stopped; mocks establish neither real
+hardware timing accuracy nor physical device behavior.
