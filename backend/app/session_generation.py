@@ -21,6 +21,7 @@ from app.answer_generation import (AttemptFailure, Deadlines, GenerationBudget,
     attempt_models, provider_stream)
 from app.answer_models import resolve_binding, ModelConfigurationError
 from app.config import settings
+from app.answer_streaming import incremental_answers, DisplayStream, LegacyRun
 
 LIFECYCLE_LOCAL_SECONDS = .25
 LIFECYCLE_REMOTE_SECONDS = 2.0
@@ -141,9 +142,14 @@ class AttemptRun:
         self.failure = None
         self.active = True
         self.pending = None
+        self.display = None
 
     async def call(self, prepared, display):
         text = ''
+        revision = await self.display.begin(self.index) if display and self.display else 0
+        if self.display:
+            from app.nlp.internal_marker_sanitizer import InternalMarkerStreamSanitizer
+            sanitizer = InternalMarkerStreamSanitizer()
         deadline = self.budget.clock() + self.budget.limits.first_token
         key = {'openai': settings.OPENAI_API_KEY, 'groq': settings.GROQ_API_KEY, 'gemini': settings.GEMINI_API_KEY}[self.model.provider]
         async with aclosing(provider_stream(self.client, self.model, prepared, key)) as stream:
@@ -161,11 +167,16 @@ class AttemptRun:
                         raise AttemptFailure('answer_too_large')
                     if delta.strip():
                         deadline = self.budget.clock() + self.budget.limits.idle
-                    if display and self.index == 0 and self.active:
-                        await self.queue.put(dict(type='delta', text=delta, attempt=self.index))
+                    if display and self.active:
+                        if self.display:
+                            await self.display.delta(sanitizer.feed(delta), self.index, revision)
+                        elif self.index == 0:
+                            await self.queue.put(dict(type='delta', text=delta, attempt=self.index))
                 if complete:
                     if not text.strip():
                         raise AttemptFailure('empty_response')
+                    if display and self.display:
+                        await self.display.delta(sanitizer.flush(), self.index, revision)
                     return text
 
     def sync_call(self, prepared, display=False):
@@ -222,6 +233,7 @@ def coding_budget_required(req, api):
 
 
 async def dispatch_session_generation(req, request, *, buffered):
+    incremental = incremental_answers.get()
     if request is not None and getattr(getattr(request, 'state', None), 'session_generation_internal', False):
         return None
     if not req.session_id or not settings.ENABLE_SESSION_ANSWER_MODELS:
@@ -272,8 +284,10 @@ async def dispatch_session_generation(req, request, *, buffered):
     if claim['state'] not in ('claimed','checkpoint','completed'):
         raise HTTPException(409, dict(code='generation_' + claim['state'], request_id=req.request_id))
     control = GenerationControl()
+    display = None
 
     async def events():
+        nonlocal display
         token = claim.get('token')
         queue = asyncio.Queue(maxsize=8)
         result = None
@@ -281,6 +295,7 @@ async def dispatch_session_generation(req, request, *, buffered):
         preserve_checkpoint = False
         checkpoint_known = claim['state'] in ('checkpoint', 'completed')
         pending_variation = []
+        display = DisplayStream(queue, control, None) if incremental else None
 
         async def check_remote():
             verified = await asyncio.to_thread(api._current_user_for_session_id, req, request)
@@ -345,11 +360,16 @@ async def dispatch_session_generation(req, request, *, buffered):
             context_cache = {}
             models = attempt_models(selected_model) if key else (None,)
             budget = GenerationBudget(Deadlines.from_config(settings, coding=coding_budget_required(req, api)))
+            if display:
+                display.budget = budget
             loop = asyncio.get_running_loop()
             async with httpx.AsyncClient(transport=httpx.AsyncHTTPTransport(retries=0)) as client:
                 for index, model in enumerate(models):
                     control.check()
                     run = AttemptRun(model, budget, control, client, queue, loop, index, primary_cache) if model else None
+                    legacy = LegacyRun(display, loop, client) if display and not model else None
+                    if run:
+                        run.display = display
                     def worker():
                         # All planner, prompt, grounding and validation logic remains in
                         # the existing endpoint; only the request-local providers differ.
@@ -360,8 +380,9 @@ async def dispatch_session_generation(req, request, *, buffered):
                         cache_token = _prepared.set(context_cache)
                         gen_token = None
                         try:
-                            if run:
+                            if run or legacy:
                                 instance = copy.copy(api.generator._default)
+                            if run:
                                 run.instance = instance
                                 provider = AttemptProvider(run)
                                 for attr in ('openai_provider','groq_provider','groq_coding_provider','groq_refinement_provider'):
@@ -371,6 +392,9 @@ async def dispatch_session_generation(req, request, *, buffered):
                                 # Stage variation changes until the final result commits.
                                 instance.variation_history = copy.deepcopy(instance.variation_history)
                                 run.history_before = list(instance.variation_history._entries)
+                            if legacy:
+                                legacy.install(instance)
+                            if run or legacy:
                                 gen_token = _generator.set(instance)
                             scope = dict(request.scope if request else {'type':'http','headers':[]})
                             scope['state'] = dict(scope.get('state',{}), session_generation_internal=True)
@@ -398,7 +422,8 @@ async def dispatch_session_generation(req, request, *, buffered):
                             selected_api_model=selected_model.api_model if key else None,
                             actual_provider=model.provider if model else result.get('provider'),
                             actual_api_model=model.api_model if model else result.get('model'),
-                            reported_model=run.reported if run else None, fallback_used=bool(index),
+                            reported_model=run.reported if run else None,
+                            fallback_used=bool(index) if model or not incremental else bool(result.get('fallback_used')),
                             transcript_entry_stored=True)
                         if model:
                             result.update(provider=model.provider, model=model.api_model)
@@ -423,16 +448,24 @@ async def dispatch_session_generation(req, request, *, buffered):
                         result = checkpoint
                         return
                     except (AttemptFailure, HTTPException) as exc:
-                        if isinstance(exc, HTTPException) and (not run or exc.status_code not in (500,502,503,504)):
+                        if isinstance(exc, HTTPException) and (not (run or legacy) or exc.status_code not in (500,502,503,504)):
                             raise
                         control.check()
                         failures.append(getattr(exc,'code','provider_error'))
-                        await queue.put(dict(type='discard', attempt=index))
+                        if display:
+                            await display.reset()
+                        else:
+                            await queue.put(dict(type='discard', attempt=index))
                     finally:
                         if run:
                             run.active = False
                             if run.pending:
                                 run.pending.cancel()
+                        if legacy:
+                            legacy.active = False
+                            if legacy.pending:
+                                legacy.pending.cancel()
+                            await asyncio.to_thread(legacy.cancellation.cancel)
                 await store.operation('fail', identity, token=token)
                 raise GenerationFailure(tuple(failures))
 
@@ -449,7 +482,11 @@ async def dispatch_session_generation(req, request, *, buffered):
                         accepted_attempt = event['attempt'] + 1
                         yield api._stream_event(dict(type='replace', answer='', attempt=accepted_attempt, request_id=req.request_id))
                     else:
-                        if event.get('attempt',0) >= accepted_attempt:
+                        if display:
+                            if event['type'] == 'delta' and event.get('revision') != display.revision:
+                                continue
+                            yield api._stream_event(dict(event, request_id=req.request_id))
+                        elif event.get('attempt',0) >= accepted_attempt:
                             yield api._stream_event(dict(event, request_id=req.request_id))
                 except asyncio.TimeoutError:
                     pass
@@ -506,6 +543,12 @@ async def dispatch_session_generation(req, request, *, buffered):
             sequence = 0
             async for line in stream:
                 event = json.loads(line)
+                if display:
+                    if event['type'] == 'replace' and 'revision' not in event:
+                        display.revision += 1
+                    event.setdefault('attempt', display.attempt)
+                    event.setdefault('revision', display.revision)
+                    event['retry_attempt'] = req.retry_attempt
                 event['sequence'] = sequence
                 sequence += 1
                 yield api._stream_event(event)

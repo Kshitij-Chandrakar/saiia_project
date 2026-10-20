@@ -21,6 +21,7 @@ const {
 } = require('./desktop_auth_session.cjs')
 const { createStartupWindowController } = require('./startup_window_controller.cjs')
 const { readNdjsonStream } = require('./answer_stream_protocol.cjs')
+const { fenceOverlayAnswer } = require('./answer_stream_state.cjs')
 const { GrpcRealtimeClient, registerGrpcRealtimeIpc } = require('./grpc_realtime_client.cjs')
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
@@ -1240,6 +1241,7 @@ function loadWindow(window, view) {
 }
 
 function broadcastOverlayState() {
+  overlayState.overlayPublicationVersion = (overlayState.overlayPublicationVersion || 0) + 1
   const payload = {
     ...overlayState,
     visible: overlayVisible && !!(overlayWindow && overlayWindow.isVisible()),
@@ -2195,7 +2197,7 @@ ipcMain.handle('dashboard:open', async (event) => {
 })
 
 ipcMain.on('overlay:update-state', (_event, nextState) => {
-  Object.assign(overlayState, nextState)
+  Object.assign(overlayState, fenceOverlayAnswer(nextState, overlayState, grpcRealtimeClient.getStatus().answerStreamIdentity))
   broadcastOverlayState()
 })
 

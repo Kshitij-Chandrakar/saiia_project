@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace as NS
 
 import pytest
+import pytest_asyncio
 from fastapi import HTTPException
 from starlette.requests import Request
 
@@ -390,10 +391,25 @@ async def test_missing_gemini_key_actual_handler_falls_back(setup,monkeypatch):
     assert len(store.saves)==1
 
 
+@pytest_asyncio.fixture
+async def unrelated_grpc_cleanup():
+    """Another RPC may still own an uncancelable native read during cleanup."""
+    from app import grpc_server
+    task = asyncio.create_task(asyncio.Event().wait())
+    grpc_server._system_cleanup_tasks.add(task)
+    try:
+        yield task
+    finally:
+        grpc_server._system_cleanup_tasks.discard(task)
+        task.cancel()
+        result = await asyncio.gather(task, return_exceptions=True)
+        assert all(isinstance(value, asyncio.CancelledError) for value in result)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize('stopped', [False, True])
 @pytest.mark.parametrize('source', ['microphone', 'system', 'both'])
-async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement(setup,monkeypatch,stopped,source):
+async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement(setup,monkeypatch,stopped,source,unrelated_grpc_cleanup):
     import grpc
     from app import grpc_server,grpc_answer_pipeline
     from app.grpc_cloud_context import GrpcCloudContext
@@ -402,6 +418,12 @@ async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement
     from app.services.assemblyai_streaming import AssemblyAIStreamingBridge
     from app.api.question_detect import classifier
     _,store=setup
+    mixed_frame = asyncio.Event()
+    microphone_stopped = asyncio.Event()
+    capture_closed = asyncio.Event()
+    socket_closed = asyncio.Event()
+    provider_closed = []
+    cleanup_before = set(grpc_server._system_cleanup_tasks)
     for name in ('USE_GRPC_AUTO_PIPELINE','GRPC_STT_ENABLED','GRPC_ANSWER_STREAM_ENABLED','USE_GRPC_CLOUD_CONTEXT_PIPELINE'):
         monkeypatch.setattr(grpc_server.settings,name,True)
     monkeypatch.setattr(grpc_server,'AUTO_COOLDOWN_SECONDS',.01)
@@ -417,8 +439,9 @@ async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement
         def __init__(self): self.events=asyncio.Queue()
         def __aiter__(self): return self
         async def __anext__(self): return await self.events.get()
-        async def send(self,data): pass
-        async def close(self): pass
+        async def send(self,data):
+            if isinstance(data, bytes): mixed_frame.set()
+        async def close(self): socket_closed.set()
     socket=Socket()
     async def connect(self):
         await socket.events.put('{"type":"Begin"}')
@@ -434,19 +457,26 @@ async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement
                 time.sleep(.01)
                 return NS(pcm_bytes=b'\0\x10'*1600, rms_level=.125, peak_level=.125,
                           input_sample_rate=48000, resample_latency_ms=.1)
-            def close_streaming_loopback_session(self, session): return True
+            def close_streaming_loopback_session(self, session):
+                # This boundary runs on the native-capture worker thread.
+                loop.call_soon_threadsafe(capture_closed.set)
+                return True
         monkeypatch.setattr(system_audio_capture, 'SystemAudioCaptureService', Capture)
+    loop = asyncio.get_running_loop()
     fail=True
     calls=[]
     async def provider(client,model,prepared,key):
         calls.append(model.provider)
-        if stopped and fail:
-            raise GenerationStopped()
-        if model.provider=='openai':
-            yield 'FAILED PROVISIONAL',None,False
-            raise AttemptFailure('provider_unavailable')
-        if fail: raise AttemptFailure('rate_limit')
-        yield 'Dependency injection supplies dependencies externally.',None,True
+        try:
+            if stopped and fail:
+                raise GenerationStopped()
+            if model.provider=='openai':
+                yield 'FAILED PROVISIONAL',None,False
+                raise AttemptFailure('provider_unavailable')
+            if fail: raise AttemptFailure('rate_limit')
+            yield 'Dependency injection supplies dependencies externally.',None,True
+        finally:
+            provider_closed.append(model.provider)
     monkeypatch.setattr(sg,'provider_stream',provider)
     server,port=await grpc_server.start_server(port=0)
     try:
@@ -458,27 +488,54 @@ async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement
                 while True:
                     item=await call.read()
                     assert item is not grpc.aio.EOF
+                    assert not item.HasField('error'), 'Unexpected transport/source error'
                     if predicate(item): return item
             await until(lambda item:item.status.code=='answer_stream_enabled')
-            async def turn(text,order):
-                await socket.events.put(json.dumps(dict(type='Turn',transcript=text,turn_order=order,end_of_turn=True)))
-            await turn('Explain dependency injection',0)
-            failure=await until(lambda item:item.HasField('answer_error'))
-            assert failure.answer_error.code==('generation_stopped' if stopped else 'generation_failed')
-            assert failure.request_id and failure.request_id!='start-id'
-            await until(lambda item:item.status.code=='auto_listening')
-            fail=False
-            await turn('Explain inversion of control',1)
-            complete=await until(lambda item:item.HasField('answer_completed'))
-            assert complete.request_id!=failure.request_id
-            assert 'FAILED PROVISIONAL' not in complete.answer_completed.text
-            assert 'dependencies' in complete.answer_completed.text
-            assert calls==(['openai','openai','groq'] if stopped else ['openai','groq','openai','groq']) and len(store.saves)==1
-            assert {key[2] for key in store.rows}=={failure.request_id,complete.request_id}
-            # Existing wire contract carries turn identity, but has no retry-attempt field.
-            assert 'retry_attempt' not in pb.InterviewClientEvent.DESCRIPTOR.fields_by_name
+            async def supply_microphone():
+                sequence = 0
+                while not microphone_stopped.is_set():
+                    mixed_frame.clear()
+                    sequence += 1
+                    await call.write(pb.InterviewClientEvent(session_id='transport', sequence_number=sequence,
+                        audio_chunk=pb.AudioChunk(audio=b'\0\x10'*1600, sample_rate=16000,
+                                                  channels=1, encoding='linear16')))
+                    # Pace synthetic microphone input by actual mixer/STT consumption,
+                    # not answer speed or arbitrary sleeps. Initial input starts mixing.
+                    await mixed_frame.wait()
+            microphone = asyncio.create_task(supply_microphone()) if source == 'both' else None
+            try:
+                if microphone:
+                    await asyncio.wait_for(mixed_frame.wait(), 3)
+                async def turn(text,order):
+                    await socket.events.put(json.dumps(dict(type='Turn',transcript=text,turn_order=order,end_of_turn=True)))
+                await turn('Explain dependency injection',0)
+                failure=await until(lambda item:item.HasField('answer_error'))
+                assert failure.answer_error.code==('generation_stopped' if stopped else 'generation_failed')
+                assert failure.request_id and failure.request_id!='start-id'
+                await until(lambda item:item.status.code=='auto_listening')
+                fail=False
+                await turn('Explain inversion of control',1)
+                complete=await until(lambda item:item.HasField('answer_completed'))
+                assert complete.request_id!=failure.request_id
+                assert 'FAILED PROVISIONAL' not in complete.answer_completed.text
+                assert 'dependencies' in complete.answer_completed.text
+                assert calls==(['openai','openai','groq'] if stopped else ['openai','groq','openai','groq']) and len(store.saves)==1
+                assert {key[2] for key in store.rows}=={failure.request_id,complete.request_id}
+                # Existing wire contract carries turn identity, but has no retry-attempt field.
+                assert 'retry_attempt' not in pb.InterviewClientEvent.DESCRIPTOR.fields_by_name
+            finally:
+                if microphone:
+                    # Do not cancel an in-flight gRPC write: that cancels the RPC.
+                    microphone_stopped.set()
+                    mixed_frame.set()
+                    await asyncio.wait_for(microphone, 3)
             await call.write(pb.InterviewClientEvent(session_id='transport',end_session=pb.Empty()))
             await until(lambda item:item.status.code=='ended')
+            assert socket_closed.is_set()
+            if source in ('system', 'both'): assert capture_closed.is_set()
+            assert provider_closed == calls
+            assert not (grpc_server._system_cleanup_tasks - cleanup_before)
+            assert not unrelated_grpc_cleanup.done()
             call.cancel()
     finally:
         await server.stop(0)
