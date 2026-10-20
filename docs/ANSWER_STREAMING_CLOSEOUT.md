@@ -2,7 +2,7 @@
 
 2026-10-20. Focused local closeout on `dev/current-work`. No push, merge,
 deployment, migration, hosted query or runtime-setting change is included.
-Phase 1?3 records remain historical evidence; this record gives current status.
+Phases 1-3 records remain historical evidence; this record gives current status.
 
 ## Baseline, dependency and preservation
 
@@ -39,10 +39,10 @@ navigation context, not evidence that new source is indexed. No graph regenerati
 
 ## Final architecture and compatibility
 
-Accepted gRPC Auto question ? authorized session/stored selection ? production
-coordinator and provider stream ? existing preparation/validation/correction ?
-gRPC adapter/handler ? Electron client ? existing narrow IPC/preload snapshots ?
-Auto consumer ? existing React answer state ? fenced overlay snapshots.
+Accepted gRPC Auto question -> authorized session/stored selection -> production
+coordinator and provider stream -> existing preparation/validation/correction ->
+gRPC adapter/handler -> Electron client -> existing narrow IPC/preload snapshots ->
+Auto consumer -> existing React answer state -> fenced overlay snapshots.
 
 | Route / peer | Behavior |
 | --- | --- |
@@ -207,7 +207,7 @@ secret values. No new logging of prompts, answers, audio or personal context is
 introduced; test pipes contain synthetic payloads only and report safe stages/counts.
 This does not add a global live-provider debug-log redactor.
 
-The exposed key's remediation was acknowledged by the user's ?done? after the
+The exposed key's remediation was acknowledged by the user's `done` after the
 rotation/revocation instructions. That is user-reported remediation, not an
 independent dashboard verification of revocation. No secret value is reproduced.
 
@@ -227,7 +227,7 @@ On 2026-10-20 the user explicitly reported all six checks passed:
 1. Progressive main and overlay answers across Mic, Computer and Both.
 2. Stop during generation prevents late text.
 3. Fallback clears failed primary text before streaming.
-4. Failure ? Retry needs no audio recapture or duplicate history.
+4. Failure -> Retry needs no audio recapture or duplicate history.
 5. Saved final answer matches completed display.
 6. Backend and Electron were restarted for testing.
 
@@ -260,7 +260,9 @@ limits do not authorize additional live calls, migrations or deployment.
 
 ## Included files
 
-The local commit contains the following 34 explicitly selected files:
+### Original streaming commit
+
+Commit `cd5b899` contains the following 34 explicitly selected files:
 
 - `backend/app/answer_streaming.py`
 - `backend/app/session_generation.py`
@@ -296,3 +298,99 @@ The local commit contains the following 34 explicitly selected files:
 - `docs/ANSWER_STREAMING_PHASE3.md`
 - `docs/ANSWER_STREAMING_CLOSEOUT.md`
 - `SAIIA_PRODUCTION_PHASES_TRACKER.md`
+
+
+### Subsequent PR review/CI corrections
+
+Commits `653356b` and `d3d9cfa` each modify these two files:
+
+- `backend/tests/test_session_generation.py` (additional to the original inventory)
+- `docs/ANSWER_STREAMING_CLOSEOUT.md` (already in the original inventory)
+
+The PR diff through `d3d9cfa` therefore contains **35 unique files**. This
+preserves the original commit's historical 34-file count; the documentation-only
+separator/manifest correction modifies files already included above.
+
+## PR #52 CI fixture correction - 2026-10-20
+
+Investigated failed run `39396456506` at PR head `cd5b899`, including the actual
+GitHub PR merge checkout `f8e256a` with main's audio-clock review fixes intact.
+The traceback is at the final `ended` wait (old test line 481), after the typed
+turn error, listening status, second-turn completion, replacement and one-save
+assertions had succeeded. The existing production GenerationStopped catch is
+already exercised; it was not changed.
+
+The combined fixture fed continuous system PCM but no microphone PCM. The
+combined sender therefore remained in its five-second required-source startup
+wait, so test speed determined whether it could reach explicit End before a
+legitimate source failure closed the RPC. A temporary, fixture-only monotonic
+clock gate advanced that startup deadline after second-turn completion and waited
+for the sender to close. Content-free queue tracing, on both PR head and GitHub's
+merge checkout, recorded exactly:
+
+```text
+answer_error -> answer_completed -> error:system_audio_unavailable -> close:send
+```
+
+`send()` emits the source error and the output-queue sentinel; StreamInterview
+then exits and runs ordered cleanup. This reproduces the unexpected EOF without
+request-iterator completion, an uncaught GenerationStopped, or an unobserved
+background exception. It demonstrates the timing-dependent failure mechanism;
+the original CI output itself did not retain the discarded source-error event.
+No interview text, audio, authorization value or provider detail was traced.
+
+Only `backend/tests/test_session_generation.py` changes behavior: the combined
+fixture sends initial microphone PCM and paces further frames by actual mixed
+STT-frame consumption, waits for both sources before exercising turns, and stops
+and awaits the feeder before explicit End. It never cancels an in-flight gRPC
+write (which can cancel the RPC). EOF and all existing failure/next-turn/final-
+replacement/save assertions remain. Unexpected transport/source errors now fail
+immediately; provider finalization, socket/capture closure and absence of newly orphaned background
+cleanup work are also asserted. The same six parameterized cases remain.
+Production lifecycle, liveness deadlines and audio review fixes are unchanged.
+Actual source loss/Stop/disconnect still close and clean up in the existing
+combined, cancellation and negotiated-streaming regressions.
+
+Verification uses the committed `verify_answer_streaming.py` network/credential
+guard and isolated checkouts with no real dotenv. Local interpreter is Windows
+Python 3.10.20 / grpcio 1.76.0 / Node 24; GitHub uses Ubuntu/Python 3.11/Node 20.
+The CI merge source and commands were reproduced locally; this does not claim
+that the local OS/interpreter are identical. Canonical Git blob newlines were used
+for generated bindings and existing HTML fixtures in disposable checkouts only.
+
+Commands/results:
+
+- Exact case: `python -B backend/scripts/verify_answer_streaming.py
+  "tests/test_session_generation.py::test_real_grpc_contract_failure_then_next_turn_and_partial_replacement[both-True]" --tb=line`.
+  Repeated in fresh processes on the final patched CI merge checkout: **30/30 pass**,
+  fail-fast on any nonzero result; these are race checks, not retries of failures.
+- Neighboring six cases: same runner with the unparameterized test node: **6 pass**.
+- Default focused runner on the patched PR head: **290 pass**, 5 existing warnings,
+  38.10 s. An initial Windows-only parity failure was CRLF checkout bytes versus
+  generated LF, resolved by canonical isolated bytes; no binding/source change.
+- Repository Audit on the patched GitHub merge checkout, through the external
+  guarded `../pr52-ci-artifacts/audit_merge.py` wrapper and the unmodified
+  `scripts/pre_commit_audit.ps1` with no skip flags: **1154 pass, 2 skip,
+  88 deselected**, 5 warnings, 62.60 s. Compile, build (2154 modules), syntax,
+  whitespace and extension validation (**124 pass**) succeed.
+- CI frontend command, expanded through `Get-ChildItem src -Recurse -Filter
+  '*.test.js'` and `node --require ./tests/fixtures/loopback_only.cjs --test`:
+  **605 pass** on the patched merge source.
+- The focused fix is committed with the normal repository pre-commit hook enabled;
+  hook output is retained outside the repository. Linux CI is rerun by the push.
+
+A first attempt to repeat the same pytest node as multiple arguments collected
+only one case; the recorded 30-case check above uses independent subprocesses.
+The diagnostic clock probe is outside the commit. No production code, workflow,
+model policy, migration, environment file or runtime setting changes are included.
+The user's original checkout/staged conflicts are untouched.
+
+
+The first follow-up CI run (`39399020982`) delivered the expected turn and End
+semantics but exposed an overbroad new assertion: a process-wide cleanup registry
+contained the same earlier RPC task in all six cases. Provider finalization and
+this fixture's closure checks had passed. The assertion now compares against its
+entry snapshot, so it requires no newly orphaned cleanup work without making
+claims about other RPCs. The permanent fixture seeds a foreign pending task in all six cases to
+verify this distinction, then cancels/awaits that synthetic task itself. No
+production exception is swallowed or source failure suppressed.
