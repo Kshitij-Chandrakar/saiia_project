@@ -2,7 +2,7 @@
 
 2026-10-20. Focused local closeout on `dev/current-work`. No push, merge,
 deployment, migration, hosted query or runtime-setting change is included.
-Phase 1?3 records remain historical evidence; this record gives current status.
+Phases 1-3 records remain historical evidence; this record gives current status.
 
 ## Baseline, dependency and preservation
 
@@ -39,10 +39,10 @@ navigation context, not evidence that new source is indexed. No graph regenerati
 
 ## Final architecture and compatibility
 
-Accepted gRPC Auto question ? authorized session/stored selection ? production
-coordinator and provider stream ? existing preparation/validation/correction ?
-gRPC adapter/handler ? Electron client ? existing narrow IPC/preload snapshots ?
-Auto consumer ? existing React answer state ? fenced overlay snapshots.
+Accepted gRPC Auto question -> authorized session/stored selection -> production
+coordinator and provider stream -> existing preparation/validation/correction ->
+gRPC adapter/handler -> Electron client -> existing narrow IPC/preload snapshots ->
+Auto consumer -> existing React answer state -> fenced overlay snapshots.
 
 | Route / peer | Behavior |
 | --- | --- |
@@ -207,7 +207,7 @@ secret values. No new logging of prompts, answers, audio or personal context is
 introduced; test pipes contain synthetic payloads only and report safe stages/counts.
 This does not add a global live-provider debug-log redactor.
 
-The exposed key's remediation was acknowledged by the user's ?done? after the
+The exposed key's remediation was acknowledged by the user's `done` after the
 rotation/revocation instructions. That is user-reported remediation, not an
 independent dashboard verification of revocation. No secret value is reproduced.
 
@@ -227,7 +227,7 @@ On 2026-10-20 the user explicitly reported all six checks passed:
 1. Progressive main and overlay answers across Mic, Computer and Both.
 2. Stop during generation prevents late text.
 3. Fallback clears failed primary text before streaming.
-4. Failure ? Retry needs no audio recapture or duplicate history.
+4. Failure -> Retry needs no audio recapture or duplicate history.
 5. Saved final answer matches completed display.
 6. Backend and Electron were restarted for testing.
 
@@ -260,7 +260,9 @@ limits do not authorize additional live calls, migrations or deployment.
 
 ## Included files
 
-The local commit contains the following 34 explicitly selected files:
+### Original streaming commit
+
+Commit `cd5b899` contains the following 34 explicitly selected files:
 
 - `backend/app/answer_streaming.py`
 - `backend/app/session_generation.py`
@@ -298,7 +300,18 @@ The local commit contains the following 34 explicitly selected files:
 - `SAIIA_PRODUCTION_PHASES_TRACKER.md`
 
 
-## PR #52 CI fixture correction ? 2026-10-20
+### Subsequent PR review/CI corrections
+
+Commits `653356b` and `d3d9cfa` each modify these two files:
+
+- `backend/tests/test_session_generation.py` (additional to the original inventory)
+- `docs/ANSWER_STREAMING_CLOSEOUT.md` (already in the original inventory)
+
+The PR diff through `d3d9cfa` therefore contains **35 unique files**. This
+preserves the original commit's historical 34-file count; the documentation-only
+separator/manifest correction modifies files already included above.
+
+## PR #52 CI fixture correction - 2026-10-20
 
 Investigated failed run `39396456506` at PR head `cd5b899`, including the actual
 GitHub PR merge checkout `f8e256a` with main's audio-clock review fixes intact.
