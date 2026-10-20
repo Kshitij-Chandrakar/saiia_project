@@ -515,7 +515,7 @@ class GrpcRealtimeClient {
     const task = (async () => {
       try {
         const capturedAt = this.cloudStart?.source === 'both' && Number.isFinite(metadata?.captureTimestampMs) &&
-          Math.abs(Date.now() - metadata.captureTimestampMs) <= 1000 ? metadata.captureTimestampMs : Date.now()
+          metadata.captureTimestampMs > 0 && metadata.captureTimestampMs <= Number.MAX_SAFE_INTEGER ? Math.round(metadata.captureTimestampMs) : Date.now()
         const response = await this.request({ sequence_number: this.audioChunksSent + 1, timestamp_ms: capturedAt, audio_chunk: { audio, sample_rate: 16000, channels: 1, encoding: 'linear16' } }, 'status')
         if (epoch !== this.epoch) return
         if (this.sttEnabled) this.pcmDiagnostics.backendEvenByteLength = response.status.code === 'audio_chunk_received'

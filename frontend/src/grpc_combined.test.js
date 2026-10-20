@@ -36,7 +36,7 @@ test('combined microphone discards stale IPC backlog and resumes with fresh fram
   let now = 1000, capture, release
   t.mock.method(Date, 'now', () => now)
   const sent = [], status = { audioEnabled: true, connectionStatus: 'connected' }
-  const mic = createGrpcMicTest({ continuous: true, ownsStream: false,
+  const mic = createGrpcMicTest({ continuous: true, ownsStream: false, monotonicNow: () => now,
     getUserMedia: async () => ({}), createCapture: options => { capture = options; return { close() {} } },
     api: { getGrpcRealtimeStatus: async () => status,
       sendGrpcRealtimeAudioChunk: async (_, metadata) => {

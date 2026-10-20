@@ -24,8 +24,8 @@ class PcmMixer:
         if timestamp and state['timestamp'] and timestamp < state['timestamp']:
             self.dropped += 1
             return False
-        # Compare elapsed durations only. New combined clients timestamp frame
-        # enqueue, older clients may use send time or omit timing entirely.
+        # Compare elapsed durations only. Combined clients timestamp sample-frame
+        # start on a fixed per-run epoch; older clients may omit timing entirely.
         if timestamp and state['origin'] is not None and now - state['origin'][0] - (timestamp - state['origin'][1]) / 1000 > .3:
             self.dropped += 1
             return False
