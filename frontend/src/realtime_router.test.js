@@ -6,19 +6,25 @@ import { selectRealtimeRoute, realtimeRouteDiagnostics } from './realtime_router
 
 const healthy = { enabled: true, audioEnabled: true, autoPipelineEnabled: true, cloudContextPipelineEnabled: true,
   cloudAuthAvailable: true, grpc_health: 'healthy', grpc_stt_available: true, grpc_answer_available: true,
-  grpc_auto_available: true, grpc_cloud_context_available: true }
+  grpc_auto_available: true, grpc_system_audio_available: true, grpc_cloud_context_available: true }
 
 test('G9 local and authenticated cloud microphone prefer healthy gRPC', () => {
   for (const context of [{ localTestWithoutSaving: true }, { activeSessionId: 'session', authRequired: true }]) {
     assert.equal(selectRealtimeRoute(healthy, context).route, 'grpc_realtime')
   }
 })
-test('G9 system and both sources never enter gRPC even when cloud auth failed or flags disabled', () => {
-  for (const source of ['system', 'both']) {
-    assert.deepEqual(selectRealtimeRoute({ cloudAuthStatus: 'failed' }, { activeSessionEnded: true }, source),
-      { route: 'existing_default', reason: 'system_audio_selected', fallbackAvailable: false })
+test('Computer uses healthy capable gRPC without fallback; combined remains rejected', () => {
+  assert.deepEqual(selectRealtimeRoute(healthy, {}, 'system'),
+    { route: 'grpc_realtime', reason: 'system_eligible', fallbackAvailable: false })
+  assert.equal(selectRealtimeRoute(healthy, {}, 'both').route, 'blocked')
+  for (const patch of [{ grpc_health: 'unavailable' }, { grpc_system_audio_available: false },
+    { enabled: false }, { audioEnabled: false }, { autoPipelineEnabled: false }, { grpc_stt_available: false }]) {
+    const route = selectRealtimeRoute({ ...healthy, ...patch }, {}, 'system')
+    assert.equal(route.route, 'blocked'); assert.equal(route.fallbackAvailable, false)
   }
+  assert.equal(selectRealtimeRoute(healthy, { activeSessionEnded: true }, 'system').reason, 'cloud_session_ended')
 })
+
 test('G9 health and capability failures select standard route with exact reason', () => {
   for (const reason of ['grpc_health_failed', 'grpc_connection_timeout', 'grpc_unavailable']) {
     const decision = selectRealtimeRoute({ ...healthy, grpc_health: 'unavailable', grpc_health_failure_reason: reason })
@@ -43,7 +49,7 @@ test('G9 fresh routing diagnostics clear transport, commit, cloud and save state
   const decision = selectRealtimeRoute(healthy, {}, 'system')
   const diagnostics = realtimeRouteDiagnostics(decision, healthy, { runId: 'fresh', source: 'system' })
   assert.equal(diagnostics.auto_run_id, 'fresh')
-  assert.equal(diagnostics.cloud_grpc_auth_status, 'not_applicable')
+  assert.equal(diagnostics.cloud_grpc_auth_status, 'not_started')
   assert.equal(diagnostics.generation_committed, false)
   assert.equal(diagnostics.question_transport, 'none')
   assert.equal(diagnostics.answer_transport, 'none')

@@ -12,6 +12,8 @@ message RealtimeHealth {
   bool answer_stream_available = 2;
   bool auto_available = 3;
   bool cloud_context_available = 4;
+  bool system_audio_available = 5;
+  bool combined_audio_available = 6;
 }
 message StartSession {
   string mode = 1;

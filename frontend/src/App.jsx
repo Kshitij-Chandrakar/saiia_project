@@ -1515,30 +1515,28 @@ function MainWindow() {
     const context = { ...startupSessionConfig, authRequired: generationDiagnostics.authRequired, activeSessionIdPresent: generationDiagnostics.activeSessionIdPresent, activeSessionEnded: generationDiagnostics.activeSessionEnded }
     const decision = selectRealtimeRoute(autoGrpcStatus, context, autoMode ? autoModeSource : getSelectedAudioSourceLabel(audioSources), Boolean(window.electronAPI?.connectGrpcAutoPipeline))
     const reason = decision.route === 'grpc_realtime' ? '' : decision.reason
-    setGenerationDiagnostics(current => current.selected_realtime_pipeline === 'blocked' && !autoMode && reason !== 'system_audio_selected' ?
+    setGenerationDiagnostics(current => current.selected_realtime_pipeline === 'blocked' && !autoMode ?
       { ...current, grpc_health: autoGrpcStatus?.grpc_health || 'unknown' } : ({ ...current,
       grpc_health: autoGrpcStatus?.grpc_health || 'unknown',
       grpc_connection_status: autoGrpcStatus?.connectionStatus || 'unavailable',
       grpc_last_failure_reason: autoGrpcStatus?.grpc_last_failure_reason || 'none',
       grpc_last_health_success: autoGrpcStatus?.grpc_last_health_success || null,
       grpc_last_health_failure: autoGrpcStatus?.grpc_last_health_failure || null,
-      cloud_grpc_auth_status: reason === 'system_audio_selected' ? 'not_applicable' : autoGrpcStatus?.cloudAuthStatus || 'not_started',
-      cloud_session_verified: reason !== 'system_audio_selected' && Boolean(autoGrpcStatus?.cloudSessionVerified),
-      cloud_context_loaded: reason !== 'system_audio_selected' && Boolean(autoGrpcStatus?.cloudContextLoaded),
-      cloud_answer_save_status: reason === 'system_audio_selected' ? 'n/a' : autoGrpcStatus?.cloudAnswerSaveStatus || 'n/a',
+      cloud_grpc_auth_status: autoGrpcStatus?.cloudAuthStatus || 'not_started',
+      cloud_session_verified: Boolean(autoGrpcStatus?.cloudSessionVerified),
+      cloud_context_loaded: Boolean(autoGrpcStatus?.cloudContextLoaded),
+      cloud_answer_save_status: autoGrpcStatus?.cloudAnswerSaveStatus || 'n/a',
       autoGrpcFlagEnabled: Boolean(autoGrpcStatus?.autoPipelineEnabled),
       autoGrpcCloudContextFlagEnabled: Boolean(autoGrpcStatus?.cloudContextPipelineEnabled),
-      cloudGrpcAuthStatus: reason === 'system_audio_selected' ? 'not_applicable' : autoGrpcStatus?.cloudAuthStatus || 'not_started',
-      cloudSessionVerified: reason !== 'system_audio_selected' && autoGrpcStatus?.cloudAuthStatus === 'verified' && Boolean(autoGrpcStatus?.cloudSessionVerified),
-      cloudContextLoaded: reason !== 'system_audio_selected' && autoGrpcStatus?.cloudAuthStatus === 'verified' && Boolean(autoGrpcStatus?.cloudSessionVerified && autoGrpcStatus?.cloudContextLoaded),
-      cloudAnswerSaveStatus: reason === 'system_audio_selected' ? 'n/a' : autoGrpcStatus?.cloudAnswerSaveStatus || 'n/a',
-      ...(reason === 'system_audio_selected' ? { selected_realtime_pipeline: 'existing_default', pipeline_selection_reason: reason,
-        grpc_fallback_available: false, grpc_fallback_used: false, grpc_fallback_reason: 'none' } : {}),
+      cloudGrpcAuthStatus: autoGrpcStatus?.cloudAuthStatus || 'not_started',
+      cloudSessionVerified: autoGrpcStatus?.cloudAuthStatus === 'verified' && Boolean(autoGrpcStatus?.cloudSessionVerified),
+      cloudContextLoaded: autoGrpcStatus?.cloudAuthStatus === 'verified' && Boolean(autoGrpcStatus?.cloudSessionVerified && autoGrpcStatus?.cloudContextLoaded),
+      cloudAnswerSaveStatus: autoGrpcStatus?.cloudAnswerSaveStatus || 'n/a',
       questionIntake: autoGrpcStatus?.questionIntake || {},
       systemAudio: autoGrpcStatus?.systemAudio || {},
       autoGrpcEligible: !reason && !current.grpc_fallback_used,
-      autoGrpcBlockedReason: reason === 'system_audio_selected' ? reason : current.grpc_fallback_used ? current.grpc_fallback_reason : reason || 'none',
-      autoModePipeline: reason === 'system_audio_selected' ? 'existing_default' : current.autoPipeline === 'gRPC realtime' ? 'grpc_realtime' :
+      autoGrpcBlockedReason: current.grpc_fallback_used ? current.grpc_fallback_reason : reason || 'none',
+      autoModePipeline: current.autoPipeline === 'gRPC realtime' ? 'grpc_realtime' :
         current.autoPipeline === 'REST/WebSocket fallback' ? 'fallback' : 'existing_default',
     }))
   }, [autoGrpcStatus, startupSessionConfig, autoModeSource, autoMode, audioSources, generationDiagnostics.authRequired, generationDiagnostics.activeSessionIdPresent, generationDiagnostics.activeSessionEnded, generationDiagnostics.autoPipeline])
@@ -4806,15 +4804,9 @@ function MainWindow() {
       logAutoModeDebug('auto start blocked', { reason: 'no_source_selected' }, 'error')
       return
     }
-    if (sourceMode === 'both') {
-      setError('')
-      setStatus('Both-source Auto Mode is not implemented yet. Select microphone or system audio only.')
-      logAutoModeDebug('auto start blocked', { reason: 'both_source_not_supported' }, 'error')
-      return
-    }
 
     setGenerationDiagnostics(current => ({ ...current, ...realtimeRouteDiagnostics(
-      { route: 'existing_default', reason: sourceMode === 'system' ? 'system_audio_selected' : 'preparing', fallbackAvailable: sourceMode === 'microphone' },
+      { route: 'existing_default', reason: 'preparing', fallbackAvailable: sourceMode === 'microphone' },
       null, { source: sourceMode }), autoPipeline: 'existing default', autoModePipeline: 'existing_default' }))
     setError('')
     clearProgressiveAnswer()
@@ -4827,7 +4819,7 @@ function MainWindow() {
     setAcceptedAutoQuestion('')
     setDisplayedAutoQuestionRunId('')
     setCurrentAutoQuestionRunId('')
-    setMicStreamingState(sourceMode === 'microphone' ? 'connecting' : 'off')
+    setMicStreamingState(sourceMode !== 'system' ? 'connecting' : 'off')
     setAnswerPipelineState('idle')
     setMicStreamRestartCount(0)
     setLastMicStreamRestartReason('')
@@ -4868,22 +4860,17 @@ function MainWindow() {
     assemblyAiFallbackWarningShownRef.current = false
     setAutoModeSource(sourceMode)
     autoModeSourceRef.current = sourceMode
-    setAutoModeStatus('listening')
+    setAutoModeStatus(sourceMode === 'both' ? 'pending' : 'listening')
     setStatus(sourceMode === 'microphone' ? 'Preparing microphone...' : 'Preparing system audio...')
 
     const startToken = ++autoStartTokenRef.current
     autoStartingRef.current = true
     try {
-      if (sourceMode === 'microphone') {
+      if (sourceMode === 'microphone' || sourceMode === 'both') {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         if (startToken !== autoStartTokenRef.current) { stream.getTracks().forEach(track => track.stop()); return }
         manualRecordingCancelledRef.current = false
         streamRef.current = stream
-      } else {
-        const capability = await fetchSystemAudioDevices()
-        if (!capability.supported) {
-          throw new Error('System audio capture is not available yet. Use microphone or configure system audio capture.')
-        }
       }
       if (startToken !== autoStartTokenRef.current) return
       const runId = `${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -4895,10 +4882,10 @@ function MainWindow() {
       autoGenerationInFlightRef.current = false
       setAutoMode(true)
       setAutoProcessing(false)
-      setStatus('Listening...')
+      setStatus(sourceMode === 'both' ? 'Preparing microphone and computer audio...' : 'Listening...')
       let grpcStatus
       try {
-        grpcStatus = sourceMode === 'microphone' && window.electronAPI?.checkGrpcRealtimeHealth
+        grpcStatus = window.electronAPI?.checkGrpcRealtimeHealth
           ? await window.electronAPI.checkGrpcRealtimeHealth()
           : await window.electronAPI?.getGrpcRealtimeStatus?.()
       } catch { /* Preserve existing startup. */ }
@@ -4910,13 +4897,14 @@ function MainWindow() {
       const useFallback = decision.route === 'existing_default' && sourceMode === 'microphone' && decision.reason !== 'config_disabled'
       setGenerationDiagnostics(current => ({ ...current, ...realtimeRouteDiagnostics(decision, grpcStatus, { runId, source: sourceMode, fallbackUsed: useFallback }),
         autoPipeline: useFallback ? 'REST/WebSocket fallback' : 'existing default', autoGrpcEligible: !blockedReason, autoGrpcBlockedReason: blockedReason, manualGrpcRun: null }))
-      if (decision.route === 'blocked') throw Object.assign(Error('Cloud session unavailable. Sign in again or restart the session.'), { reason: decision.reason })
+      if (decision.route === 'blocked') throw Object.assign(Error(sourceMode !== 'microphone' && !AUTH_BLOCKS.has(decision.reason) ? 'Computer Auto requires a compatible, enabled local gRPC backend with Windows loopback support. Wait for capture cleanup, check backend configuration and Windows output, then restart Auto Mode.' : 'Cloud session unavailable. Sign in again or restart the session.'), { reason: decision.reason })
       if (useFallback) setStatus('Realtime connection unavailable. Continuing with standard mode.')
       if (!blockedReason && window.electronAPI?.connectGrpcAutoPipeline) {
         const isCurrent = () => autoModeRef.current && autoModeRunIdRef.current === runId
         const originalContext = startupSessionConfigRef.current || {}
         let startupFailure = 'grpc_start_failed', switchedToFallback = false
         const activateFallback = async reason => {
+          if (sourceMode !== 'microphone') return
           if (!isCurrent() || switchedToFallback) return
           switchedToFallback = true
           autoGrpcSessionRef.current = null
@@ -4934,7 +4922,7 @@ function MainWindow() {
           onCloudStatus: next => {
             if (!isCurrent()) return
             setAutoGrpcStatus(next)
-            if (sourceMode === 'system' && next.systemAudio) {
+            if (sourceMode !== 'microphone' && next.systemAudio) {
               setSystemAudioRmsLevel(next.systemAudio.system_rms ?? null)
               setSystemAudioPeakLevel(next.systemAudio.system_peak ?? null)
               setSystemAudioInputSampleRate(next.systemAudio.system_sample_rate || null)
@@ -5021,7 +5009,7 @@ function MainWindow() {
         if (session) {
           autoGrpcSessionRef.current = session
           setAutoStreamingConnected(true)
-          setMicStreamingState(sourceMode === 'microphone' ? 'listening' : 'off')
+          setMicStreamingState(sourceMode !== 'system' ? 'listening' : 'off')
           setActiveAudioSource(sourceMode)
           setAudioPipelineStatus('recording')
           setSttProvider('assemblyai_streaming')
@@ -5029,13 +5017,14 @@ function MainWindow() {
           return
         }
         if (AUTH_BLOCKS.has(startupFailure)) throw Object.assign(Error('Cloud session unavailable. Sign in again or restart the session.'), { reason: startupFailure })
+        if (sourceMode !== 'microphone') throw Error('Required audio sources could not start. Stop and restart Auto Mode; check Windows output and local backend cleanup.')
         await activateFallback(startupFailure)
         return
       }
       if (sourceMode === 'microphone') {
         await startAutoStreamingMic(runId, streamRef.current)
       } else {
-        await startAutoStreamingSystem(runId)
+        throw Error('Computer Auto requires gRPC. Check the local backend and restart Auto Mode.')
       }
     } catch (err) {
       if (startToken !== autoStartTokenRef.current) return
@@ -5081,7 +5070,7 @@ function MainWindow() {
     setAutoProcessing(false)
     setManualProcessing(false)
     autoGenerationInFlightRef.current = false
-    const pendingGrpcCleanup = !autoGrpcSessionRef.current && autoModeSourceRef.current === 'microphone' ? window.electronAPI?.closeGrpcRealtime?.() : undefined
+    const pendingGrpcCleanup = !autoGrpcSessionRef.current && ['microphone', 'system', 'both'].includes(autoModeSourceRef.current) ? window.electronAPI?.closeGrpcRealtime?.().then(next => ['failed', 'cleaning'].includes(next?.systemCleanupStatus) ? 'failed' : 'clean') : undefined
     const cleanup = Promise.all([stopAutoStreamingBridge(), pendingGrpcCleanup]).then(results => results.includes('failed') ? 'failed' : 'clean')
     Promise.resolve(cleanup).then(result => {
       if (autoStartTokenRef.current === stopToken) setGenerationDiagnostics(current => ({ ...current, stop_cleanup_status: result === 'failed' ? 'failed' : 'clean' }))

@@ -1,5 +1,7 @@
 ﻿# SAIIA Production Phases Tracker
 
+> **Audio Phase 4 closeout (2026-10-19):** Computer-only and Microphone + Computer Auto use the existing gRPC-controlled pipeline. Windows acceptance is user-reported. See [audio closeout](docs/G12_GRPC_AUDIO_CLOSEOUT.md) for automated verification, commit scope and limitations. Answer-token streaming remains deferred; the model-recovery migration remains paused.
+
 > **Current model-selection status ? 2026-10-18:** Configuration-driven Electron Create Session selection, immutable backend session bindings, HTTP/gRPC answer routing, silent fallback, Retry and final-answer persistence are implemented and activated on **Saiia-dev only** (`rbmxfazjbldmkomdpyzl`). Default: Gemini 3.5 Flash-Lite; fallback: Groq GPT-OSS 120B. Selection stays locked; restricted metadata distinguishes selected and actual models. Production rollout remains separate. See [feature closeout](docs/SESSION_ANSWER_MODELS_CLOSEOUT.md) for scope, configuration/restart instructions, verification and pending checks. Earlier phase/status text below is historical for this feature; unrelated roadmap phases are unchanged.
 
 

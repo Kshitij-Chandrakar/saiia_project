@@ -392,7 +392,8 @@ async def test_missing_gemini_key_actual_handler_falls_back(setup,monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('stopped', [False, True])
-async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement(setup,monkeypatch,stopped):
+@pytest.mark.parametrize('source', ['microphone', 'system', 'both'])
+async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement(setup,monkeypatch,stopped,source):
     import grpc
     from app import grpc_server,grpc_answer_pipeline
     from app.grpc_cloud_context import GrpcCloudContext
@@ -423,6 +424,18 @@ async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement
         await socket.events.put('{"type":"Begin"}')
         return socket
     monkeypatch.setattr(AssemblyAIStreamingBridge,'connect',connect)
+    if source in ('system', 'both'):
+        import time
+        from app.services import system_audio_capture
+        class Capture:
+            def enable_continuous_resampling(self, session): pass
+            def open_streaming_loopback_session(self, **kwargs): return NS()
+            def read_streaming_pcm_chunk(self, session):
+                time.sleep(.01)
+                return NS(pcm_bytes=b'\0\x10'*1600, rms_level=.125, peak_level=.125,
+                          input_sample_rate=48000, resample_latency_ms=.1)
+            def close_streaming_loopback_session(self, session): return True
+        monkeypatch.setattr(system_audio_capture, 'SystemAudioCaptureService', Capture)
     fail=True
     calls=[]
     async def provider(client,model,prepared,key):
@@ -440,7 +453,7 @@ async def test_real_grpc_contract_failure_then_next_turn_and_partial_replacement
         async with grpc.aio.insecure_channel(f'127.0.0.1:{port}') as channel:
             call=rpc.InterviewRealtimeServiceStub(channel).StreamInterview(timeout=10)
             await call.write(pb.InterviewClientEvent(session_id='transport',request_id='start-id',start_session=pb.StartSession(
-                mode='auto_pipeline',source='microphone',cloud_context_requested=True,active_session_id=SID)))
+                mode='auto_pipeline',source=source,cloud_context_requested=True,active_session_id=SID)))
             async def until(predicate):
                 while True:
                     item=await call.read()

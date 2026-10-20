@@ -1,5 +1,7 @@
 # G9 — microphone realtime routing and fallback hardening
 
+> Current audio status: Computer-only and Microphone + Computer Auto are implemented through gRPC. The routing tables below preserve Phase 1 history. See [Computer-only](G10_COMPUTER_GRPC_AUTO.md), [combined audio](G11_COMBINED_GRPC_AUTO.md) and [Phase 4 closeout](G12_GRPC_AUDIO_CLOSEOUT.md). Windows acceptance is user-reported; answer-token streaming is deferred and the model-recovery migration remains paused.
+
 ## Runtime audit (2026-10-16)
 
 The repository is Intervucopilot, retaining SAIIA/intervuAI internal names. The working tree and index were clean at the start of this task. No applicable AGENTS.md was found. Graphify's existing graph was queried with its own vocabulary (`grpc realtime auto pipeline startup server microphone transport health fallback electron auth`); its results primarily point to legacy P8 documentation and package launch scripts, so current source was inspected directly.

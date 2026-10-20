@@ -21,6 +21,7 @@ def test_health_real_rpc_has_no_audio_auth_or_provider_side_effects(monkeypatch)
     monkeypatch.setattr(grpc_server.settings, 'USE_GRPC_AUTO_PIPELINE', True)
     monkeypatch.setattr(grpc_server.settings, 'USE_GRPC_CLOUD_CONTEXT_PIPELINE', True)
     monkeypatch.setattr(grpc_server.settings, 'ASSEMBLYAI_API_KEY', 'synthetic-not-used')
+    monkeypatch.setattr(grpc_server, 'system_capture_available', lambda: True)
     monkeypatch.setattr(grpc_server.InterviewRealtimeService, 'StreamInterview',
                         lambda *args: (_ for _ in ()).throw(AssertionError('health opened interview')))
 
@@ -30,10 +31,10 @@ def test_health_real_rpc_has_no_audio_auth_or_provider_side_effects(monkeypatch)
             async with grpc.aio.insecure_channel(f'127.0.0.1:{port}') as channel:
                 health = await rpc.InterviewRealtimeServiceStub(channel).CheckHealth(pb.Empty(), timeout=1)
                 assert health.stt_available and health.answer_stream_available and health.auto_available
-                assert health.cloud_context_available
+                assert health.cloud_context_available and health.system_audio_available and health.combined_audio_available
                 monkeypatch.setattr(grpc_server.settings, 'ASSEMBLYAI_API_KEY', '')
                 health = await rpc.InterviewRealtimeServiceStub(channel).CheckHealth(pb.Empty(), timeout=1)
-                assert not health.stt_available and not health.answer_stream_available and not health.auto_available
+                assert not health.stt_available and not health.answer_stream_available and not health.auto_available and not health.system_audio_available and not health.combined_audio_available
         finally:
             await server.stop(0)
     asyncio.run(exercise())

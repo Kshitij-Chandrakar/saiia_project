@@ -10,13 +10,13 @@ test('G7 flag and cloud/context eligibility preserve existing authenticated path
   assert.equal(getGrpcAutoBlockReason(enabled, {activeSessionId:'private'}), 'cloud_session_active')
   assert.equal(getGrpcAutoBlockReason(enabled, {authRequired:true}), 'auth_context_required')
   for (const key of ['selectedResumeId', 'job_context_id']) assert.equal(getGrpcAutoBlockReason(enabled, { [key]: 'private' }), 'selected_context_required')
-  assert.equal(getGrpcAutoBlockReason(enabled, {}, 'system'), 'system_audio_selected')
+  assert.equal(getGrpcAutoBlockReason(enabled, {}, 'system'), '')
   assert.equal(getGrpcAutoBlockReason(enabled, { targetRole: 'Engineer' }), 'selected_context_required')
 })
 function fixture(overrides = {}) {
   let listener, closed = 0, captures = 0, micClosed = 0, statusCalls = 0
   let status = { ...enabled, autoPipelineReady: true, connectionStatus: 'connected', manualRun: 1, autoEventVersion: 0,
-    questionsDetectedCount: 0, answerCompletedCount: 0, currentAnswer: '' }
+    systemAudio: { active_audio_source: 'system' }, questionsDetectedCount: 0, answerCompletedCount: 0, currentAnswer: '' }
   const answers = [], phases = [], errors = [], transcripts = [], fallbacks = [], lifecycle = [], startupFailures = []
   const api = {
     connectGrpcAutoPipeline: async () => status,
@@ -117,7 +117,7 @@ test('G9 stop twice removes cooldown/deadline/polling, restart has fresh questio
   const phases = f.phases.length, polls = f.counts().statusCalls
   await new Promise(resolve => setTimeout(resolve, 10))
   assert.equal(f.phases.length, phases); assert.equal(f.counts().statusCalls, polls)
-  f.emit({ manualRun: 2, questionsDetectedCount: 0, answerCompletedCount: 0, currentAnswer: '', currentTranscript: '' })
+  f.emit({ manualRun: 2, systemAudio: { active_audio_source: 'system' }, questionsDetectedCount: 0, answerCompletedCount: 0, currentAnswer: '', currentTranscript: '' })
   const restarted = await createGrpcAutoSession(f.options)
   f.emit({ questionsDetectedCount: 1, currentQuestion: 'fresh question' })
   assert.notEqual(f.answers.at(-1).historyEntryId, oldId)
@@ -173,10 +173,10 @@ test('G7 watchdog polling never overlaps and Stop removes polling', async () => 
 })
 
 test('G7 precise eligibility priorities never detach cloud ownership', () => {
-  assert.equal(getGrpcAutoBlockReason(enabled,{activeSessionId:'owned',authRequired:true,selectedResumeId:'owned'},'system'),'system_audio_selected')
+  assert.equal(getGrpcAutoBlockReason(enabled,{activeSessionId:'owned',authRequired:true,selectedResumeId:'owned'},'system'),'cloud_session_active')
   assert.equal(getGrpcAutoBlockReason({...enabled,enabled:false},{activeSessionId:'owned'}),'cloud_session_active')
   assert.equal(getGrpcAutoBlockReason(enabled,{generationAuthRequired:true}),'auth_context_required')
-  assert.equal(getGrpcAutoBlockReason(enabled,{},'both'),'system_audio_selected')
+  assert.equal(getGrpcAutoBlockReason(enabled,{},'both'),'')
   assert.equal(getGrpcAutoBlockReason(enabled,{},'none'),'unsupported_source')
   assert.equal(getGrpcAutoBlockReason({...enabled,audioEnabled:false}),'grpc_unavailable')
   assert.equal(getGrpcAutoBlockReason({...enabled,autoPipelineEnabled:false},{activeSessionId:'owned'}),'config_disabled')
@@ -225,25 +225,29 @@ test('G8 allows verified cloud Auto only behind both flags and keeps exact rejec
   assert.equal(getGrpcAutoBlockReason(status, cloud), '')
   assert.equal(getGrpcAutoBlockReason({ ...status, cloudAuthAvailable: false }, cloud), 'auth_unavailable')
   assert.equal(getGrpcAutoBlockReason({ ...status, cloudAuthStatus: 'failed', cloudBlockedReason: 'cloud_session_ended' }, cloud), 'cloud_session_ended')
-  assert.equal(getGrpcAutoBlockReason(status, cloud, 'system'), 'system_audio_selected')
+  assert.equal(getGrpcAutoBlockReason(status, cloud, 'system'), '')
   assert.equal(getGrpcAutoBlockReason({ ...status, autoPipelineEnabled: false }, cloud), 'config_disabled')
 })
 
-test('system Auto intentionally stays on existing path even with cloud auth failure', async () => {
-  let connections = 0
-  const status = { ...enabled, systemAudioPipelineSupported: true, cloudContextPipelineEnabled: true,
-    cloudAuthStatus: 'failed', cloudBlockedReason: 'unknown' }
-  assert.equal(getGrpcAutoBlockReason(status, { activeSessionId: 'session', authRequired: true }, 'system'), 'system_audio_selected')
-  assert.equal(getGrpcAutoBlockReason(status, {}, 'both'), 'system_audio_selected')
-  const f = fixture({ connectGrpcAutoPipeline: async () => { connections++; return status } })
-  assert.equal(await createGrpcAutoSession({ ...f.options, source: 'system' }), null)
-  assert.equal(connections, 0)
+test('Computer factory creates no microphone and never falls back after capture startup', async () => {
+  const f = fixture()
+  const session = await createGrpcAutoSession({ ...f.options, source: 'system' })
   assert.equal(f.counts().captures, 0)
+  f.emit({ connectionStatus: 'error', grpc_audio_sent: false })
+  assert.equal(f.fallbacks.length, 0)
+  assert.equal(f.errors.length, 1)
+  await session.close()
+  assert.equal(f.counts().micClosed, 0)
+  assert.equal(await createGrpcAutoSession({ ...f.options, source: 'both' }), null)
 })
-test('intentional system routing diagnostics do not report cloud auth failure or fallback', () => {
-  const source = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
-  assert.match(source, /cloudGrpcAuthStatus: reason === 'system_audio_selected' \? 'not_applicable'/)
-  assert.match(source, /autoModePipeline: reason === 'system_audio_selected' \? 'existing_default'/)
+
+test('Computer factory reports cleanup failure and ignores late events', async () => {
+  const f = fixture({ closeGrpcRealtime: async () => ({ systemCleanupStatus: 'failed' }) })
+  const session = await createGrpcAutoSession({ ...f.options, source: 'system' })
+  assert.equal(await session.close(), 'failed')
+  f.emit({ questionsDetectedCount: 1, currentQuestion: 'late' })
+  assert.equal(f.answers.length, 0)
+  assert.equal(f.lifecycle.at(-1).stop_cleanup_status, 'failed')
 })
 
 test('generation failure clears one turn without closing capture and next turn completes', async () => {
@@ -279,4 +283,24 @@ test('coalesced new question and failure belongs to that turn, stale failure is 
   assert.equal(f.answers.at(-1).status, 'error')
   assert.equal(f.answers.at(-1).requestId, 'two')
   await session.close()
+})
+
+
+test('Computer readiness must confirm the system source before accepting the session', async () => {
+  const f = fixture({ connectGrpcAutoPipeline: async () => ({ autoPipelineReady: true,
+    connectionStatus: 'connected', manualRun: 1, systemAudio: { active_audio_source: 'microphone' } }) })
+  assert.equal(await createGrpcAutoSession({ ...f.options, source: 'system' }), null)
+  assert.equal(f.counts().captures, 0)
+  assert.equal(f.counts().closed, 1)
+  assert.equal(f.fallbacks.length, 0)
+})
+
+
+test('Computer failed startup retains an honest cleanup failure without creating capture', async () => {
+  const f = fixture({ connectGrpcAutoPipeline: async () => ({ manualRun: 1, connectionStatus: 'error', autoPipelineReady: false }),
+    closeGrpcRealtime: async () => ({ systemCleanupStatus: 'failed' }) })
+  assert.equal(await createGrpcAutoSession({ ...f.options, source: 'system' }), null)
+  assert.equal(f.lifecycle.at(-1).stop_cleanup_status, 'failed')
+  assert.equal(f.counts().captures, 0)
+  assert.equal(f.fallbacks.length, 0)
 })
