@@ -871,8 +871,9 @@ async def test_concurrency_admission_and_external_cancellation_release_gate(monk
     gate = asyncio.Semaphore(1)
     monkeypatch.setattr(api, "_slots", gate)
     await gate.acquire()
+    local_request = SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
     with pytest.raises(HTTPException) as error:
-        await api.analyze_context(None)
+        await api.analyze_context(local_request)
     assert error.value.status_code == 429
     gate.release()
     entered = asyncio.Event()
@@ -882,7 +883,7 @@ async def test_concurrency_admission_and_external_cancellation_release_gate(monk
         await asyncio.sleep(60)
 
     monkeypatch.setattr(api, "parse_context", blocked_parse)
-    task = asyncio.create_task(api.analyze_context(SimpleNamespace(headers={})))
+    task = asyncio.create_task(api.analyze_context(local_request))
     await entered.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -967,7 +968,7 @@ def test_preparation_exception_is_controlled_by_endpoint_before_provider(client,
 
 
 @pytest.mark.asyncio
-async def test_cancelled_decode_keeps_endpoint_slot_until_worker_finishes(monkeypatch):
+async def test_cancelled_decode_keeps_endpoint_slot_until_worker_finishes(monkeypatch, provider):
     entered, release, finished = threading.Event(), threading.Event(), threading.Event()
     screen = ScreenVisionService()
     original = screen._prepare_image
@@ -1019,3 +1020,120 @@ def test_typed_provenance_rejects_invalid_relationships_before_provider(client, 
     else: body["input"]["clarifications"] = [{"threadId": "other", "turnId": source["turnId"], "requestId": "old-request", "text": "PRIVATE"}]
     assert post(client, body, files).status_code == 422
     assert not provider[1]
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("peer,headers", [
+    ("203.0.113.9", {}),
+    ("203.0.113.9", {"x-forwarded-for": "127.0.0.1", "forwarded": "for=127.0.0.1"}),
+    ("not-an-address", {}),
+])
+async def test_unauthenticated_remote_rejected_before_body_or_slot(monkeypatch, peer, headers):
+    from starlette.requests import Request
+    calls = []
+
+    class Slots:
+        def locked(self): calls.append("slot"); raise AssertionError("No admission inspection expected")
+        async def acquire(self): calls.append("acquire"); raise AssertionError("No slot expected")
+
+    async def receive():
+        calls.append("body")
+        raise AssertionError("Rejected request body must not be read")
+
+    monkeypatch.setattr(api, "_slots", Slots())
+    request = Request({"type": "http", "method": "POST", "path": "/", "client": (peer, 1234),
+                       "headers": [(k.encode(), v.encode()) for k, v in headers.items()]}, receive)
+    with pytest.raises(HTTPException) as error:
+        await api.analyze_context(request)
+    assert error.value.status_code == 403
+    assert calls == []
+
+
+@pytest.mark.parametrize("peer,forwarded,expected", [
+    ("203.0.113.9", "127.0.0.1", 403),  # Untrusted peer cannot forge local access.
+    ("127.0.0.1", "203.0.113.9", 403),  # Trusted proxy supplies a remote client.
+    ("127.0.0.1", "127.0.0.2", 200),
+])
+def test_server_trusted_proxy_boundary_controls_peer(client, provider, peer, forwarded, expected):
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+    body, files = context()
+    provider[0]["value"] = output(body)
+    app = ProxyHeadersMiddleware(client.app, trusted_hosts=["127.0.0.1"])
+    with TestClient(app, client=(peer, 1234)) as proxied:
+        response = post(proxied, body, files, {"x-forwarded-for": forwarded})
+    assert response.status_code == expected, response.text
+    assert len(provider[1]) == (1 if expected == 200 else 0)
+
+
+def test_authenticated_remote_requires_owned_active_cloud_session(client, provider, monkeypatch):
+    body, files = context()
+    monkeypatch.setattr(api, "get_current_user", lambda _request: CurrentUser(user_id="verified-owner"))
+    owners = []
+    monkeypatch.setattr(api, "check_cloud_session", lambda context, user: owners.append((context.identity.cloudSessionId, user.user_id)))
+    with TestClient(client.app, client=("203.0.113.9", 1234)) as remote:
+        assert post(remote, body, files, {"Authorization": "Bearer synthetic"}).status_code == 403
+        body["identity"].update(cloudSessionId="30000000-0000-4000-8000-000000000001", accountGeneration=1)
+        provider[0]["value"] = output(body)
+        assert post(remote, body, files, {"Authorization": "Bearer synthetic"}).status_code == 200
+        assert owners == [(body["identity"]["cloudSessionId"], "verified-owner")]
+        monkeypatch.setattr(api, "get_current_user", lambda _: (_ for _ in ()).throw(HTTPException(401, "invalid")))
+        assert post(remote, body, files, {"Authorization": "Bearer invalid"}).status_code == 401
+    assert len(provider[1]) == 1
+
+
+@pytest.mark.parametrize("reason", ["provider", "key", "batch"])
+def test_early_service_outcomes_skip_image_preparation_and_provider(client, provider, monkeypatch, reason):
+    body, files = context()
+    if reason == "provider":
+        monkeypatch.setattr(settings, "SCREEN_VISION_PROVIDER", "openrouter")
+    elif reason == "key":
+        monkeypatch.setattr(settings, "OPENAI_API_KEY", "")
+    else:
+        body, files = context(2)
+        body["input"]["answers"] = [{"turnId": "old-0", "text": "Previous answers"}]
+        body["priorItems"] = [{"questionId": f"old-0:{i}", "turnId": "old-0", "index": i} for i in (1, 2)]
+
+    async def no_decode(*args):
+        raise AssertionError("Early outcome must not decode or prepare images")
+
+    monkeypatch.setattr(service, "encode_images", no_decode)
+    response = post(client, body, files)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["committable"] is False and result["controllerResult"] is None
+    assert result["outcome"] == ("needs_clarification" if reason == "batch" else "failed")
+    if reason != "batch":
+        assert result["errorCode"] == ("provider_unavailable" if reason == "provider" else "provider_configuration")
+    assert provider[1] == []
+
+
+@pytest.mark.asyncio
+async def test_early_exit_still_rejects_manifest_and_byte_limits(provider, monkeypatch):
+    body, files = context()
+    request = ScreenContextRequest.model_validate(body)
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "")
+    for invalid, code in [({}, "image_parts_mismatch"), ({"image_0": b""}, "image_byte_limit"),
+                          ({"image_0": b"x" * (MAX_IMAGE_BYTES + 1)}, "image_byte_limit")]:
+        with pytest.raises(service.ScreenContextError) as error:
+            await service.answer_context(ScreenVisionService(), request, invalid)
+        assert error.value.code == code
+    assert provider[1] == []
+
+@pytest.mark.asyncio
+async def test_immediate_outcome_joins_disconnect_probe_even_if_probe_consumes_cancel():
+    started = asyncio.Event()
+    probes = []
+
+    async def is_disconnected():
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            probes.append("cancel_consumed")
+            return False
+
+    async def outcome():
+        await started.wait()
+        return "early_outcome"
+
+    result = await asyncio.wait_for(api.run_until_disconnect(SimpleNamespace(is_disconnected=is_disconnected), outcome()), 1)
+    assert result == "early_outcome" and probes == ["cancel_consumed"]

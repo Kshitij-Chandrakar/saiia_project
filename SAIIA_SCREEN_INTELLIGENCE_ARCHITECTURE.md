@@ -19,8 +19,11 @@ fallback. It replaces prior working context on OCR execution, retains validated
 source evidence and the original image, returns `reference_accepted` and produces
 no solution or completed history. Continue can answer successive independent
 questions using that reference; it does not automatically target the first answer.
-New question executes a fresh isolated solve. Selection alone never resets or
-captures. These additive v1 intents preserve all existing ownership and limits.
+New question executes a fresh isolated solve. Relevant readable incomplete material
+may be retained as bounded temporary evidence, with no solution until sufficient
+context exists; unrelated incomplete question blocks remain excluded. Clarification
+and failure never commit evidence. New question and Passage / Data reset context
+on explicit OCR execution; merely selecting an option never resets or captures. These additive v1 intents preserve all existing ownership and limits.
 
 **Product:** SAIIA - Smart AI Interview Assistant  
 **Document type:** Screen Intelligence architecture source of truth  
@@ -158,7 +161,8 @@ When the user clicks OCR:
 - send exactly one normal-path screen-model request in the C0.9.2 one-click path
 - detect every fully visible independent quiz, MCQ, aptitude, or general question
 - solve every complete independent question in top-to-bottom order in the same response
-- ignore incomplete or partially visible question blocks
+- exclude unrelated incomplete or partially visible secondary question blocks
+- retain relevant readable incomplete material only as bounded temporary evidence; do not solve until combined context is sufficient
 - for coding pages, solve the single dominant complete coding problem
 - preserve the previous valid answer until the new answer succeeds
 
@@ -522,7 +526,8 @@ OCR selected
 -> send one screen-model request
 -> detect complete independent question blocks
 -> solve all complete blocks in screen order
--> ignore incomplete blocks
+-> exclude unrelated incomplete secondary blocks
+-> retain relevant readable partial evidence without solving until sufficient context exists
 -> return one structured batch response
 -> display all answers together
 ```

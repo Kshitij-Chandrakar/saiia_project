@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
+import { EventEmitter } from 'node:events'
 import { screenContextCommandFence, isCurrentScreenDelivery } from './screen_context_events.js'
 const require = createRequire(import.meta.url)
 const { createScreenContextController } = require('../electron/screen_context_controller.cjs')
@@ -132,30 +133,69 @@ for (const boundary of ['capture', 'prepare_request', 'response_validate']) test
 
 const main = readFileSync(new URL('../electron/main.cjs', import.meta.url), 'utf8')
 function hiddenFixture() {
-  const calls = [], make = name => ({ visible: true, isDestroyed: () => false,
-    hide() { this.visible = false; calls.push(name + ':hide') },
-    show() { this.visible = true; calls.push(name + ':show') }, showInactive() { this.show() } })
+  const calls = [], make = name => Object.assign(new EventEmitter(), { visible: true, destroyed: false,
+    isDestroyed() { return this.destroyed },
+    hide() { this.visible = false; calls.push(name + ':hide'); this.emit('hide') },
+    show() { this.visible = true; calls.push(name + ':show'); this.emit('show') }, showInactive() { this.show() } })
   const delay = deferred()
   const context = { mainWindow: make('main'), overlayWindow: make('overlay'), overlayVisibilityIntent: 1,
+    screenRuntimeEnding: false, quittingAfterSessionFinalize: false, captureWindowQueue: Promise.resolve(),
     getWindowVisibilitySnapshot: window => ({ window, wasVisible: window.visible }), delay: () => delay.promise, ANALYZE_SCREEN_HIDE_DELAY_MS: 0 }
   const source = main.slice(main.indexOf('async function withSaiiaWindowsHidden('), main.indexOf('function getOverlayBoundsStatePath('))
-  return { calls, context, delay, run: vm.runInNewContext(`(${source.trim()})`, context) }
+  return { calls, context, delay, make, run: vm.runInNewContext(`(${source.trim()})`, context) }
 }
 
-test('Stop during hide skips native task but restores owned windows; explicit hide is not undone', async () => {
+test('Stop during hide skips native task but restores owned main; explicit overlay hide is not undone', async () => {
   const f = hiddenFixture(); let current = true, native = 0
   const pending = f.run(async () => { native++ }, { isCurrent: () => current })
-  current = false; f.context.overlayVisibilityIntent++
+  await tick(); current = false; f.context.overlayVisibilityIntent++
   f.delay.resolve(); await assert.rejects(pending, /stale_attempt/)
   assert.equal(native, 0); assert.equal(f.context.mainWindow.visible, true); assert.equal(f.context.overlayWindow.visible, false)
 })
 
-test('lifecycle disposal during hidden native work never restores obsolete visibility', async () => {
+for (const boundary of ['session', 'account', 'logout']) test(`${boundary} invalidation restores owned main but never obsolete overlay`, async () => {
   const f = hiddenFixture(), native = deferred(); let restore = true
   f.delay.resolve()
   const pending = f.run(() => native.promise, { canRestore: () => restore })
   await tick(); restore = false; native.resolve({})
-  await pending; assert.equal(f.context.mainWindow.visible, false); assert.equal(f.context.overlayWindow.visible, false)
+  await pending; assert.equal(f.context.mainWindow.visible, true); assert.equal(f.context.overlayWindow.visible, false)
+  assert.equal(f.context.mainWindow.listenerCount('hide'), 0)
+})
+
+for (const boundary of ['shutdown', 'finalized', 'destroyed', 'replaced', 'hidden', 'minimized', 'closing']) test(`${boundary} prevents unwanted main restoration`, async () => {
+  const f = hiddenFixture(), native = deferred(), original = f.context.mainWindow
+  f.delay.resolve(); const pending = f.run(() => native.promise); await tick()
+  if (boundary === 'shutdown') f.context.screenRuntimeEnding = true
+  if (boundary === 'finalized') f.context.quittingAfterSessionFinalize = true
+  if (boundary === 'destroyed') original.destroyed = true
+  if (boundary === 'replaced') f.context.mainWindow = f.make('replacement')
+  if (boundary === 'hidden') original.hide()
+  if (boundary === 'minimized') original.emit('minimize')
+  if (boundary === 'closing') original.emit('close')
+  native.resolve({}); await pending
+  assert.equal(original.visible, false)
+  assert.equal(f.calls.includes('replacement:show'), false)
+  assert.equal(original.listenerCount('hide'), 0)
+})
+
+test('overlapping captures serialize hide and owned restoration before the next task', async () => {
+  const f = hiddenFixture(), first = deferred(), second = deferred(); let started = 0
+  f.delay.resolve()
+  const a = f.run(() => { started++; return first.promise })
+  const b = f.run(() => { started++; return second.promise })
+  await tick(); assert.equal(started, 1); assert.equal(f.context.mainWindow.visible, false)
+  first.resolve({}); await a; await tick(); assert.equal(started, 2)
+  assert.deepEqual(f.calls.slice(0, 5), ['main:hide', 'overlay:hide', 'main:show', 'overlay:show', 'main:hide'])
+  second.resolve({}); await b; assert.equal(f.context.mainWindow.visible, true)
+})
+
+test('capture does not reveal initially hidden windows or mistake a delayed own hide event for user intent', async () => {
+  const f = hiddenFixture(), native = deferred()
+  f.context.overlayWindow.visible = false
+  f.context.mainWindow.hide = function () { this.visible = false; f.calls.push('main:hide') }
+  f.delay.resolve(); const pending = f.run(() => native.promise); await tick()
+  f.context.mainWindow.emit('hide'); native.resolve({}); await pending
+  assert.equal(f.context.mainWindow.visible, true); assert.equal(f.context.overlayWindow.visible, false)
 })
 
 test('queued startup cannot reopen admission while logout or shutdown finalization is pending', () => {

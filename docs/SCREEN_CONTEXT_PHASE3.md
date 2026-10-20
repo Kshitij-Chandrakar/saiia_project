@@ -132,23 +132,23 @@ Retest without DevTools:
    context/retry candidates, so reproduce a new failing attempt after restarting.
    Stop the current development Electron command with Ctrl+C in its terminal.
 2. In the existing activated backend environment/terminal, stop its current server,
-   then run from the repository root (no dotenv edits or dependency installation):
+   then start from the repository root in **Terminal 1 (backend)** (no dotenv edits or dependency installation):
 
    ```powershell
    $env:SAIIA_DEV_SCREEN_CONTEXT_DIAGNOSTICS = "1"
-   cd E:\saiia_project\saiia_project\backend
+   cd backend
    python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
    ```
 
-3. In the frontend development terminal:
+3. In a **separate Terminal 2 (frontend)**, start from the repository root:
 
    ```powershell
-   cd E:\saiia_project\saiia_project\frontend
+   cd frontend
    npm run electron:dev
    ```
 
 4. Complete existing startup/session setup. Put a test question in an external
-   window. Analyze Screen ? New question ? OCR. Wait for the failure or result.
+   window. Analyze Screen -> New question -> OCR. Wait for the failure or result.
 5. In the terminal running `npm run electron:dev`, copy the final
    `[screen-context-status]` line and the `[screen-context]` response/outcome/rejected
    lines for that attempt. In the backend terminal, copy only matching

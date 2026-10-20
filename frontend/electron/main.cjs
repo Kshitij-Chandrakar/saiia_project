@@ -56,6 +56,7 @@ let screenRuntimeEnding = false
 let screenLogoutPending = 0
 let overlayVisible = false
 let overlayVisibilityIntent = 0
+let captureWindowQueue = Promise.resolve()
 let overlayOpacity = 1
 let overlayBoundsState = null
 let overlayBoundsSaveTimer = null
@@ -997,43 +998,50 @@ function getWindowVisibilitySnapshot(targetWindow) {
 }
 
 async function withSaiiaWindowsHidden(task, { isCurrent = () => true, canRestore = () => true } = {}) {
-  if (!isCurrent()) throw Object.assign(new Error('stale_attempt'), { code: 'stale_attempt' })
-  const visibilityIntent = overlayVisibilityIntent
-  const snapshots = [getWindowVisibilitySnapshot(mainWindow), getWindowVisibilitySnapshot(overlayWindow)].filter(Boolean)
-  let hidWindows = false
-
-  try {
-    for (const snapshot of snapshots) {
-      if (snapshot.wasVisible) {
-        snapshot.window.hide()
-        hidWindows = true
+  // All capture entry points share hide/restore ownership, including legacy batch capture.
+  const result = captureWindowQueue.then(async () => {
+    if (screenRuntimeEnding || quittingAfterSessionFinalize || !isCurrent()) throw Object.assign(new Error('stale_attempt'), { code: 'stale_attempt' })
+    const visibilityIntent = overlayVisibilityIntent
+    const snapshots = [getWindowVisibilitySnapshot(mainWindow), getWindowVisibilitySnapshot(overlayWindow)].filter(Boolean)
+    let hidWindows = false
+    try {
+      for (const snapshot of snapshots) {
+        snapshot.hid = false
+        snapshot.intentChanged = false
+        snapshot.onIntent = () => { snapshot.intentChanged = true }
+        snapshot.onHide = () => {
+          // The capture's own hide event may arrive after hide() returns.
+          if (snapshot.pendingHide) snapshot.pendingHide = false
+          else snapshot.intentChanged = true
+        }
+        snapshot.window.on('hide', snapshot.onHide)
+        for (const event of ['show', 'minimize', 'close']) snapshot.window.on(event, snapshot.onIntent)
+        if (snapshot.wasVisible) {
+          snapshot.pendingHide = true
+          snapshot.window.hide(); snapshot.hid = true; hidWindows = true
+        }
+      }
+      if (hidWindows) await delay(ANALYZE_SCREEN_HIDE_DELAY_MS)
+      if (!isCurrent()) throw Object.assign(new Error('stale_attempt'), { code: 'stale_attempt' })
+      return { ...await task(), hidSaiiaWindows: hidWindows }
+    } finally {
+      for (const snapshot of snapshots) {
+        if (snapshot.onHide) snapshot.window.removeListener('hide', snapshot.onHide)
+        for (const event of ['show', 'minimize', 'close']) {
+          if (snapshot.onIntent) snapshot.window.removeListener(event, snapshot.onIntent)
+        }
+        if (!snapshot.hid || snapshot.intentChanged || snapshot.window.isDestroyed() || screenRuntimeEnding || quittingAfterSessionFinalize) continue
+        if (snapshot.window === overlayWindow) {
+          if (canRestore() && visibilityIntent === overlayVisibilityIntent) snapshot.window.showInactive()
+        } else if (snapshot.window === mainWindow) {
+          // Context invalidation must not strand the still-current main/login window.
+          snapshot.window.show()
+        }
       }
     }
-    if (hidWindows) {
-      await delay(ANALYZE_SCREEN_HIDE_DELAY_MS)
-    }
-    if (!isCurrent()) throw Object.assign(new Error('stale_attempt'), { code: 'stale_attempt' })
-    const result = await task()
-    return {
-      ...result,
-      hidSaiiaWindows: hidWindows,
-    }
-  } finally {
-    for (const snapshot of snapshots) {
-      if (!snapshot.wasVisible) {
-        continue
-      }
-      if (snapshot.window.isDestroyed()) {
-        continue
-      }
-      if (!canRestore()) continue
-      if (snapshot.window === overlayWindow) {
-        if (visibilityIntent === overlayVisibilityIntent) snapshot.window.showInactive()
-      } else if (snapshot.window === mainWindow) {
-        snapshot.window.show()
-      }
-    }
-  }
+  })
+  captureWindowQueue = result.catch(() => {})
+  return result
 }
 
 function getOverlayBoundsStatePath() {
@@ -2351,6 +2359,7 @@ ipcMain.handle('screen:capture-active-window-sequence', async () => captureActiv
 
 app.on('will-quit', () => {
   screenContext.dispose()
+  screenRuntimeEnding = true
   grpcRealtimeClient.close()
   cancelAllAnswerStreams()
   stopForegroundWindowTracking()

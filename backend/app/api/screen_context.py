@@ -153,10 +153,14 @@ def get_screen_service():
 
 async def run_until_disconnect(request, awaitable):
     task = asyncio.create_task(awaitable)
+    finished = False
 
     async def disconnected():
-        while not await request.is_disconnected():
-            await asyncio.sleep(0.05)
+        # Starlette's disconnect probe can consume cancellation in its CancelScope.
+        # An immediate service outcome must still be able to join this watcher.
+        while not finished and not await request.is_disconnected():
+            if not finished:
+                await asyncio.sleep(0.05)
 
     watcher = asyncio.create_task(disconnected())
     try:
@@ -165,6 +169,7 @@ async def run_until_disconnect(request, awaitable):
             raise problem("request_disconnected", 499)
         return await task
     finally:
+        finished = True
         task.cancel()
         watcher.cancel()
         with anyio.CancelScope(shield=True):
@@ -177,14 +182,18 @@ async def run_until_disconnect(request, awaitable):
                  "properties": {"context": {"type": "string", "description": "ScreenContextRequest contractVersion 1 JSON; see docs/SCREEN_CONTEXT_PHASE2.md"},
                                 **{f"image_{i}": {"type": "string", "format": "binary"} for i in range(6)}}}}}}})
 async def analyze_context(request: Request):
-    if _slots.locked():
-        raise problem("screen_context_busy", 429)
-    await _slots.acquire()
-    files = {}
+    # request.client is the ASGI peer, adjusted only by the server's configured
+    # trusted-proxy middleware. Never interpret arbitrary forwarded headers here.
     try:
         loopback = ipaddress.ip_address(request.client.host).is_loopback
     except (ValueError, AttributeError):
         loopback = False
+    if not loopback and "authorization" not in request.headers:
+        raise problem("local_loopback_required", 403)
+    if _slots.locked():
+        raise problem("screen_context_busy", 429)
+    await _slots.acquire()
+    files = {}
     diagnostic_token = development_diagnostics.set(loopback and request.headers.get("x-saiia-screen-diagnostics") == "1")
     try:
         with anyio.fail_after(45):
@@ -195,11 +204,7 @@ async def analyze_context(request: Request):
                     raise problem("cloud_auth_required", 401)
                 await asyncio.to_thread(check_cloud_session, context, user)
             else:
-                try:
-                    local = ipaddress.ip_address(request.client.host).is_loopback
-                except (ValueError, AttributeError):
-                    local = False
-                if not local:
+                if not loopback:
                     raise problem("local_loopback_required", 403)
             return await run_until_disconnect(request, get_screen_service().answer_context(context, files))
     except ScreenContextError as exc:
