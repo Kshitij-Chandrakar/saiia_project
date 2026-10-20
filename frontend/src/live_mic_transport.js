@@ -1,5 +1,5 @@
 // Shared microphone PCM capture. Callers own transport and generation.
-export function createPcmMicCapture({ stream, isActive, downsample = downsampleToInt16Mono, onChunk, AudioContextClass = window.AudioContext, contextSampleRate, continuous = false }) {
+export function createPcmMicCapture({ stream, isActive, downsample = downsampleToInt16Mono, onChunk, AudioContextClass = window.AudioContext, contextSampleRate, continuous = false, monotonicNow = () => performance.now() }) {
   let audioContext, sourceNode, processor, closed = false
   const close = () => {
     if (closed) return
@@ -11,12 +11,31 @@ export function createPcmMicCapture({ stream, isActive, downsample = downsampleT
   try {
     audioContext = new AudioContextClass(contextSampleRate ? { sampleRate: contextSampleRate } : undefined)
     if (continuous) downsample = createContinuousDownsampler()
+    const outputSampleRate = 16000
+    let timelineStart, outputSamples = 0, skipped = false, discontinuity = false
     sourceNode = audioContext.createMediaStreamSource(stream)
     processor = audioContext.createScriptProcessor(4096, 1, 1)
     processor.onaudioprocess = (event) => {
-      if (closed || !isActive()) return
-      const pcm16 = downsample(event.inputBuffer.getChannelData(0), audioContext.sampleRate, 16000)
-      if (pcm16.length) onChunk(pcm16.buffer)
+      if (closed) return
+      if (!isActive()) { skipped = true; return }
+      const input = event.inputBuffer.getChannelData(0)
+      if (continuous && (timelineStart === undefined || skipped)) {
+        // A nominal Web Audio block clock, not a hardware ADC timestamp.
+        // playbackTime describes output scheduling; cap at current context time
+        // and retain the unknown input/driver latency as an explicit limitation.
+        const contextEnd = Number.isFinite(event.playbackTime) ? Math.min(event.playbackTime, audioContext.currentTime) : audioContext.currentTime
+        timelineStart = monotonicNow() + (contextEnd - audioContext.currentTime - input.length / audioContext.sampleRate) * 1000
+        outputSamples = 0
+        if (skipped) { downsample = createContinuousDownsampler(); discontinuity = true }
+      }
+      const pcm16 = downsample(input, audioContext.sampleRate, outputSampleRate)
+      if (pcm16.length) onChunk(pcm16.buffer, continuous ? {
+        sampleRate: outputSampleRate, startMonotonicMs: timelineStart + outputSamples / outputSampleRate * 1000,
+        discontinuity,
+      } : undefined)
+      if (pcm16.length) discontinuity = false
+      outputSamples += pcm16.length
+      skipped = false
     }
     sourceNode.connect(processor)
     processor.connect(audioContext.destination)

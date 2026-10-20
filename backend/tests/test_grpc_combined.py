@@ -67,6 +67,18 @@ def pcm(value, count=1600):
     return np.full(count, value, dtype='<i2').tobytes()
 
 
+def test_sample_start_timestamps_accept_bounded_arrival_jitter_and_reject_late_audio():
+    mixer = PcmMixer()
+    for index in range(200):
+        arrival = 10 + index * .1 + (0, .025, -.015, .04)[index % 4]
+        assert mixer.push('microphone', pcm(12000), arrival, index + 1, 100000 + index * 100)
+        mixer.push('system', pcm(8000), arrival)
+        assert np.all(np.frombuffer(mixer.render(), '<i2') == 10000)
+    assert not mixer.push('microphone', pcm(12000), 31, 201, 120000)
+    # Compatibility: arrival ordering remains available without timing metadata.
+    assert mixer.push('microphone', pcm(12000), 31.1)
+
+
 @pytest.mark.parametrize('scenario', ['recover', 'empty_timeout', 'malformed', 'computer'])
 def test_native_empty_reads_preserve_liveness_accounting_and_cleanup(monkeypatch, scenario):
     from app import pcm_mixer

@@ -720,6 +720,27 @@ test('combined main accepts microphone PCM with sequencing and waits for native 
   const stopped = f.client.close(next.manualRun); f.finish(); await stopped
 })
 
+test('combined sample timestamps survive wall-clock changes; absent metadata retains legacy send time', async t => {
+  const f = computerFixture()
+  f.client.health.grpc_combined_audio_available = true
+  const originalWrite = f.stream.write
+  f.stream.write = event => {
+    originalWrite(event)
+    if (event.audio_chunk) queueMicrotask(() => f.stream.emit('data', {
+      session_id: event.session_id, request_id: event.request_id, status: { code: 'audio_chunk_received' },
+    }))
+  }
+  const state = await f.client.connectAuto({ source: 'both' })
+  const initial = Date.now()
+  t.mock.method(Date, 'now', () => initial + 86400000)
+  await f.client.sendAudioChunk(new Uint8Array(3200), { captureTimestampMs: initial - 100 })
+  await f.client.sendAudioChunk(new Uint8Array(3200))
+  const frames = f.writes.filter(event => event.audio_chunk)
+  assert.deepEqual(frames.map(event => event.timestamp_ms), [initial - 100, initial + 86400000])
+  assert.deepEqual(frames.map(event => event.sequence_number), [1, 2])
+  const cleanup = f.client.close(state.manualRun); f.finish(); await cleanup
+})
+
 test('Computer main sends session control only, latches possible processing and rejects microphone PCM', async () => {
   const f = computerFixture()
   const state = await f.client.connectAuto({ source: 'system' })
