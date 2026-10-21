@@ -237,6 +237,7 @@ class ResumeIndexService:
                 paragraphs = [document["text"]]
 
             for paragraph in paragraphs:
+                paragraph_start = len(chunks)
                 units = self._split_to_units(paragraph)
                 current = ""
                 for unit in units:
@@ -253,6 +254,10 @@ class ResumeIndexService:
                 if current:
                     chunks.append(self._make_chunk(chunk_index, section, current))
                     chunk_index += 1
+                if section.lower() in {"project", "projects", "personal_projects", "academic_projects"}:
+                    title = paragraph.split(" - ", 1)[0].split(":", 1)[0][:120].strip()
+                    for chunk in chunks[paragraph_start:]:
+                        chunk["project_title"] = title
 
         return chunks
 

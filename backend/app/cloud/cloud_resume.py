@@ -1219,6 +1219,7 @@ class CloudResumeService:
                     "text": text,
                     "preview": str(metadata.get("preview") or text[:120]),
                     "tokens": list(metadata.get("tokens") or []),
+                    "project_title": str(metadata.get("project_title") or ""),
                 }
         )
         return self._indexer.retrieve_from_chunks(chunks, question=question, category=category, limit=limit)
@@ -1252,6 +1253,7 @@ class CloudResumeService:
                     "text": text,
                     "preview": str(metadata.get("preview") or text[:120]),
                     "tokens": list(metadata.get("tokens") or []),
+                    "project_title": str(metadata.get("project_title") or ""),
                 }
             )
         if not chunks:
@@ -1336,7 +1338,7 @@ class CloudResumeService:
             query_hits = len(all_tokens & query_tokens)
             if not section_match and keyword_hits <= 0:
                 continue
-            project_title = self._project_title_from_chunk(text)
+            project_title = str(chunk.get("project_title") or self._project_title_from_chunk(text))
             project_title_normalized = self._normalize_project_name(project_title)
             exact_match = bool(
                 specific_normalized
@@ -1377,15 +1379,15 @@ class CloudResumeService:
         scored.sort(key=lambda item: item[0], reverse=True)
         if specific_normalized:
             named = [item for item in scored if self._normalize_project_name(
-                self._project_title_from_chunk(str(item[2].get("text") or ""))) == specific_normalized]
+                str(item[2].get("project_title") or self._project_title_from_chunk(str(item[2].get("text") or "")))) == specific_normalized]
             exact = [item for item in scored if item[1] == "exact"]
             matched_scored = named or exact or [item for item in scored if item[1] == "partial"]
-            titles = {self._normalize_project_name(self._project_title_from_chunk(str(item[2].get("text") or "")))
+            titles = {self._normalize_project_name(str(item[2].get("project_title") or self._project_title_from_chunk(str(item[2].get("text") or ""))))
                       for item in matched_scored}
             if not named and len(titles) > 1:
                 matched_scored = []  # Ambiguous project identity is not evidence for either project.
             if matched_scored:
-                best_title = self._project_title_from_chunk(str(matched_scored[0][2].get("text") or ""))
+                best_title = str(matched_scored[0][2].get("project_title") or self._project_title_from_chunk(str(matched_scored[0][2].get("text") or "")))
                 best_confidence = matched_scored[0][1]
             if not matched_scored:
                 return {
@@ -1556,6 +1558,7 @@ class CloudResumeService:
                         "section": chunk["section"],
                         "preview": chunk["preview"],
                         "tokens": chunk.get("tokens", []),
+                        "project_title": chunk.get("project_title", ""),
                     },
                 }
             )

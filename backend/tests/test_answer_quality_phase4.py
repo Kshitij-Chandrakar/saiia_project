@@ -87,7 +87,7 @@ async def test_selected_no_match_does_not_fall_back_to_conflicting_profile(monke
     monkeypatch.setattr(api, '_new_cloud_resume_service', lambda: service)
     monkeypatch.setattr(api.generator, 'generate_answer', lambda **kwargs: pytest.fail('no-match must not generate'))
     with pytest.raises(HTTPException) as failure:
-        await api.generate_answer(api.GenerateRequest(question='Quantum cryptography expertise?', category='technical',
+        await api.generate_answer(api.GenerateRequest(question='Explain your Quantum Cryptography project.', category='technical',
             selected_resume_id=RESUME_ID, profile_context_used=True,
             profile={'experience': 'Conflicting profile claims quantum cryptography experience.'}))
     assert failure.value.status_code == 409

@@ -1641,8 +1641,14 @@ class AnswerGenerator:
                 result["answer"] = self._format_structured_coding_answer(structured_coding_answer)
         if (coding_contract and context_qt == "coding" and plan.format_request == "code only"
                 and str(source or "").lower() != "screen"):
-            code = self._extract_code_from_answer(result["answer"])
+            warning = f"Warning: {unverified_code_warning}" if unverified_code_warning else ""
+            text = result["answer"]
+            if warning and text.rstrip().endswith(warning):
+                text = text.rstrip()[:-len(warning)].rstrip()
+            code = self._extract_code_from_answer(text)
             result["answer"] = f"```{selected_language}\n{code.rstrip()}\n```"
+            if warning:
+                result["answer"] += f"\n\n{warning}"
 
         generation_ms = round((time.perf_counter() - started) * 1000, 2)
         result["generation_ms"] = generation_ms
@@ -3457,9 +3463,11 @@ class AnswerGenerator:
         if not errors:
             return answer, [], False
         # Sanitize wrappers only. A canned replacement would discard the request's
-        # evidence, depth and format; unresolved validation is a failed answer.
+        # evidence, depth and format. Keyword/style heuristics remain advisory;
+        # empty/meta output is required validation. Neither proves claim grounding.
         repaired = self._clean_answer(answer)
-        if self.validate_personal_answer(question=question, answer=repaired):
+        remaining = self.validate_personal_answer(question=question, answer=repaired)
+        if {"empty_answer", "meta_phrase"} & set(remaining):
             raise ProviderError("Personal answer failed required validation.",
                                 error_type="invalid_response", phase="personal_validation")
         return repaired, errors, repaired != answer

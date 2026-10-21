@@ -412,7 +412,10 @@ def _selected_resume_context_active(retrieval: dict[str, Any]) -> bool:
     return bool(retrieval.get("selected_resume_id_used") and retrieval.get("retrieved_chunks"))
 
 
-def _require_selected_resume_context(req: "GenerateRequest", retrieval: dict[str, Any]) -> None:
+def _require_selected_resume_context(req: "GenerateRequest", retrieval: dict[str, Any], *, plan=None) -> None:
+    if (plan is not None and plan.profile_context_policy == "FORBIDDEN"
+            and plan.answer_type not in {"personal_story", "resume_project", "behavioral"}):
+        return
     if _selected_resume_strict_mode(req) and not _selected_resume_context_active(retrieval):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1470,7 +1473,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                 question=generation_question,
                 category=effective_category,
             )
-            _require_selected_resume_context(req, retrieval)
+            _require_selected_resume_context(req, retrieval, plan=answer_plan)
             retrieval_used = retrieval["retrieval_used"]
             retrieved_chunks = retrieval["retrieved_chunks"]
             if retrieval["retrieval_ms"] > settings.RAG_TIMEOUT_MS:
@@ -1958,10 +1961,14 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
         # hints can describe a follow-up reference rather than its coding task.
         if answer_plan.answer_type != "personal_story":
             return
-        repaired, errors, repaired_used = generator.repair_personal_answer_if_needed(
-            question=generation_question,
-            answer=str(result.get("answer") or ""),
-        )
+        try:
+            repaired, errors, repaired_used = generator.repair_personal_answer_if_needed(
+                question=generation_question,
+                answer=str(result.get("answer") or ""),
+            )
+        except ProviderError:
+            # This helper also runs inside retrieval-error handlers.
+            raise HTTPException(status_code=500, detail="Personal answer failed required validation.") from None
         result["answer"] = repaired
         result["personal_validation_errors"] = errors
         result["personal_answer_repaired"] = repaired_used
@@ -1994,7 +2001,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             question=generation_question,
             category=effective_category,
         )
-        _require_selected_resume_context(req, retrieval)
+        _require_selected_resume_context(req, retrieval, plan=answer_plan)
         retrieval_used = retrieval["retrieval_used"]
         retrieved_chunks = retrieval["retrieved_chunks"]
         if retrieval["retrieval_ms"] > settings.RAG_TIMEOUT_MS:
@@ -2633,7 +2640,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             question=generation_question,
             category=effective_category,
         )
-        _require_selected_resume_context(req, retrieval)
+        _require_selected_resume_context(req, retrieval, plan=answer_plan)
         retrieval_used = retrieval["retrieval_used"]
         retrieved_chunks = retrieval["retrieved_chunks"]
         if retrieval["retrieval_ms"] > settings.RAG_TIMEOUT_MS:

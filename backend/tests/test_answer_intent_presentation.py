@@ -108,7 +108,7 @@ def test_cleanup_does_not_compress_provider_numbered_steps():
 @pytest.mark.parametrize('question,expected', MATRIX)
 def test_actual_http_endpoint_prompt_has_resolved_intent(question,expected,monkeypatch):
     from copy import deepcopy
-    from answer_quality_baseline import capture
+    from answer_quality_baseline import capture, offline
     from answer_quality_spec import CASES
     from app.api import generate as api
     original=api.generate_answer
@@ -121,7 +121,8 @@ def test_actual_http_endpoint_prompt_has_resolved_intent(question,expected,monke
     item=deepcopy(next(case for case in CASES if case['expected_intent']=='technical_concept'))
     item.update(id='synthetic-intent',question=question,history=[],
                 expected_intent='system_design' if expected=='system_design' else 'technical_concept')
-    result=capture(item)
+    with offline():
+        result=capture(item)
     assert result['primary_calls'], result['followup_status']
     call=result['primary_calls'][0]
     assert call['plan']['answer_type']==expected
