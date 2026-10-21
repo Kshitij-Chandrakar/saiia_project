@@ -11,7 +11,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { groupConceptualAnswer, parseConceptualAnswer } from '../answer_format.js'
+import AnswerText from './AnswerText.jsx'
 import { markChatTiming } from '../answer_stream.js'
 import { getQuestionHistorySummary } from '../question_history.js'
 import {
@@ -787,15 +787,6 @@ export default function AnswerPanel({
     window.addEventListener('pointercancel', onUp)
   }, [])
 
-  const answerGroups = useMemo(() => {
-    if (revealInProgress) {
-      return []
-    }
-    if (structuredCodingAnswer) {
-      return []
-    }
-    return groupConceptualAnswer(parseConceptualAnswer(visibleBody))
-  }, [revealInProgress, structuredCodingAnswer, visibleBody])
   const snippet = `${visibleBody.replace(/\n/g, ' ').slice(0, 80)}${visibleBody.length > 80 ? '...' : ''}`
 
   const handleAnalyzeScreenAction = async () => {
@@ -1225,13 +1216,10 @@ export default function AnswerPanel({
             ) : null}
 
             {revealInProgress ? (
-              <p
-                className="topbar-answer-panel__paragraph"
-                style={{ whiteSpace: 'pre-wrap' }}
-              >
-                {visibleBody}
+              <div className="topbar-answer-panel__paragraph">
+                <AnswerText text={visibleBody} />
                 <span className="topbar-answer-panel__caret" />
-              </p>
+              </div>
             ) : null}
 
             {structuredCodingAnswer ? (
@@ -1275,40 +1263,9 @@ export default function AnswerPanel({
               </div>
             ) : null}
 
-            {!revealInProgress && !structuredCodingAnswer ? answerGroups.map((group, index) => {
-              const caret = index === answerGroups.length - 1 && revealInProgress
-
-              if (group.type === 'list') {
-                return (
-                  <ul key={`${mode}-${index}`} className="topbar-answer-panel__list">
-                    {group.items.map((item, itemIndex) => (
-                      <li key={`${mode}-${index}-${itemIndex}`}>
-                        {item}
-                        {caret && itemIndex === group.items.length - 1 ? (
-                          <span className="topbar-answer-panel__caret" />
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                )
-              }
-
-              if (group.type === 'heading') {
-                return (
-                  <h3 key={`${mode}-${index}`} className="topbar-answer-panel__section-heading">
-                    {group.text}
-                    {caret ? <span className="topbar-answer-panel__caret" /> : null}
-                  </h3>
-                )
-              }
-
-              return (
-                <p key={`${mode}-${index}`} className="topbar-answer-panel__paragraph">
-                  {group.text}
-                  {caret ? <span className="topbar-answer-panel__caret" /> : null}
-                </p>
-              )
-            }) : null}
+            {!revealInProgress && !structuredCodingAnswer ? (
+              <div className="topbar-answer-panel__paragraph"><AnswerText text={visibleBody} /></div>
+            ) : null}
 
               </>
             )}

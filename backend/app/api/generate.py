@@ -1414,6 +1414,8 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
             category=effective_category,
             source=source,
             screen_question_type=screen_question_type,
+            original_question=str(req.original_question or req.question or ''),
+            followup=followup_resolution.follow_up_detected,
         )
         suppress_personal_context = (
             source == "screen"
@@ -1493,6 +1495,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                     profile_context_enabled=generation_profile_context_enabled,
                     editor_text=generation_editor_text,
                     answer_plan=answer_plan,
+                    conversation_context=followup_intent.reference_context if followup_intent else None,
                     cancellation=cancellation,
                 ),
                 cancellation=cancellation,
@@ -1555,6 +1558,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                 profile_context_enabled=generation_profile_context_enabled,
                 editor_text=generation_editor_text,
                 answer_plan=answer_plan,
+                conversation_context=followup_intent.reference_context if followup_intent else None,
                 primary_result_override=primary_result,
             )
             context_status = _evaluate_hackerrank_context_readiness(
@@ -1673,6 +1677,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                         profile_context_enabled=generation_profile_context_enabled,
                         editor_text=generation_editor_text,
                         answer_plan=answer_plan,
+                        conversation_context=followup_intent.reference_context if followup_intent else None,
                     )
                     fallback_answer = str(fallback.get("answer") or "")
                     if fallback_answer:
@@ -1903,6 +1908,8 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
         category=effective_category,
         source=source,
         screen_question_type=screen_question_type,
+        original_question=str(req.original_question or req.question or ''),
+        followup=followup_resolution.follow_up_detected,
     )
     coding_runtime_audit = {
         "request_question_excerpt": _excerpt(req.question),
@@ -1941,7 +1948,9 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             result["personal_validation_errors"] = []
             result["personal_answer_repaired"] = False
             return
-        if (result.get("answer_category") or routed_category) != "personal" and not personal_subtype:
+        # The resolved task owns repair eligibility. Earlier category/subtype
+        # hints can describe a follow-up reference rather than its coding task.
+        if answer_plan.answer_type != "personal_story":
             return
         repaired, errors, repaired_used = generator.repair_personal_answer_if_needed(
             question=generation_question,
@@ -2012,6 +2021,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             profile_context_enabled=generation_profile_context_enabled,
             editor_text=generation_editor_text,
             answer_plan=answer_plan,
+            conversation_context=followup_intent.reference_context if followup_intent else None,
         )
         context_status = _evaluate_hackerrank_context_readiness(
             platform=str(req.screen_platform_detected or result.get("platform_detected") or ""),
@@ -2340,6 +2350,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             profile_context_enabled=use_profile_context,
             editor_text=generation_editor_text,
             answer_plan=answer_plan,
+            conversation_context=followup_intent.reference_context if followup_intent else None,
         )
         context_status = _evaluate_hackerrank_context_readiness(
             platform=str(req.screen_platform_detected or result.get("platform_detected") or ""),
@@ -2643,6 +2654,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             profile_context_enabled=generation_profile_context_enabled,
             editor_text=generation_editor_text,
             answer_plan=answer_plan,
+            conversation_context=followup_intent.reference_context if followup_intent else None,
         )
         context_status = _evaluate_hackerrank_context_readiness(
             platform=str(req.screen_platform_detected or result.get("platform_detected") or ""),

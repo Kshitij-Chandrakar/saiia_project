@@ -136,6 +136,9 @@ def _has_clear_subject(question: str) -> bool:
     first_clause = re.split(r"[,:;]|\band\b|\bbut\b", question, maxsplit=1, flags=re.I)[0]
     if STANDALONE_RE.search(question):
         return True
+    definition = re.match(r"^\s*what does it mean to\s+(.+)", question, re.I)
+    if definition and not FOLLOWUP_PRONOUN_RE.search(definition.group(1)):
+        return True  # Grammatical 'it', not a reference to a previous answer.
     explicit_technical_subject = re.match(
         r"^\s*how\s+(?:is|are|does|do)\s+(.{1,80}?)\s+"
         r"(implemented|built|validated|designed|used|working|work)"
@@ -148,16 +151,16 @@ def _has_clear_subject(question: str) -> bool:
         if subject and not FOLLOWUP_PRONOUN_RE.search(subject):
             return True
     active_technical_subject = re.match(
-        r"^\s*how\s+(?:do|did)\s+you\s+"
-        r"(implement|build|design|validate|use)\s+(.{1,80}?)"
+        r"^\s*how\s+(?:do|did|would|could|should|can)\s+you\s+"
+        r"(implement|build|design|validate|use|approach)\s+(.{1,80}?)"
         r"(?=\s+(?:in|with|for|using|via)\b|(?:\s+that\b)|\s*\??\s*$)",
         question,
         re.I,
     )
     if not active_technical_subject:
         active_technical_subject = re.match(
-            r"^\s*how\s+(?:do|did)\s+you\s+"
-            r"(implement|build|design|validate|use)\s+(.{1,80}?)"
+            r"^\s*how\s+(?:do|did|would|could|should|can)\s+you\s+"
+            r"(implement|build|design|validate|use|approach)\s+(.{1,80}?)"
             r"\s*\??\s*$",
             question,
             re.I,
@@ -175,6 +178,8 @@ def _has_clear_subject(question: str) -> bool:
 
 def _looks_like_followup(question: str) -> bool:
     text = _clean_question(question)
+    if re.match(r"^(?:now\s+)?(?:design|architect|redesign)\s+(?:one|it|this|that)\b", text, re.I):
+        return True
     if FOLLOWUP_PREFIX_RE.search(text) or FOLLOWUP_PRONOUN_RE.search(text):
         return True
     return bool(
@@ -190,6 +195,10 @@ def _looks_like_followup(question: str) -> bool:
 
 
 def _ambiguous(entry: FollowUpContextEntry, question: str, topic: str) -> bool:
+    if re.fullmatch(r"(?:now\s+)?(?:design|architect|redesign)\s+one[?. ]*", question, re.I) and re.fullmatch(r"(?:system |software )?(?:design|architecture)(?: interviews)?", topic, re.I):
+        return True  # A method/topic supplies no concrete system to design.
+    if entry.answer_type == 'system_design' and re.fullmatch(r"(?:explain|describe)\s+(?:that|this|the)\s+component[?. ]*", question, re.I):
+        return True  # A broad architecture does not identify one component.
     vague = re.search(r"^\s*(how does it work|why|how|what about it)\??\s*$", question, re.I)
     multi_topic = bool(re.search(r"\b(and|vs|versus)\b|,", topic, re.I))
     answer_has_many_refs = len(set(re.findall(r"\b(authentication|authorization|token|permission|identity)\b", entry.answer_excerpt.lower()))) >= 3
@@ -200,6 +209,10 @@ def _resolve_with_topic(question: str, entry: FollowUpContextEntry, topic: str) 
     text = _clean_question(question).strip(" ?.")
     lower = text.lower()
     display_topic = "retrieval-augmented generation" if topic.lower() == "rag" else topic
+
+    design = re.fullmatch(r"(?:now\s+)?(design|architect|redesign)\s+(?:one|it|this|that)", lower)
+    if design:
+        return f"{design.group(1).capitalize()} {display_topic}.", "design_reference_pattern", 0.86
 
     if re.match(r"what are (its|the)?\s*examples", lower):
         return f"What are examples of {display_topic}?", "examples_pattern", 0.9
@@ -242,6 +255,13 @@ def _resolve_with_topic(question: str, entry: FollowUpContextEntry, topic: str) 
     return f"{text} in the context of {display_topic}?", "generic_followup_pattern", 0.65
 
 
+def completed_context_entry(item: Dict[str, Any]) -> bool:
+    """Legacy entries omit state; explicit nonfinal state is never usable history."""
+    status = str(item.get("status") or "complete").strip().lower()
+    return status in {"complete", "completed"} and not any(
+        item.get(flag) for flag in ("provisional", "discarded", "failed", "incomplete"))
+
+
 def resolve_live_followup(
     *,
     question: str,
@@ -273,7 +293,7 @@ def resolve_live_followup(
     candidates = [
         FollowUpContextEntry.from_payload(item)
         for item in context_entries[:history_limit]
-        if isinstance(item, dict)
+        if isinstance(item, dict) and completed_context_entry(item)
     ]
     candidates = [
         item

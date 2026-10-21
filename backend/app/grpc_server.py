@@ -82,6 +82,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
         manual_turns = {}
         provider_epoch = 0
         answer_task = None
+        answers_stopping = False
         last_request_id = ""
         provider_started = asyncio.Event()
         final_received = asyncio.Event()
@@ -147,7 +148,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
         async def answer_worker():
             nonlocal auto_cooldown_until, generation_active, accepted_turn, current_answer_request, answer_identity
             from app.grpc_answer_pipeline import stream_question_answer
-            while True:
+            while not answers_stopping:
                 text, request_id, fingerprint, turn, is_final = await questions.get()
                 if auto_mode and auto_cooldown_until > time.monotonic():
                     await asyncio.sleep(auto_cooldown_until - time.monotonic())
@@ -578,6 +579,10 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             await asyncio.wait_for(provider_started.wait(), timeout=3)
 
         async def stop_answers():
+            nonlocal answers_stopping
+            # Python 3.10 wait_for can lose cancellation when generation finishes
+            # concurrently. Stop must still prevent another queue wait.
+            answers_stopping = True
             if answer_task:
                 answer_task.cancel()
                 await asyncio.gather(answer_task, return_exceptions=True)

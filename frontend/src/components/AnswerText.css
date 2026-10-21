@@ -1,0 +1,10 @@
+.answer-text { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.answer-text p, .answer-text li { white-space: pre-wrap; }
+.answer-text p, .answer-text pre, .answer-text ol, .answer-text ul, .answer-text h3 { margin: 0 0 0.65em; }
+.answer-text > :last-child { margin-bottom: 0; }
+.answer-text ol, .answer-text ul { padding-left: 1.6em; list-style-position: outside; }
+.answer-text ol { list-style-type: decimal; }
+.answer-text ul { list-style-type: disc; }
+.answer-text h3 { font-size: 1em; }
+.answer-text pre { max-width: 100%; overflow-x: auto; white-space: pre; tab-size: 4; }
+.answer-text code { font-family: ui-monospace, monospace; }

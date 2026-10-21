@@ -235,3 +235,6 @@ async def test_generate_route_uses_compiled_followup_task_for_concept_to_code(mo
     assert response.requested_output == "structured_coding_answer"
     assert response.platform_mode == "standalone_demo"
     assert response.coding_answer and response.coding_answer["code"].startswith("# Store")
+    assert "nums = [1, 2, 3]" in response.answer
+    assert "### Code" in response.answer
+    assert "hypothetical situation" not in response.answer

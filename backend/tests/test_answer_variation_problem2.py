@@ -171,12 +171,12 @@ def test_repeated_question_adds_variation_instruction_to_primary_prompt(monkeypa
     assert first["repetition_detected"] is False
     assert second["repetition_detected"] is True
     assert second["repetition_count"] == 2
-    assert "Controlled variation for repeated question" not in prompts[0]
-    assert "Controlled variation for repeated question" in prompts[1]
+    assert "Repeated-question consistency" not in prompts[0]
+    assert "Repeated-question consistency" in prompts[1]
     assert _compact(second["answer"]) == _compact(VARIED_AUTH_ANSWER)
 
 
-def test_exact_duplicate_triggers_one_openai_variation_rewrite(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_phase3_exact_duplicate_retains_correct_wording_without_rewrite(monkeypatch: pytest.MonkeyPatch) -> None:
     generator = AnswerGenerator()
     phases: list[str] = []
 
@@ -191,11 +191,11 @@ def test_exact_duplicate_triggers_one_openai_variation_rewrite(monkeypatch: pyte
     generator.generate_answer("What is authentication?", "technical", profile_context_enabled=False)
     result = generator.generate_answer("what is authentication", "technical", profile_context_enabled=False)
 
-    assert phases == ["primary_generation", "primary_generation", "variation_rewrite"]
-    assert result["variation_rewrite_used"] is True
-    assert result["variation_status"] == "rewrite_accepted"
-    assert _compact(result["answer"]) == _compact(VARIED_AUTH_ANSWER)
-    assert result["similarity_score"] < 1.0
+    assert phases == ["primary_generation", "primary_generation"]
+    assert result["variation_rewrite_used"] is False
+    assert result["variation_status"] == "stable_repetition"
+    assert _compact(result["answer"]) == _compact(VALID_AUTH_ANSWER)
+    assert result["similarity_score"] == 1.0
 
 
 def test_sufficiently_different_repeated_answer_skips_rewrite(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -216,7 +216,7 @@ def test_sufficiently_different_repeated_answer_skips_rewrite(monkeypatch: pytes
     assert result["variation_status"] == "accepted"
 
 
-def test_rewrite_failure_preserves_valid_primary(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_phase3_similarity_cannot_invoke_potentially_damaging_rewrite(monkeypatch: pytest.MonkeyPatch) -> None:
     generator = AnswerGenerator()
     phases: list[str] = []
 
@@ -231,10 +231,10 @@ def test_rewrite_failure_preserves_valid_primary(monkeypatch: pytest.MonkeyPatch
     generator.generate_answer("What is authentication?", "technical", profile_context_enabled=False)
     result = generator.generate_answer("What is authentication?", "technical", profile_context_enabled=False)
 
-    assert phases == ["primary_generation", "primary_generation", "variation_rewrite"]
+    assert phases == ["primary_generation", "primary_generation"]
     assert _compact(result["answer"]) == _compact(VALID_AUTH_ANSWER)
     assert result["variation_rewrite_used"] is False
-    assert result["variation_status"] == "failed_validation"
+    assert result["variation_status"] == "stable_repetition"
 
 
 def test_controlled_variation_disabled_restores_problem1_path(monkeypatch: pytest.MonkeyPatch) -> None:

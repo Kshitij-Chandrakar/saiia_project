@@ -826,12 +826,12 @@ def test_selected_resume_project_prompt_blocks_generic_lifestyle_projects() -> N
         profile_context_enabled=True,
     )
 
-    assert "answer only using the selected resume project context" in prompt
-    assert "detailed interview-style answer" in prompt
-    assert "tech stack" in prompt
-    assert "organizing" in prompt
-    assert "recipe" in prompt
-    assert "photo-album" in prompt
+    assert "only authoritative candidate context" in prompt
+    assert "140-240" in prompt
+    assert "require supplied authorized evidence" in prompt
+    assert "Do not embellish" in prompt
+    assert "never an invented past event" in prompt
+    assert "General examples are not personal experience" in prompt
 
 
 def test_selected_resume_general_project_prompt_includes_project_snippets() -> None:
@@ -897,12 +897,12 @@ def test_selected_resume_specific_project_prompt_enforces_detailed_project_mode(
         profile_context_enabled=True,
     )
 
-    assert "Focus on the specific selected-resume project 'AI-Powered Medical Insights Platform'" in prompt
-    assert "If the question asks how the project was built" in prompt
-    assert "If the question asks why a tool such as FAISS, MiniLM, Streamlit" in prompt
-    assert "project purpose, tech stack, technical workflow, what you personally implemented or contributed" in prompt
-    assert "Use 3 to 5 short interview-style paragraphs" in prompt
-    assert "backend or API relevance" in prompt
+    assert "AI-Powered Medical Insights Platform" in prompt
+    assert "answer_exact_project_question" in prompt or "grounded_summary" in prompt
+    assert "FAISS" in prompt and "MiniLM" in prompt
+    assert "require supplied authorized evidence" in prompt
+    assert "Use 3 to 5 short interview-style paragraphs" not in prompt
+    assert "Backend Developer" in prompt
     assert "Real-life example:" not in prompt
 
 
@@ -926,7 +926,7 @@ def test_selected_resume_general_project_prompt_skips_concept_example_format() -
         profile_context_enabled=True,
     )
 
-    assert "For project questions, answer only using the selected resume project context." in prompt
+    assert "only authoritative candidate context" in prompt
     assert "Real-life example:" not in prompt
     assert "The required daily-life example must be included" not in prompt
 
@@ -958,7 +958,7 @@ def test_selected_resume_project_refinement_prompt_skips_real_life_example_forma
 
     assert "Then write 'Real-life example:' on its own line." not in prompt
     assert "For conceptual answers, keep the direct explanation" not in prompt
-    assert "Focus on the specific selected-resume project 'AI-Powered Medical Insights Platform'" in prompt
+    assert "AI-Powered Medical Insights Platform" in prompt
 
 
 def test_selected_resume_specific_project_prompt_uses_job_context_for_role_relevant_closing() -> None:
@@ -990,9 +990,9 @@ def test_selected_resume_specific_project_prompt_uses_job_context_for_role_relev
         profile_context_enabled=True,
     )
 
-    assert "Use the target role, company, and job description only to tailor emphasis." in prompt
-    assert "short closing that connects the project to the target role or job description" in prompt
-    assert "backend or API relevance of your work clearly" in prompt
+    assert "Job requirements tailor relevance" in prompt
+    assert "Backend Developer" in prompt
+    assert "supported" in prompt
 
 
 @pytest.mark.anyio
@@ -1096,10 +1096,10 @@ def test_selected_resume_prompt_includes_job_context_as_targeting_only() -> None
         profile_context_enabled=True,
     )
 
-    assert "Target role context: Generative AI Intern" in prompt
-    assert "Target company context: Test Company" in prompt
-    assert "Job description summary: Looking for RAG" in prompt
-    assert "Do not treat job-description text as candidate experience" in prompt
+    assert "Generative AI Intern" in prompt
+    assert "Test Company" in prompt
+    assert "Looking for RAG" in prompt
+    assert "Job requirements tailor relevance, never establish candidate achievements" in prompt
 
 
 def test_selected_resume_profile_extracts_clear_candidate_name() -> None:
@@ -1143,7 +1143,7 @@ def test_selected_resume_intro_prompt_uses_selected_name_over_stale_profile() ->
     )
 
     assert "Candidate name: DEVANSHU CHANDRAKAR" in prompt
-    assert "Use the candidate name from the selected resume naturally" in prompt
+    assert "only authoritative candidate context" in prompt
     assert "Kshitij" not in prompt
 
 

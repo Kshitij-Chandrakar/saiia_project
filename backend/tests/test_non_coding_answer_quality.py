@@ -22,56 +22,34 @@ def _prompt(question: str, question_type: str, **kwargs) -> str:
     )
 
 
-def test_general_technical_comparison_uses_spaced_bullets_and_daily_life_example() -> None:
-    prompt = _prompt(
-        "Difference between machine learning, deep learning, and reinforcement learning.",
-        "technical",
-    )
-
-    assert "no first-person wording" in prompt
-    assert "2 to 4 meaningful markdown bullets" in prompt
-    assert "Real-life example:" in prompt
-    assert "Real-life example policy" in prompt
-    assert "blank line between" in prompt
-    assert "Do not default to banking, shopping, phones, or messaging" in prompt
+def test_phase2_comparison_has_optional_examples_and_neutral_evidence_permissions() -> None:
+    prompt = _prompt("Difference between machine learning, deep learning, and reinforcement learning.", "technical")
+    assert "technical_comparison" in prompt and "140-230" in prompt
+    assert "only when useful" in prompt and "profile=FORBIDDEN" in prompt
     assert "User profile:" not in prompt
-    assert "Relevant resume snippets:" not in prompt
+    assert "Real-life example:" not in prompt
 
 
-def test_general_technical_definition_uses_general_knowledge_without_resume() -> None:
+def test_phase2_technical_definition_uses_general_knowledge_without_resume() -> None:
     prompt = _prompt("What is REST API?", "technical")
-
-    assert "Use accurate general technical knowledge" in prompt
-    assert "no first-person wording" in prompt
+    assert "general knowledge=ALLOWED" in prompt
+    assert "neutral language" in prompt
     assert "User profile:" not in prompt
 
 
-def test_dependency_injection_implemented_question_stays_conceptual() -> None:
+def test_phase2_dependency_injection_stays_conceptual() -> None:
     prompt = _prompt("How is dependency injection implemented?", "technical")
+    assert "technical_process" in prompt
+    assert "personal examples require evidence" in prompt
+    assert "User profile:" not in prompt
 
-    assert "Real-life example:" in prompt
-    assert "Real-life example policy" in prompt
-    assert "For project questions, answer only using the selected resume project context." not in prompt
 
-
-def test_required_conceptual_questions_receive_complete_format_contract() -> None:
-    questions = (
-        "What is authentication?",
-        "What is an API?",
-        "What is cloud computing?",
-        "Difference between authentication and authorization?",
-    )
-
-    for question in questions:
+def test_phase2_conceptual_questions_receive_flexible_depth_contract() -> None:
+    for question in ("What is authentication?", "What is an API?", "What is cloud computing?", "Difference between authentication and authorization?"):
         prompt = _prompt(question, "technical")
-        assert "1 to 2 complete sentences" in prompt
-        assert "2 to 4 meaningful markdown bullets" in prompt
-        assert "one clear, speakable idea on its own line" in prompt
-        assert "Real-life example:" in prompt
-        assert "100 to 160 words" in prompt
-        assert "Choose an example domain from the question itself" in prompt
-        assert "banking, shopping, phones, or messaging" in prompt
-        assert "Do not use markdown bullets" not in prompt
+        assert "ANSWER POLICY:" in prompt and "not a minimum or hard ceiling" in prompt
+        assert "Never force an example" in prompt
+        assert "display heading is mandatory" not in prompt
 
 
 def test_demo_mode_does_not_shorten_normal_conceptual_answers() -> None:
@@ -107,18 +85,16 @@ def test_demo_mode_does_not_shorten_normal_conceptual_answers() -> None:
     assert result["requested_completion_tokens"] == 520
 
 
-def test_unsupported_experience_question_requires_an_honest_bridge() -> None:
+def test_phase2_missing_experience_allows_hypothesis_not_unsupported_denial() -> None:
     prompt = _prompt("Have you used Kubernetes in production?", "technical")
-
-    assert "Only unsupported professional facts require a brief honest gap and bridge" in prompt
-    assert "Use first person only for claims directly supported" in prompt
+    assert "explicitly hypothetical approach" in prompt
+    assert "unsupported claim that I have never done it" in prompt
     assert "Kubernetes" not in prompt.split("Question:", 1)[0]
 
 
-def test_resume_backed_technical_question_allows_grounded_first_person() -> None:
+def test_phase2_resume_backed_question_preserves_supported_evidence() -> None:
     prompt = _prompt("How did you use FastAPI in your project?", "technical")
-
-    assert "Use first person only for claims directly supported" in prompt
+    assert "require supplied authorized evidence" in prompt
     assert "Built a FastAPI service with validated endpoints." in prompt
 
 
@@ -129,128 +105,82 @@ def test_project_question_with_named_technology_uses_resume_context() -> None:
     assert "Built a FastAPI service with validated endpoints." in prompt
 
 
-def test_behavioral_question_requires_one_grounded_natural_star_story() -> None:
+def test_phase2_behavioral_question_has_substance_without_forced_labels() -> None:
     prompt = _prompt("Tell me about a difficult bug you solved.", "behavioral")
-
-    assert "one supported example" in prompt
-    assert "natural STAR-style story without writing STAR labels" in prompt
-    assert "do not invent metrics" in prompt.lower()
-
-
-def test_behavioral_question_without_evidence_requires_honest_bridge() -> None:
-    prompt = AnswerGenerator(include_context=True)._build_prompt(
-        question="Tell me about a conflict you resolved.",
-        question_type="behavioral",
-    )
-
-    assert "If no suitable example is supported" in prompt
-    assert "honestly" in prompt
+    assert "150-230" in prompt
+    assert "Never force an example, STAR labels" in prompt
+    assert "Do not embellish" in prompt
 
 
-def test_hr_introduction_stays_spoken_and_selective() -> None:
+def test_phase2_behavioral_without_evidence_requires_hypothetical_framing() -> None:
+    prompt = AnswerGenerator()._build_prompt("Tell me about a conflict you resolved.", "behavioral")
+    assert "Missing evidence permits an explicitly hypothetical approach" in prompt
+    assert "never an invented past event" in prompt
+
+
+def test_phase2_hr_introduction_stays_spoken_and_selective() -> None:
     prompt = _prompt("Tell me about yourself.", "hr")
-
-    assert "Do not recite the full resume" in prompt
-    assert "warm, conversational" in prompt
-    assert "Return only the final answer" in prompt
-
-
-def test_supplied_category_is_guidance_and_question_intent_wins() -> None:
-    generator = AnswerGenerator(include_context=True)
-    messages = generator._answer_messages(
-        generator._build_prompt(
-            question="Describe a difficult technical problem you solved.",
-            question_type="technical",
-        )
-    )
-
-    assert "guidance only" in messages[1]["content"]
-    assert "Supplied interview category (guidance only): TECHNICAL" in messages[1]["content"]
-    assert "Preliminary rule category (the model may correct it): BEHAVIORAL" in messages[1]["content"]
-    assert "specific past situation" in messages[0]["content"]
-    assert "stays behavioral when the example is technical" in messages[1]["content"]
+    assert "100-170" in prompt
+    assert "clear, natural spoken language" in prompt
+    assert "Return only the answer" in prompt
 
 
-def test_broad_personal_experience_uses_short_rapport_answer() -> None:
+def test_phase2_planner_resolves_intent_before_model_generation() -> None:
+    generator = AnswerGenerator()
+    messages = generator._answer_messages(generator._build_prompt("Describe a difficult technical problem you solved.", "technical"))
+    assert "Resolved answer type: behavioral" in messages[1]["content"]
+    assert "do not independently reclassify" in messages[0]["content"]
+    assert "the model may correct it" not in messages[1]["content"]
+
+
+def test_phase2_broad_personal_experience_does_not_invent_rapport() -> None:
     prompt = _prompt("What is the most interesting thing you have done in your life?", "hr")
-
-    assert "Preliminary rule category (the model may correct it): PERSONAL" in prompt
-    assert "Personal subtype: personal_achievement" in prompt
-    assert "Generation mode: CREATIVE_PERSONAL" in prompt
-    assert "Target length: 110 to 170 words" in prompt
-    assert "User profile:" not in prompt
-    assert "Relevant resume snippets:" not in prompt
+    assert "personal_story" in prompt
+    assert "explicitly hypothetical" in prompt
+    assert "CREATIVE_PERSONAL" not in prompt
+    assert "User profile:" not in prompt and "Relevant resume snippets:" not in prompt
 
 
-def test_personal_prompt_is_confident_spoken_and_has_no_resume_pitch() -> None:
+def test_phase2_personal_hypothetical_does_not_force_a_story() -> None:
     prompt = _prompt("If you could spend a month anywhere, where would you go?", "general")
-
-    assert "Preliminary rule category (the model may correct it): PERSONAL" in prompt
-    assert "Generation mode: CREATIVE_PERSONAL" in prompt
-    assert "Do not use bullets, headings, STAR labels" in prompt
-    assert "Do not mention projects, coding, education, technical skills" in prompt
-    assert "Use two or three short paragraphs" in prompt
-    assert "User profile:" not in prompt
-    assert "Relevant resume snippets:" not in prompt
+    assert "personal_story" in prompt and "explicitly hypothetical" in prompt
+    assert "Use two or three short paragraphs" not in prompt
+    assert "User profile:" not in prompt and "Relevant resume snippets:" not in prompt
 
 
-def test_childhood_question_gets_full_personal_narrative_contract() -> None:
+def test_phase2_childhood_question_forbids_invented_memory() -> None:
     prompt = _prompt("Tell me something about your childhood days.", "hr")
-
-    assert "Personal subtype: childhood_memory" in prompt
-    assert "Target length: 110 to 170 words" in prompt
-    assert "one clear scene" in prompt
-    assert "Do not mention projects, coding, education, technical skills" in prompt
+    assert "personal_story" in prompt
+    assert "never an invented past event" in prompt
+    assert "one clear scene" not in prompt
     assert "User profile:" not in prompt
-    assert "Relevant resume snippets:" not in prompt
 
 
-def test_favourite_colour_gets_more_than_one_sentence_contract() -> None:
+def test_phase2_preference_does_not_force_length_or_invent_context() -> None:
     prompt = _prompt("What is your favourite colour?", "general")
-
-    assert "Personal subtype: favourite_preferences" in prompt
-    assert "Target length: 55 to 90 words" in prompt
-    assert "at least two complete sentences" in prompt
-
-
-def test_hybrid_personal_uses_safe_preference_context_only() -> None:
-    prompt = AnswerGenerator(include_context=True)._build_prompt(
-        question="What is your favourite book?",
-        question_type="personal",
-        profile={
-            "technical_skills": "FastAPI, Python",
-            "projects": "Built a FastAPI project.",
-            "hobbies": "reading during quiet evenings",
-        },
-        retrieved_snippets=[{"section": "projects", "text": "Built a FastAPI project."}],
-    )
-
-    assert "Generation mode: HYBRID_PERSONAL" in prompt
-    assert "hobbies: reading during quiet evenings" in prompt
-    assert "FastAPI" not in prompt
-    assert "Relevant resume snippets:" not in prompt
+    assert "not a minimum or hard ceiling" in prompt
+    assert "at least two complete sentences" not in prompt
+    assert "require supplied authorized evidence" in prompt
 
 
-def test_personal_validator_repairs_one_sentence_generic_answer() -> None:
-    generator = AnswerGenerator(include_context=True)
-    repaired, errors, repaired_used = generator.repair_personal_answer_if_needed(
-        question="Tell me something about your childhood days.",
-        answer="I played soccer with friends and learned teamwork.",
-    )
-
-    assert repaired_used is True
-    assert "below_minimum_words" in errors
-    assert "one_sentence" in errors
-    assert len(repaired.split()) >= 110
-    assert "FastAPI" not in repaired
+def test_phase2_personal_context_follows_existing_forbidden_policy() -> None:
+    prompt = AnswerGenerator()._build_prompt("What is your favourite book?", "personal", profile={"technical_skills": "FastAPI", "hobbies": "reading during quiet evenings"})
+    assert "profile=FORBIDDEN" in prompt
+    assert "FastAPI" not in prompt and "quiet evenings" not in prompt
+    assert "HYBRID_PERSONAL" not in prompt
 
 
-def test_professional_fit_question_keeps_candidate_context() -> None:
+def test_phase2_personal_validator_does_not_pad_short_answers() -> None:
+    generator = AnswerGenerator()
+    answer = "In a hypothetical situation, I would listen before deciding what to do."
+    repaired, errors, used = generator.repair_personal_answer_if_needed(question="Tell me something about your childhood days.", answer=answer)
+    assert (repaired, errors, used) == (answer, [], False)
+
+
+def test_phase2_professional_fit_keeps_candidate_evidence() -> None:
     prompt = _prompt("Why should we hire you?", "hr")
-
-    assert "Preliminary rule category (the model may correct it): HR" in prompt
-    assert "User profile:" in prompt
-    assert "Relevant resume snippets:" in prompt
+    assert "role_fit" in prompt and "90-160" in prompt
+    assert "User profile:" in prompt and "Relevant resume snippets:" in prompt
 
 
 def test_coding_prompt_and_cleanup_contract_are_unchanged() -> None:
@@ -330,10 +260,11 @@ def test_refinement_prompt_uses_same_domain_relevant_example_policy() -> None:
         groq_answer="Semantic HTML uses meaningful tags.",
     )
 
-    assert "2 to 4 meaningful '- ' bullets" in prompt
-    assert "exactly 4 meaningful" not in prompt
-    assert "Choose an example domain from the question itself" in prompt
-    assert "Do not default to banking, shopping, phones, or messaging" in prompt
+    assert "personal examples require evidence" in prompt
+    assert "never force an example" in prompt.lower()
+    assert "2 to 4 meaningful" not in prompt
+    assert "100 to 160 words" not in prompt
+    assert "semantic HTML" in prompt
 
 
 def test_technical_example_validator_rejects_html_banking_example() -> None:
@@ -393,7 +324,7 @@ def test_technical_example_validator_requires_non_empty_section() -> None:
     assert generator._validate_technical_real_life_example(
         question="What is REST API?",
         answer="REST APIs expose resources over HTTP.",
-    ) == ["missing_real_life_example"]
+    ) == []  # Phase 2: examples are conditional; labeled empty examples still fail.
     assert generator._validate_technical_real_life_example(
         question="What is REST API?",
         answer="REST APIs expose resources over HTTP.\n\nReal-life example:\n\n",
@@ -439,5 +370,5 @@ def test_prompts_do_not_request_visible_category_markers() -> None:
     )
 
     assert "[[category:" not in non_coding_prompt
-    assert "Do not include category, type, mode, or intent markers." in non_coding_prompt
+    assert "without policy labels" in non_coding_prompt
     assert "[[category:" not in coding_prompt
