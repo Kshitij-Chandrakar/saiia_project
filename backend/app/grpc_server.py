@@ -69,6 +69,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
         system_capture = system_session = system_reader = system_sender = read_future = None
         system_metrics = {}
         system_owned = False
+        system_stopping = False
         system_open_future = system_cleanup = None
         system_queue = asyncio.Queue(maxsize=3)
         from app.pcm_mixer import PcmMixer
@@ -430,7 +431,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 nonlocal read_future, empty_native_chunks
                 tail = b''
                 try:
-                    while True:
+                    while not system_stopping:
                         read_future = asyncio.ensure_future(run_in_threadpool(system_capture.read_streaming_pcm_chunk, system_session))
                         chunk = await asyncio.wait_for(asyncio.shield(read_future), timeout=2)
                         now = time.time()*1000
@@ -463,7 +464,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 deadline = time.monotonic() + .3
                 startup_deadline = time.monotonic() + 5
                 try:
-                    while True:
+                    while not system_stopping:
                         if audio_source == 'both':
                             now = time.monotonic()
                             if not mixed_started:
@@ -504,7 +505,10 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             await emit(last_request_id,'status',pb.Status(code='system_audio_metrics',system_audio=pb.SystemAudioDiagnostics(**system_metrics)))
 
         async def close_system_capture():
-            nonlocal system_session, system_cleanup
+            nonlocal system_session, system_cleanup, system_stopping
+            # wait_for can return a completed child despite concurrent cancellation
+            # on Python 3.10/3.11. Fence both loops before canceling either task.
+            system_stopping = True
             mixer.clear()
             if not system_owned:
                 return True
@@ -774,21 +778,18 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 await stop_answers()
                 await close_system_capture()
                 await close_stt()
-            if answer_version:
-                # gRPC may cancel again while closing a suspended response
-                # iterator. Do not orphan the answer worker in that window.
-                closing = asyncio.create_task(cleanup())
-                cancelled = False
-                while not closing.done():
-                    try:
-                        await asyncio.shield(closing)
-                    except asyncio.CancelledError:
-                        cancelled = True
-                closing.result()
-                if cancelled:
-                    raise asyncio.CancelledError()
-            else:
-                await cleanup()
+            # Transport shutdown can cancel again during cleanup on every
+            # protocol version. Keep ownership until all RPC tasks are joined.
+            closing = asyncio.create_task(cleanup())
+            cancelled = False
+            while not closing.done():
+                try:
+                    await asyncio.shield(closing)
+                except asyncio.CancelledError:
+                    cancelled = True
+            closing.result()
+            if cancelled:
+                raise asyncio.CancelledError()
 
 
 async def start_server(host="127.0.0.1", port=50051, max_message_mb=4):
