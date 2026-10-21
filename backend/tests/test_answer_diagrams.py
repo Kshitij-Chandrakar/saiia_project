@@ -92,14 +92,15 @@ def test_cycles_and_insufficient_detail():
 @pytest.mark.asyncio
 @pytest.mark.parametrize('mode,expected',[('ok',None),('refusal','refused'),('incomplete','incomplete'),
     ('malformed','provider_failed'),('large','invalid_graph'),('http','provider_failed'),('timeout','timeout')])
-async def test_provider_single_bounded_call(monkeypatch,caplog,mode,expected):
+@pytest.mark.parametrize('model',['gpt-4.1-mini','gpt-4.1-mini-2025-04-14'])
+async def test_provider_single_bounded_call(monkeypatch,caplog,mode,expected,model):
     monkeypatch.setattr(settings,'OPENAI_API_KEY','synthetic-diagram-key')
-    monkeypatch.setattr(settings,'DIAGRAM_MODEL','gpt-4.1-mini')
+    monkeypatch.setattr(settings,'DIAGRAM_MODEL',model)
     calls=[]
     async def handler(request):
         calls.append(request)
         body=json.loads(request.content)
-        assert body['store'] is False and body['model']=='gpt-4.1-mini'
+        assert body['store'] is False and body['model']==model
         assert body['text']['format']['strict'] is True
         schema = body['text']['format']['schema']
         assert schema == Graph.model_json_schema()

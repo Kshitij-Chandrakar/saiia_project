@@ -134,3 +134,25 @@ test('disabled generation restores an existing saved diagram',async()=>{
  })
  try{await expect(page.getByRole('img',{name:'Architecture from the completed answer'})).toBeVisible();await expect(page.getByRole('button',{name:'Generate diagram',exact:true})).toHaveCount(0);assert.equal(generations,0)}finally{await page.close()}
 })
+
+
+test('a full filtered history page still allows navigation to valid later entries',async()=>{
+ const pages=[]
+ const page=await pageFor(async(action,payload)=>{
+  if(action==='history') {
+   pages.push(payload.page)
+   return {ok:true,data:payload.page===1?{items:[],has_more:true}:{items:[{id:tid,question_text:'Design a queue',answer_text:'API sends tasks to Queue.'}],has_more:false}}
+  }
+  if(action==='resolve')return {ok:true,data:{...descriptor,generation_enabled:false}}
+  return {ok:true,data:{state:'ready',graph}}
+ },'?history')
+ try {
+  await expect(page.getByRole('button',{name:'More answers'})).toBeEnabled()
+  await page.getByRole('button',{name:'More answers'}).click()
+  await expect(page.getByRole('combobox').locator('option')).toHaveCount(2)
+  await page.getByRole('combobox').selectOption(tid)
+  await expect(page.getByRole('img')).toBeVisible()
+  await expect(page.getByRole('button',{name:'More answers'})).toBeDisabled()
+  assert.deepEqual(pages,[1,2])
+ }finally{await page.close()}
+})

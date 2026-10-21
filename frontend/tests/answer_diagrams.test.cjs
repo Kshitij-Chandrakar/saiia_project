@@ -143,8 +143,28 @@ test('canonical history uses admitted code-point bounds without truncation',asyn
  const {canonicalRevision}=await import('../src/diagram_source_revision.js')
  assert.match(await canonicalRevision(entry.question_text,entry.answer_text,false),/^v1:/)
  entry={...entry,answer_text:entry.answer_text+'x'}
- assert.equal((await bridge.request('history',{session_id:sid})).ok,false)
+ assert.deepEqual((await bridge.request('history',{session_id:sid})).data.items,[])
  await assert.rejects(canonicalRevision(entry.question_text,entry.answer_text,false),/unverified_source/)
  entry={...entry,question_text:'Q'.repeat(4001),answer_text:'valid'}
- assert.equal((await bridge.request('history',{session_id:sid})).ok,false)
+ assert.deepEqual((await bridge.request('history',{session_id:sid})).data.items,[])
+})
+
+
+test('history isolates malformed rows and validates the response array',async()=>{
+ const good={id:tid,question_text:'  Synthetic question  ',answer_text:'Synthetic canonical answer'}
+ const invalid=[null,undefined,42,'invalid',[],{}, {...good,id:'not-uuid'}, {...good,id:42},
+  {...good,question_text:null},{...good,answer_text:{}},{...good,question_text:'Q'.repeat(4001)},
+  {...good,answer_text:String.fromCodePoint(0x1f600).repeat(24001)}, {...good,answer_text:'   '}]
+ let items=[...invalid,good]
+ const {bridge}=setup(async()=>({ok:true,status:200,json:async()=>({items})}))
+ let result=await bridge.request('history',{session_id:sid})
+ assert.equal(result.ok,true)
+ assert.deepEqual(result.data.items,[{...good,session_id:sid}])
+ assert.ok(!JSON.stringify(result).includes('not-uuid'))
+ items=Array(50).fill(null)
+ result=await bridge.request('history',{session_id:sid})
+ assert.equal(result.ok,true);assert.deepEqual(result.data.items,[]);assert.equal(result.data.has_more,true)
+ for(const malformed of [null,{},'invalid',42]) {
+  items=malformed;assert.equal((await bridge.request('history',{session_id:sid})).ok,false)
+ }
 })

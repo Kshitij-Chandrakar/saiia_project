@@ -98,15 +98,20 @@ class AnswerDiagrams {
       if (epoch !== this.epoch || !manager._cloudRequestStillCurrent(context)) return { ok: false, error: 'stale_operation' }
       if (response.status === 401) { this.cancelAll(); return { ok: false, error: 'unavailable' } }
       if (!response.ok) return { ok: false, error: CODES.has(response.payload?.detail?.code) ? response.payload.detail.code : 'unavailable' }
-      if (action === 'history') return { ok: true, data: { items: (response.payload?.items || []).slice(0, 50).map(entry => {
-        if (typeof entry.question_text !== 'string' || typeof entry.answer_text !== 'string' ||
-            !entry.question_text.length || !entry.answer_text.length ||
-            [...entry.question_text].length > 4000 || [...entry.answer_text].length > 24000) throw Error('unsupported_history')
-        return ({
-        id: UUID.test(entry.id) ? entry.id : null, session_id: payload.session_id,
-        question_text: entry.question_text,
-        answer_text: entry.answer_text,
-      })}).filter(entry => entry.id) } }
+      if (action === 'history') {
+        const entries = response.payload?.items
+        if (!Array.isArray(entries)) return { ok: false, error: 'unavailable' }
+        const items = entries.slice(0, 50).flatMap(entry => {
+          if (!entry || typeof entry !== 'object' || Array.isArray(entry) ||
+              typeof entry.id !== 'string' || !UUID.test(entry.id) ||
+              typeof entry.question_text !== 'string' || typeof entry.answer_text !== 'string' ||
+              !entry.question_text.trim() || !entry.answer_text.trim() ||
+              [...entry.question_text].length > 4000 || [...entry.answer_text].length > 24000) return []
+          return [{ id: entry.id, session_id: payload.session_id,
+            question_text: entry.question_text, answer_text: entry.answer_text }]
+        })
+        return { ok: true, data: { items, has_more: entries.length >= 50 } }
+      }
       try {
         const data = project(action, response.payload)
         if (action === 'resolve' && (data.session_id !== payload.session_id ||

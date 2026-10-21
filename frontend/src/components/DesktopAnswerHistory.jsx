@@ -24,7 +24,7 @@ export default function DesktopAnswerHistory({ sessionId, api = window.electronA
         {result.data.items.map(item => <option key={item.id} value={item.id}>{item.question_text.slice(0, 100)}</option>)}
       </select></label>
       <button type="button" disabled={page === 1} onClick={() => setPage(value => value - 1)}>Previous answers</button>
-      <button type="button" disabled={result.data.items.length < 50} onClick={() => setPage(value => value + 1)}>More answers</button>
+      <button type="button" disabled={result.data.has_more === undefined ? result.data.items.length < 50 : !result.data.has_more} onClick={() => setPage(value => value + 1)}>More answers</button>
       {entry && <article key={entry.id}><p>{entry.question_text}</p><AnswerText text={entry.answer_text} />
         <DiagramSection source={{ session_id: sessionId, transcript_id: entry.id,
           canonical_question: entry.question_text, canonical_answer: entry.answer_text }} api={api} />
