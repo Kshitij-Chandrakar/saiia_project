@@ -371,3 +371,52 @@ patch preparation is outside the repository and is not a reviewed patch/worktree
 The final ledger identifies the byte-exact patches; do not infer a commit hash from
 a patch checksum. No commits were created and no actual commit hook was triggered;
 the normal hook's unchanged repository audit was executed directly without skips.
+
+
+## Authorized one-request live schema check - 2026-10-21
+
+This later evidence supplements the historical offline results above; it does not
+change their original no-live-call scope or establish general rollout acceptance.
+User authorization covered exactly one synthetic provider request with existing
+configured credentials, no activation, commits or deployment.
+
+- Client date/timezone: 2026-10-21, Asia/Calcutta.
+- Requested model: `gpt-4.1-mini-2025-04-14`.
+- API: `POST https://api.openai.com/v1/responses`.
+- Production path: current `backend/app/services/answer_diagram_service.py`
+  `generate_graph()` and `validate_graph()`, imported without starting the app,
+  capture, STT, storage or coordination services.
+- Exact schema: unmodified `Graph.model_json_schema()`; SHA-256
+  `9c9d102bfc2f345b8235a61ed07730141bb2e0becc25aea09aab68de01be5d80`.
+  Fingerprint encoding: UTF-8 JSON, keys sorted, compact comma/colon separators,
+  `ensure_ascii=False`. All minLength/maxLength/pattern/maxItems constraints remain.
+- Contract: strict `text.format` JSON schema, `store=False`, no tools, original
+  instructions, 4096 maximum output tokens, 25-second application deadline and
+  response-body bound. HTTPX transport retries=0; redirects disabled; one-request
+  transport fence; outer check bounded at 30 seconds. Only the check's model was
+  overridden in process to the authorized snapshot; the feature flag stayed false.
+- Synthetic question: `Describe this synthetic task-processing architecture.`
+- Synthetic canonical answer: `Client sends task requests to API. API enqueues tasks in Queue. Worker reads tasks from Queue.`
+
+| Observation | Actual result |
+| --- | --- |
+| Provider request attempts | 1; no retry/fallback/repair |
+| Exact schema accepted | Yes; HTTP 200 with a usable structured response |
+| Generation completed | Yes; production function returned after its mandatory response status == completed check |
+| Returned graph passed local validation | Yes; ready graph, 4 nodes, 3 edges |
+| Diagram generation enabled | No; remained disabled |
+
+Completion is established by the production parser's completed-status gate, not
+merely HTTP status. Local validation includes bounds, shape, references and exact
+synthetic-answer evidence substrings. It does not prove universal semantic
+faithfulness, repeated-run reliability, other schema/model combinations, account
+portability, latency budgets or native/hosted acceptance. No credentials, headers
+or provider response content were logged or persisted; only safe result metadata
+was retained. No source constraints, runtime environment files, migrations,
+activation or application provider routing changed. Recovery hardening remains
+separate and paused.
+
+The previously unconfirmed exact-schema question is now positively verified for
+this fingerprint and requested model snapshot on this date. No schema correction
+is indicated by this result. Broader feature acceptance and activation remain
+pending separate review.

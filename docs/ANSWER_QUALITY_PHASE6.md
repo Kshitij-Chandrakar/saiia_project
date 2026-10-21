@@ -136,6 +136,11 @@ Official references checked:
 [GPT-4.1 mini](https://developers.openai.com/api/docs/models/gpt-4.1-mini) and
 [Responses structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses).
 Account/model access and live structured-output acceptance remain unverified.
+Mocked request-contract tests establish neither upstream acceptance nor rejection.
+A later, separately authorized synthetic check on 2026-10-21 accepted the exact
+schema for `gpt-4.1-mini-2025-04-14`, completed generation and passed local validation.
+See the fingerprinted one-request record in `ANSWER_QUALITY_PHASE7.md`; this is
+narrow compatibility evidence, not general live-feature acceptance or activation.
 
 Graph v1 is flat JSON:
 ```json

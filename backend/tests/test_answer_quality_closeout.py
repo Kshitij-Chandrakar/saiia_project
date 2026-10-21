@@ -3,10 +3,13 @@ import asyncio
 from copy import deepcopy
 import importlib.util
 from pathlib import Path
+import sys
 import time
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+from answer_quality_baseline import budget_capture
 from answer_quality_spec import CASES
 from app.answer_generation import GenerationBudget, GenerationControl, Deadlines, GenerationStopped
 from app.answer_streaming import DisplayStream
@@ -46,7 +49,6 @@ def test_review_rejects_unpaired_or_invented_baselines(change):
 
 
 def test_budget_capture_does_not_inherit_shared_coding_cooldown(monkeypatch):
-    from answer_quality_baseline import budget_capture
     from app.nlp import answer_generator as ag
     from app.nlp.answer_planner import build_answer_plan
     marker = 'groq::' + ag.settings.CODING_GROQ_MODEL
