@@ -3448,8 +3448,10 @@ class AnswerGenerator:
             errors.append('empty_answer')
         if re.search(r"\b(code|coding|fastapi|api|project|database|react|python|college|degree|certification)\b", normalized) and not personal_question_allows_professional_context(question):
             errors.append("unnecessary_professional_content")
-        if re.search(r"\b(you can say|here is a possible answer|as an ai|in conclusion|the candidate should say)\b", normalized):
+        if re.search(r"\b(you can say|here is a possible answer|as an ai|the candidate should say)\b", normalized):
             errors.append("meta_phrase")
+        if re.search(r"\bin conclusion\b", normalized):
+            errors.append("style_phrase")
         if re.search(r"\b(death|abuse|serious disease|disability|crime|religion|caste|political|pregnancy|mental-health|mental health|military|legal dispute)\b", normalized):
             errors.append("unsupported_sensitive_claim")
         if len(set(sentences)) != len(sentences):

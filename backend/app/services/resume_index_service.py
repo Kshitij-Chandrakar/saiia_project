@@ -7,6 +7,12 @@ from pathlib import Path
 from typing import Any
 
 
+PROJECT_SECTION_NAMES = frozenset({
+    "project", "projects", "personal_projects", "academic_projects",
+    "experience", "work_experience", "internship",
+})
+
+
 class ResumeIndexError(Exception):
     """Raised when resume indexing or retrieval fails."""
 
@@ -254,7 +260,7 @@ class ResumeIndexService:
                 if current:
                     chunks.append(self._make_chunk(chunk_index, section, current))
                     chunk_index += 1
-                if section.lower() in {"project", "projects", "personal_projects", "academic_projects"}:
+                if section.lower() in PROJECT_SECTION_NAMES:
                     title = paragraph.split(" - ", 1)[0].split(":", 1)[0][:120].strip()
                     for chunk in chunks[paragraph_start:]:
                         chunk["project_title"] = title

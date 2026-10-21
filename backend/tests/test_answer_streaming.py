@@ -1025,23 +1025,21 @@ async def test_stream_normalizes_chat_before_buffered_guard(monkeypatch, source)
 
 
 @pytest.mark.asyncio
-async def test_strict_clarification_retrieval_failure_emits_terminal_protocol(monkeypatch):
-    from types import SimpleNamespace
+async def test_strict_answer_retrieval_failure_emits_terminal_protocol(monkeypatch):
     monkeypatch.setattr(generate_api.settings, "ENABLE_TRUE_ANSWER_STREAMING", True)
     monkeypatch.setattr(generate_api.settings, "ENABLE_FOLLOWUP_INTENT_COMPILER", False)
     monkeypatch.setattr(generate_api, "_authorize_generation_session", lambda *_: None)
     monkeypatch.setattr(generate_api, "_selected_resume_strict_mode", lambda *_: True)
     monkeypatch.setattr(generate_api.generator, "_select_primary_provider", lambda *_: "openai")
-    monkeypatch.setattr(generate_api, "_resolve_request_followup", lambda *a, **kw:
-                        SimpleNamespace(resolved_question="Explain it", resolution_status="needs_clarification"))
     monkeypatch.setattr(generate_api, "_retrieve_resume_context", lambda **kw:
                         (_ for _ in ()).throw(HTTPException(503, "unavailable")))
     response = await generate_api.generate_answer_stream(generate_api.GenerateRequest(
-        question="Explain it", category="technical", source="chat"))
+        question="What is a deadlock?", category="technical", source="chat"))
     events = await _collect_stream_events(response)
-    assert [e["type"] for e in events] == ["error", "done"]
-    assert events[0]["status_code"] == 503
-    assert events[-1]["incomplete"]
+    assert [e["type"] for e in events] == ["start", "error", "done"]
+    assert events[-2]["status_code"] == 503
+    assert events[-1]["incomplete"] is False  # No provisional answer existed.
+    assert not any(e["type"] in {"delta", "metadata"} for e in events)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("endpoint", ["generate_answer", "generate_answer_stream"])

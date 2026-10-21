@@ -1337,12 +1337,6 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
             else followup_resolution.resolved_question or str(req.question or "").strip()
         )
         if followup_resolution.resolution_status == "needs_clarification":
-            if _selected_resume_strict_mode(req):
-                retrieval = await run_in_threadpool(
-                    _retrieve_resume_context, req=req, request=request,
-                    use_profile_context=False, question=effective_question, category=req.category,
-                )
-                _require_selected_resume_context(req, retrieval)
             clarification = followup_resolution.clarification_question or "Which earlier topic should I connect this follow-up to?"
             yield _stream_event(
                 {
@@ -2458,10 +2452,6 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             selected_resume_candidate_name_source="none",
             project_context_chunks_found=0,
             project_context_source="none",
-            specific_project_intent_detected=False,
-            matched_project_name="",
-            project_match_confidence="none",
-            project_answer_mode="none",
             selected_resume_strict_mode=False,
             selected_resume_context_used_in_prompt=False,
             generic_fallback_blocked=False,

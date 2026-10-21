@@ -13,7 +13,7 @@ from requests.adapters import HTTPAdapter
 
 from app.cloud.supabase_config import SupabaseConfigurationError, get_supabase_settings
 from app.nlp.answer_generator import ProviderError
-from app.services.resume_index_service import ResumeIndexError, ResumeIndexService
+from app.services.resume_index_service import PROJECT_SECTION_NAMES, ResumeIndexError, ResumeIndexService
 from app.services.resume_parser_service import ResumeParserService
 from app.services.resume_service import MAX_RESUME_FILE_BYTES, PROFILE_FIELD_ORDER, ResumeExtractionError
 
@@ -56,7 +56,6 @@ SUPABASE_ACTIVE_CHUNK_PAGE_SIZE = 100
 SUPABASE_ACTIVE_CHUNK_HARD_LIMIT = 500
 PROJECT_CONTEXT_LIMIT_FLOOR = 4
 SPECIFIC_PROJECT_CONTEXT_LIMIT = 6
-PROJECT_SECTION_NAMES = {"projects", "project", "experience", "work_experience", "internship"}
 PROJECT_INDEX_FIELDS = ("projects", "experience", "work_experience")
 PROJECT_KEYWORDS = {
     "project",
