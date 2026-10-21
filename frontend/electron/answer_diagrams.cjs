@@ -81,21 +81,32 @@ class AnswerDiagrams {
       session_id: payload.session_id, transcript_id: payload.transcript_id || null,
       eligible: false, generation_enabled: false, state: 'unavailable', reason: 'schema_unavailable' } }
     const key = `${payload.session_id}:${payload.transcript_id}`
+    let ownedPending = null
     if (['generate', 'retry'].includes(action)) {
       if (!this.pending.has(key) && this.pending.size >= 16) return { ok: false, error: 'busy' }
-      this.pending.set(key, { ...payload })
+      ownedPending = { ...payload }
+      this.pending.set(key, ownedPending)
     }
     const lookupKey = `${epoch}:${manager.sessionGeneration}:${path}`
     const perform = async () => {
+      let retainPending = false
+      const release = () => {
+        if (ownedPending && this.pending.get(key) === ownedPending) this.pending.delete(key)
+      }
+      try {
       const response = await manager._backendJson(path, method, context.session.access_token, body, null, 45000)
       if (epoch !== this.epoch || !manager._cloudRequestStillCurrent(context)) return { ok: false, error: 'stale_operation' }
       if (response.status === 401) { this.cancelAll(); return { ok: false, error: 'unavailable' } }
       if (!response.ok) return { ok: false, error: CODES.has(response.payload?.detail?.code) ? response.payload.detail.code : 'unavailable' }
-      if (action === 'history') return { ok: true, data: { items: (response.payload?.items || []).slice(0, 50).map(entry => ({
+      if (action === 'history') return { ok: true, data: { items: (response.payload?.items || []).slice(0, 50).map(entry => {
+        if (typeof entry.question_text !== 'string' || typeof entry.answer_text !== 'string' ||
+            !entry.question_text.length || !entry.answer_text.length ||
+            [...entry.question_text].length > 4000 || [...entry.answer_text].length > 24000) throw Error('unsupported_history')
+        return ({
         id: UUID.test(entry.id) ? entry.id : null, session_id: payload.session_id,
-        question_text: typeof entry.question_text === 'string' ? entry.question_text.slice(0, 4000) : '',
-        answer_text: typeof entry.answer_text === 'string' ? entry.answer_text.slice(0, 24000) : '',
-      })).filter(entry => entry.id) } }
+        question_text: entry.question_text,
+        answer_text: entry.answer_text,
+      })}).filter(entry => entry.id) } }
       try {
         const data = project(action, response.payload)
         if (action === 'resolve' && (data.session_id !== payload.session_id ||
@@ -106,12 +117,15 @@ class AnswerDiagrams {
         const sameOperation = !pending || pending.operation_id === data.operation_id || pending.operation_id === payload.operation_id
         if (sameOperation && ['processing', 'checkpoint'].includes(data.state) && data.operation_id && this.pending.size < 16) {
           this.pending.set(key, { ...payload, operation_id: data.operation_id })
+          retainPending = true
         }
         if (!['processing', 'checkpoint'].includes(data.state) && action !== 'resolve') {
           if (sameOperation) this.pending.delete(key)
         }
         return { ok: true, data }
       } catch { return { ok: false, error: 'invalid_graph' } }
+      } catch { return { ok: false, error: 'unavailable' } }
+      finally { if (!retainPending && ['generate', 'retry'].includes(action)) release() }
     }
     if (action !== 'resolve') return perform()
     let lookup = this.lookups.get(lookupKey)

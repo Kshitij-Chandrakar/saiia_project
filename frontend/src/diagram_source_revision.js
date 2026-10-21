@@ -3,7 +3,7 @@
 export async function canonicalRevision(question, answer, normalizeTransport = true) {
   const normalize = text => normalizeTransport ? String(text || '').replace(/\r\n?/g, '\n').trim() : String(text || '')
   const q = normalize(question), a = normalize(answer)
-  if (!q || !a || q.length > 8000 || a.length > 48000) throw Error('unverified_source')
+  if (!q || !a || [...q].length > 4000 || [...a].length > 24000) throw Error('unverified_source')
   const bytes = new TextEncoder().encode(`[${JSON.stringify(q)}, ${JSON.stringify(a)}]`)
   const digest = await crypto.subtle.digest('SHA-256', bytes)
   return 'v1:' + Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('')

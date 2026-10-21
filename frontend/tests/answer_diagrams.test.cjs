@@ -105,3 +105,46 @@ test('source UI gate needs explicit durable completion, not just a request ID',a
  assert.equal(completedDiagramSource(entry,'Other','answer',false),null)
  assert.equal(completedDiagramSource(entry,'Canonical','answer',false).request_id,'synthetic')
 })
+
+
+test('failed and throwing operations release slots beyond sixteen distinct sources',async()=>{
+ const {manager,bridge}=setup(async()=>({ok:false,status:503,json:async()=>({})}))
+ for(let i=1;i<=20;i++) {
+  const item={...payload,transcript_id:`40000000-0000-4000-8000-${String(i).padStart(12,'0')}`}
+  assert.equal((await bridge.request('generate',item)).ok,false)
+  assert.equal(bridge.pending.size,0)
+ }
+ manager._backendJson=async()=>{throw Error('synthetic network failure')}
+ assert.equal((await bridge.request('generate',payload)).error,'unavailable')
+ assert.equal(bridge.pending.size,0)
+ bridge.cancelAll(); assert.equal(bridge.pending.size,0)
+})
+
+test('old failure cannot release a newer same-key pending operation',async()=>{
+ const {manager,bridge}=setup(async()=>{})
+ let release; let started
+ const begun=new Promise(resolve=>{started=resolve})
+ manager._backendJson=async()=>{started();return await new Promise(resolve=>{release=resolve})}
+ const old=bridge.request('generate',payload);await begun
+ const newer={...payload}
+ bridge.pending.set(`${sid}:${tid}`,newer)
+ release({ok:false,status:503,payload:{}})
+ assert.equal((await old).ok,false)
+ assert.equal(bridge.pending.get(`${sid}:${tid}`).operation_id,newer.operation_id)
+ manager._backendJson=async()=>({ok:true,status:200,payload:{state:'cancelled'}})
+ bridge.cancelAll(); assert.equal(bridge.pending.size,0)
+})
+
+test('canonical history uses admitted code-point bounds without truncation',async()=>{
+ let entry={id:tid,question_text:'Q'.repeat(4000),answer_text:String.fromCodePoint(0x1f600).repeat(24000)}
+ const {bridge}=setup(async()=>({ok:true,status:200,json:async()=>({items:[entry]})}))
+ let result=await bridge.request('history',{session_id:sid})
+ assert.equal(result.ok,true);assert.equal(result.data.items[0].answer_text,entry.answer_text)
+ const {canonicalRevision}=await import('../src/diagram_source_revision.js')
+ assert.match(await canonicalRevision(entry.question_text,entry.answer_text,false),/^v1:/)
+ entry={...entry,answer_text:entry.answer_text+'x'}
+ assert.equal((await bridge.request('history',{session_id:sid})).ok,false)
+ await assert.rejects(canonicalRevision(entry.question_text,entry.answer_text,false),/unverified_source/)
+ entry={...entry,question_text:'Q'.repeat(4001),answer_text:'valid'}
+ assert.equal((await bridge.request('history',{session_id:sid})).ok,false)
+})

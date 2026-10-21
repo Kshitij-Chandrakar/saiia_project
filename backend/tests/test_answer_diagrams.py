@@ -60,7 +60,7 @@ import asyncio
 import copy
 import json
 import httpx
-from app.services.answer_diagram_service import validate_graph, generate_graph, DiagramService
+from app.services.answer_diagram_service import validate_graph, generate_graph, DiagramService, Graph
 from app.config import settings
 
 ANSWER = 'API sends tasks to Queue. Queue sends tasks to API.'
@@ -101,6 +101,12 @@ async def test_provider_single_bounded_call(monkeypatch,caplog,mode,expected):
         body=json.loads(request.content)
         assert body['store'] is False and body['model']=='gpt-4.1-mini'
         assert body['text']['format']['strict'] is True
+        schema = body['text']['format']['schema']
+        assert schema == Graph.model_json_schema()
+        assert schema['$defs']['Node']['properties']['label']['maxLength'] == 80
+        assert schema['$defs']['Node']['properties']['id']['pattern']
+        assert schema['properties']['nodes']['maxItems'] == 20
+        assert schema['additionalProperties'] is False
         assert not {'tools','reasoning','previous_response_id'} & body.keys()
         if mode=='timeout': raise httpx.ReadTimeout('synthetic')
         if mode=='http': return httpx.Response(503,json={'error':'DO NOT EXPOSE'})
@@ -368,3 +374,40 @@ def test_disabled_generation_still_resolves_saved_sources(monkeypatch):
     result=api.resolve_source(__import__('uuid').UUID('30000000-0000-4000-8000-000000000001'),SimpleNamespace(user_id='owner'),request_id='saved')
     assert result['eligible'] and result['generation_enabled'] is False
     assert store.source.call_count==1
+
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('mode', ['producer', 'waiter', 'simultaneous', 'shutdown'])
+async def test_producer_and_waiter_cancellation_are_distinct(monkeypatch, mode):
+    monkeypatch.setattr(settings, 'DIAGRAM_GENERATION_ENABLED', True)
+    started = asyncio.Event(); closed = asyncio.Event(); calls = []
+    async def provider(*args):
+        calls.append(1); started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+    store = MemoryStore(); service = DiagramService(store, provider)
+    identity = ('owner','session','t','revision','operation')
+    waiter = asyncio.create_task(service.run(identity))
+    await asyncio.wait_for(started.wait(), 2)
+    if mode == 'producer':
+        await service.cancel(identity)
+        assert (await asyncio.wait_for(waiter, 2))['state'] == 'cancelled'
+    elif mode == 'shutdown':
+        await service.shutdown()
+        assert (await asyncio.wait_for(waiter, 2))['state'] == 'cancelled'
+    else:
+        if mode == 'simultaneous':
+            service.tasks[identity].cancel()
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+        if mode == 'waiter':
+            assert not closed.is_set()  # Detach; do not cancel durable producer work.
+        await service.shutdown()
+    await asyncio.wait_for(closed.wait(), 2)
+    await asyncio.sleep(0)  # Flush the registered done callback, not a timing delay.
+    assert not service.tasks and service.capacity._value == 4 and calls == [1]
+    assert store.row['state'] == 'cancelled' and 'checkpoint' not in store.ops

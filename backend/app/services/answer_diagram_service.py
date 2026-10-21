@@ -164,7 +164,13 @@ class DiagramService:
         except BaseException:
             self.capacity.release()
             raise
-        return await asyncio.shield(task)
+        # wait() does not forward a producer's CancelledError to this waiter.
+        # The waiter's own cancellation still propagates, including simultaneous
+        # cancellation, on Python 3.10 as well as 3.11+.
+        await asyncio.wait({task})
+        if task.cancelled():
+            return await self.read(identity)
+        return task.result()
 
     async def produce(self, identity, token):
         user, session, transcript, revision, operation = identity
@@ -181,7 +187,15 @@ class DiagramService:
             await self.op('checkpoint', identity, token=token, graph=graph, model=model)
             return await self.read(identity)
         except asyncio.CancelledError:
-            await self.op('cancel', identity)
+            # A concurrent cancel endpoint and shutdown may cancel this producer
+            # twice. Finish the bounded durable cancellation before releasing it.
+            cleanup = asyncio.create_task(self.op('cancel', identity))
+            while not cleanup.done():
+                try:
+                    await asyncio.shield(cleanup)
+                except asyncio.CancelledError:
+                    continue
+            cleanup.result()  # Consume cleanup failures, never orphan the task.
             raise
         except DiagramError as exc:
             if not checkpoint:
