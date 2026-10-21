@@ -4,6 +4,7 @@ import { extractCopyableCode } from '../screen_mode_state.js'
 import StartupLoginScreen, { shouldShowStartupLogin } from './StartupLoginScreen.jsx'
 import StartupSessionChoiceScreen from './StartupSessionChoiceScreen.jsx'
 import StartupSessionSetupScreen from './StartupSessionSetupScreen.jsx'
+import MainAnswerDisplay from './MainAnswerDisplay.jsx'
 import { createGrpcMicTest } from '../grpc_mic_test.js'
 
 function formatTimeLabel(value) {
@@ -2060,12 +2061,7 @@ export default function MainDiagnosticsWindow(props) {
 
             <div className="diagnostics-grid">
               {!hideGenericDisplayedAnswer && (
-                <div className="glass-card">
-                  <p className="section-title">Displayed answer</p>
-                  <div className="answer-preview">
-                    {answer || 'The active overlay answer will appear here once SAIIA completes a request.'}
-                  </div>
-                </div>
+                <MainAnswerDisplay answer={answer} source={props.diagramSource} />
               )}
 
               <div className="glass-card">

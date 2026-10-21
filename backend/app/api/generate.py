@@ -1117,7 +1117,8 @@ def _store_transcript_for_response(
             normalized_transcript_source = "analyze_screen"
         elif normalized_transcript_source not in {"chat", "answer", "analyze_screen", "auto"}:
             normalized_transcript_source = "unknown"
-        _new_cloud_transcript_service().create_transcript_entry(
+        transcript_service = _new_cloud_transcript_service()
+        saved_transcript = transcript_service.create_transcript_entry(
             user_id=current_user.user_id,
             session_id=session_id,
             payload={
@@ -1139,6 +1140,11 @@ def _store_transcript_for_response(
                 },
             },
         )
+        stamp = getattr(transcript_service, 'stamp_generated_answer', None)
+        if stamp and not getattr(saved_transcript, 'replayed', True):
+            stamp(current_user.user_id, session_id, saved_transcript.record.id,
+                str(req.original_question or req.question or '').strip(), str(response.answer or '').strip(),
+                response.answer_type or '')
         response.transcript_entry_stored = True
         response.transcript_store_error = None
         return response

@@ -15,6 +15,7 @@
     "preelectron:build": "npm run grpc:sync-proto"
   },
   "dependencies": {
+    "@dagrejs/dagre": "3.1.1",
     "@grpc/grpc-js": "1.14.5",
     "@grpc/proto-loader": "0.8.1",
     "@supabase/supabase-js": "^2.111.0",

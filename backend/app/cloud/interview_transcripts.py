@@ -176,6 +176,18 @@ def _entry_from_payload(payload: dict[str, Any]) -> CloudInterviewTranscriptEntr
 
 
 class SupabaseInterviewTranscriptClient:
+    def stamp_generated_answer(self, user, session, entry, question, answer, answer_type):
+        # Separate trusted server-save path, never exposed by public transcript
+        # creation. Missing migration must not change normal answer-save success.
+        try:
+            self._session.post(f'{self._rest_url}/rpc/stamp_answer_source', headers=self._headers,
+                json=dict(p_user_id=user, p_session_id=session, p_transcript_id=entry,
+                          p_question=question.replace('\r\n', '\n').replace('\r', '\n').strip(),
+                          p_answer=answer.replace('\r\n', '\n').replace('\r', '\n').strip(), p_answer_type=answer_type),
+                timeout=SUPABASE_MUTATION_TIMEOUT)
+        except requests.RequestException:
+            pass
+
     def __init__(self) -> None:
         settings = get_supabase_settings().require_configured()
         if settings.service_role_key == settings.anon_key:
@@ -350,6 +362,11 @@ class SupabaseInterviewTranscriptClient:
 
 
 class CloudInterviewTranscriptService:
+    def stamp_generated_answer(self, user, session, entry, question, answer, answer_type):
+        stamp = getattr(self._client, 'stamp_generated_answer', None)
+        if stamp:
+            stamp(user, session, entry, question, answer, answer_type)
+
     def __init__(self, *, client: Any | None = None) -> None:
         self._client = client or SupabaseInterviewTranscriptClient()
 

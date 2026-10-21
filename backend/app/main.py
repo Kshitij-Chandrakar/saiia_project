@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.api import onboarding, auth, auto_stt, classify, email_unsubscribe, generate, interview_sessions, job_context, job_contexts, question_detect, resume, resumes, system_audio, transcribe
 from app.api.debug import router as debug_router
+from app.api import answer_diagrams
 from app.api.screen_ocr import router as screen_ocr_router
 from app.config import settings
 from app.services.resume_index_service import ResumeIndexError, ResumeIndexService
@@ -30,6 +31,8 @@ async def lifespan(app):
     try:
         yield
     finally:
+        from app.services.answer_diagram_service import shutdown_diagrams
+        await shutdown_diagrams()
         if server is not None:
             await server.stop(grace=2)
 
@@ -61,6 +64,7 @@ app.include_router(generate.router, prefix="/generate", tags=["Generate"])
 app.include_router(resume.router, prefix="/api/resume", tags=["Resume"])
 app.include_router(resumes.router, prefix="/api/resumes", tags=["Cloud Resumes"])
 app.include_router(interview_sessions.router, prefix="/api/interview-sessions", tags=["Interview Sessions"])
+app.include_router(answer_diagrams.router, prefix="/api/interview-sessions", tags=["Answer Diagrams"])
 app.include_router(job_contexts.router, prefix="/api/job-contexts", tags=["Cloud Job Contexts"])
 app.include_router(system_audio.router, prefix="/api/audio/system", tags=["System Audio"])
 app.include_router(job_context.router, prefix="/api/job-context", tags=["Job Context"])

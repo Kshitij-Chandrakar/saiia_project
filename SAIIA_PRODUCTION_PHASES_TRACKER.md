@@ -2463,3 +2463,15 @@ consumers for Mic, Computer and Both. Unmanaged/no-ack clients retain documented
 legacy delivery. See `docs/ANSWER_STREAMING_CLOSEOUT.md` for exact isolated
 verification, user-reported manual acceptance, compatibility and limitations.
 The recovery-hardening migration remains paused; no hosted readiness is inferred.
+
+
+## Answer quality and optional diagrams - Phase 7 local closeout (2026-10-21)
+
+Phases 1-4 answer policy/context and Phase 6 main-window-only saved architecture
+diagrams are locally implemented. Phase 7 verification and focused patch evidence
+are in `docs/ANSWER_QUALITY_PHASE7.md`. Human-rated naturalness/grounding, diagram
+semantic fidelity, live latency, hosted PostgreSQL and packaged Windows acceptance
+remain pending; this is not activation readiness. Diagram generation remains
+disabled. Source then diagram migrations are prepared and unapplied; the separate
+recovery-hardening migration stays paused. No staging, commit, push, hosted action
+or runtime activation is authorized by this closeout.

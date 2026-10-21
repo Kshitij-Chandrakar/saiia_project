@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import StartupAccountMenu from './StartupAccountMenu'
+import DesktopAnswerHistory from './DesktopAnswerHistory.jsx'
 import loginMascotUrl from '../assets/startup-login/login-mascot.png'
 import choiceArrowUrl from '../assets/startup-choice/choice-arrow.svg'
 import choiceBrandUrl from '../assets/startup-choice/choice-brand.svg'
@@ -46,6 +47,7 @@ export default function StartupSessionChoiceScreen({
   totalMinutes = null,
 }) {
   const [activeTab, setActiveTab] = useState('create')
+  const [answerHistorySession, setAnswerHistorySession] = useState('')
   const [message, setMessage] = useState('')
   const [pastSessions, setPastSessions] = useState([])
   const [pastSessionsLoading, setPastSessionsLoading] = useState(false)
@@ -241,9 +243,11 @@ export default function StartupSessionChoiceScreen({
                 </span>
               </div>
               <time dateTime={session?.started_at || undefined}>{formatPastSessionDate(session?.started_at)}</time>
+              {electronApi?.answerDiagram && <button type="button" onClick={() => setAnswerHistorySession(session.id)}>View answers</button>}
             </article>
           )
         })}
+        {answerHistorySession && <DesktopAnswerHistory key={answerHistorySession} sessionId={answerHistorySession} api={electronApi} />}
       </div>
     )
   }

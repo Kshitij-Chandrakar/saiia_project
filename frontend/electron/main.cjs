@@ -21,6 +21,7 @@ const {
   createIpcSenderValidator,
 } = require('./desktop_auth_session.cjs')
 const { createStartupWindowController } = require('./startup_window_controller.cjs')
+const { AnswerDiagrams, registerAnswerDiagramIpc } = require('./answer_diagrams.cjs')
 const { createScreenContextController } = require('./screen_context_controller.cjs')
 const { createScreenContextExecution, registerScreenContextIpc } = require('./screen_context_execution.cjs')
 const { readNdjsonStream } = require('./answer_stream_protocol.cjs')
@@ -65,6 +66,9 @@ let lastExternalCaptureTarget = null
 let foregroundWindowPollTimer = null
 let foregroundWindowPollInFlight = null
 let desktopAuthSessionManager = null
+const answerDiagrams = new AnswerDiagrams(() => desktopAuthSessionManager, () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('answer-diagram:invalidate')
+})
 let screenExecution = null
 const screenContext = createScreenContextController({
   inspectImage: buffer => nativeImage.createFromBuffer(buffer).getSize(),
@@ -542,6 +546,7 @@ function createDesktopAuthSessionManager() {
     safeStorage,
     openExternal: (url) => shell.openExternal(url),
     onScreenContextBoundary: () => screenContext.invalidate(),
+    onDiagramAuthBoundary: () => answerDiagrams.cancelAll(),
   })
 }
 
@@ -1824,6 +1829,7 @@ function createMainWindow() {
 
   mainWindow.on('closed', () => {
     screenContext.dispose()
+    answerDiagrams.cancelAll()
     mainWindow = null
     startupWindowController.reset()
   })
@@ -2101,6 +2107,7 @@ ipcMain.handle('cloud:get-startup-context', (event) => {
   validateAuthIpc(event)
   return desktopAuthSessionManager.getStartupContext()
 })
+registerAnswerDiagramIpc(ipcMain, validateAuthIpc, answerDiagrams)
 
 ipcMain.handle('cloud:refresh-startup-context', async (event) => {
   validateAuthIpc(event)
