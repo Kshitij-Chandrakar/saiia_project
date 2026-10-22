@@ -605,12 +605,24 @@ async def test_handler_deadline_closes_primary_and_fallback_uses_remaining_budge
     _,store=setup
     for name,value in [('FIRST_TOKEN',.03),('IDLE',.02),('OVERALL',.2),('FALLBACK_RESERVE',.06)]:
         monkeypatch.setattr(api.settings,'ANSWER_MODEL_'+name+'_SECONDS',value)
+    from app.answer_generation import GenerationBudget
+    now = [0.0]
+    budgets = []
+    def budget(limits):
+        value = GenerationBudget(limits, clock=lambda: now[0])
+        budgets.append(value)
+        return value
+    monkeypatch.setattr(sg, 'GenerationBudget', budget)
     calls=[]
     closed=[]
     async def provider(client,model,prepared,key):
         calls.append(model.provider)
         try:
-            if model.provider=='openai': await asyncio.sleep(1)
+            if model.provider=='openai':
+                now[0] = .04
+                await asyncio.Event().wait()  # Production first-token wait cancels this gate.
+            else:
+                assert budgets[0].expires - now[0] == pytest.approx(.16)
             yield 'Dependency injection supplies dependencies externally.',None,True
         finally: closed.append(model.provider)
     monkeypatch.setattr(sg,'provider_stream',provider)

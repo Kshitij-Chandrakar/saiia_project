@@ -7,6 +7,11 @@ load_dotenv()
 
 
 class Settings:
+    # Diagram generation is a separate opt-in; saved reads remain available.
+    DIAGRAM_GENERATION_ENABLED = os.getenv('DIAGRAM_GENERATION_ENABLED', 'false').lower() == 'true'
+    DIAGRAM_MODEL = os.getenv('DIAGRAM_MODEL', 'gpt-4.1-mini').strip()
+    DIAGRAM_TIMEOUT_SECONDS = 25
+    DIAGRAM_MAX_OUTPUT_TOKENS = 4096
     ANSWER_MODELS = os.getenv("ANSWER_MODELS", "openai:gpt-5.6-luna,openai:gpt-5.6-terra,groq:openai/gpt-oss-120b,gemini:gemini-3.5-flash-lite,gemini:gemini-3.6-flash")
     ANSWER_DEFAULT_MODEL = os.getenv("ANSWER_DEFAULT_MODEL", "gemini:gemini-3.5-flash-lite")
     ANSWER_FALLBACK_MODEL = os.getenv("ANSWER_FALLBACK_MODEL", "groq:openai/gpt-oss-120b")

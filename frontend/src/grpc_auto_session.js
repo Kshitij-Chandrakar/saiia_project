@@ -137,6 +137,7 @@ export async function createGrpcAutoSession({ api, stream, source = 'microphone'
       onAnswer({ streamIdentity: next.answerStreamIdentity, requestId: next.answerRequestId, question: next.currentQuestion, answer: lastText,
         category: next.answerCategory, provider: next.answerProvider,
         status: complete ? 'complete' : 'generating',
+        answerSaved: complete && (next.answerStreamVersion === 1 || next.cloudAnswerSaveStatus === 'saved'),
         historyEntryId: `auto-grpc-${connected.manualRun}-${next.answerStreamVersion === 1 && next.answerRequestId ? next.answerRequestId : questionNumber}` })
       if (complete) {
         completedQuestion = questionNumber

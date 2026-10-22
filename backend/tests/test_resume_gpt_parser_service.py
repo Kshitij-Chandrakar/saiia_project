@@ -7,6 +7,14 @@ from app.services import resume_gpt_parser_service as gpt_module
 from app.services.resume_gpt_parser_service import ResumeGptParserService
 from app.services.resume_parser_service import ResumeParserService
 
+
+@pytest.fixture(autouse=True)
+def no_unmocked_resume_fallback_provider(monkeypatch):
+    # These tests exercise GPT parsing and provider-free fallback, not a live
+    # Groq resume extractor. Make the fallback boundary deterministic even when
+    # the surrounding suite supplies synthetic answer-provider credentials.
+    monkeypatch.setattr(gpt_module.settings, 'GROQ_API_KEY', '')
+
 SANITIZED_ANAND_RESUME = """
 ANAND VISHWAKARMA
 LinkedIn | +91 7011472391 | anandvishwakarma21j@example.com | GitHub | Leetcode

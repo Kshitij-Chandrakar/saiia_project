@@ -107,6 +107,9 @@ def test_first_generation_valid_skips_correction(monkeypatch: pytest.MonkeyPatch
         },
     )
 
+    # This test owns code validation, not a live explanation-provider call.
+    monkeypatch.setattr(AnswerGenerator, "_format_coding_answer_with_explanation_model",
+        lambda self, **kwargs: {"answer": "```python\n" + kwargs["code"] + "\n```", "model": "synthetic-explanation"})
     generator = AnswerGenerator(include_context=True)
     result = generator.generate_answer(
         question=READY_QUESTION,
@@ -148,6 +151,9 @@ def test_context_not_ready_skips_correction_and_marks_unverified(monkeypatch: py
         },
     )
 
+    # This test owns code validation, not a live explanation-provider call.
+    monkeypatch.setattr(AnswerGenerator, "_format_coding_answer_with_explanation_model",
+        lambda self, **kwargs: {"answer": "```python\n" + kwargs["code"] + "\n```", "model": "synthetic-explanation"})
     generator = AnswerGenerator(include_context=True)
     result = generator.generate_answer(
         question="HackerRank solve this quickly",
@@ -207,6 +213,9 @@ def test_correction_429_keeps_primary_code_and_returns_unverified(monkeypatch: p
         ),
     )
 
+    # This test owns code validation, not a live explanation-provider call.
+    monkeypatch.setattr(AnswerGenerator, "_format_coding_answer_with_explanation_model",
+        lambda self, **kwargs: {"answer": "```python\n" + kwargs["code"] + "\n```", "model": "synthetic-explanation"})
     generator = AnswerGenerator(include_context=True)
     result = generator.generate_answer(
         question=READY_QUESTION,
@@ -536,7 +545,7 @@ def test_correction_prompt_is_compact_and_token_capped(monkeypatch: pytest.Monke
 
 
 @pytest.mark.anyio
-async def test_personal_generate_route_skips_resume_rag_and_repairs_short_answer(
+async def test_phase2_personal_route_skips_resume_rag_without_invented_story_repair(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     req = generate_api.GenerateRequest(
@@ -559,20 +568,20 @@ async def test_personal_generate_route_skips_resume_rag_and_repairs_short_answer
     monkeypatch.setattr(
         generate_api.generator,
         "generate_answer",
-        lambda **kwargs: _non_coding_result("I played outside with friends and learned teamwork.", "personal"),
+        lambda **kwargs: _non_coding_result("In a hypothetical situation, I would listen before choosing an action.", "personal"),
     )
 
     response = await generate_api.generate_answer(req)
 
     assert retrieval_called["value"] is False
     assert response.generate_category == "personal"
-    assert response.answer_mode == "CREATIVE_PERSONAL"
+    assert response.answer_mode == "HYPOTHETICAL_PERSONAL"
     assert response.personal_subtype == "childhood_memory"
-    assert response.creative_generation_used is True
-    assert response.personal_answer_repaired is True
+    assert response.creative_generation_used is False
+    assert response.personal_answer_repaired is False
     assert response.retrieval_used is False
     assert "FastAPI" not in response.answer
-    assert len(response.answer.split()) >= 110
+    assert response.answer.startswith("In a hypothetical situation")
 
 
 @pytest.mark.anyio
@@ -606,3 +615,55 @@ async def test_professional_generate_route_still_uses_resume_rag(
     assert response.retrieval_used is True
     assert response.retrieved_chunk_count == 1
     assert response.answer_mode == "GROUNDED_PROFESSIONAL"
+
+
+@pytest.mark.parametrize("fenced", [True, False])
+def test_code_only_preserves_unverified_warning_outside_fence(monkeypatch: pytest.MonkeyPatch, fenced) -> None:
+    monkeypatch.setattr(agmod.settings, "REFINEMENT_ENABLED", False)
+    monkeypatch.setattr(
+        AnswerGenerator,
+        "_generate_with_primary_provider",
+        lambda self, **kwargs: _primary_result("```python\nprint(input())\n```" if fenced else "print(input())"),
+    )
+    monkeypatch.setattr(
+        agmod,
+        "validate_submission_code_against_contract",
+        lambda code, contract: {
+            "passed": True,
+            "errors": [],
+            "python_syntax_validation_used": True,
+            "python_syntax_valid": True,
+            "incomplete_code_detected": False,
+            "incomplete_code_errors": [],
+            "editor_stub_validation_used": False,
+            "editor_stub_validation_passed": True,
+            "editor_stub_validation_errors": [],
+            "required_stub_preserved": True,
+        },
+    )
+
+    # This test owns code validation, not a live explanation-provider call.
+    monkeypatch.setattr(AnswerGenerator, "_format_coding_answer_with_explanation_model",
+        lambda self, **kwargs: {"answer": "```python\n" + kwargs["code"] + "\n```", "model": "synthetic-explanation"})
+    generator = AnswerGenerator(include_context=True)
+    result = generator.generate_answer(
+        question="HackerRank solve this quickly. Code only.",
+        question_type="technical",
+        source="manual",
+        question_context_type="coding",
+        screen_question_type="coding",
+        coding_answer_mode=True,
+        profile_context_enabled=False,
+    )
+
+    assert result["hackerrank_context_ready"] is False
+    assert result["correction_pass_needed"] is False
+    assert result["correction_pass_used"] is False
+    assert result["correction_skip_reason"] == "context_not_ready"
+    assert result["submission_ready_code"] is False
+    assert result["unverified_code_warning"] == "Full HackerRank problem context was not captured."
+
+
+    assert result["answer"].count("Warning:") == 1
+    assert "Warning:" not in result["answer"].split("```")[1]
+    assert result["answer"].endswith("Warning: " + result["unverified_code_warning"])

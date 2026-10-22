@@ -59,9 +59,9 @@ def test_openai_generation_validation_and_correction_use_same_model(monkeypatch:
     def fake_openai_generate(**kwargs):
         phases.append(kwargs["phase"])
         if kwargs["phase"] == "primary_generation":
-            return "Authentication checks identity."
+            return "Authentication and authorization are identical."
         if kwargs["phase"] == "semantic_validation":
-            return '{"valid": false, "severity": "medium", "issues": [{"type": "missing_example", "claim": "", "reason": "Missing Real-life example", "suggested_fix": "Add relevant example"}]}'
+            return '{"valid": false, "severity": "medium", "issues": [{"type": "factual_error", "claim": "identical", "reason": "Identity differs from permission", "suggested_fix": "Distinguish concepts"}]}'
         if kwargs["phase"] == "semantic_correction":
             return (
                 "Authentication checks identity before access is granted.\n\n"
@@ -171,15 +171,15 @@ def test_shallow_technical_process_triggers_conditional_semantic_validation(monk
 
     monkeypatch.setattr(generator.openai_provider, "generate", fake_openai_generate)
 
-    result = generator.generate_answer(
-        "What are the challenges of combining retrieved information with LLM generation?",
-        "technical",
-        profile_context_enabled=False,
-    )
+    with pytest.raises(ProviderError) as failure:
+        generator.generate_answer(
+            "What are the challenges of combining retrieved information with LLM generation?",
+            "technical",
+            profile_context_enabled=False,
+        )
 
     assert phases == ["primary_generation", "semantic_validation"]
-    assert result["semantic_validation_used"] is True
-    assert result["validation_issues_count"] >= 1
+    assert failure.value.error_type == "invalid_response"
 
 
 def test_false_superiority_comparison_triggers_validation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -206,14 +206,14 @@ def test_false_superiority_comparison_triggers_validation(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(generator.openai_provider, "generate", fake_openai_generate)
 
-    result = generator.generate_answer("REST vs GraphQL.", "technical", profile_context_enabled=False)
+    with pytest.raises(ProviderError) as failure:
+        generator.generate_answer("REST vs GraphQL.", "technical", profile_context_enabled=False)
 
     assert phases == ["primary_generation", "semantic_validation"]
-    assert result["semantic_validation_used"] is True
-    assert result["validation_issues_count"] >= 1
+    assert failure.value.error_type == "invalid_response"
 
 
-def test_malformed_semantic_validator_output_preserves_primary(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_phase3_malformed_required_validator_rejects_invalid_primary(monkeypatch: pytest.MonkeyPatch) -> None:
     import app.nlp.answer_generator as agmod
 
     monkeypatch.setattr(agmod.settings, "ANSWER_PROVIDER", "openai")
@@ -221,7 +221,7 @@ def test_malformed_semantic_validator_output_preserves_primary(monkeypatch: pyte
     monkeypatch.setattr(agmod.settings, "ENABLE_CONDITIONAL_CORRECTION", True)
 
     generator = AnswerGenerator()
-    primary = "Authentication verifies identity before access."
+    primary = "Authentication and authorization are identical."
     phases: list[str] = []
 
     def fake_openai_generate(**kwargs):
@@ -234,15 +234,14 @@ def test_malformed_semantic_validator_output_preserves_primary(monkeypatch: pyte
 
     monkeypatch.setattr(generator.openai_provider, "generate", fake_openai_generate)
 
-    result = generator.generate_answer("What is authentication?", "technical", profile_context_enabled=False)
+    with pytest.raises(ProviderError) as failure:
+        generator.generate_answer("What is authentication?", "technical", profile_context_enabled=False)
 
     assert phases == ["primary_generation", "semantic_validation"]
-    assert result["answer"] == primary
-    assert result["semantic_validation_status"] == "failed"
-    assert result["correction_status"] == "not_needed"
+    assert failure.value.error_type == "invalid_response"
 
 
-def test_failed_correction_revalidation_keeps_primary(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_phase3_failed_required_correction_rejects_invalid_primary(monkeypatch: pytest.MonkeyPatch) -> None:
     import app.nlp.answer_generator as agmod
 
     monkeypatch.setattr(agmod.settings, "ANSWER_PROVIDER", "openai")
@@ -250,7 +249,7 @@ def test_failed_correction_revalidation_keeps_primary(monkeypatch: pytest.Monkey
     monkeypatch.setattr(agmod.settings, "ENABLE_CONDITIONAL_CORRECTION", True)
 
     generator = AnswerGenerator()
-    primary = "Authentication verifies identity before access."
+    primary = "Authentication and authorization are identical."
     phases: list[str] = []
 
     def fake_openai_generate(**kwargs):
@@ -258,15 +257,15 @@ def test_failed_correction_revalidation_keeps_primary(monkeypatch: pytest.Monkey
         if kwargs["phase"] == "primary_generation":
             return primary
         if kwargs["phase"] == "semantic_validation":
-            return '{"valid": false, "severity": "medium", "issues": [{"type": "missing_example", "claim": "", "reason": "Missing required example", "suggested_fix": "Add example"}]}'
+            return '{"valid": false, "severity": "medium", "issues": [{"type": "factual_error", "claim": "identical", "reason": "Identity and permission differ", "suggested_fix": "Distinguish the concepts"}]}'
         if kwargs["phase"] == "semantic_correction":
-            return "Authentication verifies identity."
+            return "Authentication and authorization are the same."
         raise AssertionError(kwargs["phase"])
 
     monkeypatch.setattr(generator.openai_provider, "generate", fake_openai_generate)
 
-    result = generator.generate_answer("What is authentication?", "technical", profile_context_enabled=False)
+    with pytest.raises(ProviderError) as failure:
+        generator.generate_answer("What is authentication?", "technical", profile_context_enabled=False)
 
     assert phases == ["primary_generation", "semantic_validation", "semantic_correction"]
-    assert result["answer"] == primary
-    assert result["correction_status"] == "failed_validation"
+    assert failure.value.error_type == "invalid_response"

@@ -4,7 +4,7 @@ import re
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.nlp.classifier import QuestionClassifier
+from app.nlp.classifier import QuestionClassifier, looks_like_interview_instruction
 
 router = APIRouter()
 logger = logging.getLogger("question_detect_api")
@@ -241,6 +241,9 @@ def extract_question_candidate(transcript: str, combined_transcript: str | None 
             if match:
                 tail = _normalize_candidate_spacing(match.group(1))
                 if tail:
+                    if looks_like_interview_instruction(tail):
+                        return {"candidate": _ensure_question_punctuation(tail), "source": "interview_prompt",
+                                "confidence": 0.9, "reason": "instruction after question context"}
                     for prompt in QUESTION_PROMPT_PATTERNS:
                         prompt_match = re.search(rf"({re.escape(prompt)}.*)", tail, flags=re.IGNORECASE)
                         if prompt_match:
@@ -252,6 +255,12 @@ def extract_question_candidate(transcript: str, combined_transcript: str | None 
                                 "confidence": 0.92,
                                 "reason": repair_reason or f"question extracted after context phrase '{context}'",
                             }
+
+        for sentence in reversed(sentences):
+            if looks_like_interview_instruction(sentence):
+                return {"candidate": _ensure_question_punctuation(sentence),
+                        "source": "interview_prompt" if source_hint == "latest" else "combined_buffer",
+                        "confidence": 0.9, "reason": "explicit interview instruction"}
 
         latest_coding_index = -1
         latest_coding_prompt = ""

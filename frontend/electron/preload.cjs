@@ -73,6 +73,12 @@ const electronAPI = {
   listMyAnswers: (sessionId) => ipcRenderer.invoke('cloud:list-my-answers', sessionId),
   saveMyAnswer: (sessionId, body) => ipcRenderer.invoke('cloud:save-my-answer', sessionId, body),
   generateAnswer: (body) => ipcRenderer.invoke('generate:answer', body),
+  answerDiagram: (action, payload) => ipcRenderer.invoke('answer-diagram:request', action, payload),
+  onAnswerDiagramInvalidated: (callback) => {
+    const listener = () => callback()
+    ipcRenderer.on('answer-diagram:invalidate', listener)
+    return () => ipcRenderer.removeListener('answer-diagram:invalidate', listener)
+  },
   startAnswerStream: (body) => ipcRenderer.invoke('generate:answer:stream:start', body),
   cancelAnswerStream: (streamId) => ipcRenderer.invoke('generate:answer:stream:cancel', streamId),
   onAnswerStreamEvent: (requestId, fn) => {

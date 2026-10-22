@@ -209,12 +209,8 @@ def build_variation_plan(
     )
     previous_answers = tuple(_bound_answer(entry.answer) for entry in previous[-history_limit:])
     repetition_count = len(previous_answers) + 1
-    rewrite_allowed = rewrite_enabled and answer_plan.answer_type not in {
-        "coding",
-        "debugging",
-        "output_prediction",
-        "mcq",
-    }
+    # Similarity is diagnostic, not evidence that a correct answer needs rewriting.
+    rewrite_allowed = False
     return _plan(
         answer_plan=answer_plan,
         normalized_question=normalized_question,
@@ -248,16 +244,12 @@ def similarity_score(current: str, previous_answers: tuple[str, ...], *, answer_
 def variation_instruction(plan: VariationPlan) -> str:
     if not plan.repetition_detected or not plan.variation_enabled:
         return ""
-    previous = "\n\n---\n\n".join(plan.previous_answers[-2:])
     return (
-        "\n\nControlled variation for repeated question:\n"
-        "This is a repeated or substantially equivalent question. Generate a fresh answer without saying it is repeated.\n"
-        f"Variation profile: {plan.variation_profile}.\n"
-        f"You may vary: {', '.join(plan.allowed_dimensions)}.\n"
-        f"You must preserve: {', '.join(plan.locked_dimensions)}.\n"
-        "Avoid copying the recent wording, opening, transitions, bullet phrasing, and example scenario.\n"
-        "Return only the final answer.\n\n"
-        f"Recent answer excerpt:\n{previous}"
+        "\n\nRepeated-question consistency:\n"
+        "Correct facts, code and supported personal evidence may retain the same wording. "
+        "Do not invent a new story or change meaning to reduce similarity. "
+        "If the question explicitly requests another example, an alternative approach or more detail, "
+        "answer that request under the same policy; it does not authorize new personal facts."
     )
 
 
@@ -299,7 +291,7 @@ def _profile_for_answer_type(answer_type: str, repetition_count: int) -> str:
         "hr_motivation": ("motivation_first", "fit_first", "growth_first"),
         "role_fit": ("skills_first", "role_overlap_first", "motivation_first"),
         "behavioral": ("action_emphasis", "learning_emphasis", "challenge_emphasis"),
-        "personal_story": ("scene_led", "reflective_opening", "alternate_safe_detail"),
+        "personal_story": ("scene_led", "reflective_opening", "supported_detail_emphasis"),
         "resume_project": ("contribution_led", "architecture_led", "challenge_led"),
         "resume_experience": ("contribution_led", "learning_led", "technology_led"),
         "system_design": ("component_order_shift", "tradeoff_emphasis", "request_flow_first"),
@@ -311,7 +303,7 @@ def _allowed_dimensions(answer_type: str) -> tuple[str, ...]:
     if answer_type in {"coding", "debugging", "output_prediction", "mcq"}:
         return ("explanation wording", "supporting detail order")
     if answer_type == "personal_story":
-        return ("opening style", "safe low-risk scene detail", "reflection emphasis", "closing sentence")
+        return ("opening style", "supported detail order", "reflection emphasis", "closing sentence")
     if answer_type in {"resume_project", "resume_experience", "role_fit", "behavioral"}:
         return ("opening sentence", "verified detail order", "emphasis", "transitions")
     if answer_type.startswith("technical") or answer_type == "system_design":
@@ -332,7 +324,7 @@ def _locked_dimensions(answer_type: str) -> tuple[str, ...]:
     if answer_type == "mcq":
         return base + ("correct option",)
     if answer_type.startswith("technical"):
-        return base + ("Real-life example: heading", "technical qualifications")
+        return base + ("technical qualifications",)
     return base
 
 

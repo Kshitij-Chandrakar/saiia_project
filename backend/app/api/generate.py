@@ -412,7 +412,10 @@ def _selected_resume_context_active(retrieval: dict[str, Any]) -> bool:
     return bool(retrieval.get("selected_resume_id_used") and retrieval.get("retrieved_chunks"))
 
 
-def _require_selected_resume_context(req: "GenerateRequest", retrieval: dict[str, Any]) -> None:
+def _require_selected_resume_context(req: "GenerateRequest", retrieval: dict[str, Any], *, plan=None) -> None:
+    if (plan is not None and plan.profile_context_policy == "FORBIDDEN"
+            and plan.answer_type not in {"personal_story", "resume_project", "behavioral"}):
+        return
     if _selected_resume_strict_mode(req) and not _selected_resume_context_active(retrieval):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1117,7 +1120,8 @@ def _store_transcript_for_response(
             normalized_transcript_source = "analyze_screen"
         elif normalized_transcript_source not in {"chat", "answer", "analyze_screen", "auto"}:
             normalized_transcript_source = "unknown"
-        _new_cloud_transcript_service().create_transcript_entry(
+        transcript_service = _new_cloud_transcript_service()
+        saved_transcript = transcript_service.create_transcript_entry(
             user_id=current_user.user_id,
             session_id=session_id,
             payload={
@@ -1139,6 +1143,11 @@ def _store_transcript_for_response(
                 },
             },
         )
+        stamp = getattr(transcript_service, 'stamp_generated_answer', None)
+        if stamp and not getattr(saved_transcript, 'replayed', True):
+            stamp(current_user.user_id, session_id, saved_transcript.record.id,
+                str(req.original_question or req.question or '').strip(), str(response.answer or '').strip(),
+                response.answer_type or '')
         response.transcript_entry_stored = True
         response.transcript_store_error = None
         return response
@@ -1328,12 +1337,6 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
             else followup_resolution.resolved_question or str(req.question or "").strip()
         )
         if followup_resolution.resolution_status == "needs_clarification":
-            if _selected_resume_strict_mode(req):
-                retrieval = await run_in_threadpool(
-                    _retrieve_resume_context, req=req, request=request,
-                    use_profile_context=False, question=effective_question, category=req.category,
-                )
-                _require_selected_resume_context(req, retrieval)
             clarification = followup_resolution.clarification_question or "Which earlier topic should I connect this follow-up to?"
             yield _stream_event(
                 {
@@ -1414,6 +1417,8 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
             category=effective_category,
             source=source,
             screen_question_type=screen_question_type,
+            original_question=str(req.original_question or req.question or ''),
+            followup=followup_resolution.follow_up_detected,
         )
         suppress_personal_context = (
             source == "screen"
@@ -1462,7 +1467,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                 question=generation_question,
                 category=effective_category,
             )
-            _require_selected_resume_context(req, retrieval)
+            _require_selected_resume_context(req, retrieval, plan=answer_plan)
             retrieval_used = retrieval["retrieval_used"]
             retrieved_chunks = retrieval["retrieved_chunks"]
             if retrieval["retrieval_ms"] > settings.RAG_TIMEOUT_MS:
@@ -1493,6 +1498,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                     profile_context_enabled=generation_profile_context_enabled,
                     editor_text=generation_editor_text,
                     answer_plan=answer_plan,
+                    conversation_context=followup_intent.reference_context if followup_intent else None,
                     cancellation=cancellation,
                 ),
                 cancellation=cancellation,
@@ -1555,6 +1561,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                 profile_context_enabled=generation_profile_context_enabled,
                 editor_text=generation_editor_text,
                 answer_plan=answer_plan,
+                conversation_context=followup_intent.reference_context if followup_intent else None,
                 primary_result_override=primary_result,
             )
             context_status = _evaluate_hackerrank_context_readiness(
@@ -1673,6 +1680,7 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
                         profile_context_enabled=generation_profile_context_enabled,
                         editor_text=generation_editor_text,
                         answer_plan=answer_plan,
+                        conversation_context=followup_intent.reference_context if followup_intent else None,
                     )
                     fallback_answer = str(fallback.get("answer") or "")
                     if fallback_answer:
@@ -1903,6 +1911,8 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
         category=effective_category,
         source=source,
         screen_question_type=screen_question_type,
+        original_question=str(req.original_question or req.question or ''),
+        followup=followup_resolution.follow_up_detected,
     )
     coding_runtime_audit = {
         "request_question_excerpt": _excerpt(req.question),
@@ -1941,12 +1951,18 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             result["personal_validation_errors"] = []
             result["personal_answer_repaired"] = False
             return
-        if (result.get("answer_category") or routed_category) != "personal" and not personal_subtype:
+        # The resolved task owns repair eligibility. Earlier category/subtype
+        # hints can describe a follow-up reference rather than its coding task.
+        if answer_plan.answer_type != "personal_story":
             return
-        repaired, errors, repaired_used = generator.repair_personal_answer_if_needed(
-            question=generation_question,
-            answer=str(result.get("answer") or ""),
-        )
+        try:
+            repaired, errors, repaired_used = generator.repair_personal_answer_if_needed(
+                question=generation_question,
+                answer=str(result.get("answer") or ""),
+            )
+        except ProviderError:
+            # This helper also runs inside retrieval-error handlers.
+            raise HTTPException(status_code=500, detail="Personal answer failed required validation.") from None
         result["answer"] = repaired
         result["personal_validation_errors"] = errors
         result["personal_answer_repaired"] = repaired_used
@@ -1979,7 +1995,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             question=generation_question,
             category=effective_category,
         )
-        _require_selected_resume_context(req, retrieval)
+        _require_selected_resume_context(req, retrieval, plan=answer_plan)
         retrieval_used = retrieval["retrieval_used"]
         retrieved_chunks = retrieval["retrieved_chunks"]
         if retrieval["retrieval_ms"] > settings.RAG_TIMEOUT_MS:
@@ -2012,6 +2028,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             profile_context_enabled=generation_profile_context_enabled,
             editor_text=generation_editor_text,
             answer_plan=answer_plan,
+            conversation_context=followup_intent.reference_context if followup_intent else None,
         )
         context_status = _evaluate_hackerrank_context_readiness(
             platform=str(req.screen_platform_detected or result.get("platform_detected") or ""),
@@ -2340,6 +2357,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             profile_context_enabled=use_profile_context,
             editor_text=generation_editor_text,
             answer_plan=answer_plan,
+            conversation_context=followup_intent.reference_context if followup_intent else None,
         )
         context_status = _evaluate_hackerrank_context_readiness(
             platform=str(req.screen_platform_detected or result.get("platform_detected") or ""),
@@ -2434,10 +2452,6 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             selected_resume_candidate_name_source="none",
             project_context_chunks_found=0,
             project_context_source="none",
-            specific_project_intent_detected=False,
-            matched_project_name="",
-            project_match_confidence="none",
-            project_answer_mode="none",
             selected_resume_strict_mode=False,
             selected_resume_context_used_in_prompt=False,
             generic_fallback_blocked=False,
@@ -2616,7 +2630,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             question=generation_question,
             category=effective_category,
         )
-        _require_selected_resume_context(req, retrieval)
+        _require_selected_resume_context(req, retrieval, plan=answer_plan)
         retrieval_used = retrieval["retrieval_used"]
         retrieved_chunks = retrieval["retrieved_chunks"]
         if retrieval["retrieval_ms"] > settings.RAG_TIMEOUT_MS:
@@ -2643,6 +2657,7 @@ async def generate_answer(req: GenerateRequest, request: Request = None):
             profile_context_enabled=generation_profile_context_enabled,
             editor_text=generation_editor_text,
             answer_plan=answer_plan,
+            conversation_context=followup_intent.reference_context if followup_intent else None,
         )
         context_status = _evaluate_hackerrank_context_readiness(
             platform=str(req.screen_platform_detected or result.get("platform_detected") or ""),

@@ -13,7 +13,7 @@ from requests.adapters import HTTPAdapter
 
 from app.cloud.supabase_config import SupabaseConfigurationError, get_supabase_settings
 from app.nlp.answer_generator import ProviderError
-from app.services.resume_index_service import ResumeIndexError, ResumeIndexService
+from app.services.resume_index_service import PROJECT_SECTION_NAMES, ResumeIndexError, ResumeIndexService
 from app.services.resume_parser_service import ResumeParserService
 from app.services.resume_service import MAX_RESUME_FILE_BYTES, PROFILE_FIELD_ORDER, ResumeExtractionError
 
@@ -56,7 +56,6 @@ SUPABASE_ACTIVE_CHUNK_PAGE_SIZE = 100
 SUPABASE_ACTIVE_CHUNK_HARD_LIMIT = 500
 PROJECT_CONTEXT_LIMIT_FLOOR = 4
 SPECIFIC_PROJECT_CONTEXT_LIMIT = 6
-PROJECT_SECTION_NAMES = {"projects", "project", "experience", "work_experience", "internship"}
 PROJECT_INDEX_FIELDS = ("projects", "experience", "work_experience")
 PROJECT_KEYWORDS = {
     "project",
@@ -1219,6 +1218,7 @@ class CloudResumeService:
                     "text": text,
                     "preview": str(metadata.get("preview") or text[:120]),
                     "tokens": list(metadata.get("tokens") or []),
+                    "project_title": str(metadata.get("project_title") or ""),
                 }
         )
         return self._indexer.retrieve_from_chunks(chunks, question=question, category=category, limit=limit)
@@ -1252,6 +1252,7 @@ class CloudResumeService:
                     "text": text,
                     "preview": str(metadata.get("preview") or text[:120]),
                     "tokens": list(metadata.get("tokens") or []),
+                    "project_title": str(metadata.get("project_title") or ""),
                 }
             )
         if not chunks:
@@ -1300,40 +1301,14 @@ class CloudResumeService:
                 "project_answer_mode": str(project_focus.get("project_answer_mode") or "general_projects"),
             }
         retrieval = self._indexer.retrieve_from_chunks(chunks, question=question, category=category, limit=limit)
-        if retrieval.get("retrieved_chunks"):
-            retrieval["selected_resume_candidate_name"] = candidate_name
-            retrieval["selected_resume_candidate_name_source"] = candidate_name_source
-            retrieval["project_context_chunks_found"] = 0
-            retrieval["project_context_source"] = "selected_resume_general"
-            retrieval["specific_project_intent_detected"] = False
-            retrieval["matched_project_name"] = ""
-            retrieval["project_match_confidence"] = "none"
-            retrieval["project_answer_mode"] = "none"
-            return retrieval
-        fallback_chunks = chunks[: max(1, int(limit or 1))]
-        return {
-            "retrieval_used": True,
-            "retrieved_chunk_count": len(fallback_chunks),
-            "retrieved_chunks": [
-                {
-                    "chunk_id": chunk["chunk_id"],
-                    "source": chunk["source"],
-                    "section": chunk["section"],
-                    "text": chunk["text"],
-                    "preview": chunk["preview"],
-                }
-                for chunk in fallback_chunks
-            ],
-            "retrieval_ms": retrieval.get("retrieval_ms", 0.0),
-            "selected_resume_candidate_name": candidate_name,
-            "selected_resume_candidate_name_source": candidate_name_source,
-            "project_context_chunks_found": 0,
-            "project_context_source": "selected_resume_general",
-            "specific_project_intent_detected": False,
-            "matched_project_name": "",
-            "project_match_confidence": "none",
-            "project_answer_mode": "none",
-        }
+        retrieval.update(
+            selected_resume_candidate_name=candidate_name,
+            selected_resume_candidate_name_source=candidate_name_source,
+            project_context_chunks_found=0, project_context_source="selected_resume_general",
+            specific_project_intent_detected=False, matched_project_name="",
+            project_match_confidence="none", project_answer_mode="none",
+        )
+        return retrieval
 
     @staticmethod
     def _project_intent_detected(question: str) -> bool:
@@ -1362,7 +1337,7 @@ class CloudResumeService:
             query_hits = len(all_tokens & query_tokens)
             if not section_match and keyword_hits <= 0:
                 continue
-            project_title = self._project_title_from_chunk(text)
+            project_title = str(chunk.get("project_title") or self._project_title_from_chunk(text))
             project_title_normalized = self._normalize_project_name(project_title)
             exact_match = bool(
                 specific_normalized
@@ -1402,7 +1377,17 @@ class CloudResumeService:
             scored.append((score, confidence, chunk))
         scored.sort(key=lambda item: item[0], reverse=True)
         if specific_normalized:
-            matched_scored = [item for item in scored if item[1] in {"exact", "partial"}]
+            named = [item for item in scored if self._normalize_project_name(
+                str(item[2].get("project_title") or self._project_title_from_chunk(str(item[2].get("text") or "")))) == specific_normalized]
+            exact = [item for item in scored if item[1] == "exact"]
+            matched_scored = named or exact or [item for item in scored if item[1] == "partial"]
+            titles = {self._normalize_project_name(str(item[2].get("project_title") or self._project_title_from_chunk(str(item[2].get("text") or ""))))
+                      for item in matched_scored}
+            if not named and len(titles) > 1:
+                matched_scored = []  # Ambiguous project identity is not evidence for either project.
+            if matched_scored:
+                best_title = str(matched_scored[0][2].get("project_title") or self._project_title_from_chunk(str(matched_scored[0][2].get("text") or "")))
+                best_confidence = matched_scored[0][1]
             if not matched_scored:
                 return {
                     "chunks": [],
@@ -1572,6 +1557,7 @@ class CloudResumeService:
                         "section": chunk["section"],
                         "preview": chunk["preview"],
                         "tokens": chunk.get("tokens", []),
+                        "project_title": chunk.get("project_title", ""),
                     },
                 }
             )

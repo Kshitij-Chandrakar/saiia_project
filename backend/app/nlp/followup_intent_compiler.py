@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from app.nlp.coding_quality_gate import detect_programming_language
-from app.nlp.followup_resolver import FollowUpResolution
+from app.nlp.followup_resolver import FollowUpResolution, completed_context_entry
 
 
 RequestedAction = Literal[
@@ -69,6 +69,7 @@ class FollowUpIntentPlan(BaseModel):
         "not_applicable",
     ] = "not_applicable"
     inherited_constraints: dict[str, Any] = Field(default_factory=dict)
+    reference_context: dict[str, str] = Field(default_factory=dict)
     needs_clarification: bool = False
     clarification_question: str | None = None
     ambiguity_reason: str | None = None
@@ -89,7 +90,7 @@ def _clean(value: Any) -> str:
 def _latest_context_entry(context_entries: list[dict[str, Any]], mode: str, entry_ids: list[str]) -> dict[str, Any]:
     wanted = set(entry_ids)
     for item in context_entries:
-        if not isinstance(item, dict):
+        if not isinstance(item, dict) or not completed_context_entry(item):
             continue
         if str(item.get("mode") or "").strip().lower() != mode:
             continue
@@ -273,6 +274,16 @@ def compile_followup_intent(
         language=language,
         fallback_question=resolution.resolved_question or original,
     )
+    metadata = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
+    coding = entry.get("coding_answer") or metadata.get("codingAnswer") or {}
+    code = str(entry.get("code") or (coding.get("code") if isinstance(coding, dict) else "") or "")
+    # Conversation text is never evidence of candidate experience, even when final.
+    context = {"answer_excerpt": str(entry.get("answer_excerpt") or "")[:1000],
+               "code": code[:4000], "function_signature": str(entry.get("function_signature") or "")[:300],
+               "platform": str(entry.get("platform") or "")[:100]}
+    context = {key: value for key, value in context.items() if value}
+    if resolved_question != (resolution.resolved_question or original):
+        resolved_question += "\nRequested follow-up: " + original
     constraints = {
         "previous_code_available": bool(entry.get("code") or entry.get("code_present")),
         "previous_language": _entry_language(entry),
@@ -292,6 +303,7 @@ def compile_followup_intent(
         programming_language=language,
         platform_mode=platform_mode,  # type: ignore[arg-type]
         inherited_constraints=constraints,
+        reference_context=context,
         confidence=max(resolution.confidence, 0.72 if action != "general_followup" else resolution.confidence),
         resolution_ms=round((time.perf_counter() - started) * 1000, 2),
     )

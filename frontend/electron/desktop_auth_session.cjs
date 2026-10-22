@@ -249,6 +249,7 @@ class DesktopAuthSessionManager {
     this.now = options.now || (() => Date.now())
     this.beforeCacheWriteForTest = options.beforeCacheWriteForTest || null
     this.onScreenContextBoundary = options.onScreenContextBoundary || (() => {})
+    this.onDiagramAuthBoundary = options.onDiagramAuthBoundary || (() => {})
 
     this.status = AUTH_STATUSES.SIGNED_OUT
     this.error = ''
@@ -584,6 +585,7 @@ class DesktopAuthSessionManager {
       return this.getSafeState()
     }
     this.onScreenContextBoundary()
+    this.onDiagramAuthBoundary()
     this._abortActiveAnswerStreams()
     this.session = session
     this.sessionGeneration += 1
@@ -693,6 +695,7 @@ class DesktopAuthSessionManager {
     }
     if (this.user?.user_id && nextUser.user_id && this.user.user_id !== nextUser.user_id) {
       this.onScreenContextBoundary()
+      this.onDiagramAuthBoundary()
       this._clearVerificationCache()
       this._clearCloudCache()
     }
@@ -744,7 +747,7 @@ class DesktopAuthSessionManager {
     return this.getSafeState()
   }
 
-  async _backendJson(route, method, accessToken, body = null, extraHeaders = null) {
+  async _backendJson(route, method, accessToken, body = null, extraHeaders = null, timeoutMs = null) {
     try {
       const headers = {
         Authorization: `Bearer ${accessToken}`,
@@ -753,7 +756,7 @@ class DesktopAuthSessionManager {
       const options = {
         method,
         headers,
-        signal: this._requestSignal(),
+        signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : this._requestSignal(),
       }
       if (body !== null) {
         headers['Content-Type'] = 'application/json'
@@ -770,6 +773,7 @@ class DesktopAuthSessionManager {
   }
 
   async logout() {
+    this.onDiagramAuthBoundary()
     this.onScreenContextBoundary()
     const session = this.session
     const logoutLoginGeneration = this.loginAttemptGeneration
@@ -1488,6 +1492,7 @@ class DesktopAuthSessionManager {
   }
 
   _clearLocalSession(status, message = '', errorCode = '') {
+    this.onDiagramAuthBoundary()
     this.onScreenContextBoundary()
     if (status === AUTH_STATUSES.SIGNED_OUT) {
       this.endedInterviewSessionIds.clear()

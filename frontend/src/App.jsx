@@ -1,3 +1,4 @@
+import { completedDiagramSource } from './diagram_source_revision.js'
 import { mergeOverlaySnapshot } from './overlay_snapshot.js'
 import { isCurrentScreenDelivery, screenContextCommandFence, screenContextDisplayPayload } from './screen_context_events'
 import WebsiteNotFound, { WebsiteRouteHistory } from './WebsiteNotFound'
@@ -3484,6 +3485,9 @@ function MainWindow() {
               selectedResumeName,
               selectedResumeIdExists: Boolean(selectedResumeId),
               answerType: generatePayload.answer_type || '',
+              answerSaved: generatePayload.transcript_entry_stored === true,
+              savedRequestId: generateRequestBody.request_id,
+              savedSessionId: generateRequestBody.session_id || '',
               codingAnswer: generatePayload.coding_answer || null,
               programmingLanguage: generatePayload.resolved_language || generatePayload.coding_answer?.language || '',
               followUpTopic: generatePayload.follow_up_topic || '',
@@ -5006,6 +5010,7 @@ function MainWindow() {
             setAnswerRevealActive(entry.status === 'generating')
             if (entry.status === 'complete') setQuestionHistoryState(current => appendQuestionHistoryEntry(current,
               createQuestionHistoryEntry({ id: entry.historyEntryId, mode: 'auto', question: entry.question,
+                metadata: { answerSaved: entry.answerSaved === true, savedRequestId: entry.requestId, savedSessionId: startupSessionConfigRef.current?.activeSessionId || '' },
                 fullAnswer: entry.answer, displayedAnswer: entry.answer, category: entry.category, provider: entry.provider,
                 status: 'complete', completedAt: new Date().toISOString() })))
           },
@@ -6290,12 +6295,13 @@ function MainWindow() {
               if (historyCreated) setQuestionHistoryState(current => updateQuestionHistoryEntry(current,
                 'answer', historyEntryId, { status: 'error' }))
             },
-            onAnswer: ({ question, answer: text, category, provider, status: entryStatus, historyEntryId, manualRun }) => {
+            onAnswer: ({ question, answer: text, category, provider, status: entryStatus, historyEntryId, manualRun, requestId, answerSaved }) => {
               if (!isCurrent()) return
               if (!historyCreated && question && entryStatus === 'complete') {
                 historyCreated = true
                 setQuestionHistoryState(current => appendQuestionHistoryEntry(current,
                   createQuestionHistoryEntry({ id: historyEntryId, mode: 'answer', question,
+                    metadata: { answerSaved: answerSaved === true, savedRequestId: requestId || '', savedSessionId: startupSessionConfigRef.current?.activeSessionId || '' },
                     fullAnswer: text, displayedAnswer: text, status: 'complete', category, provider,
                     completedAt: new Date().toISOString() })))
               }
@@ -6453,6 +6459,7 @@ function MainWindow() {
             if (failed.historyMode && failed.historyEntryId) setQuestionHistoryState(current => updateQuestionHistoryEntry(
               current, failed.historyMode, failed.historyEntryId,
               { status: 'complete', fullAnswer: result.answer, displayedAnswer: result.answer, provider: result.provider,
+                metadata: { answerSaved: result.transcript_entry_stored === true, savedRequestId: failed.body.request_id || '', savedSessionId: failed.body.session_id || '' },
                 model: result.model, completedAt: new Date().toISOString() }, { requestId: retryUiId }))
             setProvider(result.provider)
             failedAnswerTurnRef.current = null
@@ -6702,6 +6709,8 @@ function MainWindow() {
 
   return (
     <MainDiagnosticsWindow
+      diagramSource={completedDiagramSource(getSelectedQuestionHistoryEntry(questionHistory, answerDisplayMode),
+        fullAnswer, answerDisplayMode, answerRevealActive)}
       isCollapsed={isDiagnosticsCollapsed}
       setIsCollapsed={setIsDiagnosticsCollapsed}
       fontSize={fontSize}

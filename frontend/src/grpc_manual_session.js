@@ -107,6 +107,8 @@ export async function createGrpcManualSession({ api, options, isCurrent = () => 
       if (next.currentQuestion && (next.currentAnswer !== lastAnswer || next.lastAnswerStatus === 'answer_completed')) {
         lastAnswer = next.currentAnswer || ''
         onAnswer({ question, answer: lastAnswer, category: next.answerCategory, provider: next.answerProvider,
+          requestId: next.answerRequestId || '',
+          answerSaved: next.lastAnswerStatus === 'answer_completed' && (next.answerStreamVersion === 1 || next.cloudAnswerSaveStatus === 'saved'),
           manualRun: next.manualRun, status: next.lastAnswerStatus === 'answer_completed' ? 'complete' : 'generating', historyEntryId: state.historyEntryId })
       }
       if (next.lastAnswerStatus === 'answer_completed' || next.manualStatus === 'manual_no_question') {

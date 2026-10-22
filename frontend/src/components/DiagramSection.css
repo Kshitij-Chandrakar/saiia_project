@@ -1,0 +1,19 @@
+.answer-diagram { margin-top: 16px; border-top: 1px solid #64748b; padding-top: 12px; min-width: 0; }
+.answer-diagram h3 { font-size: 16px; margin: 0 0 8px; }
+.answer-diagram p, .answer-diagram li { overflow-wrap: anywhere; }
+.answer-diagram button, .answer-diagram summary { cursor: pointer; -webkit-app-region: no-drag; }
+.diagram-scroll { max-width: 100%; max-height: 420px; overflow: auto; -webkit-app-region: no-drag; color: #7dd3fc; }
+.diagram-scroll svg { display: block; font: 14px system-ui, sans-serif; }
+.answer-diagram [data-kind] { --diagram-fill: #183a53; --diagram-accent: #7dd3fc; }
+.answer-diagram [data-kind="service"] { --diagram-fill: #16453e; --diagram-accent: #5eead4; }
+.answer-diagram [data-kind="database"], .answer-diagram [data-kind="storage"] { --diagram-fill: #3c2b59; --diagram-accent: #c4b5fd; }
+.answer-diagram [data-kind="queue"], .answer-diagram [data-kind="cache"] { --diagram-fill: #50371b; --diagram-accent: #fcd34d; }
+.diagram-node-shape > * { fill: var(--diagram-fill); stroke: var(--diagram-accent); stroke-width: 2px; }
+.diagram-node-shape .diagram-node-detail { fill: none; }
+.diagram-scroll text { fill: #f8fafc; paint-order: stroke; stroke: #111827; stroke-width: 3px; stroke-linejoin: round; }
+.diagram-node text { stroke: var(--diagram-fill); }
+.diagram-edge path { stroke-width: 2px; }
+.diagram-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 12px; font: 13px system-ui, sans-serif; color: #e2e8f0; }
+.diagram-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.diagram-legend span::before { content: ''; width: 9px; height: 9px; border-radius: 2px; background: var(--diagram-accent); }
+.answer-diagram details { margin-top: 10px; }

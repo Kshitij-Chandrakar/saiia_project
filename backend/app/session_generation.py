@@ -53,9 +53,15 @@ def cached_context(function):
         cache = _prepared.get()
         if cache is None:
             return function(*args, **kwargs)
+        control = cache.get('_control')
+        if control:
+            control.check()
         key = function.__name__
         if key not in cache:
-            cache[key] = function(*args, **kwargs)
+            value = function(*args, **kwargs)
+            if control:
+                control.check()  # Discard late retrieval before caching or starting generation.
+            cache[key] = value
         return copy.deepcopy(cache[key])
     return call
 
@@ -357,7 +363,7 @@ async def dispatch_session_generation(req, request, *, buffered):
                 return
             from app.nlp.answer_variation import variation_scope
             primary_cache = {}
-            context_cache = {}
+            context_cache = {'_control': control}
             models = attempt_models(selected_model) if key else (None,)
             budget = GenerationBudget(Deadlines.from_config(settings, coding=coding_budget_required(req, api)))
             if display:

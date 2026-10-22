@@ -7,6 +7,12 @@ from pathlib import Path
 from typing import Any
 
 
+PROJECT_SECTION_NAMES = frozenset({
+    "project", "projects", "personal_projects", "academic_projects",
+    "experience", "work_experience", "internship",
+})
+
+
 class ResumeIndexError(Exception):
     """Raised when resume indexing or retrieval fails."""
 
@@ -152,14 +158,23 @@ class ResumeIndexService:
         query_tokens = self._tokenize(question)
         category_tokens = self._tokenize(category)
 
+        from app.nlp.answer_planner import build_answer_plan
+        plan = build_answer_plan(question=question, category=category)
+        general_context = plan.answer_type in {"hr_introduction", "role_fit", "hr_motivation"}
         scored_chunks = []
+        seen = set()
         for chunk in chunks:
-            chunk_tokens = chunk.get("tokens", [])
+            fingerprint = " ".join(str(chunk.get("text") or "").split()).casefold()
+            if not fingerprint or fingerprint in seen:
+                continue
+            seen.add(fingerprint)
+            chunk_tokens = self._tokenize(str(chunk.get("text") or ""))
             score = self._score_chunk(
                 query_tokens=query_tokens,
                 category_tokens=category_tokens,
                 chunk_tokens=chunk_tokens,
                 section=chunk.get("section", ""),
+                allow_general_context=general_context,
             )
             if score <= 0:
                 continue
@@ -228,6 +243,7 @@ class ResumeIndexService:
                 paragraphs = [document["text"]]
 
             for paragraph in paragraphs:
+                paragraph_start = len(chunks)
                 units = self._split_to_units(paragraph)
                 current = ""
                 for unit in units:
@@ -244,6 +260,10 @@ class ResumeIndexService:
                 if current:
                     chunks.append(self._make_chunk(chunk_index, section, current))
                     chunk_index += 1
+                if section.lower() in PROJECT_SECTION_NAMES:
+                    title = paragraph.split(" - ", 1)[0].split(":", 1)[0][:120].strip()
+                    for chunk in chunks[paragraph_start:]:
+                        chunk["project_title"] = title
 
         return chunks
 
@@ -270,6 +290,7 @@ class ResumeIndexService:
         category_tokens: list[str],
         chunk_tokens: list[str],
         section: str,
+        allow_general_context: bool = False,
     ) -> float:
         if not chunk_tokens:
             return 0.0
@@ -277,6 +298,11 @@ class ResumeIndexService:
         query_counter = Counter(query_tokens)
         chunk_counter = Counter(chunk_tokens)
         overlap = sum(min(query_counter[token], chunk_counter[token]) for token in query_counter)
+        # Section boosts rank matching evidence; they do not establish relevance.
+        broad_context = (allow_general_context or "yourself" in query_tokens or
+                         (section == "projects" and any(t in {"project", "projects"} for t in query_tokens)))
+        if not overlap and not broad_context:
+            return 0.0
         norm = math.sqrt(len(query_tokens) * len(chunk_tokens)) if query_tokens else 1.0
         score = (overlap / norm) if overlap > 0 else 0.0
 
@@ -370,3 +396,34 @@ class ResumeIndexService:
     def _clean_text(self, text: str) -> str:
         lines = [line.strip() for line in str(text or "").splitlines()]
         return "\n".join(line for line in lines if line).strip()
+
+
+def relevant_excerpt(text: str, question: str, limit: int) -> str:
+    """Prefer a matching sentence/window within the existing character budget.
+
+    Input is authorized caller-supplied evidence, never an instruction source.
+    No-match keeps a bounded general excerpt, not a claimed retrieval match.
+    """
+    text = str(text or "").strip()
+    if len(text) <= limit:
+        return text
+    indexer = ResumeIndexService()
+    tokens = set(indexer._tokenize(question))
+    spans = list(re.finditer(r"[^\n.!?]+[.!?]?", text))
+    if not spans:
+        return text[:limit].rsplit(" ", 1)[0]
+    def score(span):
+        return len(tokens & set(indexer._tokenize(span.group())))
+    best = max(spans, key=score)
+    start = best.start() if score(best) else 0
+    if best.end() - start > limit:
+        # Position the window around matching terms rather than cutting off a tail fact.
+        hits = [m for m in re.finditer(r"[a-zA-Z0-9+#]+", best.group()) if m.group().lower() in tokens]
+        if hits:
+            start += max(0, hits[-1].end() - limit + min(100, limit // 3))
+    excerpt = text[start:start + limit]
+    if start and not text[start - 1].isspace() and text[start - 1] not in '.!?':
+        excerpt = excerpt.partition(' ')[2]
+    if start + limit < len(text) and not text[start + limit].isspace():
+        excerpt = excerpt.rsplit(' ', 1)[0]
+    return excerpt.strip()

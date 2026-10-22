@@ -205,3 +205,116 @@ def test_stop_acknowledges_pending_cleanup_instead_of_claiming_device_is_release
             gate.set()
             await server.stop(0)
     asyncio.run(exercise())
+
+@pytest.mark.parametrize('close_kind', ['end_session', 'cancel', 'half_close'])
+def test_system_stop_racing_completed_send_joins_sender(monkeypatch, close_kind):
+    """3.10/3.11 wait_for may return a completed send despite parent cancellation."""
+    native_release = threading.Event()
+    reads, closes, senders = [], [], []
+    cleanup_before = set(grpc_server._system_cleanup_tasks)
+    class Capture:
+        def open_streaming_loopback_session(self, **kwargs): return NS()
+        def read_streaming_pcm_chunk(self, session):
+            reads.append(True)
+            if len(reads) > 1:
+                assert native_release.wait(5)
+            return chunk()
+        def close_streaming_loopback_session(self, session):
+            closes.append(True)
+            return True
+    sockets = configure(monkeypatch, Capture)
+    async def exercise():
+        loop = asyncio.get_running_loop()
+        previous_factory = loop.get_task_factory()
+        entered, release = asyncio.Event(), asyncio.Event()
+        class RacingTask(asyncio.Task):
+            def cancel(self, msg=None):
+                if self.get_coro().__qualname__.endswith('open_system_capture.<locals>.send'):
+                    senders.append(self)
+                    native_release.set()
+                    # Finish the child and cancel its parent on the same loop
+                    # iteration, reproducing wait_for's completed-child branch.
+                    release.set()
+                    loop.call_soon(super().cancel, msg)
+                    return True
+                return super().cancel(msg)
+        loop.set_task_factory(lambda loop, coro, **kwargs: RacingTask(coro, loop=loop, **kwargs))
+        original_send = Socket.send
+        async def send(self, data):
+            if isinstance(data, bytes):
+                entered.set()
+                await release.wait()
+            await original_send(self, data)
+        monkeypatch.setattr(Socket, 'send', send)
+        server, port = await grpc_server.start_server(port=0)
+        try:
+            async with grpc.aio.insecure_channel(f'127.0.0.1:{port}') as channel:
+                call = await start(rpc.InterviewRealtimeServiceStub(channel))
+                await asyncio.wait_for(entered.wait(), 3)
+                if close_kind == 'half_close':
+                    await call.done_writing()
+                else:
+                    await call.write(pb.InterviewClientEvent(session_id='system', request_id='stop',
+                        **{close_kind: pb.Empty()}))
+                    status = await until(call, lambda e: e.status.code in ('ended', 'canceled', 'system_cleanup_pending'))
+                    assert status.status.code == ('ended' if close_kind == 'end_session' else 'canceled')
+                while True:
+                    item = await call.read()
+                    if item is grpc.aio.EOF:
+                        break
+                    assert not item.HasField('error')
+                assert closes == [True]
+                assert senders and all(task.done() for task in senders)
+                assert not (grpc_server._system_cleanup_tasks - cleanup_before)
+        finally:
+            native_release.set()
+            release.set()
+            await server.stop(0)
+            loop.set_task_factory(previous_factory)
+    asyncio.run(exercise())
+
+def test_repeated_disconnect_cancellation_awaits_legacy_answer_cleanup(monkeypatch):
+    from app import grpc_answer_pipeline
+    async def exercise():
+        entered, release, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        async def answer(text):
+            yield {'type': 'question', 'text': text}
+            yield {'type': 'started'}
+            try:
+                await asyncio.Event().wait()
+            finally:
+                entered.set()
+                await release.wait()
+                finished.set()
+        monkeypatch.setattr(grpc_answer_pipeline, 'stream_question_answer', answer)
+        async def requests():
+            yield pb.InterviewClientEvent(session_id='synthetic', start_session=pb.StartSession(mode='auto_pipeline'))
+            await asyncio.Event().wait()
+        service = grpc_server.InterviewRealtimeService()
+        started = asyncio.Event()
+        async def consume():
+            async for event in service.StreamInterview(requests(), NS()):
+                if event.HasField('ready'):
+                    await sockets[0].events.put(json.dumps({'type': 'Turn', 'end_of_turn': True,
+                        'transcript': 'Explain dependency injection', 'turn_order': 0}))
+                if event.HasField('answer_started'):
+                    started.set()
+        task = asyncio.create_task(consume())
+        try:
+            await asyncio.wait_for(started.wait(), 3)
+            task.cancel()
+            await asyncio.wait_for(entered.wait(), 3)
+            task.cancel()  # transport/server shutdown while answer finalization awaits
+            release.set()
+            result = await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), 3)
+            assert isinstance(result[0], asyncio.CancelledError)
+            assert finished.is_set()
+            assert not any(t is not asyncio.current_task() and not t.done()
+                and t.get_coro().__qualname__.startswith('InterviewRealtimeService.StreamInterview.')
+                for t in asyncio.all_tasks())
+        finally:
+            release.set()
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+    sockets = configure(monkeypatch, NS)
+    asyncio.run(exercise())

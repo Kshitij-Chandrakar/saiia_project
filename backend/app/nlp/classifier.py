@@ -93,6 +93,16 @@ def looks_like_definition_question(question: str) -> bool:
     return False
 
 
+def looks_like_interview_instruction(question: str) -> bool:
+    """An imperative with an object, not a mention of a design/topic in prose."""
+    text = re.sub(r"\s+", " ", str(question or "").strip().lower()).strip(" .?!")
+    match = re.fullmatch(r"(?:please\s+)?(?:design|build|implement)\s+(?:an?|the)\s+(.+)", text)
+    if not match:
+        return False
+    subject = match.group(1).split()
+    return bool(subject and subject[-1] not in {'a', 'an', 'the', 'and', 'or', 'for', 'with', 'to', 'of', 'using'})
+
+
 def looks_like_coding_implementation_request(question: str) -> bool:
     normalized = re.sub(r"\s+", " ", str(question or "").strip().lower())
     if not normalized:
@@ -303,6 +313,8 @@ class QuestionClassifier:
 
         if looks_like_coding_implementation_request(normalized):
             return True, "matches coding implementation request", normalized
+        if looks_like_interview_instruction(normalized):
+            return True, "matches interview instruction", normalized
 
         question_starts = (
             "tell me",

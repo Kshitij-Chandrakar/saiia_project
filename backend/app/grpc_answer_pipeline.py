@@ -91,7 +91,7 @@ async def stream_question_answer(transcript, cloud_context=None, logical_turn_id
         managed = bool(cloud_context and settings.ENABLE_SESSION_ANSWER_MODELS)
         if managed:
             fields.update(session_id=cloud_context.session_id, request_id=logical_turn_id,
-                followup_mode='answer', followup_context=getattr(cloud_context, '_answer_history', [])[-5:])
+                followup_mode='answer', followup_context=list(reversed(getattr(cloud_context, '_answer_history', [])[-5:])))
         if incremental and logical_turn_id:
             fields.setdefault('request_id', logical_turn_id)
         try:
@@ -188,8 +188,11 @@ async def stream_question_answer(transcript, cloud_context=None, logical_turn_id
                 if managed:
                     import time
                     history = getattr(cloud_context, '_answer_history', [])
+                    code_match = re.search(r'```([\w+-]*)\s*\n(.*?)```', answer, re.DOTALL)
                     cloud_context._answer_history = (history + [dict(entry_id=logical_turn_id, mode='answer', question=question[:8000],
-                        answer_excerpt=answer[:12000], category=category, created_at=time.time())])[-5:]
+                        answer_excerpt=answer[:12000], code=code_match.group(2)[:4000] if code_match else '',
+                        programming_language=code_match.group(1) if code_match else '',
+                        category=category, status='complete', created_at=time.time())])[-5:]
                 yield {"type": "completed", "category": category, **identity}
     finally:
         try:
