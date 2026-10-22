@@ -9,6 +9,7 @@ import ipaddress
 import importlib.util
 import platform
 import json
+import logging
 import time
 import uuid
 from app.answer_generation import GenerationStopped
@@ -24,7 +25,56 @@ AUTO_COOLDOWN_SECONDS = 4.0
 STABLE_PARTIAL_SECONDS = 1.2
 
 
+RPC_CLEANUP_JOIN_TIMEOUT_SECONDS = 5.0
+GRPC_SHUTDOWN_CLEANUP_TIMEOUT_SECONDS = 5.0
 _system_cleanup_tasks = set()
+_rpc_cleanup_tasks = set()
+_cleanup_logger = logging.getLogger("realtime")
+
+
+def _track_cleanup(coroutine, registry):
+    task = asyncio.create_task(coroutine)
+    registry.add(task)
+    def finished(done):
+        try:
+            if not done.cancelled() and done.exception() is not None:
+                # Neither exception text nor traceback is safe diagnostic content.
+                _cleanup_logger.warning("gRPC background cleanup failed.")
+        finally:
+            registry.discard(done)
+    task.add_done_callback(finished)
+    return task
+
+
+async def _join_cleanup(tasks, deadline, *, clock=None):
+    """Bound only this waiter; asyncio.wait never cancels the owned children."""
+    cancelled = False
+    pending = {task for task in tasks if not task.done()}
+    clock = clock or asyncio.get_running_loop().time
+    while pending and clock() < deadline:
+        try:
+            _, pending = await asyncio.wait(pending, timeout=max(0, deadline - clock()))
+        except asyncio.CancelledError:
+            cancelled = True
+    return cancelled
+
+
+async def shutdown_cleanup():
+    """Give retained RPC/native cleanup a bounded drain during application shutdown."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + GRPC_SHUTDOWN_CLEANUP_TIMEOUT_SECONDS
+    cancelled = False
+    while loop.time() < deadline:
+        tasks = {task for task in _rpc_cleanup_tasks | _system_cleanup_tasks
+                 if task.get_loop() is loop and not task.done()}
+        if not tasks:
+            break
+        cancelled |= await _join_cleanup(tasks, deadline)
+    if any(not task.done() and task.get_loop() is loop
+           for task in _rpc_cleanup_tasks | _system_cleanup_tasks):
+        _cleanup_logger.warning("gRPC cleanup remains pending at shutdown.")
+    if cancelled:
+        raise asyncio.CancelledError()
 
 def question_intake_diagnostics(values):
     # Transcript content belongs in explicit UI events, not diagnostics.
@@ -70,6 +120,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
         system_metrics = {}
         system_owned = False
         system_stopping = False
+        resource_cleanup = cleanup_deadline = None
         system_open_future = system_cleanup = None
         system_queue = asyncio.Queue(maxsize=3)
         from app.pcm_mixer import PcmMixer
@@ -538,9 +589,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         # Unknown native ownership must not permit a second open. Backend restart required.
                         self._system_cleanup_failed = True
                         return False
-                system_cleanup = asyncio.create_task(release())
-                _system_cleanup_tasks.add(system_cleanup)
-                system_cleanup.add_done_callback(_system_cleanup_tasks.discard)
+                system_cleanup = _track_cleanup(release(), _system_cleanup_tasks)
             done, _ = await asyncio.wait({system_cleanup}, timeout=3)
             return bool(done and system_cleanup.result())
 
@@ -591,6 +640,26 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 answer_task.cancel()
                 await asyncio.gather(answer_task, return_exceptions=True)
 
+        def start_resource_cleanup():
+            nonlocal resource_cleanup, cleanup_deadline
+            if resource_cleanup is None:
+                cleanup_deadline = asyncio.get_running_loop().time() + RPC_CLEANUP_JOIN_TIMEOUT_SECONDS
+                async def audio():
+                    # Stop system senders before closing their STT socket.
+                    try:
+                        return await close_system_capture()
+                    finally:
+                        await close_stt()
+                async def release():
+                    results = await asyncio.gather(stop_answers(), audio(), return_exceptions=True)
+                    # Independent resources finish even when another branch fails.
+                    for result in results:
+                        if isinstance(result, BaseException):
+                            raise result
+                    return results[1]
+                resource_cleanup = _track_cleanup(release(), _rpc_cleanup_tasks)
+            return resource_cleanup
+
         async def process_requests():
             nonlocal system_owned, audio_source, cloud_context, auto_mode, manual_mode, manual_stopped, session_id, total_chunks, total_audio_bytes, last_request_id, stopping_stt, stt_chunks, stt_bytes, non_silent_chunks, answer_version
             canceled = False
@@ -601,12 +670,14 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                     if kind == "ping":
                         await emit(request.request_id, "pong", pb.Empty())
                     elif kind in ("cancel", "end_session"):
-                        await stop_answers()
-                        cleaned = await close_system_capture()
-                        await close_stt()
+                        resources = start_resource_cleanup()
+                        if await _join_cleanup({resources}, cleanup_deadline):
+                            raise asyncio.CancelledError()
+                        cleaned = (resources.done() and not resources.cancelled() and
+                                   resources.exception() is None and resources.result())
                         await emit(request.request_id, "status", pb.Status(
                             code=("canceled" if kind == "cancel" else "ended") if cleaned else "system_cleanup_pending",
-                            message="Stream closed." if cleaned else "Computer capture cleanup incomplete. Wait and restart; restart backend if it persists."))
+                            message="Stream closed." if cleaned else "Stream cleanup is still running. Wait before restarting."))
                         return
                     elif kind == "start_session":
                         if session_id is not None or not request.session_id or len(request.session_id) > 128:
@@ -771,24 +842,15 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                     break
                 yield value
         finally:
+            resources = start_resource_cleanup()
             async def cleanup():
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
-                # Fence answers before existing ordered audio cleanup.
-                await stop_answers()
-                await close_system_capture()
-                await close_stt()
-            # Transport shutdown can cancel again during cleanup on every
-            # protocol version. Keep ownership until all RPC tasks are joined.
-            closing = asyncio.create_task(cleanup())
-            cancelled = False
-            while not closing.done():
-                try:
-                    await asyncio.shield(closing)
-                except asyncio.CancelledError:
-                    cancelled = True
-            closing.result()
-            if cancelled:
+                await resources
+            # Strong registry ownership outlives this RPC's bounded wait. The same
+            # absolute deadline also covers an earlier explicit Stop/end join.
+            closing = _track_cleanup(cleanup(), _rpc_cleanup_tasks)
+            if await _join_cleanup({closing}, cleanup_deadline):
                 raise asyncio.CancelledError()
 
 
@@ -815,7 +877,10 @@ async def serve(host, port):
     try:
         await server.wait_for_termination()
     finally:
-        await server.stop(grace=2)
+        try:
+            await server.stop(grace=2)
+        finally:
+            await shutdown_cleanup()
 
 
 def main():

@@ -34,7 +34,11 @@ async def lifespan(app):
         from app.services.answer_diagram_service import shutdown_diagrams
         await shutdown_diagrams()
         if server is not None:
-            await server.stop(grace=2)
+            from app.grpc_server import shutdown_cleanup
+            try:
+                await server.stop(grace=2)
+            finally:
+                await shutdown_cleanup()
 
 
 app = FastAPI(title="SAIIA Backend", lifespan=lifespan)

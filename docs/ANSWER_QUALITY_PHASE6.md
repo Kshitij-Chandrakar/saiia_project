@@ -1,7 +1,7 @@
 # Answer quality Phase 6: saved-answer architecture diagrams
 
 2026-10-21. Local implementation only. Generation remains disabled by default.
-No hosted migration, activation, provider evaluation, recording or playback occurred.
+During Phase 6, no hosted migration, activation, provider evaluation, recording or playback occurred.
 
 ## Baseline and preservation
 
@@ -130,7 +130,7 @@ SDK retries, fallback or repair. Refusal, incomplete response, timeout, malforme
 JSON, oversized body and provider failure become content-free error codes.
 Credentials, prompts, answers and provider messages are never logged by this
 feature. Tests assert authorization values and interview content are absent from
-captured diagnostics. No live request was made.
+captured diagnostics. The Phase 6 tests made no live request.
 
 Official references checked:
 [GPT-4.1 mini](https://developers.openai.com/api/docs/models/gpt-4.1-mini) and
