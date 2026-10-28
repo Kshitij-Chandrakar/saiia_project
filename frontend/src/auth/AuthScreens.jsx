@@ -450,24 +450,10 @@ function formatSessionTime(value) {
 }
 
 
-function formatSessionContextLine(session) {
-  const role = session?.target_role || 'No target role'
-  const company = session?.company_name || 'No company'
-  return `${role} · ${company}`
-}
 
 
-function formatTranscriptMetaLine(entry) {
-  const parts = []
-  if (entry?.source) {
-    parts.push(`Source: ${entry.source}`)
-  }
-  if (entry?.category) {
-    parts.push(`Category: ${entry.category}`)
-  }
-  parts.push(`Created: ${formatSessionTime(entry?.created_at)}`)
-  return parts.join(' · ')
-}
+
+
 
 
 function triggerTextDownload(filename, content, format) {

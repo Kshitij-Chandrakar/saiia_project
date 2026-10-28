@@ -222,7 +222,7 @@ export function normalizeReadableAskAIText(value) {
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/g, "'")
-  text = text.replace(/\\([\\`*_{}\[\]()#+\-.!>])/g, '$1')
+  text = text.replace(/\\([\\`*_{}[\]()#+\-.!>])/g, '$1')
   text = text
     .split('\n')
     .map((line) => line

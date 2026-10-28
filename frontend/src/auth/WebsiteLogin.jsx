@@ -45,9 +45,10 @@ export default function WebsiteLogin({ form, checkingSession, configured, onSubm
     try { return presentationOnly ? '' : localStorage.getItem('intervucopilot.login-email') || '' } catch { return '' }
   })
   const [rememberEmail, setRememberEmail] = useState(Boolean(rememberedEmail))
+  const { setEmail } = form
   useEffect(() => {
-    if (rememberedEmail) form.setEmail(rememberedEmail)
-  }, [rememberedEmail, form.setEmail])
+    if (rememberedEmail) setEmail(rememberedEmail)
+  }, [rememberedEmail, setEmail])
   const [legalNotice, setLegalNotice] = useState('')
   const [visible, setVisible] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
