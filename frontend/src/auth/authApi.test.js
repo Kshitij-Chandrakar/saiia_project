@@ -48,6 +48,24 @@ test('Supabase auth config reports missing frontend-safe env', () => {
   assert.equal(hasSupabaseAuthConfig({}), false)
 })
 
+test('current-user lookup forwards an optional abort signal for obsolete website reads', async () => {
+  const controller = new AbortController()
+  const user = await fetchCurrentUser('synthetic', {
+    signal: controller.signal,
+    fetchImpl: async (_url, options) => {
+      assert.equal(options.signal, controller.signal)
+      return new Response(JSON.stringify({ user_id: 'owner' }), { status: 200 })
+    },
+  })
+  assert.equal(user.user_id, 'owner')
+})
+
+test('API failures retain machine status/code separately from raw compatibility detail', async () => {
+  await assert.rejects(() => fetchCurrentUser('synthetic', {
+    fetchImpl: async () => new Response(JSON.stringify({ detail: 'private compatibility detail', code: 'account_unavailable' }), { status: 503 }),
+  }), error => error.status === 503 && error.code === 'account_unavailable' && error.message === 'private compatibility detail')
+})
+
 
 test('Supabase auth config accepts only URL and anon key', () => {
   const config = getSupabaseAuthConfig({

@@ -2,12 +2,63 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/png" href="/website-favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React</title>
+    <title>Intervucopilot</title>
+    <noscript><style>#startup-title,#startup-message{display:none}</style></noscript>
+    <script>
+      if (window.electronAPI || window.location.pathname.toLowerCase().startsWith('/auth/admin/')) {
+        // Preserve the shared entry's previous metadata outside customer website routes.
+        document.title = 'Vite + React';
+        const icon = document.querySelector('link[rel="icon"]');
+        icon.type = 'image/svg+xml'; icon.href = '/vite.svg';
+      }
+      if (window.electronAPI) document.documentElement.dataset.desktop = '';
+      else {
+        let failed = false;
+        const showFailure = () => {
+          if (!failed || !document.getElementById('startup-title')) return;
+          document.getElementById('startup-title').textContent = 'The website couldn’t start';
+          document.getElementById('startup-message').textContent = 'A part of this page couldn’t load. Reload to try again. No action has been confirmed by this screen.';
+        };
+        const scriptFailed = event => {
+          if ((event.target?.tagName === 'SCRIPT' && event.target.type === 'module') ||
+              (event instanceof ErrorEvent && event.filename.startsWith(window.location.origin + '/'))) { failed = true; showFailure(); }
+        };
+        window.addEventListener('error', scriptFailed, true);
+        document.addEventListener('DOMContentLoaded', showFailure, {once:true});
+        window.addEventListener('intervucopilot:mounted', () => {
+          document.getElementById('website-startup')?.remove();
+          window.removeEventListener('error', scriptFailed, true);
+        }, {once:true});
+      }
+    </script>
   </head>
   <body>
+    <style>
+      html:not([data-desktop]) body:has(>#website-startup){margin:0}
+      html:not([data-desktop]) body:has(>#website-startup)>#root{display:none}
+      #website-startup{box-sizing:border-box;min-height:100vh;padding:40px 24px;background:#eef4ff;color:#10234f;font:16px/1.65 Arial,Helvetica,sans-serif;display:flex;flex-direction:column;gap:48px}
+      #website-startup[hidden],html[data-desktop] #website-startup{display:none}
+      #website-startup .startup-brand{font-size:24px;font-weight:700;letter-spacing:-.6px}
+      #website-startup section{box-sizing:border-box;width:100%;max-width:720px;margin:auto;padding:48px;background:#fff;border:1px solid #dbe5f5;border-radius:24px}
+      #website-startup h1{font-size:30px;line-height:1.25;margin:0 0 16px;letter-spacing:-.7px}
+      #website-startup p{margin:0 0 24px;color:#475569}
+      #website-startup a{display:inline-block;padding:12px 22px;background:#2563eb;color:#fff;border-radius:12px;text-decoration:none;font-weight:700}
+      #website-startup a:focus-visible{outline:3px solid #10234f;outline-offset:4px}
+      #website-startup noscript{display:block;color:#475569}
+      @media(max-width:640px){#website-startup{padding:24px 20px}#website-startup section{padding:32px 24px}#website-startup h1{font-size:26px}}
+    </style>
+    <main id="website-startup" aria-label="Intervucopilot startup">
+      <div class="startup-brand">Intervucopilot</div>
+      <section>
+        <h1 id="startup-title">Opening your workspace</h1>
+        <p id="startup-message" role="status">Please wait while Intervucopilot gets ready. If this page stays here, you can reload it.</p>
+        <noscript><h1>JavaScript is turned off</h1><p>Enable JavaScript for this site, then reload to open your workspace.</p></noscript>
+        <a href="">Reload page</a>
+      </section>
+    </main>
     <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <script id="website-entry" type="module" src="/src/main.jsx"></script>
   </body>
 </html>

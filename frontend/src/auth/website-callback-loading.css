@@ -1,23 +1,13 @@
-.website-callback--pending { position: fixed; inset: 0; overflow: hidden; }
-.website-callback__card {
-  box-sizing: border-box; width: min(370px, calc(100% - 32px)); max-width: calc(100% - 32px); height: 301px;
-  max-height: calc(100dvh - 32px); overflow: auto; margin: auto; padding: 49px 24px 47px;
-  border: 1px solid #f3f4f6; border-radius: 16px; background: #fff;
-  box-shadow: 0 1px 1px #0000000d; color: #1f2937; text-align: center; font-family: Inter, sans-serif;
-}
-.website-callback__card::backdrop { background: rgba(31, 41, 55, .38); }
-.website-callback__label { display: block; color: #9ca3af; font-size: 13px; font-weight: 600; line-height: 15px; letter-spacing: 1px; }
-.website-callback__spinner { display: block; width: 64px; height: 64px; margin: 40px auto 32px; animation: website-callback-spin 1.2s linear infinite; }
-.website-callback__card h1 { margin: 0; font-size: 18px; font-weight: 500; line-height: 28px; letter-spacing: -.45px; }
-.website-callback__card p { margin: 4px 0 0; color: #71717a; font-size: 14px; line-height: 20px; }
-.website-callback__card:focus { outline: none; }
-.website-callback__recovery { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background: rgba(31,41,55,.38); overflow: auto; }
-.website-callback__error { height: auto; padding: 32px 24px; }
-.website-callback__error h1 { margin-top: 24px; }
-.website-callback__error p { margin: 12px 0 24px; }
-.website-callback__error a, .website-callback__error button { display: block; width: 100%; box-sizing: border-box; padding: 12px; border: 0; border-radius: 8px; background: #2563eb; color: #fff; text-decoration: none; font: 600 14px/20px Inter, sans-serif; cursor: pointer; }
-.website-callback__error button { margin-bottom: 12px; background: #eef2ff; color: #2563eb; }
-.website-callback__error :is(a,button):focus-visible { outline: 3px solid #5d5fef; outline-offset: 3px; }
-.website-callback__error a:hover { background: #1d4ed8; }
-@keyframes website-callback-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .website-callback__spinner { animation: none; } }
+.website-callback--pending{position:fixed;inset:0;overflow:hidden}
+.website-callback__card{box-sizing:border-box;width:min(420px,calc(100% - 32px));max-height:calc(100dvh - 32px);overflow:auto;margin:auto;padding:32px;border:1px solid #dbe5f5;border-radius:20px;background:#fff;box-shadow:0 16px 48px #10234f18;color:#10234f;text-align:center;font:400 14px/1.6 'Website Inter',Arial,sans-serif}
+.website-callback__card::backdrop{background:#10234f60}
+.website-callback__label{display:block;font-size:18px;font-weight:700;letter-spacing:-.4px;margin-bottom:28px}
+.website-callback__card>.website-progress-spinner{width:40px;height:40px;margin-bottom:20px}
+.website-callback__card h1{margin:0;font-size:24px;line-height:1.3;letter-spacing:-.6px;font-weight:700;text-wrap:balance}
+.website-callback__card p{margin:14px 0 24px;color:#475569;font-size:14px;line-height:1.6}
+.website-callback__card>a,.website-callback__card>button{box-sizing:border-box;display:block;width:100%;min-height:46px;padding:12px 16px;border:1px solid #cbd5e1;border-radius:12px;background:#fff;color:#10234f;text-decoration:none;font:600 14px/22px 'Website Inter',Arial,sans-serif;cursor:pointer}
+.website-callback__card>button{margin-bottom:12px;background:#2563eb;border-color:#2563eb;color:white}
+.website-callback__card :is(a,button):focus-visible{outline:3px solid #2563eb;outline-offset:4px}
+.website-callback__card :is(a,button):hover{filter:brightness(.95)}
+.website-callback__card:focus{outline:none}
+@media(max-width:480px){.website-callback__card{padding:28px 24px}}
