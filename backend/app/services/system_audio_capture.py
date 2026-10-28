@@ -480,7 +480,12 @@ class SystemAudioCaptureService:
         # Wait interruptibly for complete frames; cleanup still closes the native
         # stream only AFTER this reader exits, preserving exclusive ownership.
         available = getattr(session.stream, 'get_read_available', None)
-        while available is not None and available() < session.frames_per_buffer:
+        while available is not None:
+            frames_available = available()
+            if frames_available < 0:
+                raise SystemAudioCaptureError('Native system audio buffer availability failed.')
+            if frames_available >= session.frames_per_buffer:
+                break
             if session.stop_requested.wait(.01):
                 raise SystemAudioCaptureError('System capture stopped.')
             if session.monitor_default and time.monotonic() >= session.next_device_check_at:

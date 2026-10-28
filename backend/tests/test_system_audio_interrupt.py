@@ -50,3 +50,23 @@ def test_default_device_change_is_detected_while_output_is_silent(monkeypatch):
     monkeypatch.setattr(service, "get_default_loopback_device", lambda: changed)
     with pytest.raises(SystemAudioCaptureError, match="Default output changed"):
         service.read_streaming_pcm_chunk(session)
+
+
+def test_negative_native_availability_fails_without_polling_or_reading():
+    calls = []
+
+    class FailedStream:
+        def get_read_available(self):
+            calls.append(True)
+            assert len(calls) == 1, "A native error must not be polled again"
+            return -9988
+
+        def read(self, *_args, **_kwargs):
+            raise AssertionError("A failed native buffer must never be read")
+
+    session = StreamingLoopbackSession(
+        None, None, FailedStream(), None, 48000, 2, 16000, 4800
+    )
+    with pytest.raises(SystemAudioCaptureError, match="availability failed"):
+        SystemAudioCaptureService().read_streaming_pcm_chunk(session)
+    assert len(calls) == 1
