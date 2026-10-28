@@ -15,12 +15,32 @@ from app.cloud.interview_sessions import (
     CloudInterviewSessionService, CloudInterviewSessionError, CloudInterviewSessionNotFoundError,
 )
 from app.cloud.supabase_config import SupabaseConfigurationError
+from app.config import settings
 from app.models.screen_context import (
     MAX_BODY_BYTES, MAX_IMAGE_BYTES, MAX_METADATA_BYTES, ScreenContextRequest, ScreenContextResponse,
 )
 from app.services.screen_context_service import ScreenContextError, development_diagnostics, diagnostic, validation_fields
 
 router = APIRouter()
+
+
+@router.get('/sessions/{session_id}/results')
+def saved_screen_results(session_id: str, request: Request, limit: int = 50, page: int = 1):
+    from uuid import UUID
+    from app.commercial.subscription_screen import AccountScreen
+    if settings.SUBSCRIPTIONS_ENABLED!='true':
+        raise HTTPException(503,detail={'code':'subscription_unavailable'})
+    try:
+        session_id=str(UUID(session_id))
+        if not 1<=limit<=100 or not 1<=page<=1000:raise ValueError()
+    except ValueError:
+        raise HTTPException(422,detail={'code':'invalid_pagination'}) from None
+    result=AccountScreen(request).call('list',dict(session_id=session_id,limit=limit,offset=(page-1)*limit))
+    try:
+        return {'items':[dict(result_id=x['result_id'],thread_id=x['thread_id'],created_at=x['created_at'],
+                              response=ScreenContextResponse.model_validate(x['response']).model_dump(mode='json')) for x in result['items']]}
+    except (ValidationError,KeyError,TypeError):
+        raise HTTPException(503,detail={'code':'screen_storage_unavailable'}) from None
 # ponytail: two in-flight contextual requests per worker, including upload/decoding;
 # measure memory before increasing. No conversation data lives in this gate.
 _slots = asyncio.Semaphore(2)
@@ -197,8 +217,15 @@ async def analyze_context(request: Request):
     diagnostic_token = development_diagnostics.set(loopback and request.headers.get("x-saiia-screen-diagnostics") == "1")
     try:
         with anyio.fail_after(45):
-            user = await asyncio.to_thread(get_current_user, request) if "authorization" in request.headers else None
+            user = await asyncio.to_thread(get_current_user, request) if "authorization" in request.headers or settings.SUBSCRIPTIONS_ENABLED=='true' else None
             context, files = await parse_context(request)
+            if settings.SUBSCRIPTIONS_ENABLED=='true':
+                from app.commercial.subscription_screen import AccountScreen, safe_error
+                from app.commercial.catalog_store import CatalogStoreError
+                try:
+                    return await run_until_disconnect(request,AccountScreen(request).run(context,files,get_screen_service().answer_context))
+                except CatalogStoreError as error:
+                    raise safe_error(error) from None
             if context.identity.cloudSessionId is not None:
                 if user is None:
                     raise problem("cloud_auth_required", 401)

@@ -11,10 +11,13 @@ from fastapi.templating import Jinja2Templates
 from app.api import onboarding, auth, auto_stt, classify, email_unsubscribe, generate, interview_sessions, job_context, job_contexts, question_detect, resume, resumes, system_audio, transcribe
 from app.api.debug import router as debug_router
 from app.api import answer_diagrams
-from app.commercial.boundary import CommercialBoundaryMiddleware
 from app.commercial.admin import router as commercial_router
+from app.commercial.boundary import CommercialBoundaryMiddleware
 from app.commercial.catalog_database import CatalogDatabase
 from app.commercial.public_catalog import router as public_catalog_router
+from app.commercial.subscription_api import router as subscription_router
+from app.commercial.hosted_audio import router as hosted_audio_router
+from app.commercial.subscription_database import SubscriptionDatabase
 from app.commercial.draft_api import router as catalog_draft_router
 from app.commercial.lifecycle_api import router as catalog_lifecycle_router
 from starlette.concurrency import run_in_threadpool
@@ -31,14 +34,17 @@ async def lifespan(app):
                                        lifecycle_enabled=settings.CATALOG_LIFECYCLE_ENABLED)
     catalog_public = CatalogDatabase(settings.CATALOG_PUBLIC_ENABLED, settings.CATALOG_PUBLIC_DSN, public_only=True)
     app.state.catalog_public = catalog_public
+    subscriptions = SubscriptionDatabase(settings.SUBSCRIPTIONS_ENABLED,settings.SUBSCRIPTIONS_DSN)
+    app.state.subscriptions = subscriptions
+    await run_in_threadpool(subscriptions.start)
     if settings.GRPC_REALTIME_ENABLED:
         try:
             from app.grpc_server import start_server
+            kwargs = {'subscriptions':subscriptions} if settings.SUBSCRIPTIONS_ENABLED=='true' else {}
             server, _ = await start_server(settings.GRPC_REALTIME_HOST, settings.GRPC_REALTIME_PORT,
-                                           settings.GRPC_MAX_MESSAGE_MB)
+                                           settings.GRPC_MAX_MESSAGE_MB, **kwargs)
         except Exception:
-            # REST remains available; Electron's bounded health probe selects fallback.
-            logging.getLogger("realtime").warning("Local gRPC service unavailable; standard transport remains available.")
+            logging.getLogger('realtime').warning('Local gRPC service unavailable; standard transport remains available.')
     app.state.catalog_drafts = catalog_database
     await run_in_threadpool(catalog_database.start)
     await run_in_threadpool(catalog_public.start)
@@ -53,6 +59,7 @@ async def lifespan(app):
                 await server.stop(grace=2)
             finally:
                 await shutdown_cleanup()
+        await run_in_threadpool(subscriptions.close)
         await run_in_threadpool(catalog_public.close)
         await run_in_threadpool(catalog_database.close)
 
@@ -80,6 +87,8 @@ app.add_middleware(
 app.add_middleware(CommercialBoundaryMiddleware)
 app.include_router(commercial_router, prefix="/api/commercial", tags=["Commercial Foundation"])
 app.include_router(public_catalog_router)
+app.include_router(subscription_router)
+app.include_router(hosted_audio_router)
 app.include_router(catalog_draft_router, prefix="/api/admin/catalog", tags=["Catalog Draft Administration"])
 app.include_router(catalog_lifecycle_router, prefix="/api/admin/catalog", tags=["Catalog Lifecycle Administration"])
 
