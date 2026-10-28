@@ -31,8 +31,8 @@ export async function cloudResource(backendUrl, path, body, key, signal) {
   if (!response.ok) throw Error('Unable to save. Your previous data has been kept. Please retry.')
   return response.json()
 }
-export async function onboardingUpload(backendUrl, file) {
-  return uploadCloudResume(await token(), file, { backendUrl })
+export async function onboardingUpload(backendUrl, file, requestId) {
+  return uploadCloudResume(await token(), file, { backendUrl, requestId })
 }
 
 export async function onboardingExtractJob(backendUrl, file) {

@@ -1075,6 +1075,26 @@ class DesktopAuthSessionManager {
     return safeMyAnswerList(response.payload)
   }
 
+  async getSubscription() {
+    if (!this.isGrpcCloudAuthAvailable()) return { ok: false, status: 401 }
+    const captured = this.captureCloudRequestContext()
+    const response = await this._backendJson('/api/account/subscription', 'GET', this.session.access_token)
+    if (!this._cloudRequestStillCurrent(captured)) return { ok: false, status: 401 }
+    const data = response.payload
+    if (!response.ok || data?.contract_version !== 'account.subscription.v1' ||
+        typeof data?.plan?.name !== 'string' || data.plan.name.length > 2000 ||
+        typeof data?.plan?.offer_version_id !== 'string' || typeof data.checkout_ready !== 'boolean') {
+      return { ok: false, status: response.status || 503 }
+    }
+    const usage = Array.isArray(data.usage) ? data.usage.filter(item => item?.meter === 'auto.authorized_running' &&
+      ['limited', 'unlimited'].includes(item.mode) && [1, 1000000].includes(item.unit_scale) &&
+      /^\d+$/.test(item.used) && /^\d+$/.test(item.reserved) &&
+      (item.mode === 'unlimited' ? item.allowance === null : /^\d+$/.test(item.allowance)))
+      .map(item => ({ mode: item.mode, used: item.used, reserved: item.reserved, allowance: item.allowance, unit_scale: item.unit_scale })) : []
+    return { ok: true, plan: { name: data.plan.name, version: data.plan.version,
+      offer_version_id: data.plan.offer_version_id, valid_until: data.plan.valid_until }, auto: usage[0] || null, checkout_ready: data.checkout_ready }
+  }
+
   async saveMyAnswer(sessionId, body) {
     const normalizedSessionId = String(sessionId || '').trim()
     const normalizedBody = typeof body === 'string' ? body.trim() : ''
@@ -1086,18 +1106,27 @@ class DesktopAuthSessionManager {
       return { answer: null, error: safeErrorMessage(this.error, 'Log in again and retry.') }
     }
     const captured = this.captureCloudRequestContext()
+    const identity = crypto.createHash('sha256').update(JSON.stringify([this.user.user_id, normalizedSessionId, normalizedBody])).digest('hex')
+    if (this.pendingClipboardSave && this.pendingClipboardSave.identity !== identity) {
+      return { answer: null, error: 'Resolve the previous save before saving a different answer.' }
+    }
+    // Retry identity only; PostgreSQL owns durable deduplication/settlement.
+    const pending = this.pendingClipboardSave || { identity, key: crypto.randomUUID() }
+    this.pendingClipboardSave = pending
     const response = await this._backendJson(
       `/api/interview-sessions/${encodeURIComponent(normalizedSessionId)}/my-answers`,
       'POST',
       this.session.access_token,
       { body: normalizedBody },
+      { 'Idempotency-Key': pending.key },
     )
     if (!this._cloudRequestStillCurrent(captured)) return { answer: null, error: '' }
     if (response.status === 401) {
       this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED, 'Session expired. Please log in again.')
       return { answer: null, error: 'Session expired. Please log in again.' }
     }
-    if (response.status === 0 || response.status === 503) return { answer: null, error: 'Cloud temporarily unavailable. Please try again.' }
+    if (response.status === 0 || response.status === 408 || response.status >= 500) return { answer: null, error: 'Cloud temporarily unavailable. The save outcome is unconfirmed; retry the same answer to resolve it.' }
+    if (this.pendingClipboardSave === pending) this.pendingClipboardSave = null
     if (!response.ok) return { answer: null, error: safeErrorMessage(response.payload?.detail, 'Unable to save My Answer.') }
     return { answer: safeMyAnswer(response.payload), error: '' }
   }
@@ -1150,6 +1179,33 @@ class DesktopAuthSessionManager {
     return response
     })()
     return { ...result, generateRequestSent }
+  }
+
+  async transcribeAudio(payload) {
+    const bytes = payload?.bytes
+    if (!payload || Object.keys(payload).some(key => !['bytes', 'contentType'].includes(key)) ||
+        !(bytes instanceof Uint8Array) || !bytes.byteLength || bytes.byteLength > 25 * 1024 * 1024 ||
+        !['audio/webm', 'audio/wav', 'audio/mp4', 'audio/ogg'].includes(payload?.contentType)) {
+      return { ok: false, status: 422, payload: { detail: 'Invalid recording.' } }
+    }
+    if (this.status !== AUTH_STATUSES.CONNECTED || !this.session?.access_token) return { ok: false, status: 401 }
+    const captured = this.captureCloudRequestContext()
+    const form = new FormData()
+    form.append('file', new Blob([bytes], { type: payload.contentType }), 'recording.' + payload.contentType.split('/')[1])
+    form.append('mode', 'manual')
+    try {
+      const response = await this.fetchImpl(this.backendUrl + '/transcribe/', {
+        method: 'POST', headers: { Authorization: `Bearer ${this.session.access_token}` }, body: form, signal: this._requestSignal(),
+      })
+      if (!this._cloudRequestStillCurrent(captured)) return { ok: false, status: 409 }
+      const result = await response.json()
+      if (!this._cloudRequestStillCurrent(captured)) return { ok: false, status: 409 }
+      if (response.status === 401) this._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED)
+      if (!response.ok) return { ok: false, status: response.status, payload: { detail: 'Transcription unavailable.' } }
+      if (typeof result?.text !== 'string' || result.text.length > 65536) return { ok: false, status: 502 }
+      const allowed = ['text', 'mode', 'transcription_provider', 'transcription_model', 'transcription_ms', 'upload_ms', 'fallback_used', 'fallback_reason', 'no_speech', 'reason']
+      return { ok: true, status: response.status, payload: Object.fromEntries(allowed.filter(key => key in result).map(key => [key, result[key]])) }
+    } catch { return { ok: false, status: 503, payload: { detail: 'Transcription unavailable.' } } }
   }
 
   async openAnswerStream(body, options = {}) {
@@ -1492,6 +1548,7 @@ class DesktopAuthSessionManager {
   }
 
   _clearLocalSession(status, message = '', errorCode = '') {
+    this.pendingClipboardSave = null
     this.onDiagramAuthBoundary()
     this.onScreenContextBoundary()
     if (status === AUTH_STATUSES.SIGNED_OUT) {
@@ -1518,6 +1575,7 @@ class DesktopAuthSessionManager {
   }
 
   _clearCloudCache() {
+    this.pendingClipboardSave = null
     this.cloudCache = this._emptyCloudCache()
   }
 

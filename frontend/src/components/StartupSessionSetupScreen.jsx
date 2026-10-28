@@ -28,6 +28,7 @@ const READINESS_LABELS = {
   no_chunks: 'Needs indexing',
   needs_confirmation: 'Needs confirmation',
   failed: 'Failed',
+  subscription_access_denied: 'Not available with the current plan',
   unknown: 'Not ready',
 }
 
@@ -377,6 +378,8 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
                     ? 'Loading the latest resume readiness before starting your session.'
                     : selectedResumeMissing
                       ? 'The selected resume could not be found. Refresh your resume list and choose a ready resume again.'
+                    : selectedResume.readiness_reason === 'subscription_access_denied'
+                      ? 'Check your current plan and choose its permitted resumes on the website before continuing.'
                     : 'This resume is uploaded but not ready for generation yet. Finish extraction/indexing from the dashboard, then refresh.'}
                 </p>
                 <button type="button" onClick={openDashboard}>

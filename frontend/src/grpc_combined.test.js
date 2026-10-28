@@ -59,29 +59,44 @@ test('combined microphone discards stale IPC backlog and resumes with fresh fram
 
 for (const failure of ['track', 'backend', 'capture-start']) {
   test(`combined ${failure} failure closes both sources once, suppresses late events and never falls back`, async () => {
-    let event, ended, stopped = 0, captures = 0, closed = 0, fallback = 0, answers = 0, cleanupDone
-    const track = { stop() { stopped++ }, addEventListener(name, listener) { ended = listener }, removeEventListener() { ended = null } }
+    let event, ended = null, stopped = 0, captures = 0, closed = 0, fallback = 0, answers = 0, cleanupDone
+    let added = 0, removed = 0, micClosed = 0, unsubscribed = 0
+    const track = { stop() { stopped++ }, addEventListener(name, listener) {
+      assert.equal(name, 'ended'); added++; ended = listener
+    }, removeEventListener(name, listener) {
+      assert.equal(name, 'ended'); assert.equal(listener, ended); removed++; ended = null
+    } }
     const stream = { getTracks: () => [track], getAudioTracks: () => [track] }
     const status = { connectionStatus: 'connected', autoPipelineReady: true, manualRun: 1, autoEventVersion: 0,
       systemAudio: { active_audio_source: 'both' } }
     const api = { connectGrpcAutoPipeline: async () => status,
       closeGrpcRealtime: () => { closed++; return new Promise(resolve => { cleanupDone = resolve }) },
-      getGrpcRealtimeStatus: async () => status, onGrpcAutoEvent: cb => { event = cb; return () => {} } }
+      getGrpcRealtimeStatus: async () => status, onGrpcAutoEvent: cb => { event = cb; return () => { unsubscribed++ } } }
     const session = await createGrpcAutoSession({ api, stream, source: 'both',
       createMic: options => { assert.equal(options.continuous, true); return {
-        start: async () => { captures++; if (failure === 'capture-start') throw Error('synthetic') }, close() {} } },
+        start: async () => { captures++; if (failure === 'capture-start') throw Error('synthetic') }, close() { micClosed++ } } },
       onAnswer: () => answers++, onFallback: () => fallback++ })
+    // Capture startup can fail before any track listener is registered.
+    assert.equal(added, failure === 'capture-start' ? 0 : 1)
+    const lateEnded = ended
     if (failure === 'track') ended()
     if (failure === 'backend') event({ ...status, connectionStatus: 'disconnected', autoEventVersion: 1 })
     const cleanup = session.close()
+    assert.equal(session.stop(), cleanup)
     assert.equal(closed, 1)
     cleanupDone({ systemCleanupStatus: 'clean' })
     await cleanup
+    assert.equal(session.close(), cleanup)
+    if (failure !== 'capture-start') lateEnded()
     event({ ...status, autoEventVersion: 2, questionsDetectedCount: 1, currentQuestion: 'stale' })
     assert.equal(captures, 1)
     assert.equal(stopped, 1)
     assert.equal(fallback, 0)
     assert.equal(answers, 0)
     assert.equal(ended, null)
+    assert.equal(removed, added)
+    assert.equal(micClosed, 1)
+    assert.equal(unsubscribed, 1)
+    assert.equal(closed, 1)
   })
 }
