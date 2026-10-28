@@ -120,3 +120,7 @@ protobuf==6.33.6
 psycopg[binary]==3.3.6
 psycopg_pool==3.3.0
 cryptography==49.0.0
+
+# Official Resend webhook verification
+svix==2.9.1
+standardwebhooks==1.1.0
