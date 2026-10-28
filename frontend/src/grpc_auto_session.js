@@ -1,3 +1,4 @@
+import { createHostedAudioCapture } from './hosted_audio_capture.js'
 import { createGrpcMicTest } from './grpc_mic_test.js'
 
 // Eligibility remains separate from health; realtime_router owns the final decision.
@@ -16,10 +17,10 @@ export function getGrpcAutoBlockReason(status, context = {}, source = 'microphon
   return ''
 }
 
-export async function createGrpcAutoSession({ api, stream, source = 'microphone', context = {}, onCloudStatus = () => {}, isCurrent = () => true,
+export async function createGrpcAutoSession({ api, stream, getUserMedia, source = 'microphone', context = {}, onCloudStatus = () => {}, isCurrent = () => true,
   canContinue = () => true, onTranscript = () => {}, onAnswer = () => {},
   onPhase = () => {}, onError = () => {}, onFallback = () => {}, onStartupFailure = () => {}, onLifecycle = () => {},
-  createMic = createGrpcMicTest, pollMs = 250 }) {
+  createMic = createGrpcMicTest, createHostedCapture = createHostedAudioCapture, pollMs = 250 }) {
   if (!['microphone', 'system', 'both'].includes(source) || !isCurrent()) return null
   let connected
   try { connected = await api.connectGrpcAutoPipeline({ activeSessionId: context.activeSessionId || '',
@@ -43,16 +44,29 @@ export async function createGrpcAutoSession({ api, stream, source = 'microphone'
   let version = -1, questionNumber = 0, completions = 0, completedQuestion = 0, lastText = ''
   let committed = false, audioSent = source !== 'microphone', potentialCommit = false
   const trackListeners = []
-  const mic = source === 'system' ? { start: async () => {}, close: () => {} } : createMic({ api, ownsStream: false, continuous: source === 'both', getUserMedia: async () => stream })
+  let hostedCapture
+  const hosted = connected.clientAudioRelay === true
+  const hostedAbort = new AbortController()
+  const mic = source === 'system' && !hosted ? { start: async () => {}, close: () => {} } : createMic({ api, ownsStream: false, continuous: source === 'both' || hosted, getUserMedia: async () => {
+    if (hosted && !hostedCapture) {
+      const acquired = await createHostedCapture({ source, signal: hostedAbort.signal })
+      const current = await api.getGrpcRealtimeStatus().catch(() => null)
+      if (closed || !isCurrent() || !canContinue() || !current?.autoPipelineReady || current.manualRun !== connected.manualRun) { acquired.close(); throw Error('Authorization ended') }
+      hostedCapture = acquired; stream = acquired.stream
+    }
+    if (!stream && getUserMedia) stream = await getUserMedia()
+    return stream
+  } })
   const close = () => {
     if (closed) return cleanupPromise
     closed = true
+    if (hosted) hostedAbort.abort()
     onLifecycle({ stop_cleanup_status: 'cleaning' })
     for (const [track, listener] of trackListeners) track.removeEventListener?.('ended', listener)
     if (source === 'both') stream?.getTracks().forEach(track => track.stop())
     clearInterval(timer); clearTimeout(deadline); clearTimeout(cooldownTimer); unsubscribe?.()
     let captureFailed = false
-    try { mic.close() } catch { captureFailed = true }
+    try { mic.close(); hostedCapture?.close() } catch { captureFailed = true }
     const cleaned = status => { onLifecycle({ stop_cleanup_status: status }); return status }
     cleanupPromise = api.closeGrpcRealtime(connected.manualRun).then(result => cleaned(captureFailed || result?.systemCleanupStatus === 'failed' || result?.systemCleanupStatus === 'cleaning' ? 'failed' : 'clean'), () => cleaned('failed'))
     lastText = ''; version = -1
@@ -63,11 +77,11 @@ export async function createGrpcAutoSession({ api, stream, source = 'microphone'
     committed ||= Boolean(next.generation_committed || next.questionsDetectedCount || next.answerStartedCount || next.answerDeltaCount)
     audioSent ||= Boolean(next.grpc_audio_sent || next.audioChunksSent)
     const authBlocked = next.cloudAuthStatus === 'failed' || !canContinue()
-    const reason = authBlocked ? next.cloudBlockedReason || 'auth_unavailable' : failureReason
+    const reason = authBlocked ? next.cloudBlockedReason || 'auth_unavailable' : hosted && next.grpc_last_failure_reason && next.grpc_last_failure_reason !== 'none' ? next.grpc_last_failure_reason : failureReason
     const cleanup = close()
     // Lost delivery after sending audio cannot prove the backend did not commit.
     // Never replay buffered speech or silently regenerate an uncertain question.
-    if (source === 'microphone' && !committed && !audioSent && !potentialCommit && !authBlocked) {
+    if (source === 'microphone' && !committed && !audioSent && !potentialCommit && !authBlocked && failureReason !== 'microphone_lost' && !hosted) {
       void cleanup.then(status => {
         if (!isCurrent()) return
         if (status === 'clean') onFallback(reason)
@@ -75,6 +89,7 @@ export async function createGrpcAutoSession({ api, stream, source = 'microphone'
       })
     }
     else onError(authBlocked ? 'Cloud session unavailable. Sign in again or restart the session.' :
+      hosted ? next.lastErrorMessage || 'Hosted audio stopped safely. Check saved session results, your connection and remaining allowance before starting another run.' :
       source !== 'microphone' ? 'Required audio source unavailable. Stop and restart Auto Mode. Check Windows output and the local gRPC backend; no alternate transport was started.' :
       'Realtime connection unavailable. Your displayed answer is preserved. Stop and restart for the next question.',
     { reason, generation_committed: committed, cloud_grpc_auth_status: authBlocked ? 'failed' : next.cloudAuthStatus || 'not_started' })
@@ -148,14 +163,6 @@ export async function createGrpcAutoSession({ api, stream, source = 'microphone'
     }
     if (next.autoStatus === 'auto_listening') onPhase('listening')
   }
-  if (source === 'both') {
-    for (const track of stream?.getAudioTracks?.() || []) {
-      const listener = () => fail({}, 'microphone_lost')
-      track.addEventListener?.('ended', listener)
-      trackListeners.push([track, listener])
-      if (track.readyState === 'ended') listener()
-    }
-  }
   unsubscribe = api.onGrpcAutoEvent?.(apply)
   if (connected.questionsDetectedCount) apply(connected)
   try { if (!closed) await mic.start() } catch {
@@ -164,6 +171,14 @@ export async function createGrpcAutoSession({ api, stream, source = 'microphone'
     try { next = await api.getGrpcRealtimeStatus() } catch { next = { grpc_audio_sent: true } }
     fail(next, 'grpc_start_failed')
     return { close, stop: close, failed: true }
+  }
+  if (source !== 'system' || hosted) {
+    for (const track of stream?.getAudioTracks?.() || []) {
+      const listener = () => fail({}, 'microphone_lost')
+      track.addEventListener?.('ended', listener)
+      trackListeners.push([track, listener])
+      if (track.readyState === 'ended') listener()
+    }
   }
   if (closed || !isCurrent()) { close(); return { close, stop: close, failed: true } }
   if (!questionNumber) onPhase('listening')
@@ -174,5 +189,5 @@ export async function createGrpcAutoSession({ api, stream, source = 'microphone'
     try { apply(await api.getGrpcRealtimeStatus()) } catch { if (!closed) { audioSent = true; fail() } }
     finally { inFlight = false }
   }, pollMs)
-  return { close, stop: close }
+  return { close, stop: close, captureStatus: () => ({ tracks: hostedCapture?.status?.() || (stream?.getAudioTracks?.() || []).map(track => ({ label: track.label, state: track.readyState, muted: track.muted })) }) }
 }

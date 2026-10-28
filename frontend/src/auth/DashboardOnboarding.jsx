@@ -58,8 +58,8 @@ export default function DashboardOnboarding({ backendUrl, initial, onComplete })
   const [selectedResume, setSelectedResume] = useState(null), [job, setJob] = useState(null), [session, setSession] = useState(null)
   const editorTriggerRef = useRef(null)
   const heading = useRef(null), lock = useRef(false), active = useRef(true), fileInput = useRef(null)
-  const jobKey = useRef(crypto.randomUUID()), sessionKey = useRef(crypto.randomUUID())
-  useEffect(() => { active.current = true; return () => { active.current = false } }, [])
+  const jobKey = useRef(crypto.randomUUID()), sessionKey = useRef(crypto.randomUUID()), uploadKey = useRef(null)
+  useEffect(() => { active.current = true; return () => { active.current = false; uploadKey.current = null } }, [])
   async function load() {
     const value = await onboardingResources(backendUrl)
     if (!active.current) return
@@ -95,7 +95,7 @@ export default function DashboardOnboarding({ backendUrl, initial, onComplete })
   }
   function move(next) { void action(async () => { const value = await onboardingRequest(backendUrl, '/step', { current_step: next }, 'PATCH'); if (!active.current) return; if (value.onboarding_completed_at) onComplete(); else { setStep(value.onboarding_current_step); changeEditor('') } }) }
   function finish() { void action(async () => { const value = await onboardingRequest(backendUrl, '/complete', {}, 'POST'); if (!value.onboarding_completed_at) throw Error(); if (active.current) onComplete() }) }
-  function uploadFile(file) { if (!file) return; void action(async () => { const result = await onboardingUpload(backendUrl, file); if (active.current) { setSelectedResume(result); setNotice('Resume uploaded. Review and confirm it in Resumes before using it for interviews.') } }) }
+  function uploadFile(file) { if (!file) return; void action(async () => { if (uploadKey.current?.file !== file) uploadKey.current = { file, key: crypto.randomUUID() }; const result = await onboardingUpload(backendUrl, file, uploadKey.current.key); if (active.current) { setSelectedResume(result); setNotice('Resume uploaded. Review and confirm it in Resumes before using it for interviews.') } }) }
   function extractJob(event) {
     event.preventDefault()
     if (!documentFile || !processingConsent) return
