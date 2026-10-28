@@ -41,6 +41,83 @@ function jsonResponse(status, payload = {}) {
   }
 }
 
+test('subscription refresh accepts authoritative website checkout availability', async () => {
+  const ctx = createManager({ fetchImpl: async () => jsonResponse(200, {
+    contract_version:'account.subscription.v1', checkout_ready:true,
+    plan:{name:'Plus',offer_version_id:'synthetic-paid-offer',version:'1',valid_until:'2026-11-25T00:00:00Z'}, usage:[],
+  }) })
+  try {
+    ctx.manager.session={access_token:'synthetic-token'}
+    ctx.manager.user={user_id:'synthetic-one'}
+    ctx.manager.status=AUTH_STATUSES.CONNECTED
+    const result=await ctx.manager.getSubscription()
+    assert.equal(result.plan.name,'Plus')
+    assert.equal(result.checkout_ready,true)
+  } finally {ctx.cleanup()}
+})
+
+test('stale subscription account responses are ignored', async () => {
+  let finish
+  const waiting = new Promise(resolve => { finish = resolve })
+  const ctx = createManager({ fetchImpl: async () => waiting })
+  try {
+    ctx.manager.session = { access_token: 'synthetic-token' }
+    ctx.manager.user = { user_id: 'synthetic-one' }
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    const pending = ctx.manager.getSubscription()
+    ctx.manager.sessionGeneration++
+    ctx.manager.user = { user_id: 'synthetic-two' }
+    finish(jsonResponse(200, { contract_version: 'account.subscription.v1', plan: { name: 'Private previous plan', offer_version_id: 'old' }, checkout_ready: false }))
+    assert.deepEqual(await pending, { ok: false, status: 401 })
+    ctx.manager.fetchImpl = async () => jsonResponse(503)
+  } finally { ctx.cleanup() }
+})
+
+test('subscription projection drops private fields and clears pending saves on account cleanup', async () => {
+  const ctx = createManager({ fetchImpl: async () => jsonResponse(200, {
+    contract_version: 'account.subscription.v1', checkout_ready: false,
+    plan: { name: 'Free', offer_version_id: 'synthetic-offer', version: '1', valid_until: null, private_notes: 'PRIVATE' },
+    usage: [{ meter: 'auto.authorized_running', mode: 'limited', used: '0', reserved: '0', allowance: '600000000', unit_scale: 1000000, private: 'PRIVATE' }],
+    secret: 'PRIVATE',
+  }) })
+  try {
+    ctx.manager.session = { access_token: 'synthetic-token' }
+    ctx.manager.user = { user_id: 'synthetic-one' }
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    const result = await ctx.manager.getSubscription()
+    assert.equal(result.plan.name, 'Free')
+    assert.equal(result.auto.allowance, '600000000')
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE|synthetic-token|private_notes/)
+    ctx.manager.pendingClipboardSave = { identity: 'old-private-hash', key: 'old' }
+    ctx.manager._clearCloudCache()
+    assert.equal(ctx.manager.pendingClipboardSave, null)
+  } finally { ctx.cleanup() }
+})
+
+for (const status of [0, 408, 500, 502, 503, 504]) test(`Clipboard uncertain ${status} retries retain identity and reject different semantics`, async () => {
+  const keys = []
+  let lost = true
+  const ctx = createManager({ fetchImpl: async (url, init) => {
+    if (url.endsWith('/api/auth/me')) return jsonResponse(200, { user_id: 'user-1' })
+    if (url.endsWith('/api/auth/profile/bootstrap')) return jsonResponse(200, { ok: true })
+    keys.push(init.headers['Idempotency-Key'])
+    return lost ? jsonResponse(status) : jsonResponse(201, { id: 'saved', session_id: 'session-1', body: 'My answer', position: 1 })
+  } })
+  try {
+    ctx.manager.session = { access_token: 'access-token', refresh_token: 'refresh-token' }
+    ctx.manager.user = { user_id: 'user-1' }
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    assert.equal((await ctx.manager.saveMyAnswer('session-1', 'My answer')).answer, null)
+    assert.match((await ctx.manager.saveMyAnswer('session-1', 'Changed answer')).error, /Resolve the previous save/)
+    assert.equal(keys.length, 1)
+    lost = false
+    assert.equal((await ctx.manager.saveMyAnswer('session-1', 'My answer')).answer.id, 'saved')
+    assert.equal(keys[0], keys[1])
+    assert.match(keys[0], /^[0-9a-f-]{36}$/)
+    assert.equal(ctx.manager.pendingClipboardSave, null)
+  } finally { ctx.cleanup() }
+})
+
 function createSafeStorage(available = true) {
   return {
     isEncryptionAvailable: () => available,
@@ -2386,4 +2463,32 @@ test('model key reaches creation IPC body and authoritative binding survives the
     const stale=await ctx.manager.createInterviewSession({company_name:'Company',selected_model_key:'removed'},{idempotencyKey:'next'})
     assert.equal(stale.code,'model_selection_stale');assert.equal(stale.error.includes('SECRET'),false)
   } finally {ctx.cleanup()}
+})
+
+test('manual transcription retains bearer in main, validates input and isolates late results', async () => {
+  const calls = []
+  let finish
+  const ctx = createManager({ fetchImpl: async (url, init) => {
+    calls.push({ url, init })
+    if (finish) return new Promise(resolve => { finish = resolve })
+    return jsonResponse(200, { text: 'Synthetic transcript', transcription_provider: 'synthetic', access_token: 'PRIVATE' })
+  } })
+  try {
+    ctx.manager.session = { access_token: 'synthetic-bearer' }
+    ctx.manager.user = { user_id: 'synthetic-owner' }
+    ctx.manager.status = AUTH_STATUSES.CONNECTED
+    const recording = { bytes: new Uint8Array([0, 1, 2]), contentType: 'audio/wav' }
+    assert.equal((await ctx.manager.transcribeAudio({ ...recording, actor: 'forged' })).status, 422)
+    const result = await ctx.manager.transcribeAudio(recording)
+    assert.equal(result.ok, true)
+    assert.equal(calls[0].init.headers.Authorization, 'Bearer synthetic-bearer')
+    assert.equal(calls[0].init.body.get('mode'), 'manual')
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE|synthetic-bearer|access_token/)
+    finish = true
+    const pending = ctx.manager.transcribeAudio(recording)
+    ctx.manager.sessionGeneration++
+    ctx.manager.user = { user_id: 'different-owner' }
+    finish(jsonResponse(200, { text: 'Private previous account' }))
+    assert.deepEqual(await pending, { ok: false, status: 409 })
+  } finally { ctx.cleanup() }
 })

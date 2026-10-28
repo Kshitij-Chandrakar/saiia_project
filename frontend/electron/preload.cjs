@@ -60,6 +60,15 @@ const electronAPI = {
   restoreStartupWindow: () => ipcRenderer.invoke('startup:restore'),
   closeStartupWindow: () => ipcRenderer.invoke('startup:close'),
   openDashboard: () => ipcRenderer.invoke('dashboard:open'),
+  getSubscription: () => ipcRenderer.invoke('subscription:current'),
+  transcribeAudio: (payload) => ipcRenderer.invoke('audio:transcribe', payload),
+  onSubscriptionInvalidated: (callback) => {
+    if (typeof callback !== 'function') throw Error('Invalid subscription listener.')
+    const listener = () => callback()
+    ipcRenderer.on('subscription:invalidate', listener)
+    return () => ipcRenderer.removeListener('subscription:invalidate', listener)
+  },
+  openUpgrade: () => ipcRenderer.invoke('subscription:upgrade'),
   getAuthState: () => ipcRenderer.invoke('auth:get-state'),
   startAuthLogin: () => ipcRenderer.invoke('auth:start-login'),
   logoutAuth: () => ipcRenderer.invoke('auth:logout'),

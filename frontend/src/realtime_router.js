@@ -5,7 +5,7 @@ export const AUTH_BLOCKS = new Set(['auth_unavailable', 'auth_invalid', 'token_e
 
 // Computer Auto is gRPC-only; microphone retains its established fallback policy.
 export function selectRealtimeRoute(status, context = {}, source = 'microphone', transportAvailable = true) {
-  const result = (route, reason) => ({ route, reason, fallbackAvailable: route !== 'blocked' && source === 'microphone' })
+  const result = (route, reason) => ({ route, reason, fallbackAvailable: route !== 'blocked' && source === 'microphone' && !status?.clientAudioRelay })
   if (!['microphone', 'system', 'both'].includes(source)) return result('blocked', 'unsupported_source')
   if (context.activeSessionEnded) return result('blocked', 'cloud_session_ended')
   if (context.activeSessionId || context.activeSessionIdPresent) {
@@ -13,7 +13,7 @@ export function selectRealtimeRoute(status, context = {}, source = 'microphone',
     if (status?.cloudAuthStatus === 'failed') return result('blocked', AUTH_BLOCKS.has(status.cloudBlockedReason) ? status.cloudBlockedReason : 'auth_unavailable')
     if (status?.cloudAuthAvailable === false) return result('blocked', 'auth_unavailable')
   }
-  const unavailable = reason => result(source !== 'microphone' ? 'blocked' : 'existing_default', reason)
+  const unavailable = reason => result(source !== 'microphone' || status?.clientAudioRelay ? 'blocked' : 'existing_default', reason)
   const reason = getGrpcAutoBlockReason(status, context, source)
   if (AUTH_BLOCKS.has(reason)) return result('blocked', reason)
   if (reason) return unavailable(reason)

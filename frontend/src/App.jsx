@@ -2925,14 +2925,15 @@ function MainWindow() {
     form.append('mode', mode)
 
     const transcriptionStarted = performance.now()
-    const transcribeResponse = await fetch(`${BACKEND_URL}/transcribe/`, {
-      method: 'POST',
-      body: form,
-    })
-    const transcribePayload = await parseJsonResponse(
-      transcribeResponse,
-      'Could not transcribe the recording.'
-    )
+    let transcribePayload
+    if (mode === 'manual' && startupSessionConfigRef.current?.activeSessionId && window.electronAPI?.transcribeAudio) {
+      const result = await window.electronAPI.transcribeAudio({ bytes: new Uint8Array(await blob.arrayBuffer()), contentType: blob.type.split(';')[0] })
+      if (!result?.ok) throw Error('Transcription is unavailable. Check your account connection and retry.')
+      transcribePayload = result.payload
+    } else {
+      const transcribeResponse = await fetch(`${BACKEND_URL}/transcribe/`, { method: 'POST', body: form })
+      transcribePayload = await parseJsonResponse(transcribeResponse, 'Could not transcribe the recording.')
+    }
     if (!isActive()) return { text: '', noSpeech: true }
     const text = transcribePayload.text || ''
     const noSpeech = Boolean(transcribePayload.no_speech) || !text.trim()
@@ -2984,8 +2985,7 @@ function MainWindow() {
       transcribePayload.transcription_ms ??
       Number((performance.now() - transcriptionStarted).toFixed(2))
     setTranscript(text)
-    console.info('SAIIA transcript', {
-      text,
+    console.info('SAIIA transcription metrics', {
       upload_ms: transcribePayload.upload_ms,
       transcription_ms: transcriptionMs,
       mode,
@@ -4884,7 +4884,8 @@ function MainWindow() {
     const startToken = ++autoStartTokenRef.current
     autoStartingRef.current = true
     try {
-      if (sourceMode === 'microphone' || sourceMode === 'both') {
+      const hostedCapture = (await window.electronAPI?.getGrpcRealtimeStatus?.())?.clientAudioRelay === true
+      if (!hostedCapture && (sourceMode === 'microphone' || sourceMode === 'both')) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         if (startToken !== autoStartTokenRef.current) { stream.getTracks().forEach(track => track.stop()); return }
         manualRecordingCancelledRef.current = false
