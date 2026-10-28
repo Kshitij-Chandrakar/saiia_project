@@ -760,3 +760,123 @@ def test_fractional_future_paise_requires_rounding_policy(billing):
     changed = c.OfferSnapshot.model_validate(raw)
     with pytest.raises(ValueError, match="rounding"):
         payable(changed, u["checkout"]["price_id"])
+
+
+def test_native_website_flow(billing):
+    import os
+    import subprocess
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    u = billing
+    pro = definition("pro")
+    assert create(u["client"], pro).status_code == 200
+    pro_id = publish(u["client"], pro)["receipt"]["offer_version_id"]
+    visual_ids = [
+        u["document"]["offer_version_id"],
+        u["checkout"]["offer_version_id"],
+        pro_id,
+    ]
+
+    class Bridge(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def dispatch(self):
+            raw = self.rfile.read(int(self.headers.get("content-length", "0")))
+            if self.path == "/__synthetic_pay":
+                order = json.loads(raw)["order_id"]
+                payment = u["provider"].pay(order)
+                payload = json.dumps(
+                    {
+                        "razorpay_subscription_id": order,
+                        "razorpay_payment_id": payment["id"],
+                        "razorpay_signature": hmac.new(
+                            SECRET.encode(),
+                            (payment["id"] + "|" + order).encode(),
+                            hashlib.sha256,
+                        ).hexdigest(),
+                    }
+                ).encode()
+                status = 200
+            else:
+                response = u["client"].request(
+                    self.command,
+                    self.path,
+                    content=raw,
+                    headers={
+                        k: v
+                        for k, v in self.headers.items()
+                        if k.lower() not in ("host", "content-length", "connection")
+                    },
+                )
+                payload, status = response.content, response.status_code
+                if self.path == "/api/catalog" and status == 200:
+                    data = response.json()
+                    data["offers"] = sorted(
+                        (
+                            o
+                            for o in data["offers"]
+                            if o["offer_version_id"] in visual_ids
+                        ),
+                        key=lambda o: visual_ids.index(o["offer_version_id"]),
+                    )
+                    payload = json.dumps(data).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        do_GET = dispatch
+        do_POST = dispatch
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Bridge)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        env = {
+            **os.environ,
+            "BILLING_BROWSER_NATIVE": json.dumps(
+                {
+                    "url": f"http://127.0.0.1:{server.server_port}",
+                    "token": headers(u["account"])["Authorization"][7:],
+                    "account": u["account"],
+                    "offer": u["checkout"]["offer_version_id"],
+                    "price": u["checkout"]["price_id"],
+                }
+            ),
+        }
+        result = subprocess.run(
+            [
+                "cmd",
+                "/c",
+                "npx",
+                "playwright",
+                "test",
+                "--config",
+                "playwright.catalog.config.js",
+                "billing.integration.spec.js",
+            ],
+            cwd=ROOT / "frontend",
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=100,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        desktop = subprocess.run(
+            ["node", "tests/catalog/billing-desktop.verify.cjs"],
+            cwd=ROOT / "frontend",
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=25,
+            check=False,
+        )
+        assert desktop.returncode == 0, desktop.stdout + desktop.stderr
+        assert u["subscription"].current(actor(u["account"]))["plan"]["name"] == "Plus"
+        assert u["provider"].calls == 1
+    finally:
+        server.shutdown()
+        server.server_close()
