@@ -1,0 +1,120 @@
+{
+  "version": "catalog.features.v2",
+  "currencies": {
+    "INR": 2,
+    "USD": 2,
+    "JPY": 0,
+    "KWD": 3
+  },
+  "auto_basis": "authorized_running_including_silence_both_once",
+  "features": [
+    "answers.generate",
+    "audio.transcribe",
+    "assistant.auto",
+    "resume.upload",
+    "resume.extract",
+    "resume.grounding",
+    "job_context.manage",
+    "job_context.extract",
+    "screen.analyze",
+    "sessions.history",
+    "transcripts.export",
+    "notes.generate",
+    "session.ask_ai",
+    "clipboard.saved_answers",
+    "sketch.generate",
+    "screen.followups"
+  ],
+  "meters": {
+    "answers.completed": {
+      "feature": "answers.generate",
+      "kind": "quota",
+      "unit": "turn"
+    },
+    "answers.concurrent": {
+      "feature": "answers.generate",
+      "kind": "concurrency",
+      "unit": "operation"
+    },
+    "audio.transcribed": {
+      "feature": "audio.transcribe",
+      "kind": "quota",
+      "unit": "second"
+    },
+    "audio.concurrent": {
+      "feature": "audio.transcribe",
+      "kind": "concurrency",
+      "unit": "stream"
+    },
+    "auto.authorized_running": {
+      "feature": "assistant.auto",
+      "kind": "quota",
+      "unit": "second"
+    },
+    "auto.concurrent_runs": {
+      "feature": "assistant.auto",
+      "kind": "concurrency",
+      "unit": "run"
+    },
+    "resume.stored_files": {
+      "feature": "resume.upload",
+      "kind": "storage",
+      "unit": "file"
+    },
+    "resume.stored_bytes": {
+      "feature": "resume.upload",
+      "kind": "storage",
+      "unit": "byte"
+    },
+    "resume.extractions": {
+      "feature": "resume.extract",
+      "kind": "quota",
+      "unit": "extraction"
+    },
+    "job_context.stored": {
+      "feature": "job_context.manage",
+      "kind": "storage",
+      "unit": "record"
+    },
+    "job_context.extractions": {
+      "feature": "job_context.extract",
+      "kind": "quota",
+      "unit": "extraction"
+    },
+    "screen.analyses": {
+      "feature": "screen.analyze",
+      "kind": "quota",
+      "unit": "analysis"
+    },
+    "screen.concurrent": {
+      "feature": "screen.analyze",
+      "kind": "concurrency",
+      "unit": "operation"
+    },
+    "notes.generations": {
+      "feature": "notes.generate",
+      "kind": "quota",
+      "unit": "generation"
+    },
+    "ask_ai.completed": {
+      "feature": "session.ask_ai",
+      "kind": "quota",
+      "unit": "turn"
+    },
+    "resume.replacements": {
+      "feature": "resume.upload",
+      "kind": "quota",
+      "unit": "replacement"
+    },
+    "clipboard.new_saves": {
+      "feature": "clipboard.saved_answers",
+      "kind": "quota",
+      "unit": "save"
+    }
+  },
+  "readiness": {
+    "clipboard.saved_answers": "session_scoped_create_list_implemented_account_meter_missing",
+    "sketch.generate": "diagram_path_not_verified_as_sketch",
+    "screen.followups": "existing_continue_workflow_requires_accounting_review"
+  }
+}
