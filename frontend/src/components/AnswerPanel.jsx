@@ -1,4 +1,5 @@
-import { ScreenContextStatus, useScreenContextStatus } from './ScreenContextControls'
+import { useScreenContextStatus } from './useScreenContextStatus'
+import { ScreenContextStatus } from './ScreenContextControls'
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronLeft,
@@ -555,7 +556,7 @@ export default function AnswerPanel({
   onClose,
 }) {
   const screenContextStatus = useScreenContextStatus()
-  const [size, setSize] = useState({ w: 520, h: 280 })
+  const [, setSize] = useState({ w: 520, h: 280 })
   const [collapsed, setCollapsed] = useState(false)
   const [chatDraft, setChatDraft] = useState('')
   const [chatEditing, setChatEditing] = useState(false)
@@ -785,7 +786,7 @@ export default function AnswerPanel({
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onUp)
-  }, [])
+  }, [minPanelHeight])
 
   const snippet = `${visibleBody.replace(/\n/g, ' ').slice(0, 80)}${visibleBody.length > 80 ? '...' : ''}`
 

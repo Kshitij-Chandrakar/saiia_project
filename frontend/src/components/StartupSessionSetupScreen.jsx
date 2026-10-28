@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import './startup-session-setup.css'
 import StartupAccountMenu from './StartupAccountMenu'
 import AnswerModelSelect from './AnswerModelSelect'
@@ -70,7 +70,7 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
 
   const hasTimeBalance = remainingMinutes !== null && totalMinutes !== null &&
     Number.isFinite(remainingMinutes) && Number.isFinite(totalMinutes) && remainingMinutes >= 0 && totalMinutes >= 0
-  const checkQuotaAvailability = async (refresh = false) => {
+  const checkQuotaAvailability = useCallback(async (refresh = false) => {
     if (quotaPendingRef.current || hasTimeBalance) return
     quotaPendingRef.current = true
     setQuotaLoading(true)
@@ -84,15 +84,15 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
       quotaPendingRef.current = false
       if (mountedRef.current) setQuotaLoading(false)
     }
-  }
+  }, [hasTimeBalance, saiiaApi])
   useEffect(() => {
     mountedRef.current = true
     if (hasTimeBalance) setQuotaLoading(false)
     else void checkQuotaAvailability()
     return () => { mountedRef.current = false }
-  }, [hasTimeBalance, authenticatedEmail])
+  }, [hasTimeBalance, authenticatedEmail, checkQuotaAvailability])
 
-  const loadModels = async (reset = false) => {
+  const loadModels = useCallback(async (reset = false) => {
     const request = ++modelRequestRef.current
     setModelLoading(true)
     try {
@@ -105,11 +105,11 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
     } catch {
       if (request === modelRequestRef.current) setCatalog({ items: [], admission: '', error: 'Unable to load answer models.' })
     } finally { if (request === modelRequestRef.current) setModelLoading(false) }
-  }
+  }, [saiiaApi])
   useEffect(() => {
     void loadModels(true)
     return () => { modelRequestRef.current++ }
-  }, [authenticatedEmail])
+  }, [authenticatedEmail, loadModels])
   const modelRequired = catalog.admission === 'enabled'
   const modelBlocked = staleSelection || modelLoading || Boolean(catalog.error) || !catalog.admission || catalog.admission === 'closed' ||
     (modelRequired && !catalog.items.some(m => m.key === selectedModel && m.selectable))
@@ -119,7 +119,7 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
     if (key === 'company') setCompanyError('')
   }
 
-  const loadResumes = async (isActive = () => true) => {
+  const loadResumes = useCallback(async (isActive = () => true) => {
     if (typeof saiiaApi?.listCloudResumes !== 'function') {
       if (isActive()) {
         setResumes([])
@@ -152,7 +152,7 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
         setResumesLoading(false)
       }
     }
-  }
+  }, [saiiaApi])
 
   useEffect(() => {
     let active = true
@@ -160,7 +160,7 @@ export default function StartupSessionSetupScreen({ initialConfig, onBack, onSta
     return () => {
       active = false
     }
-  }, [])
+  }, [loadResumes, authenticatedEmail])
 
   const updateSelectedResume = (event) => {
     const selectedResumeId = event.target.value

@@ -1,4 +1,5 @@
 import React from 'react'
+import { WebsiteMounted } from '../../../src/auth/WebsiteRenderFailure.jsx'
 import { createRoot } from 'react-dom/client'
 import ResumeAccessSelection from '../../../src/auth/ResumeAccessSelection.jsx'
 import '../../../src/auth/website-resumes.css'
@@ -9,4 +10,4 @@ export default function Harness() {
   window.switchResumeAccount = () => setUser({ user_id: 'other' })
   return <ResumeAccessSelection user={user} backendUrl="" refreshKey={revision} onChanged={() => setRevision(x => x + 1)} />
 }
-createRoot(document.getElementById('root')).render(<Harness />)
+createRoot(document.getElementById('root')).render(<WebsiteMounted><Harness /></WebsiteMounted>)
