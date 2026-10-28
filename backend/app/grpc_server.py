@@ -567,6 +567,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 async def release():
                     nonlocal system_session
                     try:
+                        if system_session is not None and hasattr(system_session, 'stop_requested'):
+                            system_session.stop_requested.set()
                         for task in (system_reader, system_sender):
                             if task: task.cancel()
                         await asyncio.gather(*(t for t in (system_reader, system_sender) if t), return_exceptions=True)
@@ -576,6 +578,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                                 system_session = await asyncio.shield(system_open_future)
                             except Exception:
                                 pass  # An unsuccessful open has no device handle to close.
+                        if system_session is not None and hasattr(system_session, 'stop_requested'):
+                            system_session.stop_requested.set()
                         if read_future:
                             await asyncio.gather(read_future, return_exceptions=True)
                         if system_session:

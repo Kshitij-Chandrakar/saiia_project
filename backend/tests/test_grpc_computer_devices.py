@@ -1,4 +1,5 @@
 import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -42,7 +43,9 @@ def test_output_change_requires_restart_before_another_native_read(monkeypatch):
     old = LoopbackDevice(10, 'Old output', 2, 48000, True, False)
     new = LoopbackDevice(22, 'New output', 2, 48000, True, False)
     monkeypatch.setattr(service, 'get_default_loopback_device', lambda: new)
-    session = NS(monitor_default=True, next_device_check_at=0, device=old, sample_rate=48000, channels=2)
+    session = NS(monitor_default=True, next_device_check_at=0, device=old, sample_rate=48000, channels=2,
+                 stream=NS(read=lambda *_args: pytest.fail('read after output changed')),
+                 stop_requested=threading.Event())
     with pytest.raises(SystemAudioCaptureError, match='restart'):
         service.read_streaming_pcm_chunk(session)
 
@@ -50,7 +53,8 @@ def test_output_change_requires_restart_before_another_native_read(monkeypatch):
 def test_cleanup_attempts_all_handles_and_reports_native_failure():
     calls = []
     def stop(): calls.append('stop'); raise OSError('device lost')
-    session = NS(debug_wave_writer=None, stream=NS(stop_stream=stop, close=lambda: calls.append('close')),
+    session = NS(stop_requested=threading.Event(), debug_wave_writer=None, stream=NS(stop_stream=stop, close=lambda: calls.append('close')),
                  pyaudio_instance=NS(terminate=lambda: calls.append('terminate')))
     assert SystemAudioCaptureService().close_streaming_loopback_session(session) is False
+    assert session.stop_requested.is_set()
     assert calls == ['stop', 'close', 'terminate']
