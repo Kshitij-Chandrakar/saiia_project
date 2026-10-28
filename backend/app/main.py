@@ -16,6 +16,9 @@ from app.commercial.boundary import CommercialBoundaryMiddleware
 from app.commercial.catalog_database import CatalogDatabase
 from app.commercial.public_catalog import router as public_catalog_router
 from app.commercial.subscription_api import router as subscription_router
+from app.commercial.billing_api import router as billing_router
+from app.commercial.billing_admin import router as billing_admin_router
+from app.commercial.billing_database import BillingDatabase
 from app.commercial.hosted_audio import router as hosted_audio_router
 from app.commercial.subscription_database import SubscriptionDatabase
 from app.commercial.draft_api import router as catalog_draft_router
@@ -37,6 +40,12 @@ async def lifespan(app):
     subscriptions = SubscriptionDatabase(settings.SUBSCRIPTIONS_ENABLED,settings.SUBSCRIPTIONS_DSN)
     app.state.subscriptions = subscriptions
     await run_in_threadpool(subscriptions.start)
+    billing_database = BillingDatabase(settings)
+    if subscriptions._service is not None:
+        await run_in_threadpool(billing_database.start)
+    app.state.billing = billing_database.billing
+    app.state.billing_admin = billing_database.admin
+    app.state.billing_notifications = billing_database.notifications
     if settings.GRPC_REALTIME_ENABLED:
         try:
             from app.grpc_server import start_server
@@ -60,6 +69,7 @@ async def lifespan(app):
             finally:
                 await shutdown_cleanup()
         await run_in_threadpool(subscriptions.close)
+        await run_in_threadpool(billing_database.close)
         await run_in_threadpool(catalog_public.close)
         await run_in_threadpool(catalog_database.close)
 
@@ -88,6 +98,8 @@ app.add_middleware(CommercialBoundaryMiddleware)
 app.include_router(commercial_router, prefix="/api/commercial", tags=["Commercial Foundation"])
 app.include_router(public_catalog_router)
 app.include_router(subscription_router)
+app.include_router(billing_router)
+app.include_router(billing_admin_router)
 app.include_router(hosted_audio_router)
 app.include_router(catalog_draft_router, prefix="/api/admin/catalog", tags=["Catalog Draft Administration"])
 app.include_router(catalog_lifecycle_router, prefix="/api/admin/catalog", tags=["Catalog Lifecycle Administration"])
