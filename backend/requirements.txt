@@ -115,3 +115,7 @@ wrapt==1.17.2
 grpcio==1.76.0
 grpcio-tools==1.76.0
 protobuf==6.33.6
+
+# Opt-in backend catalog draft SQL composition (disabled by default)
+psycopg[binary]==3.3.6
+psycopg_pool==3.3.0
