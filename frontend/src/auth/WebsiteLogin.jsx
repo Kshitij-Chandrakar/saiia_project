@@ -45,9 +45,10 @@ export default function WebsiteLogin({ form, checkingSession, configured, onSubm
     try { return presentationOnly ? '' : localStorage.getItem('intervucopilot.login-email') || '' } catch { return '' }
   })
   const [rememberEmail, setRememberEmail] = useState(Boolean(rememberedEmail))
+  const { setEmail } = form
   useEffect(() => {
-    if (rememberedEmail) form.setEmail(rememberedEmail)
-  }, [rememberedEmail, form.setEmail])
+    if (rememberedEmail) setEmail(rememberedEmail)
+  }, [rememberedEmail, setEmail])
   const [legalNotice, setLegalNotice] = useState('')
   const [visible, setVisible] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
@@ -89,7 +90,7 @@ export default function WebsiteLogin({ form, checkingSession, configured, onSubm
           <Link to="/" className="website-login__brand" aria-label="Intervucopilot home"><span className="website-login__brand-icon"><img src={brandMark} alt="" /></span><span>Intervucopilot</span></Link>
           <header><h1 id="website-login-title">Welcome back!</h1><p>Continue your interview preparation journey with Intervucopilot.</p></header>
           <div className="website-login__messages" aria-live="polite">
-            {!configured && <p role="alert">Supabase auth is not configured for this build.</p>}
+            {!configured && <p role="alert">Sign-in is unavailable right now. Please try again later.</p>}
             {checkingSession && <p role="status">Checking session...</p>}
             {authMessage && <p>{authMessage}</p>}
             {legalNotice && <p role="status">{legalNotice}</p>}

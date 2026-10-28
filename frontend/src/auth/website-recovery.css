@@ -1,0 +1,22 @@
+.website-recovery{box-sizing:border-box;min-height:100svh;display:flex;flex-direction:column;background:#eef4ff;color:#10234f;color-scheme:light;font:400 16px/1.65 'Website Inter',Arial,sans-serif;padding:32px 48px}
+.website-recovery *{box-sizing:border-box}
+.wr-brand{display:flex;align-items:center;gap:10px;align-self:flex-start;color:#10234f;text-decoration:none;font-size:24px;font-weight:700;letter-spacing:-.6px}
+.wr-brand img{object-fit:contain}
+.wr-content{display:flex;align-items:center;gap:48px;width:100%;max-width:900px;margin:auto;padding:64px 48px;background:#fff;border:1px solid #dbe5f5;border-radius:24px;box-shadow:0 16px 48px #10234f08}
+.wr-mascot{object-fit:contain;flex:0 0 184px;max-width:100%}
+.wr-copy{min-width:0;flex:1}
+.wr-copy h1,.wr-copy h2{margin:0 0 16px;font-size:32px;line-height:1.25;font-weight:700;letter-spacing:-.8px;text-wrap:balance}
+.wr-copy h1:focus,.wr-copy h2:focus{outline:none}
+.wr-copy p{margin:0;color:#475569;max-width:60ch;overflow-wrap:anywhere}
+.wr-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:28px}
+.wr-actions a,.wr-actions button{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:11px 20px;border:1px solid #cbd5e1;border-radius:12px;color:#10234f;background:#fff;font:600 14px/22px 'Website Inter',Arial,sans-serif;text-decoration:none;cursor:pointer}
+.wr-actions>:first-child{background:#2563eb;border-color:#2563eb;color:white}
+.wr-actions a:hover,.wr-actions button:hover{background:#eaf1ff;color:#10234f}
+.wr-actions>:first-child:hover{background:#1d4ed8;color:#fff}
+.website-recovery a:focus-visible,.website-recovery button:focus-visible{outline:3px solid #2563eb;outline-offset:4px}
+.wr-actions button:disabled{opacity:.65;cursor:wait}
+.wr-copy .wr-note{font-size:13px;line-height:1.6;margin-top:24px;color:#475569}
+.website-recovery>footer{margin-top:auto;padding-top:24px;text-align:center;font-size:12px;color:#475569}
+.website-recovery--contained{min-height:65svh;padding:32px 0;background:transparent}
+.website-recovery--contained .wr-content{margin:auto;box-shadow:none}
+@media(max-width:640px){.website-recovery{padding:24px 20px;gap:32px}.wr-brand{font-size:22px}.wr-content{flex-direction:column;gap:24px;padding:32px 24px}.wr-mascot{flex-basis:auto;width:140px;height:112px}.wr-copy h1,.wr-copy h2{font-size:26px;letter-spacing:-.65px}.wr-actions{flex-direction:column}.wr-actions a,.wr-actions button{width:100%}.website-recovery--contained{padding:16px 0}}

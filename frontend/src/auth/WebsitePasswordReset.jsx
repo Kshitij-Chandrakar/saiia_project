@@ -63,7 +63,8 @@ export function PasswordResetDialog({initialStage='request',onClose}) {
 
   body.style.overflow='hidden';if(gutter)body.style.paddingRight=`${gutter}px`
 
-  if(!dialog.current.open)dialog.current.showModal()
+  const dialogElement=dialog.current
+  if(!dialogElement.open)dialogElement.showModal()
 
   if(!client.current){client.current=createWebsiteRecoveryClient();if(client.current)flow.current=createRecoveryFlow(client.current)}
 
@@ -95,7 +96,7 @@ export function PasswordResetDialog({initialStage='request',onClose}) {
 
    active=false;alive.current=false;clearInterval(interval);window.removeEventListener('storage',sync)
 
-   dialog.current?.close();body.style.overflow=overflow;body.style.paddingRight=padding
+   dialogElement?.close();body.style.overflow=overflow;body.style.paddingRight=padding
 
 
 

@@ -94,7 +94,7 @@ function buildEnvelopeFromLegacy(legacy) {
     questions,
     selected_question_id: questions.length === 1 ? questions[0].question_id : null,
     extraction: {
-      complete: questions.length > 0 && !Boolean(legacy.incomplete),
+      complete: questions.length > 0 && !legacy.incomplete,
       confidence: clampConfidence(legacy.confidence),
       missing_sections: [],
       warnings: Number(legacy.incomplete_question_count || 0) > 0 ? ['incomplete_questions_ignored'] : [],

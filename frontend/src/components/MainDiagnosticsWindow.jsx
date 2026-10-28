@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createDesktopAuthRequestTracker, getDesktopAuthViewModel } from '../desktop_auth_ui.js'
 import { extractCopyableCode } from '../screen_mode_state.js'
-import StartupLoginScreen, { shouldShowStartupLogin } from './StartupLoginScreen.jsx'
+import StartupLoginScreen from './StartupLoginScreen.jsx'
+import { shouldShowStartupLogin } from '../desktop_auth_ui.js'
 import StartupSessionChoiceScreen from './StartupSessionChoiceScreen.jsx'
 import StartupSessionSetupScreen from './StartupSessionSetupScreen.jsx'
 import MainAnswerDisplay from './MainAnswerDisplay.jsx'
@@ -182,16 +183,18 @@ function DesktopAuthStatus({ onSignedOut }) {
   const authRequestTrackerRef = useRef(createDesktopAuthRequestTracker())
   const saiiaApi = typeof window !== 'undefined' ? window.saiia : null
 
-  const applyAuthState = (payload, requestId) => {
+  const authCallback = useRef(onSignedOut)
+  useEffect(() => { authCallback.current = onSignedOut }, [onSignedOut])
+  const applyAuthState = useCallback((payload, requestId) => {
     if (!authRequestTrackerRef.current.isCurrent(requestId)) {
       return
     }
     const nextState = getDesktopAuthViewModel(payload)
     setAuthState(nextState)
     if (shouldShowStartupLogin(nextState)) {
-      onSignedOut?.(nextState)
+      authCallback.current?.(nextState)
     }
-  }
+  }, [])
 
   const runAuthAction = async (action, task) => {
     if (busyAction || typeof task !== 'function') {
@@ -228,7 +231,7 @@ function DesktopAuthStatus({ onSignedOut }) {
     return () => {
       active = false
     }
-  }, [saiiaApi])
+  }, [saiiaApi, applyAuthState])
 
   return (
     <div className="glass-card desktop-auth-card" aria-label="Cloud auth status">
