@@ -87,11 +87,16 @@ def system_capture_available():
 
 
 class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
-    def __init__(self):
+    def __init__(self, subscriptions=None, *, client_relay=None):
         self._system_owner = asyncio.Lock()
         self._system_cleanup_failed = False
+        self._subscriptions = subscriptions
+        # Internal ASGI adapter only; standalone gRPC never sets this capability.
+        self._client_relay = client_relay
 
     async def CheckHealth(self, request, context):
+        if (settings.HOSTED_COMMERCIAL_MODE and self._client_relay is None) or (settings.SUBSCRIPTIONS_ENABLED == 'true' and self._subscriptions is None):
+            return pb.RealtimeHealth()
         # Configuration readiness only: never open capture, STT, auth or an LLM.
         stt = settings.GRPC_STT_ENABLED and bool(settings.ASSEMBLYAI_API_KEY)
         answer = stt and settings.GRPC_ANSWER_STREAM_ENABLED
@@ -104,6 +109,9 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                                  and not self._system_owner.locked() and not self._system_cleanup_failed)
 
     async def StreamInterview(self, request_iterator, context):
+        if (settings.HOSTED_COMMERCIAL_MODE and self._client_relay is None) or (settings.SUBSCRIPTIONS_ENABLED == 'true' and self._subscriptions is None):
+            await context.abort(grpc.StatusCode.UNAVAILABLE, "Hosted commercial gRPC is not admitted.")
+            return
         # Bounded output queue lets provider events arrive independently of audio input.
         output = asyncio.Queue(maxsize=32)
         session_id = None
@@ -157,6 +165,19 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
         accepted_turn = 0
         current_answer_request = ''
         answer_identity = {}
+        account_lease = None
+        lease_watcher = None
+
+        async def watch_lease():
+            if self._client_relay:
+                code = await self._client_relay.wait_for_end()
+            else:
+                await account_lease.expired()
+                code = 'subscription_auto_expired'
+            if not account_lease.stopped:
+                await emit(last_request_id,'error',pb.ErrorEvent(code=code,message='Auto authorization ended. Stop and check your available allowance.'))
+                await output.put(None)
+                start_resource_cleanup()
 
         def event(request_id, kind, payload):
             nonlocal sequence
@@ -228,6 +249,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                     answer = ""
                     category = provider = ""
                     question_seen = completed = False
+                    if account_lease:
+                        await account_lease.authorize()
                     pipeline_call = (stream_question_answer(text, cloud_context=cloud_context, logical_turn_id=logical_turn_id, incremental=True)
                         if answer_version else stream_question_answer(text, cloud_context=cloud_context, logical_turn_id=logical_turn_id)
                         if cloud_context and settings.ENABLE_SESSION_ANSWER_MODELS else
@@ -541,7 +564,9 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                             system_silence_ratio=sum(frame[i:i+2] == b'\0\0' for i in range(0,len(frame),2))/(len(frame)//2))
                         if audio_source == 'system': system_metrics['system_buffer_queue_depth'] = system_queue.qsize()
                         if not system_metrics.get('system_first_chunk_sent_to_grpc_at'): system_metrics['system_first_chunk_sent_to_grpc_at'] = time.time()*1000
-                        await asyncio.wait_for(socket.send(frame),timeout=2)
+                        if account_lease and account_lease.remaining()<=0:
+                            raise PermissionError('Auto authorization expired')
+                        await asyncio.wait_for(socket.send(frame),timeout=min(2,account_lease.remaining()) if account_lease else 2)
                         total_chunks += 1; total_audio_bytes += len(frame); stt_chunks += 1; stt_bytes += len(frame)
                         if any(frame): non_silent_chunks += 1
                         await emit(last_request_id,'status',pb.Status(code='system_audio_metrics',total_chunks=total_chunks,total_audio_bytes=total_audio_bytes,
@@ -549,7 +574,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                             system_audio=pb.SystemAudioDiagnostics(**system_metrics),question_intake=question_intake_diagnostics({**intake,**utterance.snapshot()})))
                 except asyncio.CancelledError: raise
                 except Exception:
-                    await emit(last_request_id,'error',pb.ErrorEvent(code='system_audio_unavailable',message='System audio stream unavailable. Stop and retry.'))
+                    await emit(last_request_id,'error',pb.ErrorEvent(code='subscription_auto_expired' if account_lease and account_lease.remaining()<=0 else 'system_audio_unavailable',message='Audio authorization ended or the stream is unavailable. Stop and check your account.'))
                     await output.put(None)
             system_reader = asyncio.create_task(capture())
             system_sender = asyncio.create_task(send())
@@ -651,7 +676,15 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                     finally:
                         await close_stt()
                 async def release():
-                    results = await asyncio.gather(stop_answers(), audio(), return_exceptions=True)
+                    async def stop_lease():
+                        if lease_watcher and lease_watcher is not asyncio.current_task():
+                            lease_watcher.cancel()
+                        if account_lease:
+                            try:
+                                await account_lease.stop()
+                            except Exception:
+                                pass # Durable lease expiry/reaper settles an uncertain cleanup.
+                    results = await asyncio.gather(stop_answers(), audio(), stop_lease(), return_exceptions=True)
                     # Independent resources finish even when another branch fails.
                     for result in results:
                         if isinstance(result, BaseException):
@@ -661,6 +694,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             return resource_cleanup
 
         async def process_requests():
+            nonlocal account_lease, lease_watcher
             nonlocal system_owned, audio_source, cloud_context, auto_mode, manual_mode, manual_stopped, session_id, total_chunks, total_audio_bytes, last_request_id, stopping_stt, stt_chunks, stt_bytes, non_silent_chunks, answer_version
             canceled = False
             try:
@@ -668,6 +702,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                     last_request_id = request.request_id
                     kind = request.WhichOneof("event")
                     if kind == "ping":
+                        if account_lease:
+                            await account_lease.heartbeat()
                         await emit(request.request_id, "pong", pb.Empty())
                     elif kind in ("cancel", "end_session"):
                         resources = start_resource_cleanup()
@@ -689,6 +725,9 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                             await emit(request.request_id, "error", pb.ErrorEvent(code="auto_unavailable", message="Auto gRPC pipeline is unavailable."))
                             return
                         manual_mode = request.start_session.mode == "manual_pipeline"
+                        if settings.SUBSCRIPTIONS_ENABLED=='true' and (not auto_mode or not request.start_session.cloud_context_requested):
+                            await emit(request.request_id,'error',pb.ErrorEvent(code='subscription_auto_required',message='Authenticated Auto session required.'))
+                            return
                         if manual_mode and not (settings.USE_GRPC_MANUAL_PIPELINE and answer_enabled):
                             await emit(request.request_id, "error", pb.ErrorEvent(code="manual_unavailable", message="Manual gRPC pipeline is unavailable."))
                             return
@@ -706,8 +745,9 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                             from starlette.concurrency import run_in_threadpool
                             await emit(request.request_id, "status", pb.Status(code="auth_verifying"))
                             try:
+                                args = (start,context.invocation_metadata(),self._subscriptions) if settings.SUBSCRIPTIONS_ENABLED=='true' else (start,context.invocation_metadata())
                                 cloud_context = await asyncio.wait_for(run_in_threadpool(
-                                    GrpcCloudContext.authorize, start, context.invocation_metadata()), timeout=15)
+                                    GrpcCloudContext.authorize, *args), timeout=15)
                             except Exception as exc:
                                 code = exc.code if isinstance(exc, CloudContextRejected) else "cloud_context_rejected"
                                 await emit(request.request_id, "error", pb.ErrorEvent(code=code, message="Cloud realtime context could not be verified. Use the authenticated fallback."))
@@ -717,7 +757,17 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         elif start.active_session_id or start.selected_resume_id or start.selected_job_context_id:
                             await emit(request.request_id, "error", pb.ErrorEvent(code="auth_context_required", message="Cloud context requires verified authentication."))
                             return
-                        if audio_source in ('system', 'both'):
+                        if settings.SUBSCRIPTIONS_ENABLED=='true':
+                            from app.commercial.admin_access import verified_actor
+                            from app.commercial.subscription_auto import AccountAutoLease
+                            account_lease=AccountAutoLease(self._subscriptions.service(),verified_actor(cloud_context.request),audio_source,
+                                run_id=self._client_relay.stream_id if self._client_relay else None)
+                            await account_lease.start()
+                            if self._client_relay:
+                                self._client_relay.lease = account_lease
+                            cloud_context.request.state._subscription_auto=account_lease
+                            lease_watcher=asyncio.create_task(watch_lease())
+                        if audio_source in ('system', 'both') and self._client_relay is None:
                             if self._system_cleanup_failed:
                                 await emit(request.request_id, "error", pb.ErrorEvent(code="system_cleanup_failed", message="Restart the local backend before Computer Auto."))
                                 return
@@ -734,7 +784,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                             await emit(request.request_id, 'answer_stream_capabilities', pb.AnswerStreamCapabilities(version=answer_version))
                         if stt_enabled:
                             await open_stt()
-                        if audio_source in ('system', 'both'):
+                        if audio_source in ('system', 'both') and self._client_relay is None:
                             try:
                                 await open_system_capture()
                             except asyncio.CancelledError:
@@ -762,7 +812,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                             await emit(request.request_id, "error", pb.ErrorEvent(code="manual_stopped", message="Start a new manual capture."))
                             return
                         if kind == "audio_chunk":
-                            if audio_source == 'system':
+                            if audio_source == 'system' and self._client_relay is None:
                                 await emit(request.request_id,'error',pb.ErrorEvent(code='unsupported_source',message='System capture owns the audio stream.'))
                                 return
                             chunk = request.audio_chunk
@@ -770,12 +820,17 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                                 await emit(request.request_id, "error", pb.ErrorEvent(
                                     code="invalid_audio", message="Expected bounded mono 16 kHz linear16 PCM."))
                                 return
-                            if audio_source == 'both':
+                            if self._client_relay:
+                                if not await self._client_relay.accept(request.sequence_number, chunk.audio):
+                                    continue
+                            if audio_source == 'both' and self._client_relay is None:
                                 mixer.push('microphone', chunk.audio, time.monotonic(), request.sequence_number, request.timestamp_ms)
                             elif stt_enabled:
                                 if socket is None:
                                     await open_stt()
-                                await asyncio.wait_for(socket.send(chunk.audio), timeout=2)
+                                if account_lease and account_lease.remaining()<=0:
+                                    raise PermissionError('Auto authorization expired')
+                                await asyncio.wait_for(socket.send(chunk.audio), timeout=min(2,account_lease.remaining()) if account_lease else 2)
                                 stt_chunks += 1
                                 stt_bytes += len(chunk.audio)
                                 if any(chunk.audio):
@@ -825,9 +880,12 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             except asyncio.CancelledError:
                 canceled = True
                 raise
-            except Exception:
+            except Exception as error:
+                from app.commercial.catalog_store import CatalogStoreError, ErrorCode
+                code = ({ErrorCode.EXHAUSTED:'subscription_auto_exhausted',ErrorCode.CONFLICT:'subscription_auto_busy',ErrorCode.DENIED:'subscription_denied'}.get(error.code,'subscription_unavailable')
+                        if isinstance(error,CatalogStoreError) else 'subscription_denied' if isinstance(error,PermissionError) else 'stt_unavailable')
                 await emit(last_request_id, "error", pb.ErrorEvent(
-                    code="stt_unavailable", message="Live STT unavailable. Check provider configuration and retry."))
+                    code=code, message="Auto authorization or transport is unavailable. Check your account and retry."))
             finally:
                 if not canceled:
                     await output.put(None)
@@ -854,7 +912,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 raise asyncio.CancelledError()
 
 
-async def start_server(host="127.0.0.1", port=50051, max_message_mb=4):
+async def start_server(host="127.0.0.1", port=50051, max_message_mb=4, subscriptions=None):
     # There is no authentication/TLS integration in G1. Never bind externally.
     if host != "localhost" and not ipaddress.ip_address(host).is_loopback:
         raise ValueError("G1 gRPC is restricted to loopback hosts.")
@@ -863,7 +921,7 @@ async def start_server(host="127.0.0.1", port=50051, max_message_mb=4):
     limit = max_message_mb * 1024 * 1024
     server = grpc.aio.server(options=[("grpc.max_receive_message_length", limit),
                                       ("grpc.max_send_message_length", limit)])
-    rpc.add_InterviewRealtimeServiceServicer_to_server(InterviewRealtimeService(), server)
+    rpc.add_InterviewRealtimeServiceServicer_to_server(InterviewRealtimeService(subscriptions), server)
     address = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
     bound_port = server.add_insecure_port(address)
     if not bound_port:

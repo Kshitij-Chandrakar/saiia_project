@@ -17,14 +17,19 @@ class Settings:
     BILLING_NOTIFICATIONS_ENABLED = os.getenv('BILLING_NOTIFICATIONS_ENABLED','false').strip().lower()
     BILLING_ADMIN_ENABLED = os.getenv('BILLING_ADMIN_ENABLED','false').strip().lower()
     HOSTED_AUDIO_ENABLED = os.getenv('HOSTED_AUDIO_ENABLED', 'false').strip().lower() == 'true'
+    HOSTED_AUDIO_DEPLOYMENT_ID = os.getenv('HOSTED_AUDIO_DEPLOYMENT_ID', '').strip()
+    HOSTED_AUDIO_ORIGINS = os.getenv('HOSTED_AUDIO_ORIGINS', '').strip()
+    DESKTOP_HANDOFF_ENCRYPTION_KEY = os.getenv('DESKTOP_HANDOFF_ENCRYPTION_KEY', '')
     SUBSCRIPTIONS_ENABLED = os.getenv('SUBSCRIPTIONS_ENABLED','false').strip().lower()
     SUBSCRIPTIONS_DSN = os.getenv('SUBSCRIPTIONS_DSN','')
-    HOSTED_COMMERCIAL_MODE = hosted_commercial_mode()
+    # Backend-only direct SQL; explicit opt-in, never a public Supabase key.
     CATALOG_DRAFTS_ENABLED = os.getenv("CATALOG_DRAFTS_ENABLED", "false").strip().lower()
     CATALOG_PUBLIC_ENABLED = os.getenv("CATALOG_PUBLIC_ENABLED", "false").strip().lower()
     CATALOG_PUBLIC_DSN = os.getenv("CATALOG_PUBLIC_DSN", "")
     CATALOG_DRAFTS_DSN = os.getenv("CATALOG_DRAFTS_DSN", "")
     CATALOG_LIFECYCLE_ENABLED = os.getenv("CATALOG_LIFECYCLE_ENABLED", "false").strip().lower()
+    HOSTED_COMMERCIAL_MODE = hosted_commercial_mode()
+    # Controlled backend bootstrap only; empty grants nobody permission.
     SUBSCRIPTION_ADMIN_SUBJECTS = os.getenv('SUBSCRIPTION_ADMIN_SUBJECTS', '').strip()
     # Diagram generation is a separate opt-in; saved reads remain available.
     DIAGRAM_GENERATION_ENABLED = os.getenv('DIAGRAM_GENERATION_ENABLED', 'false').lower() == 'true'

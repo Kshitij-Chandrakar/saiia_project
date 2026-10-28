@@ -3,8 +3,8 @@ import logging
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.auth.supabase_auth import CurrentUserDep
 from app.cloud.cloud_resume import (
@@ -89,6 +89,7 @@ class ExtractResponse(BaseModel):
 
 
 class ConfirmRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     extraction_attempt: int
     profile: dict[str, Any]
 
@@ -127,14 +128,38 @@ def _cached_cloud_resume_service() -> CloudResumeService:
     return CloudResumeService()
 
 
-def get_cloud_resume_service() -> CloudResumeService:
+def get_cloud_resume_service(request: Request) -> CloudResumeService:
     try:
-        return _cached_cloud_resume_service()
+        existing = _cached_cloud_resume_service()
+        from app.config import settings
+        if settings.SUBSCRIPTIONS_ENABLED == 'true':
+            from app.commercial.subscription_resume import account_resume_service
+            return account_resume_service(request, existing)
+        return existing
     except SupabaseConfigurationError as exc:
         raise _handle_cloud_error(exc) from exc
 
 
 CloudResumeServiceDep = Annotated[CloudResumeService, Depends(get_cloud_resume_service)]
+
+
+class ResumeActiveSetRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    resume_ids: list[UUID] = Field(min_length=1,max_length=100)
+
+
+@router.post('/active-set', response_model=CloudResumeResponse)
+def select_resume_active_set(payload: ResumeActiveSetRequest, current_user: CurrentUserDep,
+                             service: CloudResumeServiceDep):
+    from app.commercial.subscription_resume import AccountResumeClient
+    if not isinstance(service._client,AccountResumeClient):
+        raise HTTPException(503,detail={'code':'subscription_unavailable'})
+    try:
+        from app.cloud.cloud_resume import _record_from_payload
+        row=service._client.call('select',resume_ids=[str(x) for x in payload.resume_ids])
+        return _resume_response(_record_from_payload(row))
+    except Exception as error:
+        raise _handle_cloud_error(error) from None
 
 
 def _resume_response(record: CloudResumeRecord) -> CloudResumeResponse:
@@ -182,6 +207,12 @@ def _resume_list_item(record: CloudResumeRecord, readiness: ResumeReadiness | No
 
 
 def _handle_cloud_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, HTTPException):
+        return exc
+    from app.commercial.catalog_store import CatalogStoreError
+    if isinstance(exc, CatalogStoreError):
+        from app.commercial.subscription_screen import safe_error
+        return safe_error(exc)
     if isinstance(exc, SupabaseConfigurationError):
         return HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

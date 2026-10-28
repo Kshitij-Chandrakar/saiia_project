@@ -1,7 +1,7 @@
 """Narrow authenticated diagram API, separate from answer generation."""
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.auth.supabase_auth import CurrentUserDep
@@ -12,15 +12,51 @@ from app.services.answer_diagram_service import diagram_service
 router = APIRouter()
 
 
+def _store(request):
+    if settings.SUBSCRIPTIONS_ENABLED != 'true':
+        return diagram_store()
+    from app.commercial.admin_access import verified_actor
+    from app.commercial.catalog_store import CatalogStoreError
+    from app.commercial.subscription_sketch import SubscriptionSketchStore
+    try:
+        if request is None:
+            raise DiagramError('subscription_unavailable')
+        if len(request.headers.getlist('authorization')) != 1:
+            raise HTTPException(401, detail={'code': 'subscription_auth_required'})
+        runtime = getattr(request.app.state, 'subscriptions', None)
+        if runtime is None:
+            raise DiagramError('subscription_unavailable')
+        return SubscriptionSketchStore(runtime.service(), verified_actor(request))
+    except CatalogStoreError:
+        raise DiagramError('subscription_unavailable') from None
+
+
+def _service(request):
+    if settings.SUBSCRIPTIONS_ENABLED != 'true':
+        return diagram_service()
+    from app.services.answer_diagram_service import DiagramService
+    # Share only capacity/task cancellation, never another request's actor/store.
+    shared = diagram_service()
+    return DiagramService(_store(request), shared.provider,
+                          tasks=shared.tasks, capacity=shared.capacity)
+
+
 @router.get('/{session_id}/answer-sources')
-def resolve_source(session_id: UUID, current_user: CurrentUserDep,
+def resolve_source(session_id: UUID, current_user: CurrentUserDep, request: Request = None,
                    transcript_id: UUID | None = None, request_id: str | None = Query(None, min_length=1, max_length=120)):
     if (transcript_id is None) == (request_id is None):
         raise HTTPException(400, detail={'code': 'invalid_source'})
     try:
-        descriptor, _ = diagram_store().source(current_user.user_id, str(session_id),
+        store = _store(request)
+        descriptor, _ = store.source(current_user.user_id, str(session_id),
             transcript=str(transcript_id) if transcript_id else None, request=request_id)
         descriptor['generation_enabled'] = settings.DIAGRAM_GENERATION_ENABLED
+        if settings.SUBSCRIPTIONS_ENABLED == 'true' and descriptor['generation_enabled']:
+            try:
+                store.authorize_generation(current_user.user_id)
+            except DiagramError as denied:
+                descriptor['generation_enabled'] = False
+                descriptor['reason'] = denied.code
         return descriptor
     except DiagramError as exc:
         if exc.code in {'schema_unavailable', 'source_pending'}:
@@ -37,10 +73,10 @@ class DiagramRequest(BaseModel):
 
 
 @router.get('/{session_id}/transcript-entries/{transcript_id}/diagram')
-async def read_diagram(session_id: UUID, transcript_id: UUID, current_user: CurrentUserDep,
+async def read_diagram(session_id: UUID, transcript_id: UUID, current_user: CurrentUserDep, request: Request = None,
                        source_revision: str = Query(pattern=r'^v1:[a-f0-9]{64}$')):
     try:
-        return await diagram_service().read((current_user.user_id, str(session_id), str(transcript_id), source_revision, None))
+        return await _service(request).read((current_user.user_id, str(session_id), str(transcript_id), source_revision, None))
     except DiagramError as exc:
         if exc.code == 'schema_unavailable':
             return dict(state='unavailable', reason=exc.code, source_revision=source_revision)
@@ -50,12 +86,12 @@ async def read_diagram(session_id: UUID, transcript_id: UUID, current_user: Curr
 @router.post('/{session_id}/transcript-entries/{transcript_id}/diagram')
 @router.post('/{session_id}/transcript-entries/{transcript_id}/diagram/{action}')
 async def mutate_diagram(session_id: UUID, transcript_id: UUID, payload: DiagramRequest,
-                         current_user: CurrentUserDep, action: str = 'generate'):
+                         current_user: CurrentUserDep, request: Request = None, action: str = 'generate'):
     if action not in ('generate', 'retry', 'cancel'):
         raise HTTPException(404)
     identity = (current_user.user_id, str(session_id), str(transcript_id), payload.source_revision, str(payload.operation_id))
     try:
-        service = diagram_service()
+        service = _service(request)
         return await service.cancel(identity) if action == 'cancel' else await service.run(identity, retry=action == 'retry')
     except DiagramError as exc:
         raise HTTPException(exc.status, detail={'code': exc.code}) from None
