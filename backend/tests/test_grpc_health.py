@@ -49,15 +49,16 @@ def test_fastapi_owns_opt_in_grpc_and_rest_survives_start_failure(monkeypatch):
     function = next(node for node in tree.body if isinstance(node, ast.AsyncFunctionDef) and node.name == 'lifespan')
     from app.commercial.catalog_database import CatalogDatabase
     from app.commercial.subscription_database import SubscriptionDatabase
+    from app.commercial.billing_database import BillingDatabase
     from starlette.concurrency import run_in_threadpool
 
     for flag in ('CATALOG_DRAFTS_ENABLED', 'CATALOG_PUBLIC_ENABLED', 'CATALOG_LIFECYCLE_ENABLED',
-                 'SUBSCRIPTIONS_ENABLED', 'BILLING_ADMIN_ENABLED',
+                 'SUBSCRIPTIONS_ENABLED', 'BILLING_ENABLED', 'BILLING_ADMIN_ENABLED',
                  'BILLING_NOTIFICATIONS_ENABLED'):
         monkeypatch.setattr(grpc_server.settings, flag, 'false')
     namespace = {'asynccontextmanager': asynccontextmanager, 'settings': grpc_server.settings, 'logging': logging,
                  'CatalogDatabase': CatalogDatabase, 'SubscriptionDatabase': SubscriptionDatabase,
-                 'run_in_threadpool': run_in_threadpool}
+                 'BillingDatabase': BillingDatabase, 'run_in_threadpool': run_in_threadpool}
     exec(compile(ast.Module(body=[function], type_ignores=[]), str(path), 'exec'), namespace)
     lifespan, app = namespace['lifespan'], SimpleNamespace(state=SimpleNamespace())
     monkeypatch.setattr(grpc_server.settings, 'GRPC_REALTIME_ENABLED', True)
