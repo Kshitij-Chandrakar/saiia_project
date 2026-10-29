@@ -41,7 +41,7 @@ and nullable Auth mapping. Repoint reviewed foreign-key *definitions* to the
 internal subject without rewriting the accepted UUID values or ledger event
 bytes. Legacy internal IDs may equal the former Auth UUID; that is why explicit
 pseudonymous retention approval is required. Prevent the subject record from
-being used as a sign-in/admin/entitlement grant.
+being used as a sign-in/admin/entitlement grant. Each subject may map to at most one Auth identity. Once set, the mapped identity cannot be replaced; unlinking is permanent and must prevent relinking to either the former or a different identity. A durable tombstone or equivalent non-authenticating marker must block reuse after unlink. Future schema/transaction enforcement and tests must cover replacement attempts, concurrent linking, unlink/relink attempts and tombstone persistence before this design can be enabled.
 
 After private purge and inventory verification, remove Auth linkage/sessions and
 the actual Auth identity using approved privileged orchestration. At retention
@@ -52,8 +52,13 @@ immutable; aggregate reconciliation and audit evidence must remain consistent.
 
 ## Access, retry and completion
 
-1. Verify the requesting account server-side and obtain a future explicit deletion
-   confirmation; an ordinary account can never target another UUID.
+1. Verify the requesting account server-side, require recent server-validated
+   authentication and obtain explicit deletion confirmation; an ordinary account
+   can never target another UUID. Before irreversible deletion is enabled, the
+   endpoint contract must define the freshness window and step-up verification,
+   and tests must reject stale, missing, replayed or client-asserted assurance.
+   This is a release gate, not a claim that the existing preparation barrier
+   implements recent authentication.
 2. Commit the existing idempotent preparation barrier; stop/fence active Auto,
    settle only valid authorized intervals, remove handoffs, block private reads
    and further execution. Same-key recovery resolves uncertain commits.
@@ -74,7 +79,7 @@ concurrent requests and uncertain commits. They do **not** prove irreversible
 erasure, remote Auth revocation, backup expiry or the proposed time objectives.
 
 
-## Hosting feasibility review ? 25 October 2026 (not policy approval)
+## Hosting feasibility review: 25 October 2026 (not policy approval)
 
 The owner-supplied read-only staging preflight reports PostgreSQL 17.11, read-only
 transaction, no migration-history relation, no public application columns/indexes/

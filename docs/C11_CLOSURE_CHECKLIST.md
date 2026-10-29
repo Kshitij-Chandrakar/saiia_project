@@ -1,6 +1,6 @@
 # Fixed C11 closure checklist
 
-**Latest verified status - 26 October 2026, 17:03 IST:** [Staging application acceptance](C13_2_STAGING_APPLICATION_ACCEPTANCE.md) passed all 11 scenario groups against cfmvqbjmnwklxqlpelxe using two isolated local workers and real staging Auth/JWT/Storage. Repeated audits verified 42 allowance periods; cleanup verified all five roles closed/passwords cleared/zero sessions. No migrations or accepted physical tests were repeated. Public HTTPS/WSS, signed installed Windows, deletion approval and the existing lint gate remain separate; C11/C13 remain open.
+**Evidence status - 26 October 2026:** The [application acceptance continuation](#26-october-2026-application-acceptance-continuation) records 11 local two-worker scenario groups. A separate local operational record reports staging Auth/JWT/Storage acceptance at 17:03 IST, 42 allowance periods and five-role cleanup, but that record and its execution artifacts are excluded from this PR. Staging acceptance is therefore not independently verifiable from this committed checklist; it is not certified here. Public HTTPS/WSS, signed installed Windows, deletion approval and applicable lint/build checks remain separate gates; C11/C13 remain open.
 
 
 
@@ -76,11 +76,13 @@ Historical C13.1 handoff (superseded for current implementation status):
 
 After C13.1: catalog remains locally accepted; internal account binding and atomic usage persistence are locally verified. Subscription-state policy, initial assignment/plan-change policy, authenticated current-plan/client parity, actual feature-gate integration and remaining C11.1 acceptance are still open. The next bounded implementation is **C13.2** using those foundations, with unsupported policy paths kept closed. A later closure review records pass/fail evidence for each row; no production checkbox is inferred from disposable tests.
 
-#### Physical Bluetooth evidence update — 25 October 2026
+### Physical Bluetooth evidence update — 25 October 2026
+
 The controlled unsigned packaged JBL Tune 770NC trial now passes automatic disconnect teardown: the captured track was verified as Bluetooth before removal; its ended event was followed by disconnected application status, no captured tracks, and operator-confirmed Windows indicator removal. The post-disconnect ledger had reserved zero and remained exactly 69.553626 seconds used across a requested twenty-second idle interval. This supersedes the earlier ambiguous Bluetooth trial for this device only. See [physical results](C13_2_PHYSICAL_ACCEPTANCE_RESULTS.md). No signed/installed, hosted, other-device or overall C11/C13 gate is closed by this observation.
 
 
 ### Final continuation status - 25 October 2026
+
 See the [relay/privacy review packet](C13_HOSTED_RELAY_PRIVACY_REVIEW.md) for exact migration scope/hash, role/configuration/rollback prerequisites, retained records and retention/unlink proposal. The authoritative current-status table includes accepted synchronized timing/JBL evidence and replaces superseded pending statements. No physical trial was repeated in this continuation. Final automated evidence: 69 native account/relay cases; 178 boundary/usage cases; 1 read-only preflight/hash case; 172 Node cases; 58 browser fixtures passed/1 optional visual skipped; packaged real JWT/PostgreSQL/browser/Electron wrapper 1 pass, embedded 2 pass. Production build, scoped formatting/lint and two-source-module typing pass. Existing full lint remains 60 errors/29 warnings with no new attributed error pairs. Graphify refreshed with extraction limits recorded. These local results do not close signed/installed, shared/hosted release or irreversible deletion acceptance; overall C11/C13 remain OPEN.
 
 
@@ -169,7 +171,7 @@ The prior count-only staging envelope is superseded by exact expected-version-se
 assertion plus five closed-role/membership checks, private buckets, all 35 private
 tables' RLS/direct ACLs (source-defined FORCE exception for publication policies),
 23 exact function ACL/SECURITY DEFINER/owner/search-path checks, immutable triggers,
-restrictive privacy barriers and zero seeded authority. No original migration,
+restrictive privacy barriers and zero-seeded authority. No original migration,
 permission, policy, fingerprint or commercial term was changed. Final batch SHA256
 `926af0c4d71865bec91784c87071928639acc5a676ef794df20e3186ce144635`. Previous batch hash is no longer the approval target.
 
@@ -177,7 +179,7 @@ Final local checker PASS: 16 injected invariant violations fail pre-COMMIT with
 full schema/history/role/bucket rollback; separate post-assertion late failure and
 healthy full 50-source/postflight/replay checks pass under both superuser and
 NOSUPERUSER migration-owner fixtures. Missing Storage-owner or existing BYPASSRLS
-authority fails closed; no repair/broadening grant. PostgreSQL17 automatic creator
+authority fails closed; no repair/broadening grant. PostgreSQL 17 automatic creator
 ADMIN-only metadata is checked explicitly (SET/INHERIT false); executors inherit
 no role. The [read-only owner probe](sql/C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_OWNER_PREFLIGHT.sql)
 is tested locally but still awaits actual target output. No remote SQL performed.
@@ -590,4 +592,4 @@ passed smoke is required unless affected by a subsequent change.
 
 ## 26 October 2026 application acceptance continuation
 
-The accepted schema application and all five executor connection smoke/cleanup passes are complete; older blanket migration/connection blockers are historical. [Current application acceptance](C13_2_STAGING_APPLICATION_ACCEPTANCE.md) records 11 local two-worker application groups, injected-startup cleanup, 91 focused tests, 51 backend regressions and 15 execution regressions. Real staging application acceptance awaits its secure-input run and actual evidence. Physical passes are retained. Public HTTPS/WSS, signed installed Windows and irreversible deletion remain separate gates. C11/C13 are not complete.
+The accepted schema application and all five executor connection smoke/cleanup passes are complete; older blanket migration/connection blockers are historical. The recorded local application acceptance covers 11 local two-worker application groups, injected-startup cleanup, 91 focused tests, 51 backend regressions and 15 execution regressions. A separate excluded local operational record reports a later staging pass; its execution artifacts are not part of this PR. Staging acceptance remains unverified from the committed inputs, rather than being claimed complete or described as an unexecuted run here. Physical passes are retained. Public HTTPS/WSS, signed installed Windows and irreversible deletion remain separate gates. C11/C13 are not complete.
