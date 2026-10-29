@@ -2587,7 +2587,7 @@ Recommended fields:
 ## Status
 
 ```text
-[ ] Not started
+[~] C13.1 locally accepted; C13.2 implemented default-off; production enforcement and release acceptance pending
 ```
 
 ## Goal
