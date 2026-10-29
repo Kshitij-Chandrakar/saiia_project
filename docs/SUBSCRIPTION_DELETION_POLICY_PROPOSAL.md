@@ -1,9 +1,26 @@
 # Account deletion policy — proposal awaiting approval
 
 25 October 2026. **Not an approved policy and not enabled.** No real account,
-file, Auth identity or immutable record has been deleted. The existing tested
-`policy_pending` preparation/access barrier remains the only implementation.
+file, Auth identity or immutable record has been deleted. No account-level
+preparation/access barrier implementation is included in this documentation
+branch's runtime tree. The separate runtime proposal below contains a
+`policy_pending` preparation barrier; it is not an irreversible purge workflow.
 This proposal does not change approved plan terms or subscription lifecycle rules.
+
+## Implementation evidence boundary - 30 October 2026
+
+This document is reviewed on the documentation-only PR #58. Its runtime tree at
+`8c4c5b44b5890b6c076f7550250763698d0a7685` does not contain the account-level
+preparation barrier or its tests. The separate [subscription runtime PR #60](https://github.com/Kshitij-Chandrakar/saiia_project/pull/60)
+at `d9789a5e4f54f995ff06c5906203c15e8b1e8b36` contains
+[`subscription_deletion_prepare` and access restrictions](https://github.com/Kshitij-Chandrakar/saiia_project/blob/d9789a5e4f54f995ff06c5906203c15e8b1e8b36/supabase/migrations/20261024110000_subscription_relay_privacy.sql),
+the [internal preparation caller](https://github.com/Kshitij-Chandrakar/saiia_project/blob/d9789a5e4f54f995ff06c5906203c15e8b1e8b36/backend/app/commercial/hosted_coordination.py)
+and [native preparation/access-barrier tests](https://github.com/Kshitij-Chandrakar/saiia_project/blob/d9789a5e4f54f995ff06c5906203c15e8b1e8b36/backend/tests/test_hosted_subscription_native.py).
+References below to existing preparation, access denial, handoff removal and
+preparation tests describe that separate local runtime slice, not code added by
+this PR or functionality verified on main. Test definitions and historical
+local results do not establish merged, deployed or irreversible-deletion
+acceptance. No account purge, retention policy or activation is authorized here.
 
 ## Minimum decisions
 
@@ -73,7 +90,7 @@ immutable; aggregate reconciliation and audit evidence must remain consistent.
    requires the approved retention/backup obligations to be satisfied. There is
    no current user-facing deletion-status API or undo control to advertise.
 
-Current disposable-user tests cover the preparation barrier, active-run stop,
+The separate runtime slice's disposable-user tests cover preparation, active-run stop,
 private API/RLS/storage denial, rollback, same-key replay, conflicting requests,
 concurrent requests and uncertain commits. They do **not** prove irreversible
 erasure, remote Auth revocation, backup expiry or the proposed time objectives.
