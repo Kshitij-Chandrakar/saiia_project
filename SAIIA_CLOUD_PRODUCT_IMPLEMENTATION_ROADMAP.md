@@ -9,7 +9,7 @@
 **Document type:** Detailed implementation roadmap and execution source of truth  
 **Track:** Desktop stabilization → Cloud account system → Website integration → Session intelligence → Subscription and release
 **Version:** 1.1  
-**Last updated:** 2026-09-04
+**Last updated:** 2026-10-29
 **Created:** 2026-07-10  
 **Current active phase:** C10.3 - Backend transactional email delivery remains after completion of C10.3A, C10.3B, C10.3C, and C10.3D dry-run/event foundations; PR #32 is merged and `outbound_email_events` migration `20260904143000_add_outbound_email_events.sql` is applied to remote Supabase dev with post-apply tests passed. C10.4A/B welcome-template/trigger dry-run work and C10.5A feature-template/helper work are complete locally. C10.5B dry-run trigger wiring is complete locally for AI-notes generation and transcript-export success points; no existing session-summary preparation flow was found, so that trigger remains deferred. C10.2B live Supabase Auth delivery remains blocked pending a verified Resend sender/domain and real C10.4/C10.5 delivery is not enabled. C10.1 and the C10.2A runbook are completed/merged; C10.2 delivery is not complete, C10.5 is incomplete, and real email sending/payments/admin/pricing remain not started. See `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`.
 **Primary owner:** Project developer  
@@ -2448,7 +2448,7 @@ Website published-catalog/pricing is locally integrated and accepted: approved F
 ## Status
 
 ```text
-[~] Four initial Razorpay Test Mode payments/synchronization passed; billing email/admin locally implemented and substitute-verified; cancellation/support, actual delivery/admin provider acceptance, remaining provider/desktop/live gates open
+[~] Local/synthetic billing-flow and synchronization checks recorded; billing email/admin locally implemented and substitute-verified. Separate reported Razorpay Test Mode results are not verified by this PR; actual provider acceptance, cancellation/support, delivery/admin, desktop and live release gates remain open
 ```
 
 ## Goal
@@ -2469,7 +2469,7 @@ C12.1/C12.2 now have a default-off local Razorpay Subscriptions implementation, 
 The two local prerequisites above are recorded separately from the explicit start-order/final-provider-choice exception. Actual provider acceptance, final production commercial approval, configuration and deployment remain separate release gates.
 
 
-26 October session 03 evidence supersedes the blanket test-mode-pending wording above only for the four initial paid flows: exact GST-added totals, signed subscription events, C13 receipts and authoritative account refresh passed. Four paid cancellation schedules are **unknown**, and two unauthenticated cancellation requests were **rejected**; Active plus a next-charge date does not confirm scheduled cancellation. Confirmed-state billing email delivery and C12.3 permission-controlled provider-backed admin actions/confirmation/audit remain pending. Recovery/renewal/expiry and installed Electron gaps are retained in the [per-subscription review](docs/C12_RZP_TEST_03_EXECUTION.md). C12 is not complete. No new provider calls or cancellation retries were made for this review.
+Local/synthetic provider-flow tests cover totals, signatures and synchronization; they are not Razorpay Test Mode payment acceptance. The pinned C13.2 evidence records a different local scope with no provider/payment calls or real subscriptions. A separate excluded operational record for 26 October session 03 reports four initial real Test Mode paid flows (GST-added totals, signed subscription events, C13 receipts and account refresh); its execution evidence is not included in this PR, so this document does not independently certify those reported passes or use them to close actual Test Mode acceptance. They must not be relabelled as synthetic results. That operational record also reports four cancellation schedules as **unknown** and two unauthenticated cancellation requests as **rejected**; Active plus a next-charge date is not cancellation confirmation. Actual Test Mode acceptance remains pending verification of its own retained evidence, independently of the local/synthetic checks. Confirmed-state billing email delivery, permission-controlled provider-backed admin acceptance, recovery/renewal/expiry and installed Electron gates remain open. C12 is not complete. No provider calls, payment repeats or cancellation retries were made for this documentation review.
 
 ## Provider decision gate
 
