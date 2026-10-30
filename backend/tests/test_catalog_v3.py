@@ -37,5 +37,7 @@ def test_v3_versions_contradictions_and_fingerprint_binding():
 def test_registry_and_free_compatibility():
     registry=json.loads((ROOT/'frontend/src/auth/catalogRegistryV3.json').read_text())
     assert set(registry['features'])==set(c.V3_FEATURES)
+    assert registry['readiness'] == {key: value.hosted_readiness for key, value in c.V3_FEATURES.items()}
+    assert registry['meters'] == {key: dict(feature=value.feature, kind=value.kind, unit=value.unit) for key, value in c.V2_METERS.items()}
     assert c.validate_draft(free()).draft.contract_version=='catalog.v2'
     assert not c.validate_draft(dict(paid('Plus'),contract_version='catalog.v4')).valid
