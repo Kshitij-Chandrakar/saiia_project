@@ -74,11 +74,14 @@ def test_fingerprint_binds_allowances_presentation_and_policy():
     assert 'internal_notes' not in public.model_dump() and 'subscription_policy_ref' not in public.model_dump()
 
 
-@pytest.mark.parametrize("version,model", [("2", c.OfferTermsV2), ("3", c.OfferTermsV3)])
-def test_empty_versioned_terms_remain_valid_incomplete_drafts(version, model):
+@pytest.mark.parametrize("version,model", [("1", c.OfferTerms), ("2", c.OfferTermsV2), ("3", c.OfferTermsV3)])
+@pytest.mark.parametrize("omit_terms", [False, True])
+def test_empty_or_omitted_versioned_terms_remain_incomplete(version, model, omit_terms):
     data = free()
     data.update(contract_version="catalog.v" + version,
                 registry_version="catalog.features.v" + version, terms={})
+    if omit_terms:
+        data.pop("terms")
     draft = c.CatalogDraft.model_validate(data)
     assert type(draft.terms) is model
     report = c.validate_draft(data)
