@@ -15,6 +15,7 @@ def free():
 def test_website_v2_registry_matches_domain_units_and_features():
     registry=json.loads((Path(__file__).resolve().parents[2]/'frontend/src/auth/catalogRegistryV2.json').read_text())
     assert registry['version']=='catalog.features.v2' and set(registry['features'])==set(c.V2_FEATURES)
+    assert registry['readiness'] == {key: value.hosted_readiness for key, value in c.V2_FEATURES.items()}
     assert registry['meters']=={key:dict(feature=value.feature,kind=value.kind,unit=value.unit) for key,value in c.V2_METERS.items()}
 
 def test_unverified_sketch_cannot_become_publication_ready_by_inclusion_flag():
@@ -71,3 +72,21 @@ def test_fingerprint_binds_allowances_presentation_and_policy():
     assert public.contract_version=='catalog.v2' and public.presentation==result.terms.presentation
     assert public.allowances==result.terms.allowances and public.unmetered_features==result.terms.unmetered_features
     assert 'internal_notes' not in public.model_dump() and 'subscription_policy_ref' not in public.model_dump()
+
+
+@pytest.mark.parametrize("version,model", [("1", c.OfferTerms), ("2", c.OfferTermsV2), ("3", c.OfferTermsV3)])
+@pytest.mark.parametrize("omit_terms", [False, True])
+def test_empty_or_omitted_versioned_terms_remain_incomplete(version, model, omit_terms):
+    data = free()
+    data.update(contract_version="catalog.v" + version,
+                registry_version="catalog.features.v" + version, terms={})
+    if omit_terms:
+        data.pop("terms")
+    draft = c.CatalogDraft.model_validate(data)
+    assert type(draft.terms) is model
+    report = c.validate_draft(data)
+    assert report.valid and not report.publishable
+    with pytest.raises(ValidationError, match="Snapshot requires complete valid catalog terms"):
+        c.OfferSnapshot.model_validate(dict(
+            contract_version=data["contract_version"], registry_version=data["registry_version"],
+            plan=data["plan"], offer_version_id=str(uuid4()), version="1", terms={}))

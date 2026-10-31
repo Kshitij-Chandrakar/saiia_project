@@ -372,3 +372,19 @@ assert 'app.main' not in sys.modules
         timeout=15,
     )
     assert result.returncode == 0
+
+
+@pytest.mark.parametrize("path", [PATH, "/api/admin/catalog/drafts", "/api/catalog"])
+def test_cors_preflight_precedes_commercial_boundary(application, path):
+    client = TestClient(application)
+    response = client.options(path, headers={
+        "Origin": "http://localhost:5173",
+        "Access-Control-Request-Method": "GET",
+        "Access-Control-Request-Headers": "Authorization",
+    })
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    denied = client.get("/api/not-reviewed", headers={"Origin": "http://localhost:5173"})
+    assert denied.status_code == 503
+    assert denied.json()["detail"]["code"] == "commercial_path_unreviewed"
+    assert denied.headers["access-control-allow-origin"] == "http://localhost:5173"

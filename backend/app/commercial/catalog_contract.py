@@ -365,6 +365,18 @@ class OfferTermsV3(OfferTermsV2):
     service_benefits: tuple[ServiceBenefit, ...] = ()
 
 
+def _versioned_terms(value, info):
+    if isinstance(value, dict):
+        model = {
+            "catalog.v1": OfferTerms,
+            "catalog.v2": OfferTermsV2,
+            "catalog.v3": OfferTermsV3,
+        }.get(info.data.get("contract_version", CONTRACT_VERSION))
+        if model is not None:
+            return model.model_validate(value)
+    return value
+
+
 DraftState = Literal["draft", "previewed", "published", "abandoned"]
 
 
@@ -378,8 +390,10 @@ class CatalogDraft(FrozenDocument):
     state: DraftState = "draft"
     contract_version: Literal["catalog.v1", "catalog.v2", "catalog.v3"] = CONTRACT_VERSION
     registry_version: Literal["catalog.features.v1", "catalog.features.v2", "catalog.features.v3"] = REGISTRY_VERSION
-    terms: OfferTerms | OfferTermsV2 | OfferTermsV3 = OfferTerms()
+    terms: OfferTerms | OfferTermsV2 | OfferTermsV3 = Field(default_factory=dict, validate_default=True)
     internal_notes: str = ""
+
+    _terms_for_version = field_validator("terms", mode="before")(_versioned_terms)
 
     @model_validator(mode="after")
     def version_shape(self):
@@ -755,6 +769,8 @@ class OfferSnapshot(FrozenDocument):
     version: Positive
     terms: OfferTerms | OfferTermsV2 | OfferTermsV3
     eligible_model_keys: tuple[str, ...] = Field(default=(), exclude=True, repr=False)
+
+    _terms_for_version = field_validator("terms", mode="before")(_versioned_terms)
 
     @model_validator(mode="after")
     def checked_terms(self) -> OfferSnapshot:

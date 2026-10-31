@@ -86,6 +86,7 @@ origins = [
     "http://localhost:5173",
 ]
 
+app.add_middleware(CommercialBoundaryMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -94,7 +95,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.add_middleware(CommercialBoundaryMiddleware)
 app.include_router(commercial_router, prefix="/api/commercial", tags=["Commercial Foundation"])
 app.include_router(public_catalog_router)
 app.include_router(subscription_router)

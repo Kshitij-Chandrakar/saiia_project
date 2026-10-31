@@ -19,7 +19,8 @@ def resolve_policy(query, subject, draft):
     refs = data["allowed_refs"]
     if not isinstance(refs, list) or any(not isinstance(r, str) for r in refs):
         raise ValueError("Invalid references")
-    required = [l.policy_ref for l in draft.terms.limits]
+    required = [draft.terms.subscription_policy_ref, draft.terms.migration_policy_ref]
+    required += [l.policy_ref for l in draft.terms.limits]
     required += [l.reset.policy_ref for l in draft.terms.limits if l.reset is not None]
     required += [r for p in draft.terms.prices for r in (p.tax_policy_ref, p.rounding_policy_ref)]
     required += [r for d in draft.terms.discounts for r in (d.eligibility_policy_ref, d.redemption_policy_ref, d.application_policy_ref)]

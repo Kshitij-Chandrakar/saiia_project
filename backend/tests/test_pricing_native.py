@@ -29,7 +29,7 @@ def pricing(upgraded):
             assert diagnostic.returncode==0, name+': '+diagnostic.stderr
         db.run('alter role catalog_public_reader login') # Synthetic disposable provisioning only.
         now=datetime.now(timezone.utc)
-        policy=dict(version='1',reviewer_rule_ref='current_subscription_admin',model_registry_version='synthetic.models.v1',valid_from=(now-timedelta(days=1)).isoformat(),valid_until=(now+timedelta(days=1)).isoformat(),allowed_refs=['synthetic.storage','synthetic.tax','synthetic.rounding'])
+        policy=dict(version='1',reviewer_rule_ref='current_subscription_admin',model_registry_version='synthetic.models.v1',valid_from=(now-timedelta(days=1)).isoformat(),valid_until=(now+timedelta(days=1)).isoformat(),allowed_refs=['synthetic.lifecycle','synthetic.migration','synthetic.storage','synthetic.tax','synthetic.rounding'])
         db.run(f"insert into catalog_publication_policies values ('{uuid4()}','synthetic.lifecycle','synthetic.migration',1,true,{literal(json.dumps(policy))})")
     app.state.catalog_drafts._lifecycle._resolver=resolve_policy
     public=CatalogDatabase('true',f'host=127.0.0.1 port={db.port} dbname=postgres user=catalog_public_reader sslmode=disable',public_only=True)
@@ -81,7 +81,10 @@ def test_policy_public_projection_replace_retire_and_security(pricing):
     first=client.get('/api/catalog');assert first.status_code==200,first.text
     offer=first.json()['offers'][0];assert offer['prices'][0]['currency']=='INR'
     assert sorted(p['amount_minor'] for p in offer['prices'])==['299900','39900']
-    assert offer['allowances'][-1] or offer['allowances']
+    expected = next(a for a in definition('plus')['terms']['allowances'] if a['meter'] == 'auto.authorized_running')
+    actual = next(a for a in offer['allowances'] if a['meter'] == expected['meter'])
+    assert actual['mode'] == expected['mode'] == 'limited'
+    assert actual['amount'] == expected['amount'] == '18000'
     assert offer['service_benefits'][0]['availability']=='coming_soon'
     assert 'PRIVATE' not in first.text and 'synthetic.tax' not in first.text and 'subscription_policy_ref' not in first.text
     assert first.headers['cache-control']=='no-store' and offer['purchasable'] is False
