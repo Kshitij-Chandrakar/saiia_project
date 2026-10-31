@@ -34,7 +34,6 @@ Permission denial continues the existing private-state cleanup/404 behavior, rat
 
 Actual isolated browser captures at **1366 x 768** and **390 x 844**:
 
-- [Desktop popup](../tmp/subscription-demo/subscription-review-desktop.png)
-- [Mobile popup](../tmp/subscription-demo/subscription-review-mobile.png)
+Desktop and mobile popup captures are local run artifacts under `tmp/subscription-demo/` (`subscription-review-desktop.png` and `subscription-review-mobile.png`). They remain intentionally untracked; rerun the isolated browser verification to generate new captures rather than relying on checkout links.
 
 No backend contracts, shared migrations, permissions, real offers, pricing, Electron, payment/admission settings or Transcript behavior changed. Synthetic unpublished drafts were used for native preview verification. Production configuration/policy prerequisites remain unchanged.

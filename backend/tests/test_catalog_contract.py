@@ -1,7 +1,8 @@
 """Synthetic domain documents only. No real offers, subjects, storage or calls."""
 
 import copy
-import importlib
+import importlib.util
+import sys
 import json
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
@@ -537,7 +538,11 @@ def test_registry_is_immutable_and_pure_import_reads_no_configuration(monkeypatc
         pytest.fail("application configuration read")
 
     monkeypatch.setattr(os, "getenv", environment)
-    importlib.reload(c)
+    name = "_catalog_contract_environment_test"
+    spec = importlib.util.spec_from_file_location(name, c.__file__)
+    isolated = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, name, isolated)
+    spec.loader.exec_module(isolated)
 
 
 @pytest.mark.parametrize("identifier", [True, None, "not-uuid", PLAN.replace("-", "")])

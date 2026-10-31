@@ -82,8 +82,7 @@ def test_native_browser(pricing, monkeypatch):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        if (ROOT / "tmp/catalog-manual.request").exists():
-            (ROOT / "tmp/catalog-manual.request").unlink()
+        if os.environ.get("CATALOG_MANUAL_WORKBENCH") == "1":
             from test_pricing_native import definition, publish
             for code in ("free", "plus", "pro"):
                 draft = definition(code)
@@ -106,7 +105,7 @@ def test_native_browser(pricing, monkeypatch):
             finally:
                 subprocess.run(["taskkill", "/PID", str(vite.pid), "/T", "/F"],capture_output=True,check=False)
                 log.close()
-            return
+            pytest.skip("Manual workbench session ended; automated browser assertions were not run")
         env = dict(
             os.environ,
             CATALOG_BROWSER_NATIVE=json.dumps(

@@ -113,8 +113,21 @@
     }
   },
   "readiness": {
-    "clipboard.saved_answers": "session_scoped_create_list_implemented_account_meter_missing",
-    "sketch.generate": "implemented_answer_diagrams_hosted_admission_pending",
-    "screen.followups": "implemented_screen_continue_metering_pending"
+    "answers.generate": "not_verified",
+    "audio.transcribe": "not_verified",
+    "assistant.auto": "not_verified",
+    "resume.upload": "not_verified",
+    "resume.extract": "requires_resume_operation_admission",
+    "resume.grounding": "not_verified",
+    "job_context.manage": "not_verified",
+    "job_context.extract": "not_verified",
+    "screen.analyze": "not_verified",
+    "sessions.history": "not_verified",
+    "transcripts.export": "not_verified",
+    "notes.generate": "not_verified",
+    "session.ask_ai": "not_verified",
+    "clipboard.saved_answers": "session_scoped_create_read_only",
+    "sketch.generate": "answer_diagrams_requires_hosted_admission",
+    "screen.followups": "screen_context_continue_requires_metering"
   }
 }

@@ -31,3 +31,17 @@ test('shared unlimited claims disappear when an admin limits one displayed offer
  await expect(strip).toBeVisible();await expect(strip).not.toContainText('Unlimited manual audio');
  await expect(strip).toContainText('All available AI models');
 });
+
+
+test('pricing price blocks keep desktop spacing and natural mobile height',async({page})=>{
+ const offers=[approvedFreeDraft(),approvedPaidDraft('plus'),approvedPaidDraft('pro')].map(project);
+ await page.route('**/api/catalog',r=>r.fulfill({json:{catalog_revision:'7',offers}}));
+ for(const width of [1366,390]){
+  await page.setViewportSize({width,height:844});
+  await page.goto('/#pricing');
+  const plus=page.getByRole('article',{name:'Plus plan'});
+  await expect(plus).toBeVisible();
+  await expect(plus.locator('.cp-price')).toHaveCSS('min-height',width<=760?'0px':'113px');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ }
+});

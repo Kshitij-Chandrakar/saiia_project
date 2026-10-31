@@ -28,6 +28,6 @@ node tests/catalog/published-offers.integration.mjs
 
 Isolated entry: `http://127.0.0.1:5187/__demo/as/admin`. Normal authentication and services remain separate.
 
-Screenshots: [desktop](../tmp/subscription-demo/published-offers-desktop.png), [mobile](../tmp/subscription-demo/published-offers-mobile.png).
+Desktop and mobile screenshots are local run artifacts under `tmp/subscription-demo/` (`published-offers-desktop.png` and `published-offers-mobile.png`). They are intentionally untracked and unavailable in a clean checkout; rerun the isolated browser flow to generate them.
 
 No backend routes, SQL migrations, grants, shared database writes, payment/provider calls or Electron changes are part of this change.

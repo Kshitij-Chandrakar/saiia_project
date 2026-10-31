@@ -268,6 +268,19 @@ test('uncertain replay identity and CAS conflict preserve local edits', async ({
   await expect(page.getByLabel('Display name', {
     exact: true
   })).toHaveValue('Local changes');
+  const replace = page.getByRole('button', {name:'Replace local edits with latest', exact:true});
+  await expect(replace).toBeEnabled();
+  await page.getByLabel('Display name', {exact:true}).fill('Further local changes');
+  let release;
+  s.hold = new Promise(resolve => { release = resolve; });
+  try {
+    await ui.save();
+    await expect(replace).toBeDisabled();
+  } finally {
+    release();
+    s.hold = null;
+  }
+  await expect(replace).toBeEnabled();
 });
 test('revocation account switch and logout clear private data', async ({
   page

@@ -42,7 +42,7 @@ test('approved Free import save reopen edit preview over JWT native PostgreSQL',
   await button('Save draft').click();
   await expect(page.getByRole('alert')).toContainText('not confirmed');
   await button('Retry same save').click();
-  expect(keys).toHaveLength(2);
+  await expect.poll(() => keys.length).toBe(2);
   expect(keys[0]).toBe(keys[1]);
   await expect(button('Save changes')).toBeVisible();
   await button('Open draft').click();
