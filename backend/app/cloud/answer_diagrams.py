@@ -10,7 +10,7 @@ from app.cloud.supabase_config import get_supabase_settings, SupabaseConfigurati
 
 
 class DiagramError(Exception):
-    def __init__(self, code='unavailable', status=503):
+    def __init__(self, code: str = 'unavailable', status: int = 503) -> None:
         self.code, self.status = code, status
         super().__init__(code)
 

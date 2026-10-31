@@ -119,3 +119,4 @@ protobuf==6.33.6
 # Opt-in backend catalog draft SQL composition (disabled by default)
 psycopg[binary]==3.3.6
 psycopg_pool==3.3.0
+cryptography==49.0.0
