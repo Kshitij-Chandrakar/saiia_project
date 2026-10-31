@@ -5,7 +5,7 @@ from collections.abc import Callable
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -275,29 +275,45 @@ def _cached_cloud_interview_ask_ai_service() -> CloudInterviewAskAIService:
     return CloudInterviewAskAIService()
 
 
-def get_cloud_interview_session_service() -> CloudInterviewSessionService:
+def get_cloud_interview_session_service(request: Request = None) -> CloudInterviewSessionService:
     try:
+        from app.config import settings
+        if settings.SUBSCRIPTIONS_ENABLED=='true':
+            from app.commercial.subscription_auxiliary import Sessions
+            return Sessions(request,_cached_cloud_interview_session_service)
         return _cached_cloud_interview_session_service()
     except SupabaseConfigurationError as exc:
         raise _handle_cloud_error(exc) from exc
 
 
-def get_cloud_interview_transcript_service() -> CloudInterviewTranscriptService:
+def get_cloud_interview_transcript_service(request: Request) -> CloudInterviewTranscriptService:
     try:
+        from app.config import settings
+        if settings.SUBSCRIPTIONS_ENABLED=='true':
+            from app.commercial.subscription_auxiliary import transcript_service
+            return transcript_service(request)
         return _cached_cloud_interview_transcript_service()
     except SupabaseConfigurationError as exc:
         raise _handle_cloud_error(exc) from exc
 
 
-def get_cloud_interview_notes_service() -> CloudInterviewNotesService:
+def get_cloud_interview_notes_service(request: Request) -> CloudInterviewNotesService:
     try:
+        from app.config import settings
+        if settings.SUBSCRIPTIONS_ENABLED=='true':
+            from app.commercial.subscription_auxiliary import notes_service
+            return notes_service(request,_cached_cloud_interview_notes_service())
         return _cached_cloud_interview_notes_service()
     except SupabaseConfigurationError as exc:
         raise _handle_cloud_error(exc) from exc
 
 
-def get_cloud_interview_ask_ai_service() -> CloudInterviewAskAIService:
+def get_cloud_interview_ask_ai_service(request: Request) -> CloudInterviewAskAIService:
     try:
+        from app.config import settings
+        if settings.SUBSCRIPTIONS_ENABLED=='true':
+            from app.commercial.subscription_auxiliary import ask_service
+            return ask_service(request,_cached_cloud_interview_ask_ai_service(),_cached_cloud_interview_notes_service())
         return _cached_cloud_interview_ask_ai_service()
     except SupabaseConfigurationError as exc:
         raise _handle_cloud_error(exc) from exc
@@ -319,7 +335,17 @@ CloudInterviewSessionServiceDep = Annotated[CloudInterviewSessionService, Depend
 CloudInterviewTranscriptServiceDep = Annotated[CloudInterviewTranscriptService, Depends(get_cloud_interview_transcript_service)]
 CloudInterviewNotesServiceDep = Annotated[CloudInterviewNotesService, Depends(get_cloud_interview_notes_service)]
 CloudInterviewAskAIServiceDep = Annotated[CloudInterviewAskAIService, Depends(get_cloud_interview_ask_ai_service)]
-CloudInterviewMyAnswersServiceDep = Annotated[CloudInterviewMyAnswersService, Depends(get_cloud_interview_my_answers_service)]
+
+
+def get_my_answers_backends() -> tuple[CloudInterviewSessionService, CloudInterviewMyAnswersService] | None:
+    from app.config import settings
+    if settings.SUBSCRIPTIONS_ENABLED == 'true':
+        # The reviewed SQL path needs no Supabase service-role write credential.
+        return None
+    return get_cloud_interview_session_service(), get_cloud_interview_my_answers_service()
+
+
+MyAnswersBackendsDep = Annotated[tuple[CloudInterviewSessionService, CloudInterviewMyAnswersService] | None, Depends(get_my_answers_backends)]
 
 
 def _session_response(record: CloudInterviewSessionRecord) -> InterviewSessionResponse:
@@ -420,6 +446,11 @@ def _transcript_filename(format: str) -> str:
 
 
 def _handle_cloud_error(exc: Exception) -> HTTPException:
+    from app.commercial.catalog_store import CatalogStoreError
+    if isinstance(exc, HTTPException):return exc
+    if isinstance(exc,CatalogStoreError):
+        from app.commercial.subscription_screen import safe_error
+        return safe_error(exc)
     if str(exc) == MY_ANSWERS_MIGRATION_FAILURE_MESSAGE:
         return HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -564,12 +595,34 @@ def _require_active_owned_session(
 
 @router.post("/{session_id}/my-answers", response_model=InterviewMyAnswerResponse, status_code=status.HTTP_201_CREATED)
 def create_interview_session_my_answer(
+    request: Request,
     session_id: UUID,
     payload: InterviewMyAnswerCreateRequest,
     current_user: CurrentUserDep,
-    session_service: CloudInterviewSessionServiceDep,
-    service: CloudInterviewMyAnswersServiceDep,
+    backends: MyAnswersBackendsDep,
 ) -> InterviewMyAnswerResponse:
+    from app.config import settings
+    if settings.SUBSCRIPTIONS_ENABLED == 'true':
+        from app.commercial.admin_access import verified_actor
+        from app.commercial.catalog_store import CatalogStoreError, ErrorCode
+        from app.cloud.interview_session_my_answers import _record_from_payload
+        if any(len(request.headers.getlist(name)) != 1 for name in ('authorization','idempotency-key')):
+            raise HTTPException(422,detail={'code':'catalog_invalid_data'},headers={'Cache-Control':'no-store'})
+        try:
+            runtime = getattr(request.app.state, 'subscriptions', None)
+            if runtime is None:
+                raise CatalogStoreError(ErrorCode.UNAVAILABLE)
+            result = runtime.service().save_clipboard(verified_actor(request), str(session_id),
+                request.headers.get('Idempotency-Key'), payload.body)
+            return _my_answer_response(_record_from_payload(result))
+        except CatalogStoreError as error:
+            status_code = {ErrorCode.INVALID:422,ErrorCode.DENIED:403,ErrorCode.EXHAUSTED:429,
+                ErrorCode.NOT_FOUND:404,ErrorCode.CONFLICT:409,ErrorCode.IDENTITY_CONFLICT:409,
+                ErrorCode.UNCERTAIN:503}.get(error.code,503)
+            raise HTTPException(status_code,detail={'code':error.code.value},headers={'Cache-Control':'no-store'}) from None
+    if backends is None:
+        raise HTTPException(503,detail={'code':'subscription_unavailable'},headers={'Cache-Control':'no-store'})
+    session_service, service = backends
     try:
         _require_active_owned_session(session_id=session_id, current_user=current_user, service=session_service)
         record = service.create_answer(user_id=current_user.user_id, session_id=str(session_id), body=payload.body)
@@ -580,11 +633,28 @@ def create_interview_session_my_answer(
 
 @router.get("/{session_id}/my-answers", response_model=InterviewMyAnswerListResponse)
 def list_interview_session_my_answers(
+    request: Request,
     session_id: UUID,
     current_user: CurrentUserDep,
-    session_service: CloudInterviewSessionServiceDep,
-    service: CloudInterviewMyAnswersServiceDep,
+    backends: MyAnswersBackendsDep,
 ) -> InterviewMyAnswerListResponse:
+    from app.config import settings
+    if settings.SUBSCRIPTIONS_ENABLED == 'true':
+        from app.commercial.admin_access import verified_actor
+        from app.commercial.catalog_store import CatalogStoreError, ErrorCode
+        from app.cloud.interview_session_my_answers import _record_from_payload
+        try:
+            runtime = getattr(request.app.state, 'subscriptions', None)
+            if runtime is None:
+                raise CatalogStoreError(ErrorCode.UNAVAILABLE)
+            result = runtime.service().read_clipboard(verified_actor(request),str(session_id))
+            return InterviewMyAnswerListResponse(items=[_my_answer_response(_record_from_payload(row)) for row in result])
+        except CatalogStoreError as error:
+            status_code = 404 if error.code == ErrorCode.NOT_FOUND else 403 if error.code == ErrorCode.DENIED else 503
+            raise HTTPException(status_code, detail={'code':error.code.value},headers={'Cache-Control':'no-store'}) from None
+    if backends is None:
+        raise HTTPException(503,detail={'code':'subscription_unavailable'},headers={'Cache-Control':'no-store'})
+    session_service, service = backends
     try:
         _require_active_owned_session(session_id=session_id, current_user=current_user, service=session_service)
         records = service.list_answers(user_id=current_user.user_id, session_id=str(session_id))

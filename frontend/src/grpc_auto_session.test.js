@@ -304,3 +304,45 @@ test('Computer failed startup retains an honest cleanup failure without creating
   assert.equal(f.counts().captures, 0)
   assert.equal(f.fallbacks.length, 0)
 })
+
+for (const source of ['microphone', 'both']) test(`lazy ${source} acquisition observes device loss without fallback`, async () => {
+  const f = fixture()
+  let ended, acquired = 0
+  const track = { readyState: 'live', addEventListener: (event, cb) => { ended = cb }, removeEventListener: () => {}, stop: () => {} }
+  const stream = { getAudioTracks: () => [track], getTracks: () => [track] }
+  f.api.connectGrpcAutoPipeline = async () => ({ autoPipelineReady: true, connectionStatus: 'connected', manualRun: 1, systemAudio: { active_audio_source: source } })
+  const session = await createGrpcAutoSession({ ...f.options, source, stream: undefined,
+    getUserMedia: async () => { acquired++; return stream },
+    createMic: options => ({ start: async () => { assert.equal(await options.getUserMedia(), stream) }, close: () => {} }) })
+  assert.equal(acquired, 1)
+  assert.equal(typeof ended, 'function')
+  ended()
+  await session.close()
+  assert.equal(f.counts().closed, 1)
+  assert.equal(f.errors.length, 1)
+  assert.deepEqual(f.fallbacks, [])
+})
+
+ test('hosted authorization denial never opens capture', async () => {
+  const f = fixture({ connectGrpcAutoPipeline: async () => ({ autoPipelineReady: false, connectionStatus: 'error', clientAudioRelay: true }) })
+  let captures = 0
+  assert.equal(await createGrpcAutoSession({ ...f.options, createHostedCapture: async () => { captures++; throw Error('must not capture') } }), null)
+  assert.equal(captures, 0)
+})
+
+test('a late hosted capture is released after connection or account state changes', async () => {
+  const f = fixture({ connectGrpcAutoPipeline: async () => ({ autoPipelineReady: true, connectionStatus: 'connected', clientAudioRelay: true, manualRun: 1 }) })
+  let opened, resolveCapture, released = 0
+  const opening = new Promise(resolve => { opened = resolve })
+  const acquisition = new Promise(resolve => { resolveCapture = resolve })
+  const result = createGrpcAutoSession({ ...f.options, stream: undefined,
+    createHostedCapture: () => { opened(); return acquisition },
+    createMic: options => ({ start: async () => { await options.getUserMedia() }, close: () => {} }) })
+  await opening
+  f.emit({ connectionStatus: 'error' })
+  resolveCapture({ stream: {}, close: () => { released++ } })
+  const session = await result
+  assert.equal(released, 1)
+  assert.equal(session.failed, true)
+  assert.deepEqual(f.fallbacks, [])
+})

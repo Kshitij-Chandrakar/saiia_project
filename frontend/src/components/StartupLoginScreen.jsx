@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import loginArrowUrl from '../assets/startup-login/login-arrow.svg'
 import loginCloseUrl from '../assets/startup-login/login-close.svg'
 import loginLogoUrl from '../assets/startup-login/login-logo.svg'
@@ -14,17 +14,8 @@ import {
   DESKTOP_AUTH_STATUSES,
   getDesktopAuthViewModel,
   getDesktopStartupErrorView,
+  shouldShowStartupLogin,
 } from '../desktop_auth_ui.js'
-
-const LOGIN_VISIBLE_STATUSES = new Set([
-  DESKTOP_AUTH_STATUSES.SIGNED_OUT,
-  DESKTOP_AUTH_STATUSES.SIGNING_IN,
-  DESKTOP_AUTH_STATUSES.TOKEN_EXPIRED,
-])
-
-export function shouldShowStartupLogin(authState) {
-  return LOGIN_VISIBLE_STATUSES.has(getDesktopAuthViewModel(authState).status)
-}
 
 export default function StartupLoginScreen({ onAuthenticated }) {
   const [authState, setAuthState] = useState(() => getDesktopAuthViewModel())
@@ -39,7 +30,9 @@ export default function StartupLoginScreen({ onAuthenticated }) {
     closeWindow?.().catch?.(() => {})
   }
 
-  const applyAuthState = (payload, requestId) => {
+  const authCallback = useRef(onAuthenticated)
+  useEffect(() => { authCallback.current = onAuthenticated }, [onAuthenticated])
+  const applyAuthState = useCallback((payload, requestId) => {
     if (requestId !== requestIdRef.current) {
       return
     }
@@ -47,9 +40,9 @@ export default function StartupLoginScreen({ onAuthenticated }) {
     setStartupPollFailed(false)
     setAuthState(nextState)
     if (!shouldShowStartupLogin(nextState)) {
-      onAuthenticated?.(nextState)
+      authCallback.current?.(nextState)
     }
-  }
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -74,7 +67,7 @@ export default function StartupLoginScreen({ onAuthenticated }) {
     return () => {
       active = false
     }
-  }, [saiiaApi])
+  }, [saiiaApi, applyAuthState])
 
   useEffect(() => {
     if (authState.status !== DESKTOP_AUTH_STATUSES.SIGNING_IN) {
@@ -101,7 +94,7 @@ export default function StartupLoginScreen({ onAuthenticated }) {
       active = false
       window.clearInterval(pollId)
     }
-  }, [authState.status, saiiaApi])
+  }, [authState.status, saiiaApi, applyAuthState])
 
   const handleLogin = async () => {
     if ((loginPending && !startupPollFailed) || typeof saiiaApi?.startAuthLogin !== 'function') {

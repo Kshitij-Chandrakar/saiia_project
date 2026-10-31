@@ -37,6 +37,11 @@
 .wr-dialog .wr-indeterminate::after { content:''; display:block; height:100%; width:35%; border-radius:inherit; background:#2978cb; animation:wr-progress 1.5s ease-in-out infinite alternate; }
 .wr-dialog .wr-spinner { animation:wr-spin 1.2s linear infinite; }
 .wr-dialog .wr-instruction { color:#64748b; margin-bottom:20px; }
+.wr-dialog .wr-confirm-file { font-weight:600; margin-bottom:16px; overflow-wrap:anywhere; color:#10234f; }
+.wr-dialog .wr-confirm-body p { line-height:1.65; }
+.wr-dialog .wr-confirm-delete { color:#fff; background:#b42318; border-color:#b42318; }
+.wr-dialog button:focus-visible { outline:3px solid #2563eb; outline-offset:3px; }
+.wr-dialog .wr-dialog-header h2 { overflow-wrap:anywhere; }
 .wr-dialog fieldset { min-width:0; border:0; margin:0 0 24px; padding:0; }
 .wr-dialog legend { font-weight:600; font-size:14px; margin-bottom:12px; }
 .wr-dialog .wr-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
@@ -50,4 +55,11 @@
 @keyframes wr-progress { to { margin-left:65%; } }
 @media(max-width:600px) { .website-resumes .wr-resume-card { align-items:flex-start; flex-wrap:wrap; padding:16px; } .website-resumes .wr-card-actions { width:100%; max-width:none; justify-content:flex-start; } .wr-dialog .wr-fields { grid-template-columns:1fr; } .wr-dialog .wr-dialog-header { padding:16px; } .wr-dialog .wr-dialog-header h2 { font-size:20px; } .wr-dialog .wr-dialog-body, .wr-dialog .wr-dialog-footer { padding:16px; } .wr-dialog .wr-dialog-footer button { flex:1; } }
 @media(prefers-reduced-motion:reduce) { .wr-dialog .wr-spinner, .wr-dialog .wr-indeterminate::after { animation:none; } }
+.wr-active-set { margin:16px 0; padding:16px; border:1px solid #cbd5e1; border-radius:12px; }
+.wr-active-set fieldset { border:0; padding:0; min-width:0; }
+.wr-active-set legend { font-weight:600; }
+.wr-active-set p { color:#475569; line-height:1.5; }
+.wr-active-set label { display:flex; align-items:center; gap:10px; padding:8px 0; overflow-wrap:anywhere; }
+.wr-active-set input { flex:none; width:18px; height:18px; }
+.wr-active-set button { margin-top:12px; }
 @media(max-width:600px) { .wr-dialog--wide .wr-dialog-footer .wd-primary { flex-basis:100%; } }

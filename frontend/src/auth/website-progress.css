@@ -1,0 +1,17 @@
+.website-progress-spinner{display:inline-block;width:24px;height:24px;flex-shrink:0;border:3px solid #dbeafe;border-top-color:#2563eb;border-radius:50%;animation:website-progress-spin 1s linear infinite;vertical-align:middle}
+.website-progress-notice{box-sizing:border-box;border:1px solid #bfdbfe;border-radius:16px;background:#f1f7ff;padding:24px;color:#10234f;font:400 14px/1.6 'Website Inter',Arial,sans-serif}
+.website-progress-notice>div:first-child{display:flex;align-items:center;gap:12px}
+.website-progress-notice h2{margin:0;font-size:18px;line-height:1.4;font-weight:600;letter-spacing:-.3px}
+.website-progress-notice p{margin:12px 0 0;color:#475569}
+.website-progress-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px}
+.website-progress-actions:empty{display:none}
+.website-progress-actions a,.website-progress-actions button{box-sizing:border-box;display:inline-flex;justify-content:center;align-items:center;min-height:44px;padding:10px 18px;border:1px solid #cbd5e1;border-radius:12px;font:600 14px/22px 'Website Inter',Arial,sans-serif;background:#fff;color:#10234f;text-decoration:none;cursor:pointer}
+.website-progress-actions>:first-child{background:#2563eb;color:#fff;border-color:#2563eb}
+.website-progress-actions :is(a,button):hover{filter:brightness(.94)}
+.website-progress-actions :is(a,button):focus-visible{outline:3px solid #2563eb;outline-offset:4px}
+.website-progress-actions button:disabled{opacity:.65;cursor:wait}
+.website-session-loading>.website-progress-notice{position:fixed;z-index:5;bottom:24px;left:50%;transform:translateX(-50%);width:min(760px,calc(100% - 48px));box-shadow:0 12px 40px #10234f18}
+.wr-copy>.website-progress-spinner{margin-bottom:16px}
+@keyframes website-progress-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.website-progress-spinner{animation:none}}
+@media(max-width:640px){.website-session-loading>.website-progress-notice{bottom:16px;width:calc(100% - 32px);padding:20px}.website-progress-actions{flex-direction:column}.website-progress-actions>*{width:100%}}

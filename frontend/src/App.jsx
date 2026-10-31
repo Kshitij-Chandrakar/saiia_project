@@ -1,3 +1,6 @@
+import SubscriptionAdmin from './auth/SubscriptionAdmin'
+import BillingAdmin from './auth/BillingAdmin'
+import BillingCheckout from './auth/BillingCheckout'
 import { completedDiagramSource } from './diagram_source_revision.js'
 import { mergeOverlaySnapshot } from './overlay_snapshot.js'
 import { isCurrentScreenDelivery, screenContextCommandFence, screenContextDisplayPayload } from './screen_context_events'
@@ -134,103 +137,6 @@ function normalizePipelineError(error, fallbackMessage) {
   return message || fallbackMessage
 }
 
-function normalizeScreenCaptureError(error) {
-  const message = String(error?.message || '').replace(/^Error invoking remote method '[^']+':\s*/i, '').trim()
-
-  if (/active_window_not_identified|active question window|active window|identified|target question window/i.test(message)) {
-    return {
-      code: 'active_window_not_identified',
-      message: 'SAIIA could not capture the question window.',
-      userAction: 'Focus the browser/question window and retry.',
-      retryable: true,
-    }
-  }
-
-  return {
-    code: 'screen_capture_failed',
-    message: normalizePipelineError(error, SCREEN_OCR_UNREADABLE_MESSAGE),
-    userAction: 'Retry Analyze Screen after focusing the question window.',
-    retryable: true,
-  }
-}
-
-async function captureDisplayFrameBlob() {
-  if (!navigator.mediaDevices?.getDisplayMedia) {
-    throw new Error('Could not capture screen.')
-  }
-
-  let stream = null
-
-  try {
-    stream = await navigator.mediaDevices.getDisplayMedia({
-      video: {
-        frameRate: 1,
-      },
-      audio: false,
-    })
-
-    const [track] = stream.getVideoTracks()
-    if (!track) {
-      throw new Error('Could not capture screen.')
-    }
-
-    const video = document.createElement('video')
-    video.srcObject = stream
-    video.muted = true
-    video.playsInline = true
-
-    await new Promise((resolve, reject) => {
-      video.onloadedmetadata = () => resolve()
-      video.onerror = () => reject(new Error('Could not capture screen.'))
-    })
-
-    await video.play()
-
-    const width = video.videoWidth || 0
-    const height = video.videoHeight || 0
-    if (!width || !height) {
-      throw new Error('Could not capture screen.')
-    }
-
-    const scale = Math.min(
-      1,
-      SCREEN_CAPTURE_MAX_DIMENSION / Math.max(width, height)
-    )
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.max(1, Math.round(width * scale))
-    canvas.height = Math.max(1, Math.round(height * scale))
-
-    const context = canvas.getContext('2d')
-    if (!context) {
-      throw new Error('Could not capture screen.')
-    }
-
-    context.drawImage(video, 0, 0, canvas.width, canvas.height)
-
-    const blob = await new Promise((resolve) => {
-      canvas.toBlob(resolve, 'image/png')
-    })
-
-    if (!blob || blob.size === 0) {
-      throw new Error('Could not capture screen.')
-    }
-
-    return blob
-  } finally {
-    stream?.getTracks().forEach((track) => track.stop())
-  }
-}
-
-function isBrowserScreenCaptureAvailable() {
-  return typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getDisplayMedia)
-}
-
-function isLocalDevRenderer() {
-  return (
-    typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-  )
-}
 
 async function dataUrlToBlob(dataUrl) {
   const response = await fetch(dataUrl)
@@ -434,60 +340,6 @@ function shouldSuppressScreenProfileContext(questionType) {
   return SCREEN_PROFILE_SUPPRESSED_TYPES.has(String(questionType || '').trim().toLowerCase())
 }
 
-function mergeScreenProblemText(texts) {
-  const seen = new Set()
-  const ordered = []
-
-  for (const rawText of texts) {
-    const blocks = String(rawText || '')
-      .split(/\n{2,}/)
-      .map((block) =>
-        block
-          .split('\n')
-          .filter((line) => {
-            const trimmed = line.trim()
-            return !(
-              trimmed.startsWith('{') &&
-              (trimmed.includes('"is_question"') ||
-                trimmed.includes("'is_question'") ||
-                trimmed.includes('"question_type"') ||
-                trimmed.includes("'question_type'") ||
-                trimmed.includes('"raw_vision_json"'))
-            )
-          })
-          .join('\n')
-          .replace(/\s*\{\s*["']is_question["']\s*:.*$/s, '')
-          .trim()
-      )
-      .filter(Boolean)
-
-    for (const block of blocks) {
-      const key = block.toLowerCase().replace(/\s+/g, ' ').trim()
-      if (!key || seen.has(key)) {
-        continue
-      }
-      seen.add(key)
-      ordered.push(block)
-    }
-  }
-
-  return ordered.join('\n\n').trim()
-}
-
-function pickScreenQuestionType(types) {
-  const priority = ['coding', 'debugging', 'output', 'visual', 'mcq', 'architecture', 'interview', 'general']
-  const normalized = types
-    .map((value) => String(value || '').trim().toLowerCase())
-    .filter((value) => value && value !== 'none')
-
-  for (const type of priority) {
-    if (normalized.includes(type)) {
-      return type
-    }
-  }
-
-  return normalized[0] || 'none'
-}
 
 function extractCodeBlockFromAnswer(answerText) {
   const text = String(answerText || '')
@@ -516,59 +368,6 @@ function normalizeScreenGeneratedAnswer(result, fallbackAnswer = '') {
   ).trim()
 }
 
-function detectNeedsMoreScreenContent(questionType, text, payload = {}) {
-  const normalizedType = String(questionType || '').trim().toLowerCase()
-  const normalizedText = String(text || '').toLowerCase()
-
-  if (['coding', 'debugging', 'output', 'visual', 'mcq', 'architecture'].includes(normalizedType)) {
-    return true
-  }
-
-  if (payload?.screen_platform_detected && payload.screen_platform_detected !== 'unknown') {
-    return true
-  }
-
-  return /(example|constraints|options?|input:|output:|follow the|study the following|based on the chart)/i.test(normalizedText)
-}
-
-function buildScreenProblemContext(payload, fallbackQuestion = '') {
-  const fullProblemText = mergeScreenProblemText([
-    payload?.full_problem_text,
-    payload?.final_merged_problem,
-    payload?.cleaned_text,
-    payload?.final_extracted_question,
-    payload?.extracted_question,
-    fallbackQuestion,
-  ])
-
-  const codeLikeBlocks = [
-    payload?.editor_text,
-    payload?.cleaned_text,
-    payload?.raw_vision_text,
-    payload?.final_merged_problem,
-    payload?.final_extracted_question,
-  ]
-    .flatMap((value) =>
-      String(value || '')
-        .split(/\n{2,}/)
-        .map((block) => block.trim())
-        .filter(Boolean)
-    )
-    .filter((block) =>
-      /(^|\n)\s*def\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\(|(^|\n)\s*class\s+[A-Za-z_][A-Za-z0-9_]*\b|(^|\n)\s*(?:from\s+\S+\s+import\s+.+|import\s+.+)$|(^|\n)\s*@[A-Za-z_][A-Za-z0-9_.()]*|(^|\n)\s*[A-Za-z_][A-Za-z0-9_]*\s*=\s*.+|(^|\n)\s*if\s+__name__\s*==\s*['"]__main__['"]\s*:|\bpublic\s+static\b|\bfunction\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\(|#\s*Write your logic here/im.test(block)
-    )
-
-  return {
-    fullProblemText,
-    editorText: mergeScreenProblemText(codeLikeBlocks),
-    inputFormat: String(payload?.input_format || '').trim(),
-    outputFormat: String(payload?.output_format || '').trim(),
-    sampleInput: String(payload?.sample_input || '').trim(),
-    sampleOutput: String(payload?.sample_output || '').trim(),
-    problemTitle: String(payload?.problem_title || '').trim(),
-    screenPlatformDetected: String(payload?.screen_platform_detected || '').trim(),
-  }
-}
 
 function getSelectedAudioSourceLabel(audioSources) {
   const systemOn = Boolean(audioSources?.system)
@@ -1149,7 +948,7 @@ function MainWindow() {
   const [acceptedAutoQuestion, setAcceptedAutoQuestion] = useState('')
   const [displayedAutoQuestionRunId, setDisplayedAutoQuestionRunId] = useState('')
   const [currentAutoQuestionRunId, setCurrentAutoQuestionRunId] = useState('')
-  const [lastGeneratedAt, setLastGeneratedAt] = useState(null)
+  const [, setLastGeneratedAt] = useState(null)
   const [autoRejectedReason, setAutoRejectedReason] = useState('')
   const [extractedQuestionCandidate, setExtractedQuestionCandidate] = useState('')
   const [polishedQuestionCandidate, setPolishedQuestionCandidate] = useState('')
@@ -2924,14 +2723,15 @@ function MainWindow() {
     form.append('mode', mode)
 
     const transcriptionStarted = performance.now()
-    const transcribeResponse = await fetch(`${BACKEND_URL}/transcribe/`, {
-      method: 'POST',
-      body: form,
-    })
-    const transcribePayload = await parseJsonResponse(
-      transcribeResponse,
-      'Could not transcribe the recording.'
-    )
+    let transcribePayload
+    if (mode === 'manual' && startupSessionConfigRef.current?.activeSessionId && window.electronAPI?.transcribeAudio) {
+      const result = await window.electronAPI.transcribeAudio({ bytes: new Uint8Array(await blob.arrayBuffer()), contentType: blob.type.split(';')[0] })
+      if (!result?.ok) throw Error('Transcription is unavailable. Check your account connection and retry.')
+      transcribePayload = result.payload
+    } else {
+      const transcribeResponse = await fetch(`${BACKEND_URL}/transcribe/`, { method: 'POST', body: form })
+      transcribePayload = await parseJsonResponse(transcribeResponse, 'Could not transcribe the recording.')
+    }
     if (!isActive()) return { text: '', noSpeech: true }
     const text = transcribePayload.text || ''
     const noSpeech = Boolean(transcribePayload.no_speech) || !text.trim()
@@ -2983,8 +2783,7 @@ function MainWindow() {
       transcribePayload.transcription_ms ??
       Number((performance.now() - transcriptionStarted).toFixed(2))
     setTranscript(text)
-    console.info('SAIIA transcript', {
-      text,
+    console.info('SAIIA transcription metrics', {
       upload_ms: transcribePayload.upload_ms,
       transcription_ms: transcriptionMs,
       mode,
@@ -3374,7 +3173,6 @@ function MainWindow() {
     }
     const overlayCommitMs = Number((performance.now() - overlayCommitStarted).toFixed(2))
     let barResetMs = null
-    const baseTotalPipelineMs = Number((performance.now() - pipelineStarted).toFixed(2))
     if (trackAudioPipeline) {
       finishAnswerPipeline({ requestId: String(requestId) })
       barResetMs = Number((performance.now() - pipelineStarted).toFixed(2))
@@ -3894,7 +3692,6 @@ function MainWindow() {
     sttProviderName = '',
     fallbackUsed = false,
     fallbackReason = '',
-    pipelineStarted = performance.now(),
   }) => {
     if (!autoModeRef.current || autoModeRunIdRef.current !== runId) {
       return
@@ -4383,172 +4180,6 @@ function MainWindow() {
     }
   }
 
-  const startAutoStreamingSystem = async (runId) => {
-    setStreamingError('')
-    clearTransientStreamingCloseError()
-    setPartialAutoTranscript('')
-    setSystemAudioSampleRate(null)
-    autoStreamingClosingRef.current = false
-
-    const socket = new WebSocket(getBackendWebSocketUrl('/ws/system-auto-stt'))
-    socket.binaryType = 'arraybuffer'
-    autoStreamingSocketRef.current = socket
-
-    const stopSystemStreaming = (message) => {
-      if (
-        autoStreamingClosingRef.current ||
-        !autoModeRef.current ||
-        /no close frame received or sent/i.test(String(message || ''))
-      ) {
-        setStreamingError('')
-        return
-      }
-      setStreamingError(message)
-      setAutoStreamingConnected(false)
-      stopAutoStreamingBridge(false)
-      setAutoModeStatus('error')
-      setError(message)
-      setStatus('Auto Mode stopped.')
-      autoModeRef.current = false
-      autoModeRunIdRef.current = ''
-      setAutoMode(false)
-      setAutoProcessing(false)
-    }
-
-    socket.onopen = () => {
-      if (autoModeRunIdRef.current !== runId) {
-        return
-      }
-      setAutoStreamingConnected(true)
-      setAutoModeStatus('listening')
-      setStatus('Listening...')
-      setSttProvider('assemblyai_streaming')
-      setActiveAudioSource('system')
-      logAutoModeDebug('system assemblyai streaming websocket connected', { runId })
-    }
-
-    socket.onmessage = async (event) => {
-      if (!autoModeRef.current || autoModeRunIdRef.current !== runId) {
-        return
-      }
-
-      let payload = null
-      try {
-        payload = JSON.parse(String(event.data || '{}'))
-      } catch {
-        return
-      }
-
-      const eventName = String(payload.event || '').toLowerCase()
-      if (eventName === 'system_stream_ready') {
-        setAutoStreamingConnected(true)
-        setStreamingError('')
-        setError('')
-        clearTransientStreamingCloseError()
-        setSystemAudioDeviceName(String(payload.device_name || '').trim())
-        setSystemAudioInputSampleRate(payload.input_sample_rate ?? null)
-        setSystemAudioSampleRate(payload.sample_rate ?? null)
-        setSttProvider('assemblyai_streaming')
-        setActiveAudioSource('system')
-        return
-      }
-
-      if (eventName === 'quality') {
-        setSystemAudioDeviceName(String(payload.selected_device_name || payload.device_name || systemAudioDeviceName || '').trim())
-        setSystemAudioInputSampleRate(payload.input_sample_rate ?? null)
-        setSystemAudioSampleRate(payload.target_sample_rate ?? payload.sample_rate ?? null)
-        setSystemAudioRmsLevel(payload.rms_level ?? null)
-        setSystemAudioPeakLevel(payload.peak_level ?? null)
-        setSystemAudioChunkBytesSent(payload.bytes_sent_per_second ?? payload.chunk_bytes_sent ?? 0)
-        setSystemAudioDroppedSilenceChunks(payload.dropped_silence_chunks ?? 0)
-        setSystemAudioClippingDetected(Boolean(payload.clipping_detected))
-        setSystemAudioQualityWarning(String(payload.warning || '').trim())
-        setSystemAudioDebugWavPath(String(payload.debug_wav_path || '').trim())
-        setSystemAudioEffectiveGain(payload.effective_gain ?? null)
-        if (payload.warning) {
-          appendEventLog(String(payload.warning), 'info')
-        }
-        return
-      }
-
-      if (eventName === 'begin') {
-        setAutoStreamingConnected(true)
-        setStreamingError('')
-        setError('')
-        clearTransientStreamingCloseError()
-        setSttProvider('assemblyai_streaming')
-        setActiveAudioSource('system')
-        return
-      }
-
-      if (eventName === 'turn') {
-        const transcriptText = String(payload.transcript || '').trim()
-        if (!transcriptText) {
-          return
-        }
-
-        if (payload.end_of_turn) {
-          setPartialAutoTranscript('')
-          await handleAutoTranscriptFinal({
-            runId,
-            sourceMode: 'system',
-            text: transcriptText,
-            transcriptionMs: null,
-            sttProviderName: 'assemblyai_streaming',
-            fallbackUsed: false,
-            fallbackReason: '',
-            pipelineStarted: performance.now(),
-          })
-          return
-        }
-
-        setPartialAutoTranscript(transcriptText)
-        setAutoModeStatus('listening')
-        setActiveAudioSource('system')
-        setStatus(Date.now() < autoCooldownUntilRef.current ? 'Cooldown, still listening...' : 'Listening...')
-        return
-      }
-
-      if (eventName === 'termination') {
-        setAutoStreamingConnected(false)
-        logAutoModeDebug('system assemblyai streaming session terminated', { runId })
-        return
-      }
-
-      if (eventName === 'error') {
-        const message = String(payload.message || 'System audio streaming failed.')
-        if (
-          autoStreamingClosingRef.current ||
-          !autoModeRef.current ||
-          /no close frame received or sent/i.test(message)
-        ) {
-          setStreamingError('')
-          return
-        }
-        logAutoModeDebug('system assemblyai streaming error', { runId, message }, 'error')
-        stopSystemStreaming(message)
-      }
-    }
-
-    socket.onerror = () => {
-      if (autoModeRunIdRef.current !== runId) {
-        return
-      }
-      if (autoStreamingClosingRef.current || !autoModeRef.current) {
-        return
-      }
-      logAutoModeDebug('system assemblyai streaming websocket error', { runId }, 'error')
-      stopSystemStreaming('System audio streaming failed.')
-    }
-
-    socket.onclose = () => {
-      if (autoModeRunIdRef.current !== runId || autoStreamingClosingRef.current || !autoModeRef.current) {
-        return
-      }
-      setAutoStreamingConnected(false)
-      logAutoModeDebug('system assemblyai streaming websocket closed', { runId })
-    }
-  }
 
   const runAutoModeCycle = async (runId, sourceMode) => {
     if (!autoModeRef.current || autoModeRunIdRef.current !== runId) {
@@ -4568,7 +4199,6 @@ function MainWindow() {
     try {
       setAutoProcessing(true)
       let captureResult = null
-      const pipelineStarted = performance.now()
 
       logAutoModeDebug('auto cycle starting', {
         runId,
@@ -4883,7 +4513,8 @@ function MainWindow() {
     const startToken = ++autoStartTokenRef.current
     autoStartingRef.current = true
     try {
-      if (sourceMode === 'microphone' || sourceMode === 'both') {
+      const hostedCapture = (await window.electronAPI?.getGrpcRealtimeStatus?.())?.clientAudioRelay === true
+      if (!hostedCapture && (sourceMode === 'microphone' || sourceMode === 'both')) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         if (startToken !== autoStartTokenRef.current) { stream.getTracks().forEach(track => track.stop()); return }
         manualRecordingCancelledRef.current = false
@@ -5237,30 +4868,6 @@ function MainWindow() {
     setRefinementMessage('Groq refined answer applied to overlay.')
   }
 
-  const requestActiveWindowAnalysis = async ({
-    blob,
-    windowTitle = '',
-    processName = '',
-    captureMs = 0,
-    hidSaiiaWindows = false,
-  }) => {
-    const form = new FormData()
-    form.append('file', blob, 'active-window.png')
-    form.append('window_title', windowTitle)
-    form.append('process_name', processName)
-    form.append('capture_ms', String(captureMs || 0))
-    form.append('hid_saiia_windows', hidSaiiaWindows ? 'true' : 'false')
-
-    setStatus('Extracting question...')
-    const response = await fetch(`${BACKEND_URL}/api/screen/analyze-active-window`, {
-      method: 'POST',
-      body: form,
-    })
-    return parseJsonResponse(
-      response,
-      'Screen analysis failed. Please try again.'
-    )
-  }
 
   const requestActiveWindowAnswer = async ({
     blob,
@@ -5312,161 +4919,6 @@ function MainWindow() {
     return parseJsonResponse(response, 'Browser extension connection is not available yet.')
   }
 
-  const applyScreenAnalysisPayload = (payload, overrides = {}) => {
-    const mergedPayload = { ...payload, ...overrides }
-    const contextPayload = buildScreenProblemContext(
-      mergedPayload,
-      mergedPayload.final_extracted_question || mergedPayload.extracted_question || ''
-    )
-    setScreenVisionProvider(mergedPayload.vision_provider || '')
-    setScreenVisionModel(mergedPayload.vision_model || '')
-    setScreenCaptureTarget(mergedPayload.capture_target || 'active_window')
-    setScreenWindowTitle(mergedPayload.window_title || '')
-    setScreenProcessName(mergedPayload.process_name || '')
-    setScreenImageWidth(Number(mergedPayload.image_width || 0))
-    setScreenImageHeight(Number(mergedPayload.image_height || 0))
-    setRawScreenVisionText(mergedPayload.raw_vision_text || '')
-    setRawScreenVisionJson(mergedPayload.raw_vision_json || '')
-    setScreenCleanedText(mergedPayload.cleaned_text || '')
-    setExtractedScreenQuestion(mergedPayload.extracted_question || '')
-    setScreenQuestionType(mergedPayload.question_type || 'none')
-    setScreenConfidence(Number(mergedPayload.confidence || 0))
-    setScreenCaptureMs(Number(mergedPayload.capture_ms || 0))
-    setScreenVisionMs(Number(mergedPayload.vision_ms || 0))
-    setScreenFallbackOcrUsed(Boolean(mergedPayload.fallback_ocr_used))
-    setScreenScreenshotHidSaiiaWindows(Boolean(mergedPayload.screenshot_hid_saiia_windows))
-    setScreenDebugPath(mergedPayload.screenshot_debug_path || '')
-    setScreenPlatformDetected(mergedPayload.screen_platform_detected || 'unknown')
-    setScreenCropUsed(Boolean(mergedPayload.crop_used))
-    setScreenCropRegion(mergedPayload.crop_region || '')
-    setScreenSourceRegion(mergedPayload.source_region || 'unknown')
-    setScreenExtractionRetryReason(mergedPayload.extraction_retry_reason || '')
-    setScreenRejectedUiNoise(Boolean(mergedPayload.rejected_ui_noise))
-    setScreenRejectedCodeBoilerplate(Boolean(mergedPayload.rejected_code_boilerplate))
-    setScreenUiNoiseRatio(Number(mergedPayload.ui_noise_ratio || 0))
-    setScreenRejectReason(mergedPayload.reason || '')
-    setRawFullWindowVisionJson(mergedPayload.raw_full_window_vision_json || '')
-    setRawCroppedVisionJson(mergedPayload.raw_cropped_vision_json || '')
-    setFinalExtractedScreenQuestion(mergedPayload.final_extracted_question || mergedPayload.extracted_question || '')
-    setScreenValidProblemFound(Boolean(mergedPayload.valid_problem_found))
-    setGroqVisionAttempted(Boolean(mergedPayload.groq_vision_attempted))
-    setGroqVisionSuccess(Boolean(mergedPayload.groq_vision_success))
-    setGroqVisionError(mergedPayload.groq_vision_error || '')
-    setGroqVisionHttpStatus(
-      mergedPayload.groq_vision_http_status == null ? null : Number(mergedPayload.groq_vision_http_status)
-    )
-    setGroqVisionRawResponsePreview(mergedPayload.groq_vision_raw_response_preview || '')
-    setGroqVisionParseError(mergedPayload.groq_vision_parse_error || '')
-    setGroqVisionTimeout(Boolean(mergedPayload.groq_vision_timeout))
-    setScreenFallbackReason(mergedPayload.fallback_reason || '')
-    setScreenAnswerGenerated(false)
-    setScreenError(mergedPayload.error || '')
-    setOcrConfidence(mergedPayload.confidence ?? null)
-    setScreenAnalyzeMode(mergedPayload.analyze_mode || 'visible_window')
-    setScreenNeedsMoreContent(Boolean(mergedPayload.needs_more_screen_content))
-    setScreenFullCaptureEnabled(Boolean(mergedPayload.full_capture_enabled))
-    setScreenFullProblemCaptureUsed(Boolean(mergedPayload.full_problem_capture_used))
-    setScreenCaptureCount(Number(mergedPayload.capture_count || 1))
-    setScreenScrollPositions(mergedPayload.scroll_positions || '')
-    setScreenDuplicateCaptureStopped(Boolean(mergedPayload.duplicate_capture_stopped))
-    setScreenBottomReached(Boolean(mergedPayload.bottom_reached))
-    setScreenRestoredScrollPosition(Boolean(mergedPayload.restored_scroll_position))
-    setScreenDiagramDetected(Boolean(mergedPayload.diagram_detected))
-    setScreenChartDetected(Boolean(mergedPayload.chart_detected))
-    setFinalMergedProblem(mergedPayload.final_merged_problem || '')
-    setScreenFullProblemText(contextPayload.fullProblemText || '')
-    setScreenEditorText(contextPayload.editorText || '')
-    setScreenForceTechnical(isScreenTechnicalType(mergedPayload.question_type || 'none'))
-    setScreenCodingAnswerMode(String(mergedPayload.question_type || '').trim().toLowerCase() === 'coding')
-    setScreenProfileContextUsed(!shouldSuppressScreenProfileContext(mergedPayload.question_type || 'none'))
-    setScreenPanelMode('preview')
-    setScreenAnswerLoading(false)
-
-    const finalQuestion = String(mergedPayload.final_extracted_question || mergedPayload.extracted_question || '').trim()
-
-    if (!mergedPayload.is_question || !finalQuestion) {
-      setOcrText(finalQuestion)
-      setError('')
-      setLastError(mergedPayload.error || 'Screen text found, but no clear question/problem detected.')
-      appendEventLog(mergedPayload.error || 'Screen text found, but no clear question/problem detected.', 'error')
-      setStatus('Screen text found, but no clear question/problem detected.')
-      return {
-        ok: false,
-        payload: mergedPayload,
-        fullProblemText: contextPayload.fullProblemText,
-        editorText: contextPayload.editorText,
-        inputFormat: contextPayload.inputFormat,
-        outputFormat: contextPayload.outputFormat,
-        sampleInput: contextPayload.sampleInput,
-        sampleOutput: contextPayload.sampleOutput,
-        problemTitle: contextPayload.problemTitle,
-        screenPlatformDetected: contextPayload.screenPlatformDetected,
-      }
-    }
-
-    const questionText = finalQuestion
-    setLastError('')
-    setOcrText(questionText)
-    setTranscript(questionText)
-    setStatus('Screen question detected.')
-    return {
-      ok: true,
-      payload: mergedPayload,
-      questionText,
-      questionType: mergedPayload.question_type || 'none',
-      fullProblemText: contextPayload.fullProblemText,
-      editorText: contextPayload.editorText,
-      inputFormat: contextPayload.inputFormat,
-      outputFormat: contextPayload.outputFormat,
-      sampleInput: contextPayload.sampleInput,
-      sampleOutput: contextPayload.sampleOutput,
-      problemTitle: contextPayload.problemTitle,
-      screenPlatformDetected: contextPayload.screenPlatformDetected,
-    }
-  }
-
-  const analyzeActiveWindowBlob = async ({
-    blob,
-    windowTitle = '',
-    processName = '',
-    captureMs = 0,
-    hidSaiiaWindows = false,
-    commitState = true,
-    overrides = {},
-  }) => {
-    const payload = await requestActiveWindowAnalysis({
-      blob,
-      windowTitle,
-      processName,
-      captureMs,
-      hidSaiiaWindows,
-    })
-
-    if (!commitState) {
-      const mergedPayload = { ...payload, ...overrides }
-      const contextPayload = buildScreenProblemContext(
-        mergedPayload,
-        mergedPayload.final_extracted_question || mergedPayload.extracted_question || ''
-      )
-      const finalQuestion = String(mergedPayload.final_extracted_question || mergedPayload.extracted_question || '').trim()
-      return {
-        ok: Boolean(mergedPayload.is_question && finalQuestion),
-        payload: mergedPayload,
-        questionText: finalQuestion,
-        questionType: mergedPayload.question_type || 'none',
-        fullProblemText: contextPayload.fullProblemText,
-        editorText: contextPayload.editorText,
-        inputFormat: contextPayload.inputFormat,
-        outputFormat: contextPayload.outputFormat,
-        sampleInput: contextPayload.sampleInput,
-        sampleOutput: contextPayload.sampleOutput,
-        problemTitle: contextPayload.problemTitle,
-        screenPlatformDetected: contextPayload.screenPlatformDetected,
-      }
-    }
-
-    return applyScreenAnalysisPayload(payload, overrides)
-  }
 
   const commitDirectScreenAnswer = (payload, { operation, pipelineStarted }) => {
     if (!isCurrentScreenOperation(activeScreenOperationRef.current, operation)) {
@@ -5684,6 +5136,9 @@ function MainWindow() {
     finishCurrentScreenOperation(operation)
   }
 
+  const screenCommitRef = useRef(commitDirectScreenAnswer)
+  useEffect(() => { screenCommitRef.current = commitDirectScreenAnswer })
+
   useEffect(() => {
     let mounted = true
     const accept = async event => {
@@ -5702,7 +5157,7 @@ function MainWindow() {
             requestId: delivery.identity.requestId })
           activeScreenOperationRef.current = operation
           setScreenOperation(operation)
-          commitDirectScreenAnswer(screenContextDisplayPayload(delivery), { operation, pipelineStarted: performance.now() })
+          screenCommitRef.current(screenContextDisplayPayload(delivery), { operation, pipelineStarted: performance.now() })
         }
         event = current
         const busy = ['capturing', 'processing'].includes(event.phase)
@@ -5795,77 +5250,6 @@ function MainWindow() {
     }
   }
 
-  const handleScreenCapture = async () => {
-    if (recording || autoMode || autoProcessing || ocrProcessing) {
-      return
-    }
-
-    const operation = beginScreenOperation('screen_capture')
-    const pipelineStarted = performance.now()
-    setError('')
-    setOcrProcessing(true)
-    setScreenError('')
-    setStatus('Capturing active external window...')
-
-    try {
-      if (window.saiia?.captureActiveWindow) {
-        updateCurrentScreenOperation(operation, SCREEN_OPERATION_STATUS.CAPTURING)
-        const capturePayload = await window.saiia.captureActiveWindow()
-
-        if (!capturePayload?.imageDataUrl) {
-          throw new Error('Could not capture the active window.')
-        }
-        if (!isCurrentScreenOperation(activeScreenOperationRef.current, operation)) {
-          return
-        }
-
-        setScreenSources([])
-        const blob = await dataUrlToBlob(capturePayload.imageDataUrl)
-        if (!isCurrentScreenOperation(activeScreenOperationRef.current, operation)) {
-          return
-        }
-        updateCurrentScreenOperation(operation, SCREEN_OPERATION_STATUS.PROCESSING)
-        const payload = await requestActiveWindowAnswer({
-          blob,
-          windowTitle: capturePayload.windowTitle || capturePayload.name || '',
-          processName: capturePayload.processName || '',
-          captureMs: capturePayload.captureMs || 0,
-          hidSaiiaWindows: Boolean(capturePayload.hidSaiiaWindows),
-          operation,
-        })
-        if (!isCurrentScreenOperation(activeScreenOperationRef.current, operation)) {
-          return
-        }
-        commitDirectScreenAnswer(payload, { operation, pipelineStarted })
-        return
-      }
-
-      throw new Error(
-        'Active-window screen analysis is available in the Electron desktop app.'
-      )
-    } catch (err) {
-      console.error('Screen analysis error', err)
-      if (!isCurrentScreenOperation(activeScreenOperationRef.current, operation)) {
-        return
-      }
-      const captureError = normalizeScreenCaptureError(err)
-      const safeMessage = `${captureError.message} ${captureError.userAction}`
-      setAnswerDisplayMode('screen')
-      setScreenPanelMode('preview')
-      setError(safeMessage)
-      setScreenError(safeMessage)
-      setStatus(captureError.retryable ? 'Needs attention' : 'Screen analysis failed.')
-      failCurrentScreenOperation(operation, safeMessage)
-      appendEventLog(
-        'Could not identify active window. Waiting for retry.',
-        'error'
-      )
-    } finally {
-      if (activeScreenOperationRef.current?.operationId === operation.operationId) {
-        setOcrProcessing(false)
-      }
-    }
-  }
 
   const handleManualQuestionSubmit = async (nextText, submitId = null) => {
     const text = String(nextText || '').trim()
@@ -6325,7 +5709,7 @@ function MainWindow() {
             setStatus('Listening... Using existing manual flow to preserve interview context.')
           }
         }
-      } catch (err) {
+      } catch {
         if (!isCurrent()) return
         stopActiveStream()
         setManualLiveState({ ...createManualLiveState(sessionId), phase: 'error' })
@@ -6693,19 +6077,7 @@ function MainWindow() {
         unsubscribe()
       }
     }
-  }, [
-    startupSessionConfig,
-    autoMode,
-    autoProcessing,
-    audioPipelineStatus,
-    audioSources,
-    isManualGenerating,
-    manualProcessing,
-    ocrProcessing,
-    ocrText,
-    recording,
-    transcript,
-  ])
+  })
 
   return (
     <MainDiagnosticsWindow
@@ -7015,6 +6387,9 @@ export default function App() {
       <Route path="/auth/dashboard" element={<AuthDashboardPage backendUrl={BACKEND_URL} />} />
       <Route path="/auth/sessions" element={<AuthDashboardPage backendUrl={BACKEND_URL} page="sessions" />} />
       <Route path="/auth/resume" element={<AuthResumePage backendUrl={BACKEND_URL} />} />
+      {!window.electronAPI && <Route path="/auth/admin/subscriptions" element={<SubscriptionAdmin backendUrl={BACKEND_URL} />} />}
+      {!window.electronAPI && <Route path="/auth/admin/billing" element={<BillingAdmin backendUrl={BACKEND_URL} />} />}
+      {!window.electronAPI && <Route path="/auth/checkout" element={<BillingCheckout backendUrl={BACKEND_URL} />} />}
       <Route path="/auth/logout" element={<AuthLogoutPage />} />
       <Route path="/" element={<LandingPage />} />
       <Route path="/landing" element={<LandingPage />} />

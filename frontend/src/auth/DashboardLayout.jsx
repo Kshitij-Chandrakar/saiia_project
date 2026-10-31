@@ -11,7 +11,7 @@ import resumes from '../assets/dashboard/resumes.svg'
 import './dashboard.css'
 import { Skeleton } from './WebsiteSkeleton'
 
-export default function DashboardLayout({ user, title, children, onLogout, logoutPending = false, loading = false }) {
+export default function DashboardLayout({ user, title, children, onLogout, logoutPending = false, loading = false, description, subscriptionAdmin = false }) {
   const [collapsed, setCollapsed] = useState(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
@@ -19,18 +19,18 @@ export default function DashboardLayout({ user, title, children, onLogout, logou
   const navigate = useNavigate()
   const location = useLocation()
   useEffect(() => {
-    if (window.electronAPI) return
+    if (window.electronAPI || !location.pathname.toLowerCase().startsWith('/auth/admin/')) return
     const previousTitle = document.title
     const favicon = document.querySelector('link[rel="icon"]')
     const parent = favicon?.parentNode, next = favicon?.nextSibling
     document.title = `${title} | Intervucopilot`
-    // No approved website favicon exists; hide the development Vite icon here.
+    // Preserve legacy admin metadata handling separately from customer routes.
     if (favicon?.getAttribute('href') === '/vite.svg') favicon.remove()
     return () => {
       document.title = previousTitle
       if (favicon && !favicon.isConnected) parent.insertBefore(favicon, next?.parentNode === parent ? next : null)
     }
-  }, [title])
+  }, [title, location.pathname])
   async function logout() {
     if (loading) return
     if (onLogout) return onLogout()
@@ -52,10 +52,11 @@ export default function DashboardLayout({ user, title, children, onLogout, logou
         <NavLink to="/auth/dashboard" end aria-label="Dashboard" className="wd-tooltip-trigger"><LayoutDashboard size={16} aria-hidden="true" /><span className="wd-nav-label">Dashboard</span><span className="wd-nav-tooltip" role="tooltip">Dashboard</span></NavLink>
         <NavLink to="/auth/sessions" aria-label="Call Sessions" className="wd-tooltip-trigger"><img src={sessions} alt="" /><span className="wd-nav-label">Call Sessions</span><span className="wd-nav-tooltip" role="tooltip">Call Sessions</span></NavLink>
         <NavLink to="/auth/resume" aria-label="Resumes" className="wd-tooltip-trigger"><img src={resumes} alt="" /><span className="wd-nav-label">Resumes</span><span className="wd-nav-tooltip" role="tooltip">Resumes</span></NavLink>
+        {subscriptionAdmin && <NavLink to="/auth/admin/subscriptions" aria-label="Subscription drafts"><FileText size={16} aria-hidden="true" /><span className="wd-nav-label">Subscription drafts</span></NavLink>}
       </nav>
       {loading ? <div className="wd-account"><span className="wd-avatar"><Skeleton width="100%" height="100%" shape="avatar" /></span><div><Skeleton width="85%" height={20} /></div><Skeleton width={36} height={36} shape="icon" /></div> : <div className="wd-account"><span className="wd-avatar"><img src={userIcon} alt="" /></span><div className="wd-account-email"><strong tabIndex={0} title={user.email || 'Your account'}>{user.email || 'Your account'}</strong><span className="wd-email-full" role="tooltip">{user.email || 'Your account'}</span></div><button type="button" className="wd-tooltip-trigger" onClick={logout} disabled={pending || logoutPending} aria-label={pending || logoutPending ? 'Signing out...' : 'Logout'}><LogOut size={18} aria-hidden="true" /><span className="wd-nav-tooltip" role="tooltip">Logout</span></button></div>}
     </aside>
-    <div className="wd-main"><header className="wd-header"><div><h1>{title}</h1><p>{loading ? <Skeleton width="min(360px,100%)" height={20} /> : location.pathname === '/auth/sessions' ? 'Review your interview sessions and revisit the conversation.' : location.pathname === '/auth/resume' ? 'Manage the resume used for your interview answers.' : 'Your interview workspace, in one place.'}</p></div></header><main className="wd-content">{error && <p role="alert" className="wd-error">{error}</p>}{children}</main></div>
+    <div className="wd-main"><header className="wd-header"><div><h1>{title}</h1><p>{loading ? <Skeleton width="min(360px,100%)" height={20} /> : description || (location.pathname === '/auth/sessions' ? 'Review your interview sessions and revisit the conversation.' : location.pathname === '/auth/resume' ? 'Manage the resume used for your interview answers.' : 'Your interview workspace, in one place.')}</p></div></header><main className="wd-content">{error && <p role="alert" className="wd-error">{error}</p>}{children}</main></div>
   </div>
 }
 

@@ -14,17 +14,36 @@ def hosted_commercial_mode():
 
 
 class Settings:
+    BILLING_ENABLED = os.getenv('BILLING_ENABLED','false').strip().lower()
     BILLING_NOTIFICATIONS_ENABLED = os.getenv('BILLING_NOTIFICATIONS_ENABLED','false').strip().lower()
     BILLING_ADMIN_ENABLED = os.getenv('BILLING_ADMIN_ENABLED','false').strip().lower()
+    RESEND_BILLING_WEBHOOK_SECRET = os.getenv('RESEND_BILLING_WEBHOOK_SECRET','')
+    RESEND_BILLING_WEBHOOK_SCOPE = os.getenv('RESEND_BILLING_WEBHOOK_SCOPE','')
+    RESEND_BILLING_WEBHOOK_PREVIOUS_SECRET = os.getenv('RESEND_BILLING_WEBHOOK_PREVIOUS_SECRET','')
+    RESEND_BILLING_WEBHOOK_PREVIOUS_UNTIL = os.getenv('RESEND_BILLING_WEBHOOK_PREVIOUS_UNTIL','')
+    BILLING_DSN = os.getenv('BILLING_DSN','')
+    BILLING_RENEWAL = os.getenv('BILLING_RENEWAL','')
+    BILLING_TOTAL_POLICY_REF = os.getenv('BILLING_TOTAL_POLICY_REF','')
+    RAZORPAY_TEST_PLAN_MAPPINGS = os.getenv('RAZORPAY_TEST_PLAN_MAPPINGS','{}')
+    RAZORPAY_TEST_KEY_ID = os.getenv('RAZORPAY_TEST_KEY_ID','')
+    RAZORPAY_TEST_KEY_SECRET = os.getenv('RAZORPAY_TEST_KEY_SECRET','')
+    RAZORPAY_TEST_ACCOUNT_ID = os.getenv('RAZORPAY_TEST_ACCOUNT_ID','')
+    RAZORPAY_TEST_WEBHOOK_SECRET = os.getenv('RAZORPAY_TEST_WEBHOOK_SECRET','')
+    RAZORPAY_TEST_PREVIOUS_WEBHOOK_SECRET = os.getenv('RAZORPAY_TEST_PREVIOUS_WEBHOOK_SECRET','')
     HOSTED_AUDIO_ENABLED = os.getenv('HOSTED_AUDIO_ENABLED', 'false').strip().lower() == 'true'
+    HOSTED_AUDIO_DEPLOYMENT_ID = os.getenv('HOSTED_AUDIO_DEPLOYMENT_ID', '').strip()
+    HOSTED_AUDIO_ORIGINS = os.getenv('HOSTED_AUDIO_ORIGINS', '').strip()
+    DESKTOP_HANDOFF_ENCRYPTION_KEY = os.getenv('DESKTOP_HANDOFF_ENCRYPTION_KEY', '')
     SUBSCRIPTIONS_ENABLED = os.getenv('SUBSCRIPTIONS_ENABLED','false').strip().lower()
     SUBSCRIPTIONS_DSN = os.getenv('SUBSCRIPTIONS_DSN','')
-    HOSTED_COMMERCIAL_MODE = hosted_commercial_mode()
+    # Backend-only direct SQL; explicit opt-in, never a public Supabase key.
     CATALOG_DRAFTS_ENABLED = os.getenv("CATALOG_DRAFTS_ENABLED", "false").strip().lower()
     CATALOG_PUBLIC_ENABLED = os.getenv("CATALOG_PUBLIC_ENABLED", "false").strip().lower()
     CATALOG_PUBLIC_DSN = os.getenv("CATALOG_PUBLIC_DSN", "")
     CATALOG_DRAFTS_DSN = os.getenv("CATALOG_DRAFTS_DSN", "")
     CATALOG_LIFECYCLE_ENABLED = os.getenv("CATALOG_LIFECYCLE_ENABLED", "false").strip().lower()
+    HOSTED_COMMERCIAL_MODE = hosted_commercial_mode()
+    # Controlled backend bootstrap only; empty grants nobody permission.
     SUBSCRIPTION_ADMIN_SUBJECTS = os.getenv('SUBSCRIPTION_ADMIN_SUBJECTS', '').strip()
     # Diagram generation is a separate opt-in; saved reads remain available.
     DIAGRAM_GENERATION_ENABLED = os.getenv('DIAGRAM_GENERATION_ENABLED', 'false').lower() == 'true'

@@ -16,6 +16,7 @@ import choicePastViewAllArrowUrl from '../assets/startup-choice/choice-past-view
 import choiceShieldUrl from '../assets/startup-choice/choice-shield.svg'
 import choiceStarsUrl from '../assets/startup-choice/choice-stars.svg'
 import choiceWalletUrl from '../assets/startup-choice/choice-wallet.svg'
+import './subscription-current-plan.css'
 
 const PAST_SESSION_STATUSES = new Set(['ended', 'abandoned'])
 
@@ -49,6 +50,7 @@ export default function StartupSessionChoiceScreen({
   const [activeTab, setActiveTab] = useState('create')
   const [answerHistorySession, setAnswerHistorySession] = useState('')
   const [message, setMessage] = useState('')
+  const [subscription, setSubscription] = useState({ status: 'loading' })
   const [pastSessions, setPastSessions] = useState([])
   const [pastSessionsLoading, setPastSessionsLoading] = useState(false)
   const [pastSessionsError, setPastSessionsError] = useState('')
@@ -75,6 +77,33 @@ export default function StartupSessionChoiceScreen({
     ? `${normalizedRemainingMinutes} minutes available`
     : 'Time availability unavailable'
   const safeAuthenticatedEmail = typeof authenticatedEmail === 'string' ? authenticatedEmail.trim() : ''
+
+  useEffect(() => {
+    let active = true, sequence = 0
+    setSubscription({ status: 'loading' })
+    async function refresh() {
+      const own = ++sequence
+      try {
+        const result = await window.electronAPI?.getSubscription?.()
+        if (!active || own !== sequence) return
+        setSubscription(result?.ok ? { status: 'ready', account: safeAuthenticatedEmail, plan: result.plan, auto: result.auto } : { status: 'unavailable' })
+      } catch { if (active && own === sequence) setSubscription({ status: 'unavailable' }) }
+    }
+    refresh()
+    const unsubscribe = window.electronAPI?.onSubscriptionInvalidated?.(() => {
+      ++sequence
+      setSubscription({ status: 'unavailable' })
+    })
+    const timer = setInterval(refresh, 15000)
+    window.addEventListener('focus', refresh)
+    return () => { active = false; ++sequence; unsubscribe?.(); clearInterval(timer); window.removeEventListener('focus', refresh) }
+  }, [safeAuthenticatedEmail])
+
+  const currentSubscription = subscription.account === safeAuthenticatedEmail ? subscription : { status: subscription.status === 'ready' ? 'loading' : subscription.status }
+  const autoBalance = currentSubscription.auto
+  const autoStatus = autoBalance?.mode === 'unlimited' ? 'Unlimited Auto time' : autoBalance?.mode === 'limited'
+    ? (() => { const units = BigInt(autoBalance.allowance) - BigInt(autoBalance.used) - BigInt(autoBalance.reserved); return units <= 0n ? 'Auto allowance exhausted' : `${(Number(units) / autoBalance.unit_scale / 60).toFixed(1)} Auto minutes available` })()
+    : 'Auto allowance unavailable'
 
   useEffect(() => {
     mountedRef.current = true
@@ -366,12 +395,14 @@ export default function StartupSessionChoiceScreen({
                   </button>
                 </article>
 
-                <article className="startup-choice-option">
+                <article className="startup-choice-option startup-choice-option--subscription">
                   <img className="startup-choice-corner startup-choice-corner--credit" src={choiceWalletUrl} alt="" aria-hidden="true" />
                   <h3>Buy Credits</h3>
-                  <p>Get more session time</p>
-                  <button type="button" className="startup-choice-link-button" onClick={() => setMessage('Plans will be available in a later phase.')}>
-                    View Plans
+                  <p aria-live="polite">{currentSubscription.status === 'ready' ? `Current plan: ${currentSubscription.plan.name}` : currentSubscription.status === 'loading' ? 'Loading current plan…' : 'Current plan temporarily unavailable'}</p>
+                  <p>{currentSubscription.status === 'ready' ? autoStatus : 'Auto allowance unavailable'}</p>
+                  <p>{currentSubscription.checkout_ready ? 'Review plans and secure checkout on our website.' : 'Checkout coming soon. Compare plans on our website.'}</p>
+                  <button type="button" className="startup-choice-link-button" onClick={() => window.electronAPI?.openUpgrade?.().catch(() => setMessage('Unable to open the website.'))}>
+                    Upgrade
                     <img src={choiceCardArrowUrl} alt="" aria-hidden="true" />
                   </button>
                 </article>

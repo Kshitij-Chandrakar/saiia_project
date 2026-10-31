@@ -54,7 +54,10 @@ async function parseJsonResponse(response, fallbackMessage) {
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) {
     const detail = typeof payload.detail === 'string' ? payload.detail.trim() : ''
-    throw new Error(detail || fallbackMessage)
+    const error = new Error(detail || fallbackMessage)
+    error.status = response.status
+    if (typeof payload.code === 'string') error.code = payload.code
+    throw error
   }
   return payload
 }
@@ -219,7 +222,7 @@ export function normalizeReadableAskAIText(value) {
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/g, "'")
-  text = text.replace(/\\([\\`*_{}\[\]()#+\-.!>])/g, '$1')
+  text = text.replace(/\\([\\`*_{}[\]()#+\-.!>])/g, '$1')
   text = text
     .split('\n')
     .map((line) => line
@@ -284,10 +287,12 @@ export async function fetchCurrentUser(accessToken, options = {}) {
   const {
     backendUrl = DEFAULT_BACKEND_URL,
     fetchImpl = fetch,
+    signal,
   } = options
 
   const response = await fetchImpl(`${backendUrl}/api/auth/me`, {
     method: 'GET',
+    ...(signal ? { signal } : {}),
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -381,6 +386,7 @@ export async function uploadCloudResume(accessToken, file, options = {}) {
     backendUrl = DEFAULT_BACKEND_URL,
     fetchImpl = fetch,
     signal,
+    requestId,
   } = options
   const formData = new FormData()
   formData.append('file', file)
@@ -390,9 +396,11 @@ export async function uploadCloudResume(accessToken, file, options = {}) {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
+        'Idempotency-Key': requestId || crypto.randomUUID(),
       },
       body: formData,
       signal,
+    requestId,
     }),
     'Unable to upload the resume.',
   ).then(projectCloudResume)
@@ -432,6 +440,7 @@ export async function fetchCloudResumeList(accessToken, options = {}) {
   }), 'Unable to load resume status.')
   return (Array.isArray(payload.items) ? payload.items : []).map(record => ({
     ...projectCloudResume(record), readiness_reason: record.readiness_reason || 'unknown',
+    can_generate: record.can_generate === true,
   }))
 }
 
@@ -716,6 +725,7 @@ export async function generateInterviewSessionNotes(accessToken, sessionId, opti
     fetchImpl = fetch,
     signal,
     forceRegenerate = false,
+    requestId,
   } = options
 
   const payload = await parseJsonResponse(
@@ -724,6 +734,7 @@ export async function generateInterviewSessionNotes(accessToken, sessionId, opti
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
+        'Idempotency-Key': requestId || crypto.randomUUID(),
       },
       body: JSON.stringify({ force_regenerate: Boolean(forceRegenerate) }),
       signal,

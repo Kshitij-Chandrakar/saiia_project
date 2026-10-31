@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import DashboardLayout from './DashboardLayout'
+import WebsiteRecovery from './WebsiteRecovery'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { onboardingRequest, onboardingResources, onboardingUpload, onboardingExtractJob, cloudResource } from './onboardingApi'
 import './dashboard-onboarding.css'
@@ -27,24 +29,30 @@ const descriptions = ['Your AI interview copilot helps you prepare smarter, prac
   'Choose a role and interview type to begin practicing with your AI copilot. Intervucopilot follows the conversation and suggests answers.',
   'Intervucopilot works in your browser, but the desktop app is recommended for smoother sessions during interviews and calls.']
 
-export function DashboardOnboardingGate({ backendUrl, children }) {
+export function DashboardOnboardingGate({ backendUrl, children, user }) {
   const [state, setState] = useState(null), [error, setError] = useState(''), [attempt, retry] = useState(0)
   const location = useLocation(), navigate = useNavigate()
+  const retryLocked = useRef(false)
   useEffect(() => {
     if (window.electronAPI) return
     let active = true
     const controller = new AbortController()
+    retryLocked.current = true
     setState(null); setError('')
     onboardingRequest(backendUrl, '', undefined, 'GET', controller.signal).then(value => {
       if (!active) return
       setState(value)
       if (!value.onboarding_completed_at && location.pathname !== '/auth/onboarding') navigate('/auth/onboarding', { replace: true })
       if (value.onboarding_completed_at && location.pathname === '/auth/onboarding') navigate('/auth/dashboard', { replace: true })
-    }).catch(() => { if (active) setError('Onboarding is unavailable. Please retry. Account setup or the onboarding migration may not be ready.') })
+    }).catch(() => { if (active) setError('We could not load your account setup. Try again to continue from your saved progress.') }).finally(() => { if (active) retryLocked.current = false })
     return () => { active = false; controller.abort() }
   }, [backendUrl, location.pathname, attempt, navigate])
   if (window.electronAPI) return children
-  if (error) return <main className="dashboard-onboarding"><section className="ob-card ob-loading"><p role="alert">{error}</p><button onClick={() => retry(v => v + 1)}>Retry onboarding</button></section></main>
+  if (error) return <DashboardLayout user={user} title="Account setup" description="Continue preparing your interview workspace">
+    <WebsiteRecovery contained title="Let’s get your setup back" message={error}>
+      <button type="button" onClick={() => { if (!retryLocked.current) { retryLocked.current = true; setError(''); retry(v => v + 1) } }}>Retry onboarding</button>
+    </WebsiteRecovery>
+  </DashboardLayout>
   if (!state || (!state.onboarding_completed_at && location.pathname !== '/auth/onboarding')) return <DashboardLoading page={location.pathname === '/auth/resume' ? 'resume' : location.pathname === '/auth/sessions' ? 'sessions' : 'dashboard'} />
   if (state.onboarding_completed_at) return children
   return <DashboardOnboarding key={location.key} backendUrl={backendUrl} initial={state} onComplete={() => { setState(v => ({ ...v, onboarding_completed_at: true })); navigate('/auth/dashboard', { replace: true }) }} />
@@ -58,20 +66,20 @@ export default function DashboardOnboarding({ backendUrl, initial, onComplete })
   const [selectedResume, setSelectedResume] = useState(null), [job, setJob] = useState(null), [session, setSession] = useState(null)
   const editorTriggerRef = useRef(null)
   const heading = useRef(null), lock = useRef(false), active = useRef(true), fileInput = useRef(null)
-  const jobKey = useRef(crypto.randomUUID()), sessionKey = useRef(crypto.randomUUID())
-  useEffect(() => { active.current = true; return () => { active.current = false } }, [])
-  async function load() {
+  const jobKey = useRef(crypto.randomUUID()), sessionKey = useRef(crypto.randomUUID()), uploadKey = useRef(null)
+  useEffect(() => { active.current = true; return () => { active.current = false; uploadKey.current = null } }, [])
+  const load = useCallback(async () => {
     const value = await onboardingResources(backendUrl)
     if (!active.current) return
     setResources(value); setSelectedResume(current => current || value.resume)
     setJob(current => current || value.jobs.find(item => item.is_active) || value.jobs[0] || null)
     setSession(value.sessions.find(item => item.status === 'active') || null)
-  }
+  }, [backendUrl])
   useEffect(() => {
     const refresh = () => { if (!lock.current) void load().catch(() => { if (active.current) setError('Unable to load your resources. Please retry.') }) }
     refresh(); window.addEventListener('focus', refresh)
     return () => window.removeEventListener('focus', refresh)
-  }, [backendUrl])
+  }, [load])
   useEffect(() => { heading.current?.focus({ preventScroll: true }) }, [step])
   async function action(work) {
     if (lock.current) return
@@ -95,7 +103,7 @@ export default function DashboardOnboarding({ backendUrl, initial, onComplete })
   }
   function move(next) { void action(async () => { const value = await onboardingRequest(backendUrl, '/step', { current_step: next }, 'PATCH'); if (!active.current) return; if (value.onboarding_completed_at) onComplete(); else { setStep(value.onboarding_current_step); changeEditor('') } }) }
   function finish() { void action(async () => { const value = await onboardingRequest(backendUrl, '/complete', {}, 'POST'); if (!value.onboarding_completed_at) throw Error(); if (active.current) onComplete() }) }
-  function uploadFile(file) { if (!file) return; void action(async () => { const result = await onboardingUpload(backendUrl, file); if (active.current) { setSelectedResume(result); setNotice('Resume uploaded. Review and confirm it in Resumes before using it for interviews.') } }) }
+  function uploadFile(file) { if (!file) return; void action(async () => { if (uploadKey.current?.file !== file) uploadKey.current = { file, key: crypto.randomUUID() }; const result = await onboardingUpload(backendUrl, file, uploadKey.current.key); if (active.current) { setSelectedResume(result); setNotice('Resume uploaded. Review and confirm it in Resumes before using it for interviews.') } }) }
   function extractJob(event) {
     event.preventDefault()
     if (!documentFile || !processingConsent) return
@@ -117,7 +125,7 @@ export default function DashboardOnboarding({ backendUrl, initial, onComplete })
     <div className="ob-body" inert={editor ? true : undefined}><div className="ob-decoration" aria-hidden="true"><img className="ob-lines-left" src={step === 5 ? linesLeftDesktop : linesLeft} alt="" /><img className="ob-lines-right" src={step === 5 ? linesRightLater : step === 4 ? linesRightSession : linesRight} alt="" /><img className="ob-glow-left" src={glowLeft} alt="" /><img className="ob-glow-right" src={glowRight} alt="" /></div>
       <div className={`ob-step ob-step-${step}`}>
         <div className="ob-graphic">
-          {step === 1 && <><div className="ob-mascot"><img src={mascot} alt="Intervucopilot mascot" /></div><div className="ob-proof"><strong>Trusted by more than 1,530,000+ candidates</strong><div><span>{'\u2605 \u2605 \u2605 \u2605 \u2605'}</span> <b>4.9</b><small> \u00b7 340,000+ mock reviews</small></div></div></>}
+          {step === 1 && <><div className="ob-mascot"><img src={mascot} alt="Intervucopilot mascot" /></div>{window.electronAPI && <div className="ob-proof"><strong>Trusted by more than 1,530,000+ candidates</strong><div><span>{'\u2605 \u2605 \u2605 \u2605 \u2605'}</span> <b>4.9</b><small> \u00b7 340,000+ mock reviews</small></div></div>}</>}
           {step === 2 && <><button className="ob-upload" type="button" disabled={busy || !resources} onClick={() => fileInput.current?.click()} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (!busy) uploadFile(e.dataTransfer.files[0]) }}><span className="ob-upload-icon"><img src={upload} alt="" /></span><strong>{!resources ? 'Loading resumes...' : selectedResume?.original_filename || 'Drop your resume here or click to browse'}</strong><small>{selectedResume ? `Status: ${selectedResume.status}` : 'Supports PDF, DOCX, or TXT up to 5MB'}</small><span className="ob-private">ATS parse-ready &amp; 100% private</span></button><input ref={fileInput} type="file" hidden accept=".pdf,.docx,.txt" onChange={e => { uploadFile(e.target.files[0]); e.target.value = '' }} />{selectedResume && <Link className="ob-manage" to="/auth/resume" target="_blank" rel="noopener noreferrer">Review / manage your resume</Link>}</>}
           {step === 3 && <div className="ob-context"><div className="ob-document"><small>{job ? 'Saved preparation context' : 'Preparation context'}</small><strong>{job ? (job.position || job.company || 'Job description') : 'No job context added yet'}</strong><p>{job ? job.company : 'Add context when you are ready.'}</p></div><button className="ob-chip ob-chip-top" disabled={busy} onClick={event => { changeEditor('upload', event.currentTarget); setNotice('') }}><img src={documentIcon} alt="" />Upload Document</button><button className="ob-chip ob-chip-right" disabled={busy} onClick={event => changeEditor('job', event.currentTarget)}><img src={jobIcon} alt="" />Add Job Description</button><button className="ob-chip ob-chip-bottom" disabled={busy} onClick={event => changeEditor('notes', event.currentTarget)}><img src={notesIcon} alt="" />Add Company Notes</button></div>}
           {step === 4 && <div className="ob-session"><div className="ob-session-ghost" /><small>{session?.started_at ? new Date(session.started_at).toLocaleDateString() : 'INTERVIEW SESSION'}</small><strong>{session?.company_name || job?.company || 'Your interview'}</strong><p>{session?.target_role || job?.position || 'No session created yet'}</p><div className="ob-tags"><span>Interview</span><span>Transcript</span></div><div className="ob-session-bottom"><span>{session ? session.status : 'Ready to Start'}</span><button type="button" disabled={busy || !resources} onClick={startSession}>Start Session</button></div></div>}
