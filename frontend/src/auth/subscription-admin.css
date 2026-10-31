@@ -1,0 +1,144 @@
+.subscription-admin{--ca-ink:#15263b;--ca-muted:#526477;--ca-accent:#2267ab;--ca-line:#dce4ec;color:var(--ca-ink);font-size:14px;line-height:1.55}
+.subscription-admin :is(h2,h3,h4){text-wrap:balance;letter-spacing:-.02em}
+.subscription-admin h2{font-size:21px;line-height:1.3;font-weight:650}
+.subscription-admin h3{font-size:16px;font-weight:650;margin:18px 0 10px}
+.subscription-admin h4{font-size:14px;font-weight:600;margin:0 0 12px}
+.subscription-admin :is(p,small){text-wrap:pretty;max-width:72ch}
+.subscription-admin .ca-muted,.subscription-admin small{color:var(--ca-muted)}
+.subscription-admin .ca-intro{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:16px 0 24px}
+.subscription-admin .ca-intro h2{font-size:28px;margin:12px 0 8px;letter-spacing:-.025em}
+.subscription-admin .ca-intro p{color:var(--ca-muted);max-width:64ch}
+.subscription-admin button{flex-shrink:0;white-space:normal;text-align:left;transition:background-color .16s ease,border-color .16s ease,transform .12s cubic-bezier(.23,1,.32,1);min-height:40px}
+.subscription-admin button:active:not(:disabled){transform:translateY(1px)}
+.website-dashboard .subscription-admin .wd-primary{background:var(--ca-accent);border-color:var(--ca-accent)}
+.subscription-admin .ca-tag{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;background:#edf3f9;color:#365b7c;border-radius:5px;font-size:12px;font-weight:550}
+.subscription-admin .ca-checkpoint{display:flex;gap:16px;align-items:baseline;padding:12px 16px;background:#f3f6f9;border:1px solid var(--ca-line);border-radius:8px;margin-bottom:22px;color:#43576a;font-size:12px}
+.subscription-admin .ca-checkpoint strong{white-space:nowrap;color:#233d54}
+.subscription-admin .ca-open{display:flex;align-items:end;gap:12px;margin:0 0 26px;padding:0 0 24px;border-bottom:1px solid var(--ca-line)}
+.subscription-admin .ca-open .ca-field{flex:1;max-width:420px;margin:0}
+.subscription-admin .ca-open>span{color:var(--ca-muted);font-size:12px;padding-bottom:10px}
+.subscription-admin .ca-field{display:flex;flex-direction:column;gap:6px;min-width:0;margin-bottom:16px;font-weight:500}
+.subscription-admin .ca-field>span{font-size:13px}
+.subscription-admin :is(input:not([type=checkbox]),textarea,select){width:100%;min-width:0;background:#fff;color:var(--ca-ink);border:1px solid #b8c7d6;border-radius:6px;padding:9px 11px;min-height:41px;font:inherit;line-height:1.4}
+.subscription-admin textarea{resize:vertical;min-height:95px}
+.subscription-admin input::placeholder,.subscription-admin textarea::placeholder{color:#627184;opacity:1}
+.subscription-admin :is(input,textarea,select):disabled{background:#f3f6f9;color:#526477}
+.subscription-admin :is(input,textarea,select)[aria-invalid=true]{border-color:#bd3e35;outline-color:#bd3e35}
+.subscription-admin :is(a,button,input,textarea,select,summary,[tabindex]):focus-visible{outline:2px solid #2267ab;outline-offset:3px}
+.subscription-admin .ca-field small{font-weight:400;font-size:12px;line-height:1.5}
+.subscription-admin .ca-field-error{color:#a52420!important}
+.subscription-admin .ca-workspace{display:grid;grid-template-columns:minmax(0,1fr);gap:30px;align-items:start}
+.subscription-admin .ca-editor{min-width:0}
+.subscription-admin .ca-document-heading{display:flex;justify-content:space-between;gap:16px;align-items:start;margin:0 0 12px}
+.subscription-admin .ca-document-heading p{color:var(--ca-muted);font-size:12px;margin-top:5px}
+.subscription-admin .ca-dot{margin-inline:5px}
+.subscription-admin .ca-ids{font-size:12px;color:var(--ca-muted);margin-bottom:20px;overflow-wrap:anywhere}
+.subscription-admin summary{cursor:pointer;font-weight:500;min-height:32px;align-content:center}
+.subscription-admin code{display:block;font-family:ui-monospace,SFMono-Regular,monospace;font-size:12px;color:#344c66;user-select:all}
+.subscription-admin .ca-tabs{display:flex;gap:4px;flex-wrap:wrap;padding-bottom:14px;margin-bottom:24px;border-bottom:1px solid var(--ca-line)}
+.subscription-admin .ca-tabs button{border:0;background:transparent;padding:8px 10px;color:#56677a;border-radius:6px;font-size:13px;min-height:38px}
+.subscription-admin .ca-tabs button[aria-current]{background:#eaf2fa;color:#1c5790;font-weight:600}
+.subscription-admin .ca-editable{border:0;padding:0;margin:0;min-width:0}
+.subscription-admin .ca-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:18px;margin-top:18px}
+.subscription-admin .ca-wide{grid-column:1/-1}
+.subscription-admin .ca-row{border:0;border-bottom:1px solid var(--ca-line);padding:14px 0 24px;margin:18px 0 24px;min-width:0}
+.subscription-admin .ca-row legend{font-weight:650;font-size:15px;padding:0;max-width:100%;overflow-wrap:anywhere}
+.subscription-admin .ca-row>button{font-size:12px;margin-top:12px}
+.subscription-admin .ca-details{font-size:12px;margin:8px 0 16px;padding:10px 0;border-top:1px solid #edf0f4;color:#526477}
+.subscription-admin .ca-features{display:flex;flex-direction:column;margin:16px 0 28px}
+.subscription-admin .ca-feature{padding:14px 0;border-bottom:1px solid #edf0f4}
+.subscription-admin .ca-feature>.ca-field:first-child{display:grid;grid-template-columns:minmax(0,1fr) 160px;align-items:center;margin:0}
+.subscription-admin .ca-feature>.ca-field:not(:first-child){margin-top:14px}
+.subscription-admin .ca-audio{display:flex;gap:10px 18px;flex-wrap:wrap;align-items:center;font-size:12px;margin:14px 0}
+.subscription-admin .ca-audio>span{font-weight:600;flex-basis:100%}
+.subscription-admin .ca-audio label{display:flex;align-items:center;gap:8px;min-height:32px}
+.subscription-admin input[type=checkbox]{accent-color:var(--ca-accent);width:16px;height:16px}
+.subscription-admin .ca-reset{margin:16px 0;padding:18px 0;border-top:1px solid var(--ca-line)}
+.subscription-admin .ca-empty{padding:24px 0;color:var(--ca-muted)}
+.subscription-admin .ca-save-reason{margin-top:30px;padding-top:22px;border-top:1px solid var(--ca-line)}
+.subscription-admin .ca-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+.subscription-admin .ca-save-help{font-size:12px;margin-top:10px}
+.subscription-admin .ca-preview{position:sticky;top:24px;border:1px solid var(--ca-line);background:#f8fafc;border-radius:10px;padding:22px;min-width:0;overflow-wrap:anywhere}
+.subscription-admin .ca-preview-heading{display:flex;gap:9px;align-items:center;margin-bottom:22px;color:#365574}
+.subscription-admin .ca-preview-heading h2{font-size:15px;letter-spacing:0}
+.subscription-admin .ca-preview h3{font-size:21px;margin:16px 0 8px}
+.subscription-admin .ca-preview ul{padding-left:18px;font-size:13px;margin:18px 0}
+.subscription-admin .ca-preview li{margin-bottom:8px}
+.subscription-admin .ca-preview-prices{margin-top:20px}
+.subscription-admin .ca-preview-prices strong{display:block;font-size:22px;letter-spacing:-.025em}
+.subscription-admin .ca-preview-prices span{color:var(--ca-muted);font-size:12px}
+.subscription-admin .ca-preview-note{border-top:1px solid var(--ca-line);padding-top:16px;margin-top:24px!important;font-size:12px;color:#566478}
+.subscription-admin .ca-preview-empty{padding:14px 0 60px;color:#526477}
+.subscription-admin .ca-preview-empty small{display:block;margin-top:10px}
+.subscription-admin .ca-readiness{border-top:1px solid var(--ca-line);padding-top:14px;margin-top:20px}
+.subscription-admin .ca-readiness h3{font-size:14px}
+.subscription-admin .ca-readiness button{display:block;border:0;background:transparent;font-size:12px;color:#6b4b25;padding:6px 0;line-height:1.5;overflow-wrap:anywhere;width:100%}
+.subscription-admin .ca-feedback{display:flex;align-items:center;flex-wrap:wrap;gap:12px;border:1px solid #d0deea;background:#f3f7fb;border-radius:8px;padding:14px 16px;margin-bottom:20px}
+.subscription-admin .ca-feedback p{flex:1;min-width:150px}
+.subscription-admin .ca-error{background:#fff7f5;border-color:#e6b9b0;color:#8f3028}
+.subscription-admin .ca-success{background:#eff8f3;border-color:#bcdbca;color:#246440}
+.subscription-admin .ca-review{padding:20px;border:1px solid #c9d9e7;border-radius:8px;margin-bottom:24px;background:#f7fafd}
+.subscription-admin .ca-review dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 20px;margin:18px 0}
+.subscription-admin .ca-review dd{margin:0;overflow-wrap:anywhere}
+.subscription-admin .ca-review pre{max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;user-select:text}
+.subscription-admin .ca-review button{margin:12px 8px 0 0}
+.subscription-admin .ca-welcome{display:flex;flex-direction:column;align-items:center;text-align:center;gap:14px;padding:64px 24px 84px}
+.subscription-admin .ca-welcome h2{font-size:25px}
+.subscription-admin .ca-welcome p{max-width:49ch;color:var(--ca-muted)}
+.subscription-admin .ca-draft-art{display:grid;place-items:center;width:110px;height:100px;border-radius:18px;background:#f0f5fa;color:#41739f;margin-bottom:6px}
+.subscription-admin.ca-access{display:flex;flex-direction:column;align-items:start;gap:18px;padding:40px 8px;max-width:680px}
+@media(max-width:1190px){.subscription-admin .ca-workspace{grid-template-columns:minmax(0,1fr)}.subscription-admin .ca-preview{position:static}.subscription-admin .ca-preview-empty{padding:12px 0 22px}.subscription-admin .ca-open{flex-wrap:wrap}.subscription-admin .ca-open>span{flex-basis:100%;padding:0}}
+@media(max-width:600px){.subscription-admin .ca-intro{align-items:start;flex-direction:column;gap:16px}.subscription-admin .ca-intro h2{font-size:24px}.subscription-admin .ca-checkpoint{flex-direction:column;gap:4px}.subscription-admin .ca-grid{grid-template-columns:minmax(0,1fr)}.subscription-admin .ca-feature>.ca-field:first-child{grid-template-columns:minmax(0,1fr) 135px}.subscription-admin .ca-tabs{gap:2px}.subscription-admin .ca-tabs button{padding:8px;font-size:12px}.subscription-admin .ca-open .ca-field{flex-basis:100%;max-width:none}.subscription-admin .ca-open button{width:100%}.subscription-admin .ca-welcome{padding:36px 0 50px}.subscription-admin .ca-actions>*{flex:1}.subscription-admin .ca-review{padding:14px}.subscription-admin .ca-review dl{grid-template-columns:1fr;gap:4px}.subscription-admin .ca-review dd{margin-bottom:12px}}
+@media(prefers-reduced-motion:reduce){.subscription-admin button{transition:none}.subscription-admin button:active:not(:disabled){transform:none}}
+.subscription-admin .ca-draft-art img{width:160px;height:160px;object-fit:contain}.subscription-admin .ca-draft-art{width:180px;height:180px;background:transparent}
+.subscription-admin .ca-navigation-dialog{width:min(520px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;margin:auto;padding:24px;border:1px solid var(--ca-line);border-radius:12px;color:var(--ca-ink);background:white;box-shadow:0 16px 64px #15263b26}
+.subscription-admin .ca-navigation-dialog::backdrop{background:#15263b66}
+.subscription-admin .ca-navigation-dialog p{margin:16px 0;color:var(--ca-muted)}
+.subscription-admin .ca-navigation-dialog .ca-actions{margin:0;padding:0;border:0}
+.subscription-admin .ca-lifecycle{border:1px solid var(--ca-line);border-radius:10px;padding:24px;margin:24px 0 32px;background:#fff}
+.subscription-admin .ca-lifecycle-title{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}
+.subscription-admin .ca-lifecycle>p{max-width:80ch;color:var(--ca-muted);font-size:13px;line-height:1.65;margin:12px 0}
+.subscription-admin .ca-operation{border-left:3px solid #326da7;padding:16px 18px;background:#f4f8fc;margin:22px 0}
+.subscription-admin .ca-operation p{font-size:12px;color:var(--ca-muted);max-width:78ch}
+.subscription-admin .ca-lifecycle-reads{border-top:1px solid var(--ca-line);padding-top:20px;margin-top:24px}
+.subscription-admin .ca-terminal{border-top:1px solid var(--ca-line);padding-top:24px;margin-top:24px}
+.subscription-admin .ca-terminal>h3{font-size:20px;margin-bottom:14px}
+.subscription-admin .ca-terms{min-width:0;margin:18px 0;padding-top:10px;overflow-wrap:anywhere}
+.subscription-admin .ca-terms h3{font-size:19px;margin-bottom:8px}
+.subscription-admin .ca-terms h4{font-size:13px;margin:20px 0 8px}
+.subscription-admin .ca-terms p,.subscription-admin .ca-terms li{font-size:13px;line-height:1.7}
+.subscription-admin .ca-terms ul{padding-left:20px}
+.subscription-admin .ca-terms pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;font-size:12px}
+.subscription-admin .ca-lifecycle-dialog{width:min(760px,calc(100vw - 32px))}
+.subscription-admin .ca-lifecycle-dialog section[aria-label="Existing offer"]{border-bottom:1px solid var(--ca-line);padding-bottom:20px}
+@media(max-width:600px){.subscription-admin .ca-lifecycle{padding:18px 14px}.subscription-admin .ca-lifecycle-title{align-items:start;flex-direction:column}.subscription-admin .ca-lifecycle-dialog{padding:20px}.subscription-admin .ca-lifecycle-reads{gap:24px}}
+
+.subscription-admin .ca-import{display:flex;align-items:center;gap:16px;padding:16px 0}
+.subscription-admin .ca-import button{flex-shrink:0}
+.subscription-admin .ca-import p{font-size:13px;line-height:1.6;color:var(--ca-muted);max-width:70ch}
+@media(max-width:600px){.subscription-admin .ca-import{flex-direction:column;align-items:flex-start}}
+
+.subscription-admin .ca-document-controls{display:flex;align-items:center;gap:6px;flex-shrink:0}.subscription-admin .ca-close-wrap{position:relative;display:inline-flex}.subscription-admin .ca-close-draft{color:#dc2626;display:inline-flex;align-items:center;justify-content:center;min-width:36px;min-height:36px;padding:6px;border-radius:8px}.subscription-admin .ca-close-wrap [role=tooltip]{display:none;position:absolute;right:0;top:100%;width:min(260px,60vw);padding:10px;border:1px solid var(--ca-line);border-radius:8px;background:#fff;color:#263b53;font-size:12px;line-height:1.5;box-shadow:0 4px 14px #172b4d18;z-index:10}.subscription-admin .ca-close-wrap:hover [role=tooltip],.subscription-admin .ca-close-wrap:focus-within [role=tooltip]{display:block}
+
+.subscription-admin .ca-subscription-modal{box-sizing:border-box;width:min(860px,calc(100vw - 40px));max-width:calc(100vw - 40px);max-height:min(760px,88dvh);margin:auto;padding:0;border:1px solid #e2e8f0;border-radius:20px;background:#fff;color:var(--ca-ink);box-shadow:0 24px 80px #0f172a26;overflow:hidden}
+.subscription-admin .ca-subscription-modal[open]{display:flex;flex-direction:column}
+.subscription-admin .ca-subscription-modal::backdrop{background:#0f172a66}
+.subscription-admin .ca-subscription-modal-header{display:flex;justify-content:space-between;align-items:start;gap:20px;flex-shrink:0;padding:22px 24px;border-bottom:1px solid var(--ca-line);background:white}
+.subscription-admin .ca-subscription-modal-header h2{margin:0;font-size:22px}
+.subscription-admin .ca-subscription-modal-header p{margin:6px 0 0;color:var(--ca-muted);font-size:13px;overflow-wrap:anywhere}
+.subscription-admin .ca-subscription-modal-header button{display:grid;place-items:center;min-width:40px;min-height:40px;padding:8px;border:1px solid var(--ca-line);border-radius:10px;background:#fff}
+.subscription-admin .ca-subscription-modal-body{min-height:0;overflow:auto;overscroll-behavior:contain;padding:22px 24px;overflow-wrap:anywhere}
+.subscription-admin .ca-subscription-modal .ca-preview{position:static;top:auto;border:0;background:#fff;border-radius:0;padding:0}
+.subscription-admin .ca-subscription-modal .ca-preview-empty{padding:16px 0}
+@media(max-width:600px){.subscription-admin .ca-subscription-modal{width:calc(100vw - 24px);max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);border-radius:16px}.subscription-admin .ca-subscription-modal-header{padding:18px 16px}.subscription-admin .ca-subscription-modal-body{padding:18px 16px}}
+
+.subscription-admin .ca-published-offers{border-bottom:1px solid var(--ca-line);margin-bottom:26px;padding-bottom:24px}
+.subscription-admin .ca-published-heading{display:flex;align-items:start;justify-content:space-between;gap:20px;margin-bottom:16px}
+.subscription-admin .ca-published-heading h3{margin:0 0 6px;font-size:20px}
+.subscription-admin .ca-published-heading p{font-size:13px;color:var(--ca-muted)}
+.subscription-admin .ca-published-offers ul{list-style:none;margin:0 0 16px;padding:0}
+.subscription-admin .ca-published-offers li{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:16px 0;border-top:1px solid var(--ca-line);min-width:0}
+.subscription-admin .ca-published-offers li>div:first-child{min-width:0}
+.subscription-admin .ca-published-offers li span,.subscription-admin .ca-published-offers li code{display:block;margin-top:4px;font-size:12px;color:var(--ca-muted);overflow-wrap:anywhere}
+.subscription-admin .ca-published-offers li code{user-select:text}
+@media(max-width:600px){.subscription-admin .ca-published-heading,.subscription-admin .ca-published-offers li{align-items:stretch;flex-direction:column;gap:12px}.subscription-admin .ca-published-offers .ca-actions{margin:0}}
