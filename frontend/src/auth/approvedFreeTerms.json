@@ -1,0 +1,236 @@
+{
+  "name": "Free",
+  "description": "Approved Free plan; draft only.",
+  "subscription_policy_ref": null,
+  "migration_policy_ref": null,
+  "prices": [],
+  "discounts": [],
+  "entitlements": [
+    {
+      "feature": "answers.generate",
+      "allowed": true,
+      "model_keys": [],
+      "audio_sources": []
+    },
+    {
+      "feature": "audio.transcribe",
+      "allowed": true,
+      "model_keys": [],
+      "audio_sources": []
+    },
+    {
+      "feature": "assistant.auto",
+      "allowed": true,
+      "model_keys": [],
+      "audio_sources": [
+        "microphone",
+        "system",
+        "both"
+      ]
+    },
+    {
+      "feature": "resume.upload",
+      "allowed": true,
+      "model_keys": [],
+      "audio_sources": []
+    },
+    {
+      "feature": "resume.extract",
+      "allowed": true,
+      "model_keys": [],
+      "audio_sources": []
+    },
+    {
+      "feature": "resume.grounding",
+      "allowed": true,
+      "model_keys": [],
+      "audio_sources": []
+    },
+    {
+      "feature": "job_context.manage",
+      "allowed": false,
+      "model_keys": [],
+      "audio_sources": []
+    },
+    {
+      "feature": "job_context.extract",
+      "allowed": false,
+      "model_keys": [],
+      "audio_sources": []
+    },
+    {
+      "feature": "screen.analyze",
+      "allowed": true,
+      "model_keys": [],
+      "audio_sources": []
+    },
+    {
+      "feature": "sessions.history",
+      "allowed": true,
+      "model_keys": [],
+      "audio_sources": []
+    },
+    {
+      "feature": "transcripts.export",
+      "allowed": true,
+      "model_keys": [],
+      "audio_sources": []
+    },
+    {
+      "feature": "notes.generate",
+      "allowed": true,
+      "model_keys": [],
+      "audio_sources": []
+    },
+    {
+      "feature": "session.ask_ai",
+      "allowed": true,
+      "model_keys": [],
+      "audio_sources": []
+    },
+    {
+      "feature": "clipboard.saved_answers",
+      "allowed": true,
+      "model_keys": [],
+      "audio_sources": []
+    },
+    {
+      "feature": "sketch.generate",
+      "allowed": false,
+      "model_keys": [],
+      "audio_sources": []
+    },
+    {
+      "feature": "screen.followups",
+      "allowed": false,
+      "model_keys": [],
+      "audio_sources": []
+    }
+  ],
+  "limits": [
+    {
+      "meter": "resume.stored_files",
+      "feature": "resume.upload",
+      "kind": "storage",
+      "unit": "file",
+      "amount": "1",
+      "grant_kind": null,
+      "reset": null,
+      "policy_ref": null,
+      "basis": null
+    }
+  ],
+  "allowances": [
+    {
+      "meter": "answers.completed",
+      "feature": "answers.generate",
+      "unit": "turn",
+      "mode": "unlimited",
+      "amount": null,
+      "period": null,
+      "basis": null
+    },
+    {
+      "meter": "audio.transcribed",
+      "feature": "audio.transcribe",
+      "unit": "second",
+      "mode": "unlimited",
+      "amount": null,
+      "period": null,
+      "basis": null
+    },
+    {
+      "meter": "notes.generations",
+      "feature": "notes.generate",
+      "unit": "generation",
+      "mode": "unlimited",
+      "amount": null,
+      "period": null,
+      "basis": null
+    },
+    {
+      "meter": "ask_ai.completed",
+      "feature": "session.ask_ai",
+      "unit": "turn",
+      "mode": "unlimited",
+      "amount": null,
+      "period": null,
+      "basis": null
+    },
+    {
+      "meter": "auto.authorized_running",
+      "feature": "assistant.auto",
+      "unit": "second",
+      "mode": "limited",
+      "amount": "600",
+      "period": {
+        "unit": "day",
+        "anchor": "calendar",
+        "timezone": "Asia/Kolkata"
+      },
+      "basis": "authorized_running_including_silence_both_once"
+    },
+    {
+      "meter": "resume.replacements",
+      "feature": "resume.upload",
+      "unit": "replacement",
+      "mode": "limited",
+      "amount": "1",
+      "period": {
+        "unit": "month",
+        "anchor": "account_signup_day",
+        "timezone": "Asia/Kolkata"
+      },
+      "basis": null
+    },
+    {
+      "meter": "screen.analyses",
+      "feature": "screen.analyze",
+      "unit": "analysis",
+      "mode": "limited",
+      "amount": "5",
+      "period": {
+        "unit": "month",
+        "anchor": "account_signup_day",
+        "timezone": "Asia/Kolkata"
+      },
+      "basis": null
+    },
+    {
+      "meter": "clipboard.new_saves",
+      "feature": "clipboard.saved_answers",
+      "unit": "save",
+      "mode": "limited",
+      "amount": "5",
+      "period": {
+        "unit": "month",
+        "anchor": "account_signup_day",
+        "timezone": "Asia/Kolkata"
+      },
+      "basis": null
+    }
+  ],
+  "model_selection": "configured_supported_available",
+  "validation_policy_version": "catalog.validation.v2",
+  "presentation": [
+    {
+      "feature": "sketch.generate",
+      "label": "Introducing Sketch",
+      "information": "Sketch turns a completed system-design answer into a colorful architecture diagram with clear shapes, arrows and labels. Generate it with one click below the answer, then revisit it in your session history.",
+      "preview": "unavailable"
+    },
+    {
+      "feature": "clipboard.saved_answers",
+      "label": "Clipboard",
+      "information": "Clipboard lets you paste and save your own answers, then open them during an interview. The Free plan includes 5 new saves each month. Once saved, an answer cannot be edited or deleted.",
+      "preview": "unavailable"
+    }
+  ],
+  "unmetered_features": [
+    "sessions.history",
+    "transcripts.export"
+  ],
+  "saved_answer_policy": "immutable_user_entries_retain_across_resets",
+  "pricing_mode": "free",
+  "resume_extraction_basis": "initial_upload_or_replacement_operation"
+}
