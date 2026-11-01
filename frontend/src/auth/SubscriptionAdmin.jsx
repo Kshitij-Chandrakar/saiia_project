@@ -41,6 +41,7 @@ export default function SubscriptionAdmin({
     status: 'loading',
     user: null
   });
+  const [suspendedNavigation, setSuspendedNavigation] = useState(null);
   const check = useCallback(async (next, reset = false) => {
     const ticket = ++probe.current;
     controller.current?.abort();
@@ -172,9 +173,9 @@ export default function SubscriptionAdmin({
   }
   if (['unauthenticated', 'forbidden'].includes(access.status)) return <WebsiteNotFound />;
   return <DashboardLayout user={access.user || {}} title="Subscription drafts" description="Manage private plan drafts and review their requirements." onLogout={logout} loading={access.status === 'loading'} subscriptionAdmin={access.status === 'allowed'}>
-    {access.user && <div ref={workspace} hidden={access.status !== 'allowed'}><DraftWorkspace key={access.user.id} accountId={access.user.id} backendUrl={backendUrl} token={() => session.current?.access_token} mayBlock={() => (privateAccess.current || access.status === 'unavailable') && session.current?.user?.id === access.user.id} suspended={access.status !== 'allowed'} onDenied={denied} /></div>}
+    {access.user && <div ref={workspace} hidden={access.status !== 'allowed'}><DraftWorkspace key={access.user.id} accountId={access.user.id} backendUrl={backendUrl} token={() => session.current?.access_token} mayBlock={() => (privateAccess.current || access.status === 'unavailable') && session.current?.user?.id === access.user.id} suspended={access.status !== 'allowed'} onDenied={denied} onSuspendedNavigation={setSuspendedNavigation} /></div>}
     {access.status !== 'allowed' && <section className="subscription-admin ca-access" aria-live="polite">
-      {access.status === 'loading' ? <><Skeleton width="55%" height={28} /><Skeleton width="80%" height={16} /><p>Checking subscription-admin access...</p></> : <><LockKeyhole size={28} aria-hidden="true" /><h2>{access.status === 'unauthenticated' ? 'Sign in to continue' : access.status === 'forbidden' ? 'Subscription-admin access required' : 'Admin access is unavailable'}</h2><p>{access.status === 'unauthenticated' ? 'Use your website account to check your current permissions.' : access.status === 'forbidden' ? 'Your account does not currently have permission to manage subscription drafts.' : 'Your permissions could not be confirmed. Private drafts are hidden.'}</p>{access.status === 'unauthenticated' ? <Link className="wd-primary" to="/auth/login">Sign in</Link> : <button type="button" onClick={() => client?.auth.getSession().then(r => {
+      {access.status === 'loading' ? <><Skeleton width="55%" height={28} /><Skeleton width="80%" height={16} /><p>Checking subscription-admin access...</p></> : <><LockKeyhole size={28} aria-hidden="true" /><h2>{access.status === 'unauthenticated' ? 'Sign in to continue' : access.status === 'forbidden' ? 'Subscription-admin access required' : 'Admin access is unavailable'}</h2><p>{access.status === 'unauthenticated' ? 'Use your website account to check your current permissions.' : access.status === 'forbidden' ? 'Your account does not currently have permission to manage subscription drafts.' : 'Your permissions could not be confirmed. Private drafts are hidden.'}</p>{access.status === 'unavailable' && suspendedNavigation && <div className="ca-feedback ca-error" role="alert"><p>Access is unavailable. Leaving this page will discard unsaved local work in this browser. Requests already sent are not cancelled.</p><div className="ca-actions"><button type="button" onClick={suspendedNavigation.stay}>Stay on this page</button><button type="button" onClick={suspendedNavigation.discard}>Discard and leave</button></div></div>}{access.status === 'unauthenticated' ? <Link className="wd-primary" to="/auth/login">Sign in</Link> : <button type="button" onClick={() => client?.auth.getSession().then(r => {
           if (r.error) setAccess(previous => ({status: 'unavailable', user: previous.user}));
           else check(r.data?.session, r.data?.session?.user?.id !== session.current?.user?.id);
         }).catch(() => setAccess(previous => ({status: 'unavailable', user: previous.user})))}>Check access again</button>}</>}
@@ -187,7 +188,8 @@ function DraftWorkspace({
   token,
   mayBlock,
   suspended,
-  onDenied
+  onDenied,
+  onSuspendedNavigation
 }) {
   const [form, setFormState] = useState(null),
     [saved, setSaved] = useState(null),
@@ -211,7 +213,8 @@ function DraftWorkspace({
     requests = useRef(new Set()),
     noticeRef = useRef(null),
     baseline = useRef(null),
-    navigationDialog = useRef(null);
+    navigationDialog = useRef(null),
+    suspendedBlock = useRef(false);
   const dirty = Boolean(form && (JSON.stringify(form) !== JSON.stringify(baseline.current) || reason !== ''));
   const blocker = useBlocker(({
     currentLocation,
@@ -226,8 +229,18 @@ function DraftWorkspace({
   useEffect(() => {
     if (blocker.state === 'blocked') {
       if (suspended) {
-        blocker.reset();
+        if (!suspendedBlock.current) {
+          suspendedBlock.current = true;
+          onSuspendedNavigation({
+            stay: () => blocker.reset(),
+            discard: () => blocker.proceed()
+          });
+        }
         return;
+      }
+      if (suspendedBlock.current) {
+        suspendedBlock.current = false;
+        onSuspendedNavigation(null);
       }
       // A save may finish while the prompt is open. Stay on the now-clean draft.
       if (!dirty && !pending && !lifecyclePending) {
@@ -235,8 +248,14 @@ function DraftWorkspace({
         return;
       }
       if (!navigationDialog.current?.open) navigationDialog.current?.showModal();
-    } else navigationDialog.current?.close();
-  }, [blocker, dirty, pending, lifecyclePending, suspended]);
+    } else {
+      navigationDialog.current?.close();
+      if (suspendedBlock.current) {
+        suspendedBlock.current = false;
+        onSuspendedNavigation(null);
+      }
+    }
+  }, [blocker, dirty, pending, lifecyclePending, suspended, onSuspendedNavigation]);
   useEffect(() => {
     mounted.current = true;
     return () => {

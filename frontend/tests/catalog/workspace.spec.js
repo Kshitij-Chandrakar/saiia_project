@@ -880,7 +880,11 @@ for (const pending of [false, true]) test(`temporary access failure preserves ${
   await page.getByRole('link', {name:'Dashboard', exact:true}).click();
   await expect(page).toHaveURL(/\/auth\/admin\/subscriptions$/);
   await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
+  const leaveWarning = page.getByRole('alert').filter({hasText:'Access is unavailable. Leaving this page will discard unsaved local work in this browser.'});
+  await expect(leaveWarning).toBeVisible();
   await expect(page.getByRole('dialog', {name:'Leave this draft?', exact:true})).not.toBeVisible();
+  await leaveWarning.getByRole('button', {name:'Stay on this page', exact:true}).click();
+  await expect(leaveWarning).not.toBeVisible();
   expect(await page.evaluate(() => {
     const event = new Event('beforeunload', {cancelable:true});
     window.dispatchEvent(event);
@@ -899,6 +903,20 @@ for (const pending of [false, true]) test(`temporary access failure preserves ${
   } else {
     await expect(page.getByLabel('Change reason', {exact:true})).toHaveValue('Keep this reason');
   }
+});
+
+test('temporary access failure warning lets the user discard and leave', async ({page}) => {
+  const state = await setup(page), ui = new Workspace(page);
+  await ui.create();
+  await page.getByLabel('Change reason', {exact:true}).fill('Discard during an access outage');
+  state.status = 503;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
+  await page.getByRole('link', {name:'Dashboard', exact:true}).click();
+  const leaveWarning = page.getByRole('alert').filter({hasText:'Access is unavailable. Leaving this page will discard unsaved local work in this browser.'});
+  await expect(leaveWarning).toBeVisible();
+  await leaveWarning.getByRole('button', {name:'Discard and leave', exact:true}).click();
+  await expect(page).toHaveURL(/\/auth\/dashboard$/);
 });
 
 test('temporary access failure dismisses a private modal without losing the saved draft', async ({page}) => {
