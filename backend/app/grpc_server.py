@@ -485,6 +485,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                     while not system_stopping:
                         read_future = asyncio.ensure_future(run_in_threadpool(system_capture.read_streaming_pcm_chunk, system_session))
                         chunk = await asyncio.wait_for(asyncio.shield(read_future), timeout=2)
+                        if system_stopping:
+                            break
                         now = time.time()*1000
                         if not system_metrics.get('system_first_pcm_chunk_at'): system_metrics['system_first_pcm_chunk_at'] = now
                         if chunk.rms_level > .005 and not system_metrics.get('system_first_non_silent_chunk_at'): system_metrics['system_first_non_silent_chunk_at'] = now
