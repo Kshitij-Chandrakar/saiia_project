@@ -18,7 +18,7 @@ test('published cards use server versions, independent periods and unavailable s
  await expect(plus.getByRole('button',{name:'Checkout coming soon',exact:true})).toBeDisabled();
  await expect(plus).toHaveAttribute('data-offer-id',offers[1].offer_version_id);
  await expect(plus.getByText('Coming soon',{exact:true})).toBeVisible();
- await page.getByRole('button',{name:'Yearly',exact:true}).click();await expect(plus).toContainText('per year + 18% GST');await expect(plus).toContainText('Total: \u20b93,538.82');await expect(page.locator('.cp-saving')).toHaveCount(0);
+ await page.getByRole('button',{name:'Yearly',exact:true}).click();await expect(plus.locator('.cp-billing')).toHaveText('per year + 18% GST');await expect(plus.locator('.cp-payable')).toHaveText('Total: \u20b93,538.82');await expect(page.locator('.cp-saving')).toHaveCount(0);
  await expect(plus).toContainText('5 hours Auto Mode / month');
  current=offers.filter(o=>o.name!=='Pro');await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await expect(page.getByRole('article',{name:'Pro plan'})).toHaveCount(0);
 });

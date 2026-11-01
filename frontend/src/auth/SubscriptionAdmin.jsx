@@ -35,7 +35,8 @@ export default function SubscriptionAdmin({
     probe = useRef(0),
     controller = useRef(null),
     alive = useRef(true),
-    privateAccess = useRef(false);
+    privateAccess = useRef(false),
+    workspace = useRef(null);
   const [access, setAccess] = useState({
     status: 'loading',
     user: null
@@ -65,21 +66,21 @@ export default function SubscriptionAdmin({
       });
       if (!alive.current || ticket !== probe.current) return;
       if (!Array.isArray(data.permissions) || data.permissions.length > 1 || data.permissions.some(p => p !== 'subscriptions.manage')) throw new CatalogError('catalog_database_unavailable');
-      privateAccess.current = data.permissions.includes('subscriptions.manage');
+      const allowed = data.permissions.includes('subscriptions.manage');
+      privateAccess.current = allowed;
       setAccess({
-        status: data.permissions.includes('subscriptions.manage') ? 'allowed' : 'forbidden',
-        user: {
-          id: next.user.id,
-          email: next.user.email
-        }
+        status: allowed ? 'allowed' : 'forbidden',
+        user: allowed ? {id: next.user.id, email: next.user.email} : null
       });
     } catch (error) {
       if (alive.current && ticket === probe.current) {
         privateAccess.current = false;
-        setAccess({
-          status: error.code === 'unauthenticated' ? 'unauthenticated' : 'unavailable',
-          user: null
-        });
+        const status = error.code === 'unauthenticated' ? 'unauthenticated'
+          : error.code === 'catalog_permission_denied' ? 'forbidden' : 'unavailable';
+        setAccess(previous => ({
+          status,
+          user: status === 'unavailable' && previous.user?.id === next.user.id ? previous.user : null
+        }));
       }
     }
   }, [backendUrl]);
@@ -129,6 +130,15 @@ export default function SubscriptionAdmin({
       data.subscription.unsubscribe();
     };
   }, [client, check]);
+  useEffect(() => {
+    if (access.status !== 'allowed') {
+      // Dismiss private dialogs without discarding draft or retry state.
+      workspace.current?.querySelectorAll('dialog[open]').forEach(dialog => {
+        dialog.dispatchEvent(new Event('cancel', {cancelable: true}));
+        if (dialog.open) dialog.close();
+      });
+    }
+  }, [access.status]);
   function denied(code) {
     privateAccess.current = false;
     ++probe.current;
@@ -162,16 +172,12 @@ export default function SubscriptionAdmin({
   }
   if (['unauthenticated', 'forbidden'].includes(access.status)) return <WebsiteNotFound />;
   return <DashboardLayout user={access.user || {}} title="Subscription drafts" description="Manage private plan drafts and review their requirements." onLogout={logout} loading={access.status === 'loading'} subscriptionAdmin={access.status === 'allowed'}>
-    {access.status === 'allowed' ? <DraftWorkspace key={access.user.id} accountId={access.user.id} backendUrl={backendUrl} token={() => session.current?.access_token} mayBlock={() => privateAccess.current && session.current?.user?.id === access.user.id} onDenied={denied} /> : <section className="subscription-admin ca-access" aria-live="polite">
+    {access.user && <div ref={workspace} hidden={access.status !== 'allowed'}><DraftWorkspace key={access.user.id} accountId={access.user.id} backendUrl={backendUrl} token={() => session.current?.access_token} mayBlock={() => privateAccess.current && session.current?.user?.id === access.user.id} onDenied={denied} /></div>}
+    {access.status !== 'allowed' && <section className="subscription-admin ca-access" aria-live="polite">
       {access.status === 'loading' ? <><Skeleton width="55%" height={28} /><Skeleton width="80%" height={16} /><p>Checking subscription-admin access...</p></> : <><LockKeyhole size={28} aria-hidden="true" /><h2>{access.status === 'unauthenticated' ? 'Sign in to continue' : access.status === 'forbidden' ? 'Subscription-admin access required' : 'Admin access is unavailable'}</h2><p>{access.status === 'unauthenticated' ? 'Use your website account to check your current permissions.' : access.status === 'forbidden' ? 'Your account does not currently have permission to manage subscription drafts.' : 'Your permissions could not be confirmed. Private drafts are hidden.'}</p>{access.status === 'unauthenticated' ? <Link className="wd-primary" to="/auth/login">Sign in</Link> : <button type="button" onClick={() => client?.auth.getSession().then(r => {
-          if (r.error) setAccess({
-            status: 'unavailable',
-            user: null
-          });else check(r.data?.session, true);
-        }).catch(() => setAccess({
-          status: 'unavailable',
-          user: null
-        }))}>Check access again</button>}</>}
+          if (r.error) setAccess(previous => ({status: 'unavailable', user: previous.user}));
+          else check(r.data?.session, r.data?.session?.user?.id !== session.current?.user?.id);
+        }).catch(() => setAccess(previous => ({status: 'unavailable', user: previous.user})))}>Check access again</button>}</>}
     </section>}
   </DashboardLayout>;
 }
