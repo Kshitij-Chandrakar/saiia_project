@@ -919,6 +919,20 @@ test('temporary access failure warning lets the user discard and leave', async (
   await expect(page).toHaveURL(/\/auth\/dashboard$/);
 });
 
+test('account switch clears an outage navigation warning tied to the old workspace', async ({page}) => {
+  const state = await setup(page), ui = new Workspace(page);
+  await ui.create();
+  await page.getByLabel('Change reason', {exact:true}).fill('Do not retain old navigation callbacks');
+  state.status = 503;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
+  await page.getByRole('link', {name:'Dashboard', exact:true}).click();
+  const leaveWarning = page.getByRole('alert').filter({hasText:'Leaving this page will discard unsaved local work in this browser.'});
+  await expect(leaveWarning).toBeVisible();
+  await page.evaluate(() => window.__emit('SIGNED_IN', {access_token:'other', user:{id:'other-user'}}));
+  await expect(leaveWarning).toHaveCount(0);
+});
+
 test('temporary access failure dismisses a private modal without losing the saved draft', async ({page}) => {
   const state = await setup(page), ui = new Workspace(page);
   await ui.create(); await ui.save();
