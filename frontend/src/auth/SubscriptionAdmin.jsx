@@ -172,7 +172,7 @@ export default function SubscriptionAdmin({
   }
   if (['unauthenticated', 'forbidden'].includes(access.status)) return <WebsiteNotFound />;
   return <DashboardLayout user={access.user || {}} title="Subscription drafts" description="Manage private plan drafts and review their requirements." onLogout={logout} loading={access.status === 'loading'} subscriptionAdmin={access.status === 'allowed'}>
-    {access.user && <div ref={workspace} hidden={access.status !== 'allowed'}><DraftWorkspace key={access.user.id} accountId={access.user.id} backendUrl={backendUrl} token={() => session.current?.access_token} mayBlock={() => privateAccess.current && session.current?.user?.id === access.user.id} onDenied={denied} /></div>}
+    {access.user && <div ref={workspace} hidden={access.status !== 'allowed'}><DraftWorkspace key={access.user.id} accountId={access.user.id} backendUrl={backendUrl} token={() => session.current?.access_token} mayBlock={() => (privateAccess.current || access.status === 'unavailable') && session.current?.user?.id === access.user.id} suspended={access.status !== 'allowed'} onDenied={denied} /></div>}
     {access.status !== 'allowed' && <section className="subscription-admin ca-access" aria-live="polite">
       {access.status === 'loading' ? <><Skeleton width="55%" height={28} /><Skeleton width="80%" height={16} /><p>Checking subscription-admin access...</p></> : <><LockKeyhole size={28} aria-hidden="true" /><h2>{access.status === 'unauthenticated' ? 'Sign in to continue' : access.status === 'forbidden' ? 'Subscription-admin access required' : 'Admin access is unavailable'}</h2><p>{access.status === 'unauthenticated' ? 'Use your website account to check your current permissions.' : access.status === 'forbidden' ? 'Your account does not currently have permission to manage subscription drafts.' : 'Your permissions could not be confirmed. Private drafts are hidden.'}</p>{access.status === 'unauthenticated' ? <Link className="wd-primary" to="/auth/login">Sign in</Link> : <button type="button" onClick={() => client?.auth.getSession().then(r => {
           if (r.error) setAccess(previous => ({status: 'unavailable', user: previous.user}));
@@ -186,6 +186,7 @@ function DraftWorkspace({
   backendUrl,
   token,
   mayBlock,
+  suspended,
   onDenied
 }) {
   const [form, setFormState] = useState(null),
@@ -224,6 +225,10 @@ function DraftWorkspace({
   }, [dirty, pending, lifecyclePending, mayBlock]));
   useEffect(() => {
     if (blocker.state === 'blocked') {
+      if (suspended) {
+        blocker.reset();
+        return;
+      }
       // A save may finish while the prompt is open. Stay on the now-clean draft.
       if (!dirty && !pending && !lifecyclePending) {
         blocker.reset();
@@ -231,7 +236,7 @@ function DraftWorkspace({
       }
       if (!navigationDialog.current?.open) navigationDialog.current?.showModal();
     } else navigationDialog.current?.close();
-  }, [blocker, dirty, pending, lifecyclePending]);
+  }, [blocker, dirty, pending, lifecyclePending, suspended]);
   useEffect(() => {
     mounted.current = true;
     return () => {

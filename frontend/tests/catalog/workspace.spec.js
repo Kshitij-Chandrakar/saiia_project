@@ -877,6 +877,15 @@ for (const pending of [false, true]) test(`temporary access failure preserves ${
   await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
   await expect(page.getByLabel('Display name', {exact:true})).toHaveCount(1);
   await expect(page.getByLabel('Display name', {exact:true})).not.toBeVisible();
+  await page.getByRole('link', {name:'Dashboard', exact:true}).click();
+  await expect(page).toHaveURL(/\/auth\/admin\/subscriptions$/);
+  await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
+  await expect(page.getByRole('dialog', {name:'Leave this draft?', exact:true})).not.toBeVisible();
+  expect(await page.evaluate(() => {
+    const event = new Event('beforeunload', {cancelable:true});
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  })).toBe(true);
   state.status = 200;
   await page.getByRole('button', {name:'Check access again', exact:true}).click();
   await expect(page.getByLabel('Display name', {exact:true})).toBeVisible();
