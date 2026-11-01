@@ -18,7 +18,7 @@ test('published cards use server versions, independent periods and unavailable s
  await expect(plus.getByRole('button',{name:'Checkout coming soon',exact:true})).toBeDisabled();
  await expect(plus).toHaveAttribute('data-offer-id',offers[1].offer_version_id);
  await expect(plus.getByText('Coming soon',{exact:true})).toBeVisible();
- await page.getByRole('button',{name:'Yearly',exact:true}).click();await expect(plus).toContainText('per year + 18% GST');await expect(plus).toContainText('Total: \u20b93,538.82');await expect(page.locator('.cp-saving')).toHaveCount(0);
+ await page.getByRole('button',{name:'Yearly',exact:true}).click();await expect(plus.locator('.cp-billing')).toHaveText('per year + 18% GST');await expect(plus.locator('.cp-payable')).toHaveText('Total: \u20b93,538.82');await expect(page.locator('.cp-saving')).toHaveCount(0);
  await expect(plus).toContainText('5 hours Auto Mode / month');
  current=offers.filter(o=>o.name!=='Pro');await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await expect(page.getByRole('article',{name:'Pro plan'})).toHaveCount(0);
 });
@@ -30,4 +30,18 @@ test('shared unlimited claims disappear when an admin limits one displayed offer
  await page.goto('/#pricing');const strip=page.getByRole('region',{name:'Included in every plan'});
  await expect(strip).toBeVisible();await expect(strip).not.toContainText('Unlimited manual audio');
  await expect(strip).toContainText('All available AI models');
+});
+
+
+test('pricing price blocks keep desktop spacing and natural mobile height',async({page})=>{
+ const offers=[approvedFreeDraft(),approvedPaidDraft('plus'),approvedPaidDraft('pro')].map(project);
+ await page.route('**/api/catalog',r=>r.fulfill({json:{catalog_revision:'7',offers}}));
+ for(const width of [1366,390]){
+  await page.setViewportSize({width,height:844});
+  await page.goto('/#pricing');
+  const plus=page.getByRole('article',{name:'Plus plan'});
+  await expect(plus).toBeVisible();
+  await expect(plus.locator('.cp-price')).toHaveCSS('min-height',width<=760?'0px':'113px');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ }
 });
