@@ -13,7 +13,9 @@ async function setup(page, {
     uncertain: false,
     conflict: false,
     unavailable: false,
-    hold: null
+    hold: null,
+    meHold: null,
+    meStarted: null
   };
   await page.addInitScript(signed => {
     window.__session = signed ? {
@@ -31,12 +33,16 @@ async function setup(page, {
   await page.route('**/api/**', async r => {
     const q = r.request(),
       p = new URL(q.url()).pathname;
-    if (p === '/api/commercial/admin/me') return r.fulfill({
+    if (p === '/api/commercial/admin/me') {
+      s.meStarted?.();
+      if (s.meHold) await s.meHold;
+      return r.fulfill({
       status: s.status,
       json: {
         permissions: s.permissions
       }
-    });
+      });
+    }
     if (!p.startsWith('/api/admin/catalog/')) return r.fulfill({
       status: 404,
       json: {}
@@ -880,7 +886,7 @@ for (const pending of [false, true]) test(`temporary access failure preserves ${
   await page.getByRole('link', {name:'Dashboard', exact:true}).click();
   await expect(page).toHaveURL(/\/auth\/admin\/subscriptions$/);
   await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
-  const leaveWarning = page.getByRole('alert').filter({hasText:'Access is unavailable. Leaving this page will discard unsaved local work in this browser.'});
+  const leaveWarning = page.getByRole('alert').filter({hasText:pending ? 'This save is not confirmed. Stay to retain its retry identity.' : 'Access is unavailable. Leaving this page will discard unsaved local work in this browser.'});
   await expect(leaveWarning).toBeVisible();
   await expect(page.getByRole('dialog', {name:'Leave this draft?', exact:true})).not.toBeVisible();
   await leaveWarning.getByRole('button', {name:'Stay on this page', exact:true}).click();
@@ -929,7 +935,17 @@ test('account switch clears an outage navigation warning tied to the old workspa
   await page.getByRole('link', {name:'Dashboard', exact:true}).click();
   const leaveWarning = page.getByRole('alert').filter({hasText:'Leaving this page will discard unsaved local work in this browser.'});
   await expect(leaveWarning).toBeVisible();
+  let releaseAccess, accessStarted;
+  state.meHold = new Promise(resolve => { releaseAccess = resolve; });
+  const accessStartedPromise = new Promise(resolve => { accessStarted = resolve; });
+  state.meStarted = accessStarted;
   await page.evaluate(() => window.__emit('SIGNED_IN', {access_token:'other', user:{id:'other-user'}}));
+  await accessStartedPromise;
+  await expect(leaveWarning).toHaveCount(0);
+  releaseAccess();
+  state.meHold = null;
+  state.meStarted = null;
+  await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
   await expect(leaveWarning).toHaveCount(0);
 });
 
