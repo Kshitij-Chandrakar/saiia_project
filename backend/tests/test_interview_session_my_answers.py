@@ -115,8 +115,7 @@ def setup_client():
     app.include_router(api.router, prefix="/api/interview-sessions")
     sessions = FakeSessionService()
     answers = FakeMyAnswersService()
-    app.dependency_overrides[api.get_cloud_interview_session_service] = lambda: sessions
-    app.dependency_overrides[api.get_cloud_interview_my_answers_service] = lambda: answers
+    app.dependency_overrides[api.get_my_answers_backends] = lambda: (sessions, answers)
     with TestClient(app) as client:
         yield client, sessions, answers
     app.dependency_overrides.clear()

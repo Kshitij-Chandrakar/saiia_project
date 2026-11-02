@@ -119,11 +119,11 @@ async def generate_graph(question, answer, *, client=None):
 
 
 class DiagramService:
-    def __init__(self, store=None, provider=generate_graph):
+    def __init__(self, store=None, provider=generate_graph, *, tasks=None, capacity=None):
         self.store = store
         self.provider = provider
-        self.tasks = {}
-        self.capacity = asyncio.Semaphore(4)
+        self.tasks = tasks if tasks is not None else {}
+        self.capacity = capacity if capacity is not None else asyncio.Semaphore(4)
 
     async def op(self, operation, identity, **kwargs):
         return await asyncio.to_thread((self.store or diagram_store()).operation, operation, *identity, **kwargs)
@@ -135,6 +135,11 @@ class DiagramService:
         return diagram_projection(row)
 
     async def run(self, identity, retry=False):
+        # A completed generation replay is not fresh permission. Historical
+        # owner reads remain separate; no provider dispatch occurs on a replay.
+        authorize = getattr(self.store, 'authorize_generation', None)
+        if authorize is not None:
+            await asyncio.to_thread(authorize, identity[0])
         # Reads/recovery remain available with generation disabled or missing key.
         row = await self.op('read', identity)
         if row.get('state') == 'checkpoint':
@@ -180,6 +185,9 @@ class DiagramService:
                 user, session, transcript=transcript)
             if not descriptor['eligible'] or descriptor['source_revision'] != revision:
                 raise DiagramError('stale_source', 409)
+            authorize = getattr(self.store, 'authorize_generation', None)
+            if authorize is not None:
+                await asyncio.to_thread(authorize, user)
             graph, model = await self.provider(source['question_text'], source['answer_text'])
             # Validate even injected provider adapters; storage never sees invalid success.
             graph = validate_graph(graph, source['answer_text'])
@@ -198,12 +206,14 @@ class DiagramService:
             cleanup.result()  # Consume cleanup failures, never orphan the task.
             raise
         except DiagramError as exc:
-            if not checkpoint:
+            if not checkpoint or exc.status == 403:
                 code = exc.code if exc.code in {'invalid_graph','refused','incomplete','timeout','provider_failed'} else 'provider_failed'
                 try:
                     await self.op('fail', identity, token=token, code=code)
                 except DiagramError:
                     pass
+            if exc.status == 403:
+                raise
             # Reconcile ambiguity. Never retry a provider based on an HTTP error.
             return await self.read(identity)
 

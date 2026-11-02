@@ -31,6 +31,13 @@ _generator = ContextVar("session_answer_generator", default=None)
 _prepared = ContextVar("session_prepared_context", default=None)
 
 
+def generation_request_hash(req):
+    """Existing durable turn fingerprint; keep its serialization stable."""
+    return hashlib.sha256(json.dumps(req.model_dump(exclude={
+        'request_id', 'retry_attempt', 'supersedes_request_id', 'recover_turn',
+    }), sort_keys=True).encode()).hexdigest()
+
+
 def scoped_generator(default):
     class Scoped:
         _default = default
@@ -67,7 +74,7 @@ def cached_context(function):
 
 
 class TurnStateError(Exception):
-    def __init__(self, code):
+    def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
 
@@ -247,7 +254,7 @@ async def dispatch_session_generation(req, request, *, buffered):
     from app.api import generate as api
     # Reuse the existing auth/error mapping before accessing the authoritative row.
     user = await asyncio.to_thread(api._authorize_generation_session, req, request)
-    session = await asyncio.to_thread(owned_session, api._new_cloud_interview_session_service,
+    session = await asyncio.to_thread(owned_session, lambda: api._generation_session_service(request),
         user_id=user.user_id, session_id=req.session_id, allow_model_bound=True)
     if session.status != 'active':
         raise HTTPException(409, 'Interview session is not active.')
@@ -264,7 +271,12 @@ async def dispatch_session_generation(req, request, *, buffered):
     from app.cloud.interview_transcripts import MAX_QUESTION_TEXT_CHARS
     if len(req.original_question or req.question or '') > MAX_QUESTION_TEXT_CHARS:
         raise HTTPException(422, 'Question exceeds transcript storage limit.')
-    store = new_turn_store()
+    if settings.SUBSCRIPTIONS_ENABLED == 'true':
+        from app.commercial.subscription_execution import SubscriptionTurns
+        store = SubscriptionTurns(request)
+    else:
+        store = new_turn_store()
+    recovering = req.recover_turn
     if req.recover_turn:
         recovery_identity = dict(p_user_id=user.user_id, p_session_id=session.id,
             p_request_id=req.request_id, p_hash='', p_attempt=req.retry_attempt, p_supersedes=None)
@@ -279,8 +291,11 @@ async def dispatch_session_generation(req, request, *, buffered):
     req.company_name = session.company_name
     req.job_description = session.job_description_preview
     req.request_id = api._stream_request_id(req.request_id or str(uuid.uuid4()))
+    if recovering and (settings.HOSTED_COMMERCIAL_MODE or settings.SUBSCRIPTIONS_ENABLED == 'true'):
+        from app.commercial.admission import bind_recovered_admission
+        bind_recovered_admission(req, request, user_id=user.user_id, session_id=session.id)
     identity = dict(p_user_id=user.user_id, p_session_id=session.id, p_request_id=req.request_id,
-                    p_hash=hashlib.sha256(json.dumps(req.model_dump(exclude={'request_id','retry_attempt','supersedes_request_id','recover_turn'}), sort_keys=True).encode()).hexdigest(),
+                    p_hash=generation_request_hash(req),
                     p_attempt=req.retry_attempt, p_supersedes=req.supersedes_request_id)
     try:
         claim = await store.operation('claim', identity, payload={'request': req.model_dump(exclude={'recover_turn'})})
@@ -307,7 +322,7 @@ async def dispatch_session_generation(req, request, *, buffered):
             verified = await asyncio.to_thread(api._current_user_for_session_id, req, request)
             if verified is None or verified.user_id != user.user_id:
                 raise GenerationStopped()
-            current = await asyncio.to_thread(owned_session, api._new_cloud_interview_session_service,
+            current = await asyncio.to_thread(owned_session, lambda: api._generation_session_service(request),
                 user_id=user.user_id, session_id=session.id, allow_model_bound=True)
             if current.status != 'active':
                 raise GenerationStopped()

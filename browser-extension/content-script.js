@@ -35,6 +35,7 @@
 
   function sanitizeText(value, limit = LIMITS.maxTextLength) {
     return String(value ?? '')
+      .replace(/\r\n?/g, '\n')
       .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ' ')
       .replace(/[ \t\f\v]+/g, ' ')
       .replace(/\s*\n\s*/g, '\n')
@@ -45,6 +46,7 @@
 
   function sanitizeTextPreserveTabs(value, limit = LIMITS.maxTextLength) {
     return String(value ?? '')
+      .replace(/\r\n?/g, '\n')
       .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ' ')
       .replace(/[ \f\v]+/g, ' ')
       .replace(/[ \t]*\n[ \t]*/g, '\n')
