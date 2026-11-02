@@ -155,9 +155,16 @@ class AccountResumeClient:
         return _record_from_payload(result)
 
     def delete_replaced_resume_object(self) -> None:
+        from app.cloud.cloud_resume import CloudResumeError
+
         path, self._replaced_storage_path = self._replaced_storage_path, None
         if path:
-            self.delete_resume_object(path)
+            try:
+                self.delete_resume_object(path)
+            except CloudResumeError:
+                # Activation recorded the cleanup job atomically; the recovery
+                # worker retries without requiring another confirmation.
+                return
 
     def authorize_use(self, user_id: str, resume_id: str) -> Any:
         self.get_resume(resume_id, user_id)

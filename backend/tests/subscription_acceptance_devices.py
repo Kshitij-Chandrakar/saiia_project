@@ -84,7 +84,7 @@ def hosted_workers(u, *, answers=True):
                 except subprocess.TimeoutExpired:
                     worker.kill()
                     worker.wait(timeout=5)
-            for handle in (worker.stdin, worker.stdout, worker.stderr):
+            for handle in (worker.stdin, worker.stdout):
                 handle.close()
 
 

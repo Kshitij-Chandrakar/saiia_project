@@ -100,7 +100,7 @@ No `.env` changes or production flags were made.
 
 Prepared migration:
 `supabase/migrations/20261024110000_subscription_relay_privacy.sql`.
-SHA256: `0ab2802ca886767c8d68fb525903460eaabd04c417305fad20e4cad162525166`.
+SHA256: `d4bb35527883394d0fea9c2e95aa48ba0c876df1b5659e52f066aa039e244575`.
 It follows `20261024100000_subscription_auxiliary_execution.sql`.
 
 - Four private RLS-forced tables: relay frame claims, encrypted temporary
@@ -216,7 +216,7 @@ target are guessed and no real account is used.
 ## Desktop rollout and additional connection-fencing migration
 
 Additional prepared SQL: `supabase/migrations/20261025010000_subscription_relay_connections.sql`.
-SHA256 `14d30cb9b0bc46755f6ce2ef3b23108176b558774ffc8df1ab9660f1795509da`.
+SHA256 `0f2231e094750be8df88899a4e667f733f079a68ea6605d371a463cfd0f53003`.
 It follows the unchanged relay/privacy migration. A private RLS-forced connection
 claim table and one usage_executor-only SECURITY DEFINER function prevent the same
 logical stream opening another transport/pipeline. The claim precedes lease creation;
