@@ -2059,6 +2059,9 @@ function MainWindow() {
       autoStartTokenRef.current++
       autoStartingRef.current = false
       autoModeRef.current = false
+      const pendingHostedDisplayCapture = hostedDisplayCaptureRequestRef.current
+      hostedDisplayCaptureRequestRef.current = null
+      pendingHostedDisplayCapture?.reject(Error('Authorization ended'))
       autoGrpcSessionRef.current?.close()
       autoGrpcSessionRef.current = null
       if (autoStreamingSocketRef.current) {

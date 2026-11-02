@@ -15,20 +15,19 @@ export async function createHostedAudioCapture({ source, signal, mediaDevices = 
     void context?.close().catch(() => {})
   }
   signal?.addEventListener('abort', close, { once: true })
-  const acquire = async action => {
-    const value = await action()
+  const own = value => {
     if (closed || signal?.aborted) { value.getTracks().forEach(track => track.stop()); throw Error('Authorization ended') }
     streams.push(value)
     return value
   }
+  const acquire = async action => own(await action())
   try {
     if (signal?.aborted) throw Error('Authorization ended')
+    const desktop = source === 'microphone' ? undefined : displayStream ? own(displayStream) : undefined
     if (source !== 'system') await acquire(() => mediaDevices.getUserMedia({ audio: true }))
     if (source !== 'microphone') {
-      const desktop = await acquire(() => displayStream
-        ? Promise.resolve(displayStream)
-        : mediaDevices.getDisplayMedia({ video: { width: 16, height: 16, frameRate: 1 }, audio: true }))
-      if (!desktop.getAudioTracks().length) throw Error('System audio unavailable')
+      const selectedDesktop = desktop || await acquire(() => mediaDevices.getDisplayMedia({ video: { width: 16, height: 16, frameRate: 1 }, audio: true }))
+      if (!selectedDesktop.getAudioTracks().length) throw Error('System audio unavailable')
     }
     if (closed || streams.some(stream => !stream.getAudioTracks().length)) throw Error('Audio source unavailable')
     if (source === 'both') {
