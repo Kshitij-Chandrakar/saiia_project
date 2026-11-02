@@ -128,7 +128,8 @@ async function setup(page) {
     error: null,
     permission: true,
     catalog: {catalog_revision:'1',offers:[]},
-    catalogUnavailable:false
+    catalogUnavailable:false,
+    accessUnavailable:false
   };
   await page.addInitScript(U => {
     window.__session = {
@@ -156,11 +157,14 @@ async function setup(page) {
         }
       }
     });
-    if (p === '/api/commercial/admin/me') return route.fulfill({
+    if (p === '/api/commercial/admin/me') {
+      if (s.accessUnavailable) return fail('catalog_database_unavailable');
+      return route.fulfill({
       json: {
         permissions: s.permission ? ['subscriptions.manage'] : []
       }
-    });
+      });
+    }
     if (!s.permission) return fail('catalog_permission_denied');
     if(p==='/api/catalog')return s.catalogUnavailable ? fail('catalog_database_unavailable') : route.fulfill({json:s.catalog});
     if (p.endsWith('/preview')) {
@@ -425,6 +429,25 @@ test('uncertain write, Stay, same-key retry, recovery after reload never resubmi
     exact: true
   })).toBeVisible();
   expect(s.writes.length).toBe(writes);
+});
+test('access outage warning protects an unresolved lifecycle operation ID', async ({page}) => {
+  const {s, ui} = await setup(page);
+  await ui.review();
+  let release;
+  s.hold = new Promise(resolve => { release = resolve; });
+  await ui.publish();
+  const operationId = await page.getByLabel('Operation ID', {exact:true}).inputValue();
+  s.accessUnavailable = true;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
+  await page.getByRole('link', {name:'Dashboard', exact:true}).click();
+  const warning = page.getByRole('alert').filter({hasText:'Stay until access returns to keep the operation ID needed to check its outcome or retry safely.'});
+  await expect(warning).toBeVisible();
+  await expect(warning).not.toContainText(operationId);
+  await warning.getByRole('button', {name:'Stay on this page', exact:true}).click();
+  await expect(warning).not.toBeVisible();
+  release();
+  s.hold = null;
 });
 for (const code of ['catalog_review_stale', 'catalog_database_unavailable', 'catalog_request_identity_conflict']) test(`safe ${code}`, async ({
   page

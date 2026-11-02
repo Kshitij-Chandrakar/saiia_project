@@ -13,7 +13,9 @@ async function setup(page, {
     uncertain: false,
     conflict: false,
     unavailable: false,
-    hold: null
+    hold: null,
+    meHold: null,
+    meStarted: null
   };
   await page.addInitScript(signed => {
     window.__session = signed ? {
@@ -31,12 +33,16 @@ async function setup(page, {
   await page.route('**/api/**', async r => {
     const q = r.request(),
       p = new URL(q.url()).pathname;
-    if (p === '/api/commercial/admin/me') return r.fulfill({
+    if (p === '/api/commercial/admin/me') {
+      s.meStarted?.();
+      if (s.meHold) await s.meHold;
+      return r.fulfill({
       status: s.status,
       json: {
         permissions: s.permissions
       }
-    });
+      });
+    }
     if (!p.startsWith('/api/admin/catalog/')) return r.fulfill({
       status: 404,
       json: {}
@@ -62,7 +68,10 @@ async function setup(page, {
     if (q.method() === 'GET') return r.fulfill({
       json: s.draft
     });
-    if (s.hold) await s.hold;
+    if (s.hold) {
+      s.heldRequests = (s.heldRequests || 0) + 1;
+      await s.hold;
+    }
     if (s.unavailable) return r.fulfill({
       status: 503,
       json: {
@@ -268,6 +277,19 @@ test('uncertain replay identity and CAS conflict preserve local edits', async ({
   await expect(page.getByLabel('Display name', {
     exact: true
   })).toHaveValue('Local changes');
+  const replace = page.getByRole('button', {name:'Replace local edits with latest', exact:true});
+  await expect(replace).toBeEnabled();
+  await page.getByLabel('Display name', {exact:true}).fill('Further local changes');
+  let release;
+  s.hold = new Promise(resolve => { release = resolve; });
+  try {
+    await ui.save();
+    await expect(replace).toBeDisabled();
+  } finally {
+    release();
+    s.hold = null;
+  }
+  await expect(replace).toBeEnabled();
 });
 test('revocation account switch and logout clear private data', async ({
   page
@@ -377,6 +399,7 @@ test('double submission and stale account response are isolated', async ({
     name: 'Checking save...',
     exact: true
   })).toBeDisabled();
+  await expect.poll(() => s.heldRequests || 0).toBe(1);
   await page.evaluate(() => window.__emit('SIGNED_IN', {
     access_token: 'other',
     user: {
@@ -391,7 +414,7 @@ test('double submission and stale account response are isolated', async ({
   await expect(page.getByLabel('Display name', {
     exact: true
   })).toHaveCount(0);
-  expect(s.keys.length).toBeLessThanOrEqual(1);
+  await expect.poll(() => s.keys.length).toBe(1);
 });
 test('empty state illustration, keyboard entry and storage privacy', async ({
   page
@@ -841,4 +864,104 @@ for(const name of ['Free','Plus','Pro'])test(`duplicate ${name} import explains 
  await expect(page.getByRole('alert')).not.toContainText('This draft changed on the server');
  await expect(page.getByLabel('Display name',{exact:true})).toHaveValue(name);
  expect(state.writes).toBe(0);
+});
+
+
+for (const pending of [false, true]) test(`temporary access failure preserves ${pending ? 'uncertain save' : 'unsaved edits'} for same-account recovery`, async ({page}) => {
+  const state = await setup(page), ui = new Workspace(page);
+  await ui.create();
+  if (pending) {
+    state.uncertain = true;
+    await ui.save();
+    await expect(page.getByRole('button', {name:'Retry same save', exact:true})).toBeVisible();
+  } else {
+    await page.getByLabel('Change reason', {exact:true}).fill('Keep this reason');
+  }
+  const keys = [...state.keys];
+  state.status = 503;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
+  await expect(page.getByLabel('Display name', {exact:true})).toHaveCount(1);
+  await expect(page.getByLabel('Display name', {exact:true})).not.toBeVisible();
+  await page.getByRole('link', {name:'Dashboard', exact:true}).click();
+  await expect(page).toHaveURL(/\/auth\/admin\/subscriptions$/);
+  await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
+  const leaveWarning = page.getByRole('alert').filter({hasText:pending ? 'This save is not confirmed. Stay to retain its retry identity.' : 'Access is unavailable. Leaving this page will discard unsaved local work in this browser.'});
+  await expect(leaveWarning).toBeVisible();
+  await expect(page.getByRole('dialog', {name:'Leave this draft?', exact:true})).not.toBeVisible();
+  await leaveWarning.getByRole('button', {name:'Stay on this page', exact:true}).click();
+  await expect(leaveWarning).not.toBeVisible();
+  expect(await page.evaluate(() => {
+    const event = new Event('beforeunload', {cancelable:true});
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  })).toBe(true);
+  state.status = 200;
+  await page.getByRole('button', {name:'Check access again', exact:true}).click();
+  await expect(page.getByLabel('Display name', {exact:true})).toBeVisible();
+  await expect(page.getByLabel('Display name', {exact:true})).toHaveValue('Synthetic draft');
+  expect(state.keys).toEqual(keys);
+  if (pending) {
+    await page.getByRole('button', {name:'Retry same save', exact:true}).click();
+    await expect(page.getByRole('status')).toContainText('Revision 1');
+    expect(state.keys).toEqual([keys[0], keys[0]]);
+    expect(state.writes).toBe(1);
+  } else {
+    await expect(page.getByLabel('Change reason', {exact:true})).toHaveValue('Keep this reason');
+  }
+});
+
+test('temporary access failure warning lets the user discard and leave', async ({page}) => {
+  const state = await setup(page), ui = new Workspace(page);
+  await ui.create();
+  await page.getByLabel('Change reason', {exact:true}).fill('Discard during an access outage');
+  state.status = 503;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
+  await page.getByRole('link', {name:'Dashboard', exact:true}).click();
+  const leaveWarning = page.getByRole('alert').filter({hasText:'Access is unavailable. Leaving this page will discard unsaved local work in this browser.'});
+  await expect(leaveWarning).toBeVisible();
+  await leaveWarning.getByRole('button', {name:'Discard and leave', exact:true}).click();
+  await expect(page).toHaveURL(/\/auth\/dashboard$/);
+});
+
+test('account switch clears an outage navigation warning tied to the old workspace', async ({page}) => {
+  const state = await setup(page), ui = new Workspace(page);
+  await ui.create();
+  await page.getByLabel('Change reason', {exact:true}).fill('Do not retain old navigation callbacks');
+  state.status = 503;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
+  await page.getByRole('link', {name:'Dashboard', exact:true}).click();
+  const leaveWarning = page.getByRole('alert').filter({hasText:'Leaving this page will discard unsaved local work in this browser.'});
+  await expect(leaveWarning).toBeVisible();
+  let releaseAccess, accessStarted;
+  state.meHold = new Promise(resolve => { releaseAccess = resolve; });
+  const accessStartedPromise = new Promise(resolve => { accessStarted = resolve; });
+  state.meStarted = accessStarted;
+  await page.evaluate(() => window.__emit('SIGNED_IN', {access_token:'other', user:{id:'other-user'}}));
+  await accessStartedPromise;
+  await expect(leaveWarning).toHaveCount(0);
+  releaseAccess();
+  state.meHold = null;
+  state.meStarted = null;
+  await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
+  await expect(leaveWarning).toHaveCount(0);
+});
+
+test('temporary access failure dismisses a private modal without losing the saved draft', async ({page}) => {
+  const state = await setup(page), ui = new Workspace(page);
+  await ui.create(); await ui.save();
+  await expect(page.getByRole('status')).toContainText('Revision 1');
+  await page.getByRole('button', {name:'Preview saved draft', exact:true}).click();
+  await expect(page.getByRole('dialog', {name:'Subscription review', exact:true})).toBeVisible();
+  state.status = 503;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
+  await expect(page.getByRole('dialog', {name:'Subscription review', exact:true})).not.toBeVisible();
+  state.status = 200;
+  await page.getByRole('button', {name:'Check access again', exact:true}).click();
+  await expect(page.getByLabel('Display name', {exact:true})).toHaveValue('Synthetic draft');
+  await expect(page.getByRole('button', {name:'Preview saved draft', exact:true})).toBeEnabled();
+  expect(state.writes).toBe(1);
 });
