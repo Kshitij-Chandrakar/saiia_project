@@ -825,13 +825,14 @@ class CloudResumeService:
         filename: str,
         content: bytes,
         content_type: str | None,
+        resume_id: str | None = None,
     ) -> UploadResult:
         safe_filename, mime_type = validate_resume_upload(
             filename=filename,
             content=content,
             content_type=content_type,
         )
-        resume_id = str(uuid4())
+        resume_id = resume_id or str(uuid4())
         storage_path = f"{user_id}/{resume_id}/{safe_filename}"
         resume = self._client.insert_resume_metadata(
             {
@@ -851,6 +852,8 @@ class CloudResumeService:
                 "extraction_attempt": 0,
             }
         )
+        if resume.status != 'uploaded':
+            return UploadResult(resume=resume)
         try:
             self._client.upload_resume_object(storage_path, content, mime_type)
         except CloudResumeError:

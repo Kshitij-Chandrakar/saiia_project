@@ -34,12 +34,16 @@ class GrpcCloudContext:
     user_id: str = ''
 
     @classmethod
-    def authorize(cls, start, metadata):
+    def authorize(cls, start, metadata, subscriptions=None):
         headers = [(str(key).lower().encode(), str(value).encode()) for key, value in metadata
                    if str(key).lower() == 'authorization']
         if len(headers) != 1:
             raise CloudContextRejected('auth_unavailable')
-        request = Request({'type': 'http', 'headers': headers})
+        scope={'type': 'http', 'headers': headers}
+        if subscriptions is not None:
+            from types import SimpleNamespace
+            scope['app']=SimpleNamespace(state=SimpleNamespace(subscriptions=subscriptions))
+        request = Request(scope)
         result = cls(request, _id(start.active_session_id), _id(start.selected_resume_id), _id(start.selected_job_context_id))
         if not result.session_id:
             raise CloudContextRejected('cloud_session_invalid')
@@ -63,7 +67,12 @@ class GrpcCloudContext:
             raise CloudContextRejected('session_owner_mismatch')
         self.user_id = user.user_id
         try:
-            session = CloudInterviewSessionService().get_session(user_id=user.user_id, session_id=self.session_id)
+            from app.config import settings
+            if settings.SUBSCRIPTIONS_ENABLED=='true':
+                from app.commercial.subscription_execution import SubscriptionSessions
+                session=SubscriptionSessions(self.request).get_session(user_id=user.user_id,session_id=self.session_id)
+            else:
+                session = CloudInterviewSessionService().get_session(user_id=user.user_id, session_id=self.session_id)
         except Exception:
             raise CloudContextRejected('cloud_session_invalid') from None
         if session.id != self.session_id:
@@ -81,7 +90,12 @@ class GrpcCloudContext:
         job_id = session.job_context_id
         try:
             if resume_id:
-                CloudResumeService().get_status(user_id=user.user_id, resume_id=resume_id)
+                resume_service=CloudResumeService()
+                if settings.SUBSCRIPTIONS_ENABLED == 'true':
+                    from app.commercial.subscription_resume import account_resume_service
+                    resume_service=account_resume_service(self.request,resume_service)
+                    resume_service._client.authorize_use(user.user_id,resume_id)
+                resume_service.get_status(user_id=user.user_id, resume_id=resume_id)
             job = CloudJobContextService().get_context(user_id=user.user_id, job_context_id=job_id) if job_id else None
         except Exception:
             raise CloudContextRejected('selected_context_forbidden') from None

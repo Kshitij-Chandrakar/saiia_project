@@ -223,6 +223,7 @@ async def get_authenticated_user(current_user: CurrentUserDep) -> CurrentUserRes
 
 @router.post("/profile/bootstrap", response_model=ProfileBootstrapResponse)
 def bootstrap_profile(
+    request: Request,
     current_user: CurrentUserDep,
     payload: ProfileBootstrapConsentRequest | None = None,
 ) -> ProfileBootstrapResponse:
@@ -242,6 +243,19 @@ def bootstrap_profile(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Supabase profile bootstrap failed.",
         ) from exc
+    from app.config import settings
+    if settings.SUBSCRIPTIONS_ENABLED == 'true':
+        from app.commercial.admin_access import verified_actor
+        from app.commercial.catalog_store import CatalogStoreError, ErrorCode
+        try:
+            runtime = getattr(request.app.state, 'subscriptions', None)
+            if runtime is None:
+                raise CatalogStoreError(ErrorCode.UNAVAILABLE)
+            runtime.service().current(verified_actor(request), bootstrap=True)
+        except CatalogStoreError as error:
+            raise HTTPException(403 if error.code == ErrorCode.DENIED else 503,
+                detail={'code':'subscription_denied' if error.code == ErrorCode.DENIED else 'subscription_unavailable'},
+                headers={'Cache-Control':'no-store'}) from None
     _trigger_welcome_email(current_user)
     return _profile_bootstrap_response(result)
 
@@ -252,6 +266,19 @@ def create_desktop_handoff(
     request: Request,
     current_user: CurrentUserDep,
 ) -> DesktopHandoffCreateResponse:
+    from app.config import settings
+    if settings.HOSTED_COMMERCIAL_MODE:
+        from app.commercial.admin_access import verified_actor
+        from app.commercial.catalog_store import CatalogStoreError, ErrorCode
+        service = _shared_handoff(request)
+        try:
+            return DesktopHandoffCreateResponse(
+                handoff_code=service.create(verified_actor(request), payload.state, payload.refresh_token),
+                expires_in=DESKTOP_HANDOFF_TTL_SECONDS,
+            )
+        except CatalogStoreError as error:
+            raise HTTPException(429 if error.code == ErrorCode.CONFLICT else 503,
+                                detail='Desktop handoff is unavailable.', headers={'Cache-Control':'no-store'}) from None
     now = _now()
     user_id = current_user.user_id
     _prune_desktop_handoffs(now)
@@ -273,7 +300,18 @@ def create_desktop_handoff(
 
 
 @router.post("/desktop-handoff/exchange", response_model=DesktopHandoffExchangeResponse)
-def exchange_desktop_handoff(payload: DesktopHandoffExchangeRequest) -> DesktopHandoffExchangeResponse:
+def exchange_desktop_handoff(payload: DesktopHandoffExchangeRequest, request: Request) -> DesktopHandoffExchangeResponse:
+    from app.config import settings
+    if settings.HOSTED_COMMERCIAL_MODE:
+        from app.commercial.catalog_store import CatalogStoreError, ErrorCode
+        service = _shared_handoff(request)
+        try:
+            return DesktopHandoffExchangeResponse(**service.exchange(payload.handoff_code, payload.state))
+        except CatalogStoreError as error:
+            unavailable = error.code in (ErrorCode.UNAVAILABLE, ErrorCode.UNCERTAIN)
+            raise HTTPException(503 if unavailable else 404,
+                                detail='Desktop handoff is unavailable.' if unavailable else DESKTOP_HANDOFF_ERROR,
+                                headers={'Cache-Control':'no-store'}) from None
     _prune_desktop_handoffs()
     record = _desktop_handoffs.pop(_hash_handoff_code(payload.handoff_code), None)
     if not record or record.get("state") != payload.state:
@@ -285,3 +323,12 @@ def exchange_desktop_handoff(payload: DesktopHandoffExchangeRequest) -> DesktopH
         access_token=str(record.get("access_token") or ""),
         refresh_token=str(record.get("refresh_token") or ""),
     )
+
+
+def _shared_handoff(request: Request):
+    from app.config import settings
+    from app.commercial.hosted_coordination import SharedHandoff
+    try:
+        return SharedHandoff(request.app.state.subscriptions.service(), settings.DESKTOP_HANDOFF_ENCRYPTION_KEY)
+    except Exception:
+        raise HTTPException(503, detail='Desktop handoff is unavailable.', headers={'Cache-Control':'no-store'}) from None

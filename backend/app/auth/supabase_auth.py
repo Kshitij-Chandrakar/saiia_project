@@ -189,7 +189,23 @@ def _bearer_token_from_request(request: Request) -> str:
 
 def get_current_user(request: Request) -> CurrentUser:
     try:
-        return verify_supabase_token(_bearer_token_from_request(request))
+        token = _bearer_token_from_request(request)
+    except SupabaseAuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=AUTH_ERROR_DETAIL,
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+    cached = getattr(request.state, "_saiia_current_user", None)
+    if (
+        isinstance(cached, tuple)
+        and len(cached) == 2
+        and cached[0] == token
+        and isinstance(cached[1], CurrentUser)
+    ):
+        return cached[1]
+    try:
+        user = verify_supabase_token(token)
     except SupabaseAuthConfigurationError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -201,6 +217,23 @@ def get_current_user(request: Request) -> CurrentUser:
             detail=AUTH_ERROR_DETAIL,
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
+
+    from app.config import settings
+    if settings.SUBSCRIPTIONS_ENABLED == 'true':
+        from app.commercial.admin_access import VerifiedActor
+        from app.commercial.catalog_store import CatalogStoreError, ErrorCode
+        from app.commercial.hosted_coordination import HostedCoordination
+        app = request.scope.get('app')
+        runtime = getattr(app.state, 'subscriptions', None) if app is not None else None
+        try:
+            if runtime is None:
+                raise CatalogStoreError(ErrorCode.UNAVAILABLE)
+            HostedCoordination(runtime.service()).available(VerifiedActor(user.user_id, token))
+        except CatalogStoreError as error:
+            raise HTTPException(403 if error.code == ErrorCode.DENIED else 503,
+                                detail={'code': 'subscription_denied' if error.code == ErrorCode.DENIED else 'subscription_unavailable'}) from None
+    request.state._saiia_current_user = (token, user)
+    return user
 
 
 CurrentUserDep = Annotated[CurrentUser, Depends(get_current_user)]

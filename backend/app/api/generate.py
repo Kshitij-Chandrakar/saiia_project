@@ -75,6 +75,13 @@ def _new_cloud_interview_session_service() -> CloudInterviewSessionService:
     return CloudInterviewSessionService()
 
 
+def _generation_session_service(request):
+    if settings.SUBSCRIPTIONS_ENABLED == 'true':
+        from app.commercial.subscription_execution import SubscriptionSessions
+        return SubscriptionSessions(request)
+    return _new_cloud_interview_session_service()
+
+
 def _infer_screen_problem_type(question: str, requested_type: str) -> str:
     normalized_type = str(requested_type or "").strip().lower()
     if normalized_type in {"coding", "debugging", "output"}:
@@ -295,7 +302,7 @@ def _authorize_generation_session(req: "GenerateRequest", request: Request | Non
     variation_scope.set((current_user.user_id, session_id))
     service = None
     try:
-        service = _new_cloud_interview_session_service()
+        service = _generation_session_service(request)
         service.get_session(
             user_id=current_user.user_id,
             session_id=session_id,
@@ -371,7 +378,11 @@ def _retrieve_resume_context(
     if current_user is None:
         return empty
     try:
-        retrieval = _new_cloud_resume_service().retrieve_resume_chunks(
+        resume_service = _new_cloud_resume_service()
+        if settings.SUBSCRIPTIONS_ENABLED == 'true':
+            from app.commercial.subscription_resume import account_resume_service
+            resume_service = account_resume_service(request, resume_service)
+        retrieval = resume_service.retrieve_resume_chunks(
             user_id=current_user.user_id,
             resume_id=selected_resume_id,
             question=question,
@@ -1294,6 +1305,9 @@ def _followup_intent_metadata(plan: Optional[FollowUpIntentPlan], context_entrie
 
 @router.post("/stream")
 async def generate_answer_stream(req: GenerateRequest, request: Request = None):
+    if settings.SUBSCRIPTIONS_ENABLED == 'true':
+        from app.commercial.admission import admit_buffered_answer
+        await admit_buffered_answer(req, request)
     managed = await dispatch_session_generation(req, request, buffered=False)
     if managed is not None:
         return managed
@@ -1774,6 +1788,8 @@ async def generate_answer_stream(req: GenerateRequest, request: Request = None):
 
 @router.post("/", response_model=GenerateResponse)
 async def generate_answer(req: GenerateRequest, request: Request = None):
+    from app.commercial.admission import admit_buffered_answer
+    await admit_buffered_answer(req, request)
     managed = await dispatch_session_generation(req, request, buffered=True)
     if managed is not None:
         return managed

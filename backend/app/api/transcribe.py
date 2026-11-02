@@ -1,7 +1,7 @@
 import logging
 import time
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -42,10 +42,22 @@ def manual_stt_config():
 
 
 @router.post("/", response_model=TranscribeResponse)
-async def transcribe_audio(file: UploadFile = File(...), mode: str = Form("manual")):
+async def transcribe_audio(request: Request, file: UploadFile = File(...), mode: str = Form("manual")):
     started = time.perf_counter()
+    if settings.SUBSCRIPTIONS_ENABLED=='true':
+        from app.commercial.subscription_execution import execution_service
+        from app.commercial.catalog_store import CatalogStoreError
+        from app.commercial.subscription_screen import safe_error
+        service,actor=execution_service(request)
+        if mode!='manual':
+            raise HTTPException(403,detail={'code':'auto_lease_required'})
+        try:
+            await run_in_threadpool(service.require_unlimited,actor,'audio.transcribe','audio.transcribed')
+        except CatalogStoreError as error:raise safe_error(error) from None
     try:
-        content = await file.read()
+        content = await file.read(25*1024*1024+1)
+        if len(content)>25*1024*1024:
+            raise HTTPException(413,detail={'code':'audio_input_too_large'})
         result = await run_in_threadpool(
             stt_provider.transcribe_upload,
             filename=file.filename,
@@ -79,5 +91,5 @@ async def transcribe_audio(file: UploadFile = File(...), mode: str = Form("manua
             reason=result.reason,
         )
     except STTServiceError as exc:
-        logger.exception("Transcription error")
+        logger.warning("Transcription unavailable status=%s", exc.status_code)
         raise HTTPException(status_code=exc.status_code, detail=exc.public_message) from exc
