@@ -112,7 +112,8 @@ class Relay:
         self.arrivals.append(time.monotonic())
         if len(self.arrivals) == 21 and self.arrivals[-1] - self.arrivals[0] < 1:
             raise ValueError("Audio packet rate exceeded")
-        await self.lease.authorize()
+        if self.lease.stopped or self.lease.remaining() <= 0:
+            raise PermissionError("Auto authorization expired")
         return await asyncio.to_thread(
             self.coordination.frame, self.lease, self.session_id, sequence, data
         )

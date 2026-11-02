@@ -20,7 +20,7 @@ create table public.subscription_resume_active_sets (
 
 create function public.subscription_resume_call(p_account uuid,p_action text,p_doc jsonb) returns jsonb
 language plpgsql security definer set search_path=pg_catalog as $$
-declare r public.resumes; n public.resumes; j public.subscription_resume_jobs; terms jsonb; a jsonb; cap bigint; stored bigint; pending bigint; operation jsonb; replacing uuid; patch jsonb; selected uuid[]; revision bigint;
+declare r public.resumes; n public.resumes; j public.subscription_resume_jobs; terms jsonb; a jsonb; cap bigint; stored bigint; pending bigint; operation jsonb; replacing uuid; replaced_path text; patch jsonb; selected uuid[]; revision bigint;
 begin
  if session_user<>'usage_executor' or current_setting('role',true)<>'none' then raise exception 'denied' using errcode='42501'; end if;
  if p_action not in ('list','read','capacity') then
@@ -87,7 +87,12 @@ begin
  end if;
  select * into j from public.subscription_resume_jobs where account_id=p_account and resume_id=r.id for update;
  if p_action='activate' then
-   if r.status='ready' and r.confirmed_profile=p_doc->'profile' and r.extraction_attempt=(p_doc->>'attempt')::integer then return to_jsonb(r); end if;
+   if r.status='ready' and r.confirmed_profile=p_doc->'profile' and r.extraction_attempt=(p_doc->>'attempt')::integer then
+     if j.replacement_of is not null then
+       select storage_path into replaced_path from public.resumes where id=j.replacement_of and user_id=p_account;
+     end if;
+     return to_jsonb(r)||jsonb_build_object('replaced_storage_path',replaced_path);
+   end if;
    if r.status='ready' then raise exception 'conflicting activation identity' using errcode='P0003'; end if;
    if cap is not null and stored-(case when j.replacement_of is not null and exists(select 1 from public.resumes where id=j.replacement_of and user_id=p_account and status='ready') then 1 else 0 end)>=cap then raise exception 'capacity exhausted' using errcode='P0004'; end if;
    if exists(select 1 from public.subscription_resume_history where account_id=p_account) and (stored=0 or j.replacement_of is not null) then
@@ -98,10 +103,14 @@ begin
      update public.subscription_resume_jobs set usage_id=j.usage_id where account_id=p_account and resume_id=r.id;
    end if;
    select * into strict n from public.activate_cloud_resume(p_account,r.id,(p_doc->>'attempt')::integer,(p_doc->>'generation')::uuid,p_doc->'profile');
-   if j.replacement_of is not null then update public.resumes set status='deleted',is_active=false where id=j.replacement_of and user_id=p_account; end if;
+   if j.replacement_of is not null then
+     select storage_path into replaced_path from public.resumes where id=j.replacement_of and user_id=p_account for update;
+     delete from public.resume_chunks where user_id=p_account and resume_id=j.replacement_of;
+     update public.resumes set status='deleted',is_active=false where id=j.replacement_of and user_id=p_account;
+   end if;
    if j.usage_id is not null then perform public.subscription_result_finish(p_account,j.usage_id,1,r.id); end if;
    insert into public.subscription_resume_history(account_id) values(p_account) on conflict do nothing;
-   return to_jsonb(n);
+   return to_jsonb(n)||jsonb_build_object('replaced_storage_path',replaced_path);
  end if;
  if p_action='update' then
    if p_doc ? 'statuses' and not (p_doc->'statuses' ? r.status) or p_doc ? 'attempt' and r.extraction_attempt<>(p_doc->>'attempt')::integer then raise exception 'state changed' using errcode='40001'; end if;

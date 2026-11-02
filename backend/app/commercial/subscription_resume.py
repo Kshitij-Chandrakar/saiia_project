@@ -24,6 +24,7 @@ class AccountResumeClient:
         self.delegate = delegate
         self.request_key: str | None = None
         self.semantic_hash: str | None = None
+        self._replaced_storage_path: str | None = None
 
     def call(self, action: str, **document: Any) -> Any:
         subject = self.service._channel._actor(self.actor)
@@ -140,15 +141,23 @@ class AccountResumeClient:
         confirmed_profile: Any,
     ) -> Any:
         self.get_resume(resume_id, user_id)
-        return _record_from_payload(
-            self.call(
-                "activate",
-                resume_id=resume_id,
-                attempt=extraction_attempt,
-                generation=generation_id,
-                profile=confirmed_profile,
-            )
+        self._replaced_storage_path = None
+        result = self.call(
+            "activate",
+            resume_id=resume_id,
+            attempt=extraction_attempt,
+            generation=generation_id,
+            profile=confirmed_profile,
         )
+        path = result.get("replaced_storage_path")
+        if isinstance(path, str) and path:
+            self._replaced_storage_path = path
+        return _record_from_payload(result)
+
+    def delete_replaced_resume_object(self) -> None:
+        path, self._replaced_storage_path = self._replaced_storage_path, None
+        if path:
+            self.delete_resume_object(path)
 
     def authorize_use(self, user_id: str, resume_id: str) -> Any:
         self.get_resume(resume_id, user_id)
@@ -220,6 +229,7 @@ class AccountResumeService(CloudResumeService):
                 generation_id=current.active_chunk_generation,
                 confirmed_profile=profile,
             )
+            self._client.delete_replaced_resume_object()
             count = self._client.get_active_resume_chunk_counts(
                 user_id=user_id, records=[row]
             ).get((row.id, row.active_chunk_generation), 0)
@@ -234,12 +244,14 @@ class AccountResumeService(CloudResumeService):
                 ready=True,
                 active=row.is_active,
             )
-        return super().confirm_resume(
+        result = super().confirm_resume(
             user_id=user_id,
             resume_id=resume_id,
             extraction_attempt=extraction_attempt,
             confirmed_profile=profile,
         )
+        self._client.delete_replaced_resume_object()
+        return result
 
     def upload_resume(
         self,

@@ -175,8 +175,8 @@ From the repository root in PowerShell, using the retained local runtime:
 ```powershell
 $env:PYTHONUTF8='1'
 $env:PYTHONPATH=Join-Path $env:TEMP 'c113c-db-driver'
-$pgBin='C:/Users/chand/AppData/Local/Temp/c112c-native-runtime-0f19d4be3f9a436d8c761b2eaf2472a9/pgsql/bin'
-& E:/deepfake_envs/SaIIA/python.exe backend/tests/run_subscription_acceptance.py --pg-bin $pgBin --backend
+$pgBin='<local-pg-bin>'
+python backend/tests/run_subscription_acceptance.py --pg-bin $pgBin --backend
 ```
 
 `--backend` creates disposable native clusters and synthetic identities, runs
@@ -189,7 +189,7 @@ To check the non-physical packaged JWT/current-plan/browser/IPC flow separately:
 
 ```powershell
 node frontend/scripts/prepare-subscription-acceptance.cjs
-& E:/deepfake_envs/SaIIA/python.exe backend/tests/run_subscription_acceptance.py --pg-bin $pgBin
+python backend/tests/run_subscription_acceptance.py --pg-bin $pgBin
 ```
 
 Backend tests use deterministic provider substitutes and TXT fixture data; the
@@ -260,7 +260,7 @@ pseudonymous UUID/Auth-unlink treatment. These are proposals only. No irreversib
 purge, retention exception, Auth-FK change or real deletion is approved/enabled.
 
 
-### Staging target designated ? 25 October 2026
+### Staging target designated — 25 October 2026
 
 Owner confirms **intervucopilot-staging / cfmvqbjmnwklxqlpelxe** is newly created,
 disposable and contains no real customer accounts/data; authorizes **read-only
