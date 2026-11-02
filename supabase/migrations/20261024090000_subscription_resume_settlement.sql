@@ -23,6 +23,7 @@ create table public.subscription_resume_cleanup_jobs (
  attempts integer not null default 0 check(attempts>=0),
  lease_token uuid,
  lease_until timestamptz,
+ next_attempt_at timestamptz not null default clock_timestamp(),
  created_at timestamptz not null default clock_timestamp()
 );
 
@@ -144,8 +145,8 @@ begin
  if session_user<>'usage_executor' or current_setting('role',true)<>'none' or p_limit<1 or p_limit>50 then raise exception 'denied' using errcode='42501'; end if;
  with picked as (
    select cleanup_id from public.subscription_resume_cleanup_jobs
-   where lease_until is null or lease_until<clock_timestamp()
-   order by created_at,cleanup_id for update skip locked limit p_limit
+   where (lease_until is null or lease_until<clock_timestamp()) and next_attempt_at<=clock_timestamp()
+   order by next_attempt_at,created_at,cleanup_id for update skip locked limit p_limit
  ), updated as (
    update public.subscription_resume_cleanup_jobs j set attempts=j.attempts+1,lease_token=gen_random_uuid(),lease_until=clock_timestamp()+interval '60 seconds'
    from picked where j.cleanup_id=picked.cleanup_id
@@ -158,7 +159,10 @@ language plpgsql security definer set search_path=pg_catalog as $$
 begin
  if session_user<>'usage_executor' or current_setting('role',true)<>'none' then raise exception 'denied' using errcode='42501'; end if;
  if p_deleted then delete from public.subscription_resume_cleanup_jobs where cleanup_id=p_cleanup and lease_token=p_token;
- else update public.subscription_resume_cleanup_jobs set lease_token=null,lease_until=null where cleanup_id=p_cleanup and lease_token=p_token;
+ else update public.subscription_resume_cleanup_jobs
+   set lease_token=null,lease_until=null,
+       next_attempt_at=clock_timestamp()+make_interval(secs=>least(300,1::integer<<least(attempts,8)))
+   where cleanup_id=p_cleanup and lease_token=p_token;
  end if;
 end $$;
 alter table public.subscription_resume_history enable row level security;
