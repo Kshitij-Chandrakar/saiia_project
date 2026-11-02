@@ -4812,11 +4812,19 @@ function MainWindow() {
   const startAutoMode = async () => {
     if (hostedDisplayCaptureRequestRef.current) {
       const request = hostedDisplayCaptureRequestRef.current
-      hostedDisplayCaptureRequestRef.current = null
       try {
-        request.resolve(await navigator.mediaDevices.getDisplayMedia({ video: { width: 16, height: 16, frameRate: 1 }, audio: true }))
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: { width: 16, height: 16, frameRate: 1 }, audio: true })
+        if (hostedDisplayCaptureRequestRef.current !== request) {
+          stream.getTracks().forEach(track => track.stop())
+          return
+        }
+        hostedDisplayCaptureRequestRef.current = null
+        request.resolve(stream)
       } catch (error) {
-        request.reject(error)
+        if (hostedDisplayCaptureRequestRef.current === request) {
+          hostedDisplayCaptureRequestRef.current = null
+          request.reject(error)
+        }
       }
       return
     }
