@@ -22,8 +22,8 @@ export async function createHostedAudioCapture({ source, signal, mediaDevices = 
   }
   const acquire = async action => own(await action())
   try {
-    if (signal?.aborted) throw Error('Authorization ended')
     const desktop = source === 'microphone' ? undefined : displayStream ? own(displayStream) : undefined
+    if (signal?.aborted) throw Error('Authorization ended')
     if (source !== 'system') await acquire(() => mediaDevices.getUserMedia({ audio: true }))
     if (source !== 'microphone') {
       const selectedDesktop = desktop || await acquire(() => mediaDevices.getDisplayMedia({ video: { width: 16, height: 16, frameRate: 1 }, audio: true }))

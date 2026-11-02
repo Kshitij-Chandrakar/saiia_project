@@ -60,3 +60,14 @@ test('authorization loss while system selection is pending stops mic immediately
   await assert.rejects(opening)
   assert.equal(system.getTracks()[0].readyState, 'ended')
 })
+
+test('late authorized display stream is stopped when the relay aborts before capture resumes', async () => {
+  const controller = new AbortController()
+  controller.abort()
+  let stopped = 0
+  const track = { readyState: 'live', stop: () => { stopped++ }, addEventListener() {}, removeEventListener() {} }
+  const display = { getTracks: () => [track], getAudioTracks: () => [track] }
+  await assert.rejects(createHostedAudioCapture({ source: 'system', signal: controller.signal, displayStream: display,
+    mediaDevices: {}, AudioContextClass: class {} }), /Required audio source unavailable/)
+  assert.equal(stopped, 1)
+})
