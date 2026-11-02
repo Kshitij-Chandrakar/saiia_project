@@ -1,7 +1,7 @@
 // Acquire only after the main-process relay reports server-authorized ready.
 // Existing PCM capture sends the single resulting stream; Both has one lease.
 export async function createHostedAudioCapture({ source, signal, mediaDevices = navigator.mediaDevices,
-  AudioContextClass = window.AudioContext }) {
+  AudioContextClass = window.AudioContext, displayStream }) {
   const streams = [], nodes = [], listeners = []
   let context, output, closed = false, ending = false
   const close = () => {
@@ -25,7 +25,9 @@ export async function createHostedAudioCapture({ source, signal, mediaDevices = 
     if (signal?.aborted) throw Error('Authorization ended')
     if (source !== 'system') await acquire(() => mediaDevices.getUserMedia({ audio: true }))
     if (source !== 'microphone') {
-      const desktop = await acquire(() => mediaDevices.getDisplayMedia({ video: { width: 16, height: 16, frameRate: 1 }, audio: true }))
+      const desktop = await acquire(() => displayStream
+        ? Promise.resolve(displayStream)
+        : mediaDevices.getDisplayMedia({ video: { width: 16, height: 16, frameRate: 1 }, audio: true }))
       if (!desktop.getAudioTracks().length) throw Error('System audio unavailable')
     }
     if (closed || streams.some(stream => !stream.getAudioTracks().length)) throw Error('Audio source unavailable')

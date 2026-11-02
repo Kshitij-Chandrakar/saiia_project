@@ -346,3 +346,18 @@ test('a late hosted capture is released after connection or account state change
   assert.equal(session.failed, true)
   assert.deepEqual(f.fallbacks, [])
 })
+
+test('hosted system capture waits for an authorized user-gesture display stream', async () => {
+  const f = fixture({ connectGrpcAutoPipeline: async () => ({ autoPipelineReady: true,
+    connectionStatus: 'connected', clientAudioRelay: true, manualRun: 1,
+    systemAudio: { active_audio_source: 'system' } }) })
+  const display = { getAudioTracks: () => [], getTracks: () => [] }
+  let requested = 0, captured
+  const session = await createGrpcAutoSession({ ...f.options, source: 'system', stream: undefined,
+    requestHostedDisplayCapture: async () => { requested++; return display },
+    createHostedCapture: async options => { captured = options.displayStream; return { stream: {}, close() {}, status: () => [] } },
+    createMic: options => ({ start: async () => { await options.getUserMedia() }, close() {} }) })
+  assert.equal(requested, 1)
+  assert.equal(captured, display)
+  await session.close()
+})

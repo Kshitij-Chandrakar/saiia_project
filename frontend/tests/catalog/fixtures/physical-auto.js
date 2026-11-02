@@ -56,6 +56,7 @@ window.installPhysicalAcceptance = ({ sessionId, hosted = false }) => {
       mark('final_settlement_read_ms')
       timing.final = settled
       window.physicalTimingResult = structuredClone(timing)
+      timing = undefined
     }
   }
   const button = (label, action) => {
@@ -106,7 +107,7 @@ window.installPhysicalAcceptance = ({ sessionId, hosted = false }) => {
       report({ capture: 'stopped', timing: window.physicalTimingResult })
     }, 120000)
   })
-  button('Stop', async () => { await stop(); report({ capture: 'stopped', ...(timing ? { timing: window.physicalTimingResult } : {}) }) })
+  button('Stop', async () => { await stop(); report({ capture: 'stopped', ...(window.physicalTimingResult ? { timing: window.physicalTimingResult } : {}) }) })
   button('Read safe status', async () => {
     const value = await window.electronAPI.getGrpcRealtimeStatus()
     report({ connection: value.connectionStatus, auto: value.autoStatus,

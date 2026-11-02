@@ -1286,6 +1286,7 @@ function MainWindow() {
   const lastCheckedAutoCandidateRef = useRef('')
   const autoStartTokenRef = useRef(0)
   const autoStartingRef = useRef(false)
+  const hostedDisplayCaptureRequestRef = useRef(null)
   const autoGrpcSessionRef = useRef(null)
   const autoStreamingSocketRef = useRef(null)
   const autoStreamingClosingRef = useRef(false)
@@ -4806,6 +4807,16 @@ function MainWindow() {
   }
 
   const startAutoMode = async () => {
+    if (hostedDisplayCaptureRequestRef.current) {
+      const request = hostedDisplayCaptureRequestRef.current
+      hostedDisplayCaptureRequestRef.current = null
+      try {
+        request.resolve(await navigator.mediaDevices.getDisplayMedia({ video: { width: 16, height: 16, frameRate: 1 }, audio: true }))
+      } catch (error) {
+        request.reject(error)
+      }
+      return
+    }
     if (manualLiveStartIdRef.current || autoModeRef.current || autoStartingRef.current) return
     const sourceMode = getSelectedAudioSourceLabel(audioSourcesRef.current)
     setAutoStartClicked(true)
@@ -4884,7 +4895,10 @@ function MainWindow() {
     const startToken = ++autoStartTokenRef.current
     autoStartingRef.current = true
     try {
-      const hostedCapture = (await window.electronAPI?.getGrpcRealtimeStatus?.())?.clientAudioRelay === true
+      let hostedCapture = false
+      try {
+        hostedCapture = (await window.electronAPI?.getGrpcRealtimeStatus?.())?.clientAudioRelay === true
+      } catch { /* Preserve local microphone capture when IPC status is unavailable. */ }
       if (!hostedCapture && (sourceMode === 'microphone' || sourceMode === 'both')) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         if (startToken !== autoStartTokenRef.current) { stream.getTracks().forEach(track => track.stop()); return }
@@ -4938,6 +4952,10 @@ function MainWindow() {
         }
         const session = await createGrpcAutoSession({ api: window.electronAPI, stream: streamRef.current, source: sourceMode, isCurrent,
           context: startupSessionConfigRef.current || {},
+          requestHostedDisplayCapture: sourceMode === 'microphone' ? undefined : () => new Promise((resolve, reject) => {
+            hostedDisplayCaptureRequestRef.current = { resolve, reject }
+            setStatus('Authorization confirmed. Click Start Auto Mode again to choose computer audio.')
+          }),
           onCloudStatus: next => {
             if (!isCurrent()) return
             setAutoGrpcStatus(next)
@@ -5077,6 +5095,9 @@ function MainWindow() {
   }
 
   const stopAutoMode = () => {
+    const pendingHostedDisplayCapture = hostedDisplayCaptureRequestRef.current
+    hostedDisplayCaptureRequestRef.current = null
+    pendingHostedDisplayCapture?.reject(Error('Authorization ended'))
     autoStartTokenRef.current++
     const stopToken = autoStartTokenRef.current
     setGenerationDiagnostics(current => ({ ...current, active_audio_source: 'none', stop_cleanup_status: 'cleaning' }))
@@ -6554,7 +6575,9 @@ function MainWindow() {
         }
 
         if (action === 'toggle-auto-generate') {
-          if (autoMode) {
+          if (hostedDisplayCaptureRequestRef.current) {
+            await startAutoMode()
+          } else if (autoMode) {
             stopAutoMode()
           } else {
             await startAutoMode()

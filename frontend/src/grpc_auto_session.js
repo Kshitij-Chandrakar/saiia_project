@@ -20,7 +20,7 @@ export function getGrpcAutoBlockReason(status, context = {}, source = 'microphon
 export async function createGrpcAutoSession({ api, stream, getUserMedia, source = 'microphone', context = {}, onCloudStatus = () => {}, isCurrent = () => true,
   canContinue = () => true, onTranscript = () => {}, onAnswer = () => {},
   onPhase = () => {}, onError = () => {}, onFallback = () => {}, onStartupFailure = () => {}, onLifecycle = () => {},
-  createMic = createGrpcMicTest, createHostedCapture = createHostedAudioCapture, pollMs = 250 }) {
+  createMic = createGrpcMicTest, createHostedCapture = createHostedAudioCapture, requestHostedDisplayCapture, pollMs = 250 }) {
   if (!['microphone', 'system', 'both'].includes(source) || !isCurrent()) return null
   let connected
   try { connected = await api.connectGrpcAutoPipeline({ activeSessionId: context.activeSessionId || '',
@@ -49,7 +49,8 @@ export async function createGrpcAutoSession({ api, stream, getUserMedia, source 
   const hostedAbort = new AbortController()
   const mic = source === 'system' && !hosted ? { start: async () => {}, close: () => {} } : createMic({ api, ownsStream: false, continuous: source === 'both' || hosted, getUserMedia: async () => {
     if (hosted && !hostedCapture) {
-      const acquired = await createHostedCapture({ source, signal: hostedAbort.signal })
+      const displayStream = source === 'microphone' ? undefined : await requestHostedDisplayCapture?.()
+      const acquired = await createHostedCapture({ source, signal: hostedAbort.signal, displayStream })
       const current = await api.getGrpcRealtimeStatus().catch(() => null)
       if (closed || !isCurrent() || !canContinue() || !current?.autoPipelineReady || current.manualRun !== connected.manualRun) { acquired.close(); throw Error('Authorization ended') }
       hostedCapture = acquired; stream = acquired.stream

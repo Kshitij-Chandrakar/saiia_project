@@ -2056,6 +2056,7 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
       notesIdentity.current = null
     } catch (generateError) {
       if (!activeRef.current || request !== notesRequest.current) return
+      if (generateError?.code === 'notes_operation_failed') notesIdentity.current = null
       setNotesError(String(generateError?.message || '').trim() || 'Could not generate AI notes. Please try again.')
     } finally {
       if (activeRef.current && request === notesRequest.current) { setNotesLoading(false); setNotesGenerateKey('') }
@@ -2864,6 +2865,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
         setDialog(null)
       }
       setPhase('idle')
+      setStatusAttempt(value => value + 1)
       setManualDraft(null)
       setMessage('Resume deleted.')
     } catch (deleteError) {
