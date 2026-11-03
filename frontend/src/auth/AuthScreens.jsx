@@ -1,5 +1,5 @@
 import { DashboardOnboardingGate } from './DashboardOnboarding'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { Eye, EyeOff, FileText, LogOut, Upload } from 'lucide-react'
 
@@ -35,7 +35,7 @@ import './account-setup-recovery.css'
 import DashboardLayout from './DashboardLayout'
 import DashboardLoading from './DashboardLoading'
 import ResumeAccessSelection from './ResumeAccessSelection'
-import WebsiteResumes from './WebsiteResumes'
+import WebsiteResumes, { ResumeConfirmation } from './WebsiteResumes'
 import DashboardOverview from './DashboardOverview'
 import WebsiteSessionTable from './WebsiteSessionTable'
 import SessionSuggestions, { SessionEmailDraft } from './SessionSuggestions'
@@ -49,6 +49,8 @@ import WebsiteConfirmLoading from './WebsiteConfirmLoading'
 import WebsitePasswordResetPage, { PasswordResetDialog } from './WebsitePasswordReset'
 import { isWebsiteRecoveryEntry } from './passwordRecovery'
 import { beginGoogleSignupConsent, readGoogleSignupConsent, clearGoogleSignupConsent } from './signup_oauth_consent'
+import { resumeConfirmationIsCurrent } from './resumeConfirmation'
+import { customerWebsiteError } from './customerErrors'
 
 
 const AUTH_CALLBACK_URL = 'http://localhost:5173/auth/callback'
@@ -740,7 +742,7 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
       const { error } = await startGoogleLogin(safeDesktopState, safeDesktopState || window.electronAPI ? '' : safeNextRoute, attempt)
       if (error) {
         if (attempt) clearGoogleSignupConsent(attempt)
-        form.setError(attempt ? 'Google login could not be started. Please try again.' : error.message || 'Google login could not be started.')
+        form.setError(attempt ? 'Google login could not be started. Please try again.' : customerWebsiteError(error, 'Google login could not be started.'))
       }
     } catch {
       if (attempt) clearGoogleSignupConsent(attempt)
@@ -900,7 +902,7 @@ export function AuthLoginPage({ backendUrl, desktopState = '', desktopError = ''
     try {
       const { error } = await startGoogleLogin(safeDesktopState, safeDesktopState ? '' : safeNextRoute)
       if (error) {
-        form.setError(safeDesktopState ? 'Google login could not be started.' : (error.message || 'Google login could not be started.'))
+        form.setError(safeDesktopState ? 'Google login could not be started.' : customerWebsiteError(error, 'Google login could not be started.'))
       }
     } catch {
       form.setError('Google login could not be started.')
@@ -2516,6 +2518,10 @@ export function AuthResumePage({ backendUrl }) {
 }
 
 function WebsiteResumeContent({ backendUrl, user }) {
+  const [resumeConfirmation, setResumeConfirmation] = useState(null)
+  const confirmationRequest = useRef(null)
+  const confirmationFocus = useRef(null)
+  const latestResumeState = useRef(null)
   const [file, setFile] = useState(null)
   const [currentResume, setCurrentResume] = useState(null)
   const [reviewCandidate, setReviewCandidate] = useState(null)
@@ -2538,11 +2544,40 @@ function WebsiteResumeContent({ backendUrl, user }) {
   const [manualDraft, setManualDraft] = useState(null)
   const [statusAttempt, setStatusAttempt] = useState(0)
 
+  useLayoutEffect(() => {
+    latestResumeState.current = { account: user.user_id, currentResume, reviewCandidate, resumeRecord, file, draftProfile, phase, confirmPending, deletePending, rebuildPending }
+  })
+
+  function askResumeConfirmation(kind, target = null) {
+    if (window.electronAPI) {
+      const label = [target?.original_filename, target?.status].filter(Boolean).join(' - ')
+      return Promise.resolve(window.confirm(kind === 'upload' ? 'Uploading another resume replaces your unconfirmed draft. Continue?' : kind === 'extract' ? 'Extracting again replaces your unconfirmed edits. Continue?' : label ? `Delete this cloud resume (${label})?` : 'Delete this cloud resume?'))
+    }
+    if (confirmationRequest.current) return Promise.resolve(false)
+    confirmationFocus.current = document.activeElement
+    const snapshot = latestResumeState.current
+    setResumeConfirmation({ kind, filename: kind === 'upload' ? file?.name : target?.original_filename })
+    return new Promise(resolve => { confirmationRequest.current = { resolve, snapshot } })
+  }
+
+  function finishResumeConfirmation(approved) {
+    const pending = confirmationRequest.current
+    if (!pending) return
+    confirmationRequest.current = null
+    setResumeConfirmation(null)
+    const unchanged = resumeConfirmationIsCurrent(pending.snapshot, latestResumeState.current, operationRef.current)
+    if (approved && !unchanged) setError('This resume changed while the confirmation was open. Review its current status before trying again.')
+    pending.resolve(approved && unchanged)
+  }
+
   useEffect(() => {
     return () => {
       confirmControllerRef.current?.abort()
       operationRef.current?.abort()
       uploadIdentityRef.current = null
+      confirmationRequest.current?.resolve(false)
+      confirmationRequest.current = null
+      latestResumeState.current = null
     }
   }, [])
 
@@ -2837,13 +2872,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
     if (!targetResume?.id || operationRef.current || deletePending || rebuildPending || confirmPending || ['uploading', 'extracting'].includes(phase)) {
       return
     }
-    const resumeLabel = [targetResume.original_filename, targetResume.status].filter(Boolean).join(' - ')
-    const confirmMessage = resumeLabel
-      ? `Delete this cloud resume (${resumeLabel})?`
-      : 'Delete this cloud resume?'
-    if (!window.confirm(confirmMessage)) {
-      return
-    }
+    if (!await askResumeConfirmation('delete', targetResume)) return
 
     const controller = beginResumeOperation()
     if (!controller) return
@@ -2925,6 +2954,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
   }
 
   return <DashboardLayout user={user} title="Resumes">
+    {resumeConfirmation && <ResumeConfirmation request={resumeConfirmation} onCancel={() => finishResumeConfirmation(false)} onConfirm={() => finishResumeConfirmation(true)} returnFocusRef={confirmationFocus} />}
     <ResumeAccessSelection user={user} backendUrl={backendUrl} refreshKey={statusAttempt + ':' + phase} onChanged={() => setStatusAttempt(value => value + 1)} />
     <WebsiteResumes currentResume={currentResume} candidate={reviewCandidate || resumeRecord}
       phase={phase} busy={busy} file={file} error={error} message={message}
