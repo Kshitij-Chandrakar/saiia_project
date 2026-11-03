@@ -95,7 +95,7 @@ begin
    perform public.reconcile_outbound_email_event(r.user_id,r.id);
   end loop;
   return coalesce((select jsonb_agg(id) from (select n.id from public.billing_notification_sources n where
-   (n.delivery_state in ('queued','attempted') or (n.delivery_state='failed' and n.attempts<3 and n.next_attempt_at<=clock_timestamp()))
+   (n.delivery_state in ('queued','attempted') or (n.delivery_state='failed' and n.attempts<3 and n.next_attempt_at<=clock_timestamp() and exists(select 1 from public.outbound_email_events e where e.id=n.event_id and e.status='failed' and e.error_code='provider_not_accepted')))
    and exists(select 1 from auth.users u where u.id=n.account_id and u.email_confirmed_at is not null and u.email is not null)
    order by n.created_at limit 10) x),'[]');
  end if;

@@ -66,7 +66,7 @@ class BillingDatabase(SubscriptionDatabase):
                 raise RuntimeError("billing unavailable")
         for function in (
             "billing_call(uuid,text,uuid,jsonb)",
-            "billing_pending()",
+            "billing_pending(text)",
             "billing_lookup(text)",
             "billing_event(text,text,text,text)",
             "billing_current(uuid)",

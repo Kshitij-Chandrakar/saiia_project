@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import json
+import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
@@ -38,6 +39,7 @@ class Provider:
         self.bills = {}
         self.calls = 0
         self.timeout = ""
+        self.cancel_failures = 0
         self.plans = {}
 
     def plan(self, key):
@@ -82,6 +84,9 @@ class Provider:
         return signature(SECRET, (payment + "|" + sub).encode(), supplied)
 
     def cancel(self, key):
+        if self.cancel_failures:
+            self.cancel_failures -= 1
+            raise TimeoutError()
         self.orders[key]["status"] = "cancelled"
         return self.orders[key]
 
@@ -421,6 +426,40 @@ def test_renewal_out_of_order_and_cancel_retains_paid_access(billing):
     assert u["db"].rows(
         f"select count(*) n from subscription_scheduled_changes where account_id='{u['account']}'"
     ) == [{"n": 1}]
+
+
+def test_cancel_retries_after_a_confirmed_nonterminal_read(billing):
+    u = billing
+    op = ready(u)
+    u["provider"].cancel_failures = 1
+    first = u["billing"].cancel(actor(u["account"]), op["operation_id"])
+    assert first["cancel_requested"] and first["provider_state"] == "created"
+    second = u["billing"].cancel(actor(u["account"]), op["operation_id"])
+    assert second["provider_state"] == "cancelled"
+
+
+def test_complete_empty_provider_scan_expires_stale_checkout(billing):
+    u = billing
+    u["provider"].timeout = "before"
+    op = u["billing"].prepare(actor(u["account"]), u["checkout"])
+    u["billing"].start(actor(u["account"]), op["operation_id"], True, op["quote_id"])
+    u["db"].run(
+        f"update billing_operations set created_at=clock_timestamp()-interval '25 hours' where operation_id='{op['operation_id']}'"
+    )
+    assert u["billing"].status(actor(u["account"]), op["operation_id"])["state"] == "expired"
+
+
+def test_recorded_invoice_does_not_block_later_renewal(billing):
+    u = billing
+    op = ready(u)
+    u["provider"].pay(op["provider_id"])
+    u["billing"].status(actor(u["account"]), op["operation_id"])
+    u["provider"].pay(op["provider_id"], offset=2592000)
+    u["provider"].bills[op["provider_id"]][0]["amount"] = 1
+    u["billing"].status(actor(u["account"]), op["operation_id"])
+    assert u["db"].rows(
+        f"select count(*) n from billing_evidence where operation_id='{op['operation_id']}'"
+    ) == [{"n": 2}]
 
 
 @pytest.mark.parametrize(
@@ -769,6 +808,9 @@ def test_native_website_flow(billing):
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     u = billing
+    npx = shutil.which("npx")
+    if not npx:
+        pytest.skip("npx is unavailable")
     pro = definition("pro")
     assert create(u["client"], pro).status_code == 200
     pro_id = publish(u["client"], pro)["receipt"]["offer_version_id"]
@@ -848,9 +890,7 @@ def test_native_website_flow(billing):
         }
         result = subprocess.run(
             [
-                "cmd",
-                "/c",
-                "npx",
+                npx,
                 "playwright",
                 "test",
                 "--config",
