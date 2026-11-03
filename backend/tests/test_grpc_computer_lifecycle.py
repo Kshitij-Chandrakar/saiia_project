@@ -318,3 +318,44 @@ def test_repeated_disconnect_cancellation_awaits_legacy_answer_cleanup(monkeypat
             await asyncio.gather(task, return_exceptions=True)
     sockets = configure(monkeypatch, NS)
     asyncio.run(exercise())
+
+
+@pytest.mark.parametrize('shutdown', ['end_session', 'cancel'])
+def test_grpc_shutdown_signals_silent_reader_before_native_cleanup(monkeypatch, shutdown):
+    entered, finished, closed = threading.Event(), threading.Event(), threading.Event()
+    order = []
+
+    class Capture:
+        def enable_continuous_resampling(self, session): pass
+        def open_streaming_loopback_session(self, **kwargs):
+            return NS(stop_requested=threading.Event())
+        def read_streaming_pcm_chunk(self, session):
+            entered.set()
+            assert session.stop_requested.wait(2), "gRPC must signal the silent reader"
+            order.append('reader_stopped')
+            finished.set()
+            raise system_audio_capture.SystemAudioCaptureError('System capture stopped.')
+        def close_streaming_loopback_session(self, session):
+            assert session.stop_requested.is_set() and finished.is_set()
+            order.append('native_closed')
+            closed.set()
+            return True
+
+    configure(monkeypatch, Capture)
+    async def exercise():
+        server, port = await grpc_server.start_server(port=0)
+        try:
+            async with grpc.aio.insecure_channel(f'127.0.0.1:{port}') as channel:
+                call = await start(rpc.InterviewRealtimeServiceStub(channel))
+                await until(call, lambda e: e.HasField('ready'))
+                assert await asyncio.to_thread(entered.wait, 2)
+                if shutdown == 'cancel':
+                    call.cancel()
+                else:
+                    await call.write(pb.InterviewClientEvent(session_id='system', end_session=pb.Empty()))
+                    await until(call, lambda e: e.status.code == 'ended')
+                assert await asyncio.to_thread(closed.wait, 2)
+        finally:
+            await server.stop(0)
+    asyncio.run(exercise())
+    assert order == ['reader_stopped', 'native_closed']

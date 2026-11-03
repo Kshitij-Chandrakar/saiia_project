@@ -295,3 +295,69 @@ def test_localhost_combined_single_stt_mix_and_owned_cleanup(monkeypatch, failur
         finally:
             await server.stop(0)
     asyncio.run(exercise())
+
+
+def test_completed_native_read_cannot_refill_mixer_after_shutdown(monkeypatch):
+    from app import pcm_mixer
+    entered, release, cleared = threading.Event(), threading.Event(), threading.Event()
+    mixers, late_pushes, canceled_reads, closed = [], [], [], []
+
+    class Mixer(PcmMixer):
+        def __init__(self):
+            super().__init__()
+            mixers.append(self)
+        def clear(self):
+            super().clear()
+            cleared.set()
+        def push(self, source, data, now, *args):
+            if cleared.is_set():
+                late_pushes.append(source)
+            return super().push(source, data, now, *args)
+
+    class Capture:
+        def open_streaming_loopback_session(self, **kwargs): return NS()
+        def enable_continuous_resampling(self, session): pass
+        def read_streaming_pcm_chunk(self, session):
+            entered.set()
+            assert release.wait(3)
+            return chunk()
+        def close_streaming_loopback_session(self, session):
+            closed.append(True)
+            return True
+
+    configure(monkeypatch, Capture)
+    monkeypatch.setattr(pcm_mixer, 'PcmMixer', Mixer)
+    original_wait_for = asyncio.wait_for
+
+    async def completed_read_after_cancel(awaitable, timeout):
+        if timeout != 2 or asyncio.current_task().get_coro().__name__ != 'capture':
+            return await original_wait_for(awaitable, timeout)
+        try:
+            return await asyncio.shield(awaitable)
+        except asyncio.CancelledError:
+            # Force wait_for's completed-child/cancellation race without timing sleeps.
+            canceled_reads.append(True)
+            assert cleared.is_set()
+            release.set()
+            return await asyncio.shield(awaitable)
+
+    monkeypatch.setattr(asyncio, 'wait_for', completed_read_after_cancel)
+
+    async def exercise():
+        server, port = await grpc_server.start_server(port=0)
+        try:
+            async with grpc.aio.insecure_channel(f'127.0.0.1:{port}') as channel:
+                call = await start(rpc.InterviewRealtimeServiceStub(channel), source='both')
+                await until(call, lambda event: event.HasField('ready'))
+                assert await asyncio.to_thread(entered.wait, 2)
+                await call.write(pb.InterviewClientEvent(session_id='system', end_session=pb.Empty()))
+                await until(call, lambda event: event.status.code == 'ended')
+                assert await call.read() is grpc.aio.EOF
+                assert canceled_reads == [True] and closed == [True]
+                assert late_pushes == []
+                assert all(not np.any(state['data']) for state in mixers[0].sources.values())
+        finally:
+            release.set()
+            await server.stop(0)
+
+    asyncio.run(exercise())

@@ -100,7 +100,7 @@ No `.env` changes or production flags were made.
 
 Prepared migration:
 `supabase/migrations/20261024110000_subscription_relay_privacy.sql`.
-SHA256: `0ab2802ca886767c8d68fb525903460eaabd04c417305fad20e4cad162525166`.
+SHA256: `d4bb35527883394d0fea9c2e95aa48ba0c876df1b5659e52f066aa039e244575`.
 It follows `20261024100000_subscription_auxiliary_execution.sql`.
 
 - Four private RLS-forced tables: relay frame claims, encrypted temporary
@@ -175,8 +175,8 @@ From the repository root in PowerShell, using the retained local runtime:
 ```powershell
 $env:PYTHONUTF8='1'
 $env:PYTHONPATH=Join-Path $env:TEMP 'c113c-db-driver'
-$pgBin='C:/Users/chand/AppData/Local/Temp/c112c-native-runtime-0f19d4be3f9a436d8c761b2eaf2472a9/pgsql/bin'
-& E:/deepfake_envs/SaIIA/python.exe backend/tests/run_subscription_acceptance.py --pg-bin $pgBin --backend
+$pgBin='<local-pg-bin>'
+python backend/tests/run_subscription_acceptance.py --pg-bin $pgBin --backend
 ```
 
 `--backend` creates disposable native clusters and synthetic identities, runs
@@ -189,7 +189,7 @@ To check the non-physical packaged JWT/current-plan/browser/IPC flow separately:
 
 ```powershell
 node frontend/scripts/prepare-subscription-acceptance.cjs
-& E:/deepfake_envs/SaIIA/python.exe backend/tests/run_subscription_acceptance.py --pg-bin $pgBin
+python backend/tests/run_subscription_acceptance.py --pg-bin $pgBin
 ```
 
 Backend tests use deterministic provider substitutes and TXT fixture data; the
@@ -216,7 +216,7 @@ target are guessed and no real account is used.
 ## Desktop rollout and additional connection-fencing migration
 
 Additional prepared SQL: `supabase/migrations/20261025010000_subscription_relay_connections.sql`.
-SHA256 `14d30cb9b0bc46755f6ce2ef3b23108176b558774ffc8df1ab9660f1795509da`.
+SHA256 `0f2231e094750be8df88899a4e667f733f079a68ea6605d371a463cfd0f53003`.
 It follows the unchanged relay/privacy migration. A private RLS-forced connection
 claim table and one usage_executor-only SECURITY DEFINER function prevent the same
 logical stream opening another transport/pipeline. The claim precedes lease creation;
@@ -260,7 +260,7 @@ pseudonymous UUID/Auth-unlink treatment. These are proposals only. No irreversib
 purge, retention exception, Auth-FK change or real deletion is approved/enabled.
 
 
-### Staging target designated ? 25 October 2026
+### Staging target designated — 25 October 2026
 
 Owner confirms **intervucopilot-staging / cfmvqbjmnwklxqlpelxe** is newly created,
 disposable and contains no real customer accounts/data; authorizes **read-only

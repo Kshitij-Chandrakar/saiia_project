@@ -2045,7 +2045,7 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
         return
       }
       const semantics = `${data.session.user.id}:${normalizedSessionId}:${Boolean(forceRegenerate)}`
-      if (notesIdentity.current?.semantics !== semantics) notesIdentity.current = { semantics, key: crypto.randomUUID() }
+      if (notesIdentity.current?.semantics !== semantics) notesIdentity.current = { semantics, sessionId: normalizedSessionId, forceRegenerate: Boolean(forceRegenerate), key: crypto.randomUUID() }
       const result = await generateInterviewSessionNotes(data.session.access_token, normalizedSessionId, {
         requestId: notesIdentity.current.key,
         backendUrl,
@@ -2056,10 +2056,16 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
       notesIdentity.current = null
     } catch (generateError) {
       if (!activeRef.current || request !== notesRequest.current) return
+      if (generateError?.code === 'notes_operation_failed') notesIdentity.current = null
       setNotesError(String(generateError?.message || '').trim() || 'Could not generate AI notes. Please try again.')
     } finally {
       if (activeRef.current && request === notesRequest.current) { setNotesLoading(false); setNotesGenerateKey('') }
     }
+  }
+
+  function retryNotesGenerate(sessionId) {
+    const existing = notesIdentity.current
+    handleNotesGenerate(sessionId, existing?.sessionId === String(sessionId || '').trim() ? existing.forceRegenerate : false)
   }
 
   async function handleAskAIToggle(sessionId, { reload = false } = {}) {
@@ -2356,7 +2362,7 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
                           <button
                             className="auth-session-history__action"
                             type="button"
-                            onClick={() => handleNotesGenerate(session.id, true)}
+                            onClick={() => retryNotesGenerate(session.id)}
                             disabled={Boolean(notesGenerateKey)}
                           >
                             Retry AI Notes
@@ -2864,6 +2870,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
         setDialog(null)
       }
       setPhase('idle')
+      setStatusAttempt(value => value + 1)
       setManualDraft(null)
       setMessage('Resume deleted.')
     } catch (deleteError) {

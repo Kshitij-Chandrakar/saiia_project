@@ -20,7 +20,7 @@ export function getGrpcAutoBlockReason(status, context = {}, source = 'microphon
 export async function createGrpcAutoSession({ api, stream, getUserMedia, source = 'microphone', context = {}, onCloudStatus = () => {}, isCurrent = () => true,
   canContinue = () => true, onTranscript = () => {}, onAnswer = () => {},
   onPhase = () => {}, onError = () => {}, onFallback = () => {}, onStartupFailure = () => {}, onLifecycle = () => {},
-  createMic = createGrpcMicTest, createHostedCapture = createHostedAudioCapture, pollMs = 250 }) {
+  createMic = createGrpcMicTest, createHostedCapture = createHostedAudioCapture, requestHostedDisplayCapture, pollMs = 250 }) {
   if (!['microphone', 'system', 'both'].includes(source) || !isCurrent()) return null
   let connected
   try { connected = await api.connectGrpcAutoPipeline({ activeSessionId: context.activeSessionId || '',
@@ -49,9 +49,11 @@ export async function createGrpcAutoSession({ api, stream, getUserMedia, source 
   const hostedAbort = new AbortController()
   const mic = source === 'system' && !hosted ? { start: async () => {}, close: () => {} } : createMic({ api, ownsStream: false, continuous: source === 'both' || hosted, getUserMedia: async () => {
     if (hosted && !hostedCapture) {
-      const acquired = await createHostedCapture({ source, signal: hostedAbort.signal })
+      const displayStream = source === 'microphone' ? undefined : await requestHostedDisplayCapture?.()
+      const acquired = await createHostedCapture({ source, signal: hostedAbort.signal, displayStream })
       const current = await api.getGrpcRealtimeStatus().catch(() => null)
       if (closed || !isCurrent() || !canContinue() || !current?.autoPipelineReady || current.manualRun !== connected.manualRun) { acquired.close(); throw Error('Authorization ended') }
+      if (stream !== acquired.stream) stream?.getTracks?.().forEach(track => track.stop())
       hostedCapture = acquired; stream = acquired.stream
     }
     if (!stream && getUserMedia) stream = await getUserMedia()
@@ -66,7 +68,9 @@ export async function createGrpcAutoSession({ api, stream, getUserMedia, source 
     if (source === 'both') stream?.getTracks().forEach(track => track.stop())
     clearInterval(timer); clearTimeout(deadline); clearTimeout(cooldownTimer); unsubscribe?.()
     let captureFailed = false
-    try { mic.close(); hostedCapture?.close() } catch { captureFailed = true }
+    for (const cleanup of [() => mic.close(), () => hostedCapture?.close()]) {
+      try { cleanup() } catch { captureFailed = true }
+    }
     const cleaned = status => { onLifecycle({ stop_cleanup_status: status }); return status }
     cleanupPromise = api.closeGrpcRealtime(connected.manualRun).then(result => cleaned(captureFailed || result?.systemCleanupStatus === 'failed' || result?.systemCleanupStatus === 'cleaning' ? 'failed' : 'clean'), () => cleaned('failed'))
     lastText = ''; version = -1
@@ -152,7 +156,8 @@ export async function createGrpcAutoSession({ api, stream, getUserMedia, source 
       onAnswer({ streamIdentity: next.answerStreamIdentity, requestId: next.answerRequestId, question: next.currentQuestion, answer: lastText,
         category: next.answerCategory, provider: next.answerProvider,
         status: complete ? 'complete' : 'generating',
-        answerSaved: complete && (next.answerStreamVersion === 1 || next.cloudAnswerSaveStatus === 'saved'),
+        answerSaved: complete && next.cloudAnswerSaveStatus !== 'failed' &&
+          (next.answerStreamVersion === 1 || next.cloudAnswerSaveStatus === 'saved'),
         historyEntryId: `auto-grpc-${connected.manualRun}-${next.answerStreamVersion === 1 && next.answerRequestId ? next.answerRequestId : questionNumber}` })
       if (complete) {
         completedQuestion = questionNumber

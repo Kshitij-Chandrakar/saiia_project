@@ -85,23 +85,22 @@ Rollback disables public/lifecycle composition, then reverts compatible client d
 
 Black is not installed in the available backend/Graphify Python interpreters; formatting check is unavailable, not claimed passed. Known historical combined-process exception-class reload mismatch and Windows PDF subprocess block remain unresolved and are not relabelled passes. Older broader browser session-loss fixture failures remain outside this slice. The landing regression result is recorded in the implementation plan/audit after the final run. Initial iteration failures (ambiguous SQL join, incorrect screenshot currency/section height, stale browser fixture expectations and terminal-view test synchronization) were corrected and the affected checks rerun; no production assertion/timeout was weakened.
 
-Screenshots (synthetic local published offers):
-
-- [Monthly desktop](../tmp/c113d-native-playwright/pricing.integration-approv-7f21b-lication-to-landing-pricing/pricing-monthly-desktop.png)
-- [Yearly desktop](../tmp/c113d-native-playwright/pricing.integration-approv-7f21b-lication-to-landing-pricing/pricing-yearly-desktop.png)
-- [Monthly mobile](../tmp/c113d-native-playwright/pricing.integration-approv-7f21b-lication-to-landing-pricing/pricing-monthly-mobile.png)
-- [Yearly mobile](../tmp/c113d-native-playwright/pricing.integration-approv-7f21b-lication-to-landing-pricing/pricing-yearly-mobile.png)
+Screenshots of synthetic local published offers are run artifacts, not repository assets. After the native pricing browser runner completes, find monthly/yearly desktop/mobile PNGs in the run's pricing integration folder under `tmp/c113d-native-playwright/`. That ignored local directory is not included in a checkout; reproduce the run to create new artifacts. No screenshot links are published here.
 
 ## Exact isolated local reproduction
 
+For browser commands and screenshots, use a checkout containing the dependent [catalog UI PR #59](https://github.com/Kshitij-Chandrakar/saiia_project/pull/59), which supplies `backend/tests/test_pricing_browser_native.py` and the browser fixtures. The API-only slice supports the native pricing command.
+
 From repository root, using the already inspected retained runtime/isolated driver. These commands create only synthetic task-owned loopback clusters and clean them in finally blocks; they never consume a shared DSN or Supabase credentials. Retained runtime downloads are left untouched.
+
+Replace `<python>` with the executable of your prepared backend environment (`python -c "import sys; print(sys.executable)"`), and `<pg-bin>` with the PostgreSQL binary directory (`pg_config --bindir`, or the directory containing `initdb`, `pg_ctl` and `psql` in your retained local runtime). The placeholders are local setup values, not shared credentials.
 
 ```powershell
 $env:PYTHONUTF8 = '1'
 $env:PYTHONPATH = Join-Path $env:TEMP 'c113c-db-driver'
-$catalogPython = 'E:/deepfake_envs/SaIIA/python.exe'
+$catalogPython = '<python>'
 $catalogLauncher = Join-Path $env:TEMP 'c113c-test-launch.py'
-$catalogPgBin = 'C:/Users/chand/AppData/Local/Temp/c112c-native-runtime-0f19d4be3f9a436d8c761b2eaf2472a9/pgsql/bin'
+$catalogPgBin = '<pg-bin>'
 & $catalogPython $catalogLauncher backend/tests/test_pricing_native.py --pg-bin $catalogPgBin
 & $catalogPython $catalogLauncher backend/tests/test_pricing_browser_native.py --pg-bin $catalogPgBin
 ```

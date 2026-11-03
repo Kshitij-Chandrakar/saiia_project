@@ -10,6 +10,8 @@ const native = configuration ? { ...configuration, ...configuration.electron } :
 
 test('actual Windows Electron main, preload, current plan, Upgrade and logout', async () => {
   test.skip(!native || process.platform !== 'win32', 'Disposable native Windows runner required')
+  const physical = process.env.C132_PHYSICAL_ACCEPTANCE === 'true'
+  if (physical && !process.env.C132_MANUAL_STOP) throw Error('C132_MANUAL_STOP is required for physical acceptance')
   const directory = await mkdtemp(path.join(os.tmpdir(), 'c132-electron-'))
   const env = { ...process.env }
   delete env.ELECTRON_RUN_AS_NODE
@@ -29,7 +31,6 @@ test('actual Windows Electron main, preload, current plan, Upgrade and logout', 
   }
   const packaged = process.env.C132_PACKAGED_EXE
   if (packaged) delete isolated.VITE_DEV_SERVER_URL
-  const physical = process.env.C132_PHYSICAL_ACCEPTANCE === 'true'
   if (native.hosted) {
     Object.assign(isolated, { ELECTRON_HOSTED_AUDIO_ENABLED: 'true',
       ELECTRON_HOSTED_AUDIO_URL: native.hosted.url, ELECTRON_HOSTED_AUDIO_DEPLOYMENT_ID: native.hosted.deployment,
@@ -43,11 +44,12 @@ test('actual Windows Electron main, preload, current plan, Upgrade and logout', 
       ELECTRON_GRPC_REALTIME_ENABLED: 'true', ELECTRON_GRPC_AUDIO_ENABLED: 'true',
       ...(native.hosted ? {} : { ELECTRON_GRPC_REALTIME_PORT: String(native.grpcPort) }) })
   }
+  const launch = (overrides = {}) => electron.launch({ ...(packaged ? { executablePath: packaged, args: [] } : { args: [path.resolve('tests/catalog/fixtures/electron-subscription.cjs')] }), env: { ...isolated, ...overrides } })
   const checkSecondClient = async () => {
     const secondDirectory = await mkdtemp(path.join(os.tmpdir(), 'c132-second-electron-'))
     let second
     try {
-      second = await electron.launch({ executablePath: packaged, args: [], env: { ...isolated, C132_ELECTRON_DATA: secondDirectory,
+      second = await launch({ C132_ELECTRON_DATA: secondDirectory,
         ...(native.hosted ? { ELECTRON_HOSTED_AUDIO_URL: native.hosted.secondUrl } : {}) } })
       const other = await second.firstWindow()
       await expect(other.getByText('Current plan: Free', { exact: true })).toBeVisible()
@@ -62,7 +64,7 @@ test('actual Windows Electron main, preload, current plan, Upgrade and logout', 
   }
   let app
   try {
-    app = await electron.launch({ ...(packaged ? { executablePath: packaged, args: [] } : { args: [path.resolve('tests/catalog/fixtures/electron-subscription.cjs')] }), env: isolated })
+    app = await launch()
     let page = await app.firstWindow()
     if (packaged) {
       expect(await app.evaluate(({ app }) => app.isPackaged)).toBe(true)
@@ -163,7 +165,7 @@ test('actual Windows Electron main, preload, current plan, Upgrade and logout', 
             throw error
           }
         }, { timeout: 5000 }).toBe(true)
-        app = await electron.launch({ executablePath: packaged, args: [], env: isolated })
+        app = await launch()
         page = await app.firstWindow()
         await expect(page.getByText('Current plan: Free', { exact: true })).toBeVisible()
         await expect(page).toHaveURL(/^file:/)

@@ -57,7 +57,8 @@ async def test_actual_electron_preload_receives_gated_primary_and_fallback(setup
         return [x['entry'] for x in messages if x['stage'] == 'answer']
 
     try:
-        async with transport(monkeypatch, source, probe, version=1, external_client=node):
+        async with transport(monkeypatch, source, probe, version=1, external_client=node,
+                             enable_session_answer_models=True):
             gates.release['primary_a'].set()
             await until(lambda: any(x['answer'] == A[:-1] for x in entries()))
             assert not store.saves

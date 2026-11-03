@@ -6,7 +6,7 @@ import tempfile
 import threading
 import time
 import wave
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -76,6 +76,7 @@ class StreamingLoopbackSession:
     monitor_default: bool = False
     next_device_check_at: float = 0.0
     continuous_resampler: Any | None = None
+    stop_requested: threading.Event = field(default_factory=threading.Event)
 
 
 @dataclass
@@ -444,6 +445,7 @@ class SystemAudioCaptureService:
     def close_streaming_loopback_session(self, session: StreamingLoopbackSession | None) -> bool:
         if session is None:
             return True
+        session.stop_requested.set()
         clean = True
         if session.debug_wave_writer is not None:
             try:
@@ -474,6 +476,26 @@ class SystemAudioCaptureService:
         session.continuous_resampler = StreamingResampler(session.sample_rate, session.target_sample_rate)
 
     def read_streaming_pcm_chunk(self, session: StreamingLoopbackSession) -> StreamingChunkResult:
+        # A blocking WASAPI read can wait indefinitely when no output is playing.
+        # Wait interruptibly for complete frames; cleanup still closes the native
+        # stream only AFTER this reader exits, preserving exclusive ownership.
+        available = getattr(session.stream, 'get_read_available', None)
+        while available is not None:
+            frames_available = available()
+            if frames_available < 0:
+                raise SystemAudioCaptureError('Native system audio buffer availability failed.')
+            if frames_available >= session.frames_per_buffer:
+                break
+            if session.stop_requested.wait(.01):
+                raise SystemAudioCaptureError('System capture stopped.')
+            if session.monitor_default and time.monotonic() >= session.next_device_check_at:
+                current = self.get_default_loopback_device()
+                if (current.device_index, current.name, current.sample_rate, current.channels) != (
+                        session.device.device_index, session.device.name, session.sample_rate, session.channels):
+                    raise SystemAudioCaptureError('Default output changed. Stop and restart Auto Mode.')
+                session.next_device_check_at = time.monotonic() + 1
+        if session.stop_requested.is_set():
+            raise SystemAudioCaptureError('System capture stopped.')
         if session.monitor_default and time.monotonic() >= session.next_device_check_at:
             current = self.get_default_loopback_device()
             if (current.device_index, current.name, current.sample_rate, current.channels) != (

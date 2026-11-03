@@ -35,11 +35,13 @@ export default function SubscriptionAdmin({
     probe = useRef(0),
     controller = useRef(null),
     alive = useRef(true),
-    privateAccess = useRef(false);
+    privateAccess = useRef(false),
+    workspace = useRef(null);
   const [access, setAccess] = useState({
     status: 'loading',
     user: null
   });
+  const [suspendedNavigation, setSuspendedNavigation] = useState(null);
   const check = useCallback(async (next, reset = false) => {
     const ticket = ++probe.current;
     controller.current?.abort();
@@ -65,21 +67,21 @@ export default function SubscriptionAdmin({
       });
       if (!alive.current || ticket !== probe.current) return;
       if (!Array.isArray(data.permissions) || data.permissions.length > 1 || data.permissions.some(p => p !== 'subscriptions.manage')) throw new CatalogError('catalog_database_unavailable');
-      privateAccess.current = data.permissions.includes('subscriptions.manage');
+      const allowed = data.permissions.includes('subscriptions.manage');
+      privateAccess.current = allowed;
       setAccess({
-        status: data.permissions.includes('subscriptions.manage') ? 'allowed' : 'forbidden',
-        user: {
-          id: next.user.id,
-          email: next.user.email
-        }
+        status: allowed ? 'allowed' : 'forbidden',
+        user: allowed ? {id: next.user.id, email: next.user.email} : null
       });
     } catch (error) {
       if (alive.current && ticket === probe.current) {
         privateAccess.current = false;
-        setAccess({
-          status: error.code === 'unauthenticated' ? 'unauthenticated' : 'unavailable',
-          user: null
-        });
+        const status = error.code === 'unauthenticated' ? 'unauthenticated'
+          : error.code === 'catalog_permission_denied' ? 'forbidden' : 'unavailable';
+        setAccess(previous => ({
+          status,
+          user: status === 'unavailable' && previous.user?.id === next.user.id ? previous.user : null
+        }));
       }
     }
   }, [backendUrl]);
@@ -129,6 +131,15 @@ export default function SubscriptionAdmin({
       data.subscription.unsubscribe();
     };
   }, [client, check]);
+  useEffect(() => {
+    if (access.status !== 'allowed') {
+      // Dismiss private dialogs without discarding draft or retry state.
+      workspace.current?.querySelectorAll('dialog[open]').forEach(dialog => {
+        dialog.dispatchEvent(new Event('cancel', {cancelable: true}));
+        if (dialog.open) dialog.close();
+      });
+    }
+  }, [access.status]);
   function denied(code) {
     privateAccess.current = false;
     ++probe.current;
@@ -162,16 +173,12 @@ export default function SubscriptionAdmin({
   }
   if (['unauthenticated', 'forbidden'].includes(access.status)) return <WebsiteNotFound />;
   return <DashboardLayout user={access.user || {}} title="Subscription drafts" description="Manage private plan drafts and review their requirements." onLogout={logout} loading={access.status === 'loading'} subscriptionAdmin={access.status === 'allowed'}>
-    {access.status === 'allowed' ? <DraftWorkspace key={access.user.id} accountId={access.user.id} backendUrl={backendUrl} token={() => session.current?.access_token} mayBlock={() => privateAccess.current && session.current?.user?.id === access.user.id} onDenied={denied} /> : <section className="subscription-admin ca-access" aria-live="polite">
-      {access.status === 'loading' ? <><Skeleton width="55%" height={28} /><Skeleton width="80%" height={16} /><p>Checking subscription-admin access...</p></> : <><LockKeyhole size={28} aria-hidden="true" /><h2>{access.status === 'unauthenticated' ? 'Sign in to continue' : access.status === 'forbidden' ? 'Subscription-admin access required' : 'Admin access is unavailable'}</h2><p>{access.status === 'unauthenticated' ? 'Use your website account to check your current permissions.' : access.status === 'forbidden' ? 'Your account does not currently have permission to manage subscription drafts.' : 'Your permissions could not be confirmed. Private drafts are hidden.'}</p>{access.status === 'unauthenticated' ? <Link className="wd-primary" to="/auth/login">Sign in</Link> : <button type="button" onClick={() => client?.auth.getSession().then(r => {
-          if (r.error) setAccess({
-            status: 'unavailable',
-            user: null
-          });else check(r.data?.session, true);
-        }).catch(() => setAccess({
-          status: 'unavailable',
-          user: null
-        }))}>Check access again</button>}</>}
+    {access.user && <div ref={workspace} hidden={access.status !== 'allowed'}><DraftWorkspace key={access.user.id} accountId={access.user.id} backendUrl={backendUrl} token={() => session.current?.access_token} mayBlock={() => (privateAccess.current || access.status === 'unavailable') && session.current?.user?.id === access.user.id} suspended={access.status !== 'allowed'} onDenied={denied} onSuspendedNavigation={setSuspendedNavigation} /></div>}
+    {access.status !== 'allowed' && <section className="subscription-admin ca-access" aria-live="polite">
+      {access.status === 'loading' ? <><Skeleton width="55%" height={28} /><Skeleton width="80%" height={16} /><p>Checking subscription-admin access...</p></> : <><LockKeyhole size={28} aria-hidden="true" /><h2>{access.status === 'unauthenticated' ? 'Sign in to continue' : access.status === 'forbidden' ? 'Subscription-admin access required' : 'Admin access is unavailable'}</h2><p>{access.status === 'unauthenticated' ? 'Use your website account to check your current permissions.' : access.status === 'forbidden' ? 'Your account does not currently have permission to manage subscription drafts.' : 'Your permissions could not be confirmed. Private drafts are hidden.'}</p>{access.status === 'unavailable' && suspendedNavigation && <div className="ca-feedback ca-error" role="alert"><p>{suspendedNavigation.lifecyclePending ? 'Access is unavailable. Stay until access returns to keep the operation ID needed to check its outcome or retry safely. Leaving this page discards that ID from this browser. Requests already sent are not cancelled.' : suspendedNavigation.savePending ? 'Access is unavailable. This save is not confirmed. Stay to retain its retry identity. Leaving discards that identity, and the save may still commit.' : 'Access is unavailable. Leaving this page will discard unsaved local work in this browser. Requests already sent are not cancelled.'}</p><div className="ca-actions"><button type="button" onClick={suspendedNavigation.stay}>Stay on this page</button><button type="button" onClick={suspendedNavigation.discard}>Discard and leave</button></div></div>}{access.status === 'unauthenticated' ? <Link className="wd-primary" to="/auth/login">Sign in</Link> : <button type="button" onClick={() => client?.auth.getSession().then(r => {
+          if (r.error) setAccess(previous => ({status: 'unavailable', user: previous.user}));
+          else check(r.data?.session, r.data?.session?.user?.id !== session.current?.user?.id);
+        }).catch(() => setAccess(previous => ({status: 'unavailable', user: previous.user})))}>Check access again</button>}</>}
     </section>}
   </DashboardLayout>;
 }
@@ -180,7 +187,9 @@ function DraftWorkspace({
   backendUrl,
   token,
   mayBlock,
-  onDenied
+  suspended,
+  onDenied,
+  onSuspendedNavigation
 }) {
   const [form, setFormState] = useState(null),
     [saved, setSaved] = useState(null),
@@ -204,7 +213,8 @@ function DraftWorkspace({
     requests = useRef(new Set()),
     noticeRef = useRef(null),
     baseline = useRef(null),
-    navigationDialog = useRef(null);
+    navigationDialog = useRef(null),
+    suspendedBlock = useRef();
   const dirty = Boolean(form && (JSON.stringify(form) !== JSON.stringify(baseline.current) || reason !== ''));
   const blocker = useBlocker(({
     currentLocation,
@@ -218,17 +228,43 @@ function DraftWorkspace({
   }, [dirty, pending, lifecyclePending, mayBlock]));
   useEffect(() => {
     if (blocker.state === 'blocked') {
+      if (suspended) {
+        const lifecycle = Boolean(lifecyclePending),
+          save = Boolean(pending),
+          state = `${lifecycle}:${save}`;
+        if (suspendedBlock.current !== state) {
+          suspendedBlock.current = state;
+          onSuspendedNavigation({
+            lifecyclePending: lifecycle,
+            savePending: save,
+            stay: () => blocker.reset(),
+            discard: () => blocker.proceed()
+          });
+        }
+        return;
+      }
+      if (suspendedBlock.current !== undefined) {
+        suspendedBlock.current = undefined;
+        onSuspendedNavigation(null);
+      }
       // A save may finish while the prompt is open. Stay on the now-clean draft.
       if (!dirty && !pending && !lifecyclePending) {
         blocker.reset();
         return;
       }
       if (!navigationDialog.current?.open) navigationDialog.current?.showModal();
-    } else navigationDialog.current?.close();
-  }, [blocker, dirty, pending, lifecyclePending]);
+    } else {
+      navigationDialog.current?.close();
+      if (suspendedBlock.current !== undefined) {
+        suspendedBlock.current = undefined;
+        onSuspendedNavigation(null);
+      }
+    }
+  }, [blocker, dirty, pending, lifecyclePending, suspended, onSuspendedNavigation]);
   useEffect(() => {
     mounted.current = true;
     return () => {
+      onSuspendedNavigation(null);
       mounted.current = false;
       ++epoch.current;
       requests.current.forEach(c => c.abort());
@@ -267,10 +303,8 @@ function DraftWorkspace({
       }
     } finally {
       requests.current.delete(control);
-      if (current()) {
-        inflight.current = false;
-        setBusy(false);
-      }
+      inflight.current = false;
+      if (mounted.current) setBusy(false);
     }
   }
   function choose(action) {
@@ -493,7 +527,7 @@ function DraftWorkspace({
         action();
       }}>Discard edits and continue</button><button type="button" onClick={() => setConfirm(null)}>Keep editing</button></div>}
     {notice && !previewOpen && <div className={`ca-feedback ca-${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'} tabIndex={-1} ref={noticeRef}>{notice.kind === 'success' && <Check size={16} aria-hidden="true" />}<p>{notice.text}</p>{notice.code === 'catalog_revision_conflict' && saved && <button type="button" disabled={busy} onClick={() => open(true)}>Review latest revision</button>}</div>}
-    {remote && <section className="ca-review" aria-label="Revision review"><h3>Latest revision {remote.revision}</h3><p>Your local edits are still in the editor. Loading this version will replace them only when you choose.</p><dl><dt>Saved name</dt><dd>{remote.terms.name || 'Not set'}</dd><dt>Saved description</dt><dd>{remote.terms.description || 'Not set'}</dd><dt>Prices / limits / discounts</dt><dd>{remote.terms.prices.length} / {remote.terms.limits.length} / {remote.terms.discounts.length}</dd></dl><details><summary>Review all saved authoring fields</summary><pre>{JSON.stringify(remote, null, 2)}</pre></details><button type="button" onClick={() => adopt(remote)}>Replace local edits with latest</button><button type="button" onClick={() => setRemote(null)}>Keep local edits</button></section>}
+    {remote && <section className="ca-review" aria-label="Revision review"><h3>Latest revision {remote.revision}</h3><p>Your local edits are still in the editor. Loading this version will replace them only when you choose.</p><dl><dt>Saved name</dt><dd>{remote.terms.name || 'Not set'}</dd><dt>Saved description</dt><dd>{remote.terms.description || 'Not set'}</dd><dt>Prices / limits / discounts</dt><dd>{remote.terms.prices.length} / {remote.terms.limits.length} / {remote.terms.discounts.length}</dd></dl><details><summary>Review all saved authoring fields</summary><pre>{JSON.stringify(remote, null, 2)}</pre></details><button type="button" disabled={busy || Boolean(pending)} onClick={() => adopt(remote)}>Replace local edits with latest</button><button type="button" onClick={() => setRemote(null)}>Keep local edits</button></section>}
     {!form ? <section className="ca-welcome"><div className="ca-draft-art" aria-hidden="true"><img src={draftArt} alt="" width="160" height="160" /></div><h2>A workspace for unfinished plans</h2><p>Create a blank draft or open one by ID. Draft editing alone never publishes an offer or changes customer access.</p><button className="wd-primary" type="button" disabled={busy || Boolean(pending) || Boolean(lifecyclePending)} onClick={() => choose(start)}>Create a blank draft</button></section> : <div className="ca-workspace"><div className="ca-editor">
       <div className="ca-document-heading"><div><h2>{form.terms.name || 'Untitled draft'}</h2><p>{saved ? terminal ? `Reviewed revision ${saved.revision}; read only` : `Revision ${saved.revision}` : 'Not saved yet'} <span className="ca-dot">·</span> {dirty ? 'Unsaved changes' : saved ? 'All changes saved' : 'No edits yet'}</p></div><div className="ca-document-controls"><span className="ca-tag">{terminal ? 'Published source; read only' : 'Draft'}</span><span className="ca-close-wrap"><button type="button" className="ca-close-draft" aria-label="Close draft" aria-describedby="ca-close-description" disabled={busy || Boolean(pending) || Boolean(lifecyclePending)} onClick={closeDraft}><X size={17} aria-hidden="true" /></button><span id="ca-close-description" role="tooltip">{pending || lifecyclePending ? 'Resolve the unconfirmed operation before closing. Its recovery identity must be retained.' : busy ? 'Wait for the current operation to finish before closing.' : 'Close this editor and discard unsaved changes. Saved records are retained.'}</span></span></div></div>
       {saved && <p className="ca-muted">Saved draft ID: <code>{saved.draft_id}</code></p>}<details className="ca-ids"><summary>Draft ID & plan identity</summary><p>Draft ID <code>{form.draft_id}</code></p><p>Plan ID <code>{form.plan.plan_id}</code></p><small>Keep the draft ID to reopen it. Private drafts are not stored in this browser.</small></details>

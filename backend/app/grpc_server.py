@@ -508,6 +508,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                     while not system_stopping:
                         read_future = asyncio.ensure_future(run_in_threadpool(system_capture.read_streaming_pcm_chunk, system_session))
                         chunk = await asyncio.wait_for(asyncio.shield(read_future), timeout=2)
+                        if system_stopping:
+                            break
                         now = time.time()*1000
                         if not system_metrics.get('system_first_pcm_chunk_at'): system_metrics['system_first_pcm_chunk_at'] = now
                         if chunk.rms_level > .005 and not system_metrics.get('system_first_non_silent_chunk_at'): system_metrics['system_first_non_silent_chunk_at'] = now
@@ -592,6 +594,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 async def release():
                     nonlocal system_session
                     try:
+                        if system_session is not None and hasattr(system_session, 'stop_requested'):
+                            system_session.stop_requested.set()
                         for task in (system_reader, system_sender):
                             if task: task.cancel()
                         await asyncio.gather(*(t for t in (system_reader, system_sender) if t), return_exceptions=True)
@@ -601,6 +605,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                                 system_session = await asyncio.shield(system_open_future)
                             except Exception:
                                 pass  # An unsuccessful open has no device handle to close.
+                        if system_session is not None and hasattr(system_session, 'stop_requested'):
+                            system_session.stop_requested.set()
                         if read_future:
                             await asyncio.gather(read_future, return_exceptions=True)
                         if system_session:
@@ -760,7 +766,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         if settings.SUBSCRIPTIONS_ENABLED=='true':
                             from app.commercial.admin_access import verified_actor
                             from app.commercial.subscription_auto import AccountAutoLease
-                            account_lease=AccountAutoLease(self._subscriptions.service(),verified_actor(cloud_context.request),audio_source,
+                            actor=await asyncio.to_thread(verified_actor,cloud_context.request)
+                            account_lease=AccountAutoLease(self._subscriptions.service(),actor,audio_source,
                                 run_id=self._client_relay.stream_id if self._client_relay else None)
                             await account_lease.start()
                             if self._client_relay:

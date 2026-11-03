@@ -3,7 +3,7 @@ begin;
 create table public.subscription_relay_connections (
  run_id uuid primary key,
  account_id uuid not null references auth.users(id) on delete restrict,
- session_id uuid not null references public.interview_sessions(id) on delete restrict,
+ session_id uuid not null references public.interview_sessions(id) on delete cascade,
  created_at timestamptz not null default clock_timestamp()
 );
 alter table public.subscription_relay_connections enable row level security;

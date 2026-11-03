@@ -86,7 +86,7 @@ export default function StartupSessionChoiceScreen({
       try {
         const result = await window.electronAPI?.getSubscription?.()
         if (!active || own !== sequence) return
-        setSubscription(result?.ok ? { status: 'ready', account: safeAuthenticatedEmail, plan: result.plan, auto: result.auto } : { status: 'unavailable' })
+        setSubscription(result?.ok ? { status: 'ready', account: safeAuthenticatedEmail, plan: result.plan, auto: result.auto, checkout_ready: result.checkout_ready === true } : { status: 'unavailable' })
       } catch { if (active && own === sequence) setSubscription({ status: 'unavailable' }) }
     }
     refresh()
@@ -401,7 +401,12 @@ export default function StartupSessionChoiceScreen({
                   <p aria-live="polite">{currentSubscription.status === 'ready' ? `Current plan: ${currentSubscription.plan.name}` : currentSubscription.status === 'loading' ? 'Loading current plan…' : 'Current plan temporarily unavailable'}</p>
                   <p>{currentSubscription.status === 'ready' ? autoStatus : 'Auto allowance unavailable'}</p>
                   <p>{currentSubscription.checkout_ready ? 'Review plans and secure checkout on our website.' : 'Checkout coming soon. Compare plans on our website.'}</p>
-                  <button type="button" className="startup-choice-link-button" onClick={() => window.electronAPI?.openUpgrade?.().catch(() => setMessage('Unable to open the website.'))}>
+                  <button type="button" className="startup-choice-link-button" onClick={async () => {
+                    try {
+                      const result = await window.electronAPI?.openUpgrade?.()
+                      if (result?.ok !== true) setMessage('Unable to open the website.')
+                    } catch { setMessage('Unable to open the website.') }
+                  }}>
                     Upgrade
                     <img src={choiceCardArrowUrl} alt="" aria-hidden="true" />
                   </button>

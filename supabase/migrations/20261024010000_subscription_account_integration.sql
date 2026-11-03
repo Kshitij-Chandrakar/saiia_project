@@ -131,16 +131,19 @@ declare b public.account_plan_bindings; r public.subscription_payment_receipts; 
 begin
  if session_user<>'usage_binding_executor' or current_setting('role',true)<>'none' then raise exception 'denied' using errcode='42501'; end if;
  select * into b from public.account_plan_bindings where account_id=p_account for update;
- if not found or not b.active then raise exception 'binding required' using errcode='42501'; end if;
+ if not found then raise exception 'binding required' using errcode='42501'; end if;
  at_time:=clock_timestamp();
  select * into r from public.subscription_payment_receipts where event_id=p_event;
  if found then
    if r.account_id<>p_account or r.semantic_hash<>p_hash then raise exception 'payment identity conflict' using errcode='P0003'; end if;
    return r.result;
  end if;
+ if not b.active then raise exception 'binding required' using errcode='42501'; end if;
  if p_until is null or not isfinite(p_until) or p_until<=at_time or not exists(
    select 1 from public.catalog_price_versions where price_id=p_price and offer_version_id=p_offer) then
    raise exception 'invalid verified payment' using errcode='22023'; end if;
+ if b.valid_until is not null and b.valid_until>at_time and p_until<b.valid_until then
+   raise exception 'payment would shorten paid period' using errcode='22023'; end if;
  update public.account_plan_bindings set offer_version_id=p_offer,price_id=p_price,valid_from=at_time,valid_until=p_until,
    active=true,revision=revision+1,source_ref='verified.payment',policy_version='subscriptions.approved.2026-10-24'
    where account_id=p_account returning * into b;
@@ -288,6 +291,8 @@ begin
       where x->>'feature'=a->>'feature' and x->>'allowed'='true') then raise exception 'meter denied' using errcode='42501'; end if;
     if a->>'mode' not in ('limited','unlimited') or (a->>'mode'='limited' and a->>'amount' is null) then
       raise exception 'unsupported allowance' using errcode='55000'; end if;
+    if p_document->>'meter'='auto.authorized_running' then
+      raise exception 'scaled meter requires auto channel' using errcode='55000'; end if;
     periods:=public.usage_period_bounds(v_now,b.signup_at,coalesce(a->'period'->>'unit','lifetime'));
     insert into public.usage_periods(account_id,meter,starts_at,ends_at,mode,capacity,allowance)
       values(p_account,p_document->>'meter',periods[1],periods[2],a->>'mode',capacity,(a->>'amount')::bigint) on conflict(account_id,meter,starts_at) do update set mode=excluded.mode,allowance=excluded.allowance,ends_at=excluded.ends_at;

@@ -53,8 +53,13 @@ export async function verifyAuthEmailAction(search, client, onEmailVerified = as
 async function parseJsonResponse(response, fallbackMessage) {
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) {
-    const detail = typeof payload.detail === 'string' ? payload.detail.trim() : ''
-    throw new Error(detail || fallbackMessage)
+    const rawDetail = payload.detail
+    const detail = typeof rawDetail === 'string' ? rawDetail.trim() : ''
+    const error = new Error(detail || fallbackMessage)
+    if (rawDetail && typeof rawDetail === 'object' && typeof rawDetail.code === 'string') {
+      error.code = rawDetail.code
+    }
+    throw error
   }
   return payload
 }
