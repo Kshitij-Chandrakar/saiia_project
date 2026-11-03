@@ -766,7 +766,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         if settings.SUBSCRIPTIONS_ENABLED=='true':
                             from app.commercial.admin_access import verified_actor
                             from app.commercial.subscription_auto import AccountAutoLease
-                            account_lease=AccountAutoLease(self._subscriptions.service(),verified_actor(cloud_context.request),audio_source,
+                            actor=await asyncio.to_thread(verified_actor,cloud_context.request)
+                            account_lease=AccountAutoLease(self._subscriptions.service(),actor,audio_source,
                                 run_id=self._client_relay.stream_id if self._client_relay else None)
                             await account_lease.start()
                             if self._client_relay:

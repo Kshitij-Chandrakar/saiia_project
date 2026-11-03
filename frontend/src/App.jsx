@@ -1286,6 +1286,7 @@ function MainWindow() {
   const lastCheckedAutoCandidateRef = useRef('')
   const autoStartTokenRef = useRef(0)
   const autoStartingRef = useRef(false)
+  const hostedDisplayCaptureRequestRef = useRef(null)
   const autoGrpcSessionRef = useRef(null)
   const autoStreamingSocketRef = useRef(null)
   const autoStreamingClosingRef = useRef(false)
@@ -2058,6 +2059,9 @@ function MainWindow() {
       autoStartTokenRef.current++
       autoStartingRef.current = false
       autoModeRef.current = false
+      const pendingHostedDisplayCapture = hostedDisplayCaptureRequestRef.current
+      hostedDisplayCaptureRequestRef.current = null
+      pendingHostedDisplayCapture?.reject(Error('Authorization ended'))
       autoGrpcSessionRef.current?.close()
       autoGrpcSessionRef.current = null
       if (autoStreamingSocketRef.current) {
@@ -2925,14 +2929,15 @@ function MainWindow() {
     form.append('mode', mode)
 
     const transcriptionStarted = performance.now()
-    const transcribeResponse = await fetch(`${BACKEND_URL}/transcribe/`, {
-      method: 'POST',
-      body: form,
-    })
-    const transcribePayload = await parseJsonResponse(
-      transcribeResponse,
-      'Could not transcribe the recording.'
-    )
+    let transcribePayload
+    if (mode === 'manual' && startupSessionConfigRef.current?.activeSessionId && window.electronAPI?.transcribeAudio) {
+      const result = await window.electronAPI.transcribeAudio({ bytes: new Uint8Array(await blob.arrayBuffer()), contentType: blob.type.split(';')[0] })
+      if (!result?.ok) throw Error('Transcription is unavailable. Check your account connection and retry.')
+      transcribePayload = result.payload
+    } else {
+      const transcribeResponse = await fetch(`${BACKEND_URL}/transcribe/`, { method: 'POST', body: form })
+      transcribePayload = await parseJsonResponse(transcribeResponse, 'Could not transcribe the recording.')
+    }
     if (!isActive()) return { text: '', noSpeech: true }
     const text = transcribePayload.text || ''
     const noSpeech = Boolean(transcribePayload.no_speech) || !text.trim()
@@ -2984,8 +2989,7 @@ function MainWindow() {
       transcribePayload.transcription_ms ??
       Number((performance.now() - transcriptionStarted).toFixed(2))
     setTranscript(text)
-    console.info('SAIIA transcript', {
-      text,
+    console.info('SAIIA transcription metrics', {
       upload_ms: transcribePayload.upload_ms,
       transcription_ms: transcriptionMs,
       mode,
@@ -4806,6 +4810,24 @@ function MainWindow() {
   }
 
   const startAutoMode = async () => {
+    if (hostedDisplayCaptureRequestRef.current) {
+      const request = hostedDisplayCaptureRequestRef.current
+      try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: { width: 16, height: 16, frameRate: 1 }, audio: true })
+        if (hostedDisplayCaptureRequestRef.current !== request) {
+          stream.getTracks().forEach(track => track.stop())
+          return
+        }
+        hostedDisplayCaptureRequestRef.current = null
+        request.resolve(stream)
+      } catch (error) {
+        if (hostedDisplayCaptureRequestRef.current === request) {
+          hostedDisplayCaptureRequestRef.current = null
+          request.reject(error)
+        }
+      }
+      return
+    }
     if (manualLiveStartIdRef.current || autoModeRef.current || autoStartingRef.current) return
     const sourceMode = getSelectedAudioSourceLabel(audioSourcesRef.current)
     setAutoStartClicked(true)
@@ -4884,7 +4906,11 @@ function MainWindow() {
     const startToken = ++autoStartTokenRef.current
     autoStartingRef.current = true
     try {
-      if (sourceMode === 'microphone' || sourceMode === 'both') {
+      let hostedCapture = false
+      try {
+        hostedCapture = (await window.electronAPI?.getGrpcRealtimeStatus?.())?.clientAudioRelay === true
+      } catch { /* Preserve local microphone capture when IPC status is unavailable. */ }
+      if (!hostedCapture && (sourceMode === 'microphone' || sourceMode === 'both')) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         if (startToken !== autoStartTokenRef.current) { stream.getTracks().forEach(track => track.stop()); return }
         manualRecordingCancelledRef.current = false
@@ -4937,6 +4963,10 @@ function MainWindow() {
         }
         const session = await createGrpcAutoSession({ api: window.electronAPI, stream: streamRef.current, source: sourceMode, isCurrent,
           context: startupSessionConfigRef.current || {},
+          requestHostedDisplayCapture: sourceMode === 'microphone' ? undefined : () => new Promise((resolve, reject) => {
+            hostedDisplayCaptureRequestRef.current = { resolve, reject }
+            setStatus('Authorization confirmed. Click Start Auto Mode again to choose computer audio.')
+          }),
           onCloudStatus: next => {
             if (!isCurrent()) return
             setAutoGrpcStatus(next)
@@ -5076,6 +5106,9 @@ function MainWindow() {
   }
 
   const stopAutoMode = () => {
+    const pendingHostedDisplayCapture = hostedDisplayCaptureRequestRef.current
+    hostedDisplayCaptureRequestRef.current = null
+    pendingHostedDisplayCapture?.reject(Error('Authorization ended'))
     autoStartTokenRef.current++
     const stopToken = autoStartTokenRef.current
     setGenerationDiagnostics(current => ({ ...current, active_audio_source: 'none', stop_cleanup_status: 'cleaning' }))
@@ -6553,7 +6586,9 @@ function MainWindow() {
         }
 
         if (action === 'toggle-auto-generate') {
-          if (autoMode) {
+          if (hostedDisplayCaptureRequestRef.current) {
+            await startAutoMode()
+          } else if (autoMode) {
             stopAutoMode()
           } else {
             await startAutoMode()

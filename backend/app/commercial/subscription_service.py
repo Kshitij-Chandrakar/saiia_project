@@ -56,25 +56,7 @@ class SubscriptionService(AccountEntitlements):
         self._channel._transaction(False, work)
 
     def require_manual_answers(self, actor: VerifiedActor) -> None:
-        subject = self._channel._actor(actor)
-
-        def work(query: Query) -> None:
-            record = json_query(
-                query, "SELECT public.subscription_current(%s,false)", (subject,)
-            )
-            snapshot = validated_terms(record, self._models)
-            if not any(
-                e.feature == "answers.generate" and e.allowed
-                for e in snapshot.terms.entitlements
-            ):
-                raise CatalogStoreError(ErrorCode.DENIED)
-            if not any(
-                a.meter == "answers.completed" and a.mode == "unlimited"
-                for a in getattr(snapshot.terms, "allowances", ())
-            ):
-                raise CatalogStoreError(ErrorCode.UNAVAILABLE)
-
-        self._channel._transaction(False, work)
+        self.require_unlimited(actor, "answers.generate", "answers.completed")
 
     def require_feature(self, actor: VerifiedActor, feature: str) -> None:
         subject = self._channel._actor(actor)
