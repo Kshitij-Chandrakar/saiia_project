@@ -57,6 +57,19 @@ test('G7 partials only preview, deltas render before done, continuous capture an
   assert.equal(f.counts().subscribed, false)
 })
 
+test('completed v1 answers with failed cloud saves are not reported as saved', async () => {
+  const f = fixture(), session = await createGrpcAutoSession(f.options)
+  const identity = { run: 1, epoch: 'epoch-1', sessionId: 'session-1', requestId: 'request-1', accepted_turn: '1', display_revision: '0', retry_attempt: '0', provider_attempt: '0', terminal: false }
+  try {
+    f.emit({ questionsDetectedCount: 1, currentQuestion: 'Explain transactions', answerStreamVersion: 1,
+      answerRequestId: 'request-1', answerStreamIdentity: identity })
+    f.emit({ currentAnswer: 'Answer', lastAnswerStatus: 'answer_completed', cloudAnswerSaveStatus: 'failed',
+      answerStreamIdentity: { ...identity, terminal: true } })
+    assert.equal(f.answers.at(-1).status, 'complete')
+    assert.equal(f.answers.at(-1).answerSaved, false)
+  } finally { await session.close() }
+})
+
 test('G9 failure before audio or question commitment falls back once and releases subscription/capture', async () => {
   const f = fixture(), session = await createGrpcAutoSession(f.options)
   f.emit({ connectionStatus: 'error' }); f.emit({ connectionStatus: 'error' })
