@@ -53,6 +53,7 @@ export async function createGrpcAutoSession({ api, stream, getUserMedia, source 
       const acquired = await createHostedCapture({ source, signal: hostedAbort.signal, displayStream })
       const current = await api.getGrpcRealtimeStatus().catch(() => null)
       if (closed || !isCurrent() || !canContinue() || !current?.autoPipelineReady || current.manualRun !== connected.manualRun) { acquired.close(); throw Error('Authorization ended') }
+      if (stream !== acquired.stream) stream?.getTracks?.().forEach(track => track.stop())
       hostedCapture = acquired; stream = acquired.stream
     }
     if (!stream && getUserMedia) stream = await getUserMedia()
@@ -67,7 +68,9 @@ export async function createGrpcAutoSession({ api, stream, getUserMedia, source 
     if (source === 'both') stream?.getTracks().forEach(track => track.stop())
     clearInterval(timer); clearTimeout(deadline); clearTimeout(cooldownTimer); unsubscribe?.()
     let captureFailed = false
-    try { mic.close(); hostedCapture?.close() } catch { captureFailed = true }
+    for (const cleanup of [() => mic.close(), () => hostedCapture?.close()]) {
+      try { cleanup() } catch { captureFailed = true }
+    }
     const cleaned = status => { onLifecycle({ stop_cleanup_status: status }); return status }
     cleanupPromise = api.closeGrpcRealtime(connected.manualRun).then(result => cleaned(captureFailed || result?.systemCleanupStatus === 'failed' || result?.systemCleanupStatus === 'cleaning' ? 'failed' : 'clean'), () => cleaned('failed'))
     lastText = ''; version = -1

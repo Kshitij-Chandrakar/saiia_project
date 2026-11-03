@@ -374,3 +374,27 @@ test('hosted system capture waits for an authorized user-gesture display stream'
   assert.equal(captured, display)
   await session.close()
 })
+
+test('hosted capture releases a replaced caller stream', async () => {
+  const f = fixture({ connectGrpcAutoPipeline: async () => ({ autoPipelineReady: true,
+    connectionStatus: 'connected', clientAudioRelay: true, manualRun: 1, systemAudio: { active_audio_source: 'microphone' } }) })
+  let stopped = 0
+  const previous = { getTracks: () => [{ stop: () => { stopped++ } }] }
+  const hosted = { getTracks: () => [], getAudioTracks: () => [] }
+  const session = await createGrpcAutoSession({ ...f.options, stream: previous,
+    createHostedCapture: async () => ({ stream: hosted, close() {} }),
+    createMic: options => ({ start: async () => { await options.getUserMedia() }, close() {} }) })
+  assert.equal(stopped, 1)
+  await session.close()
+})
+
+test('hosted capture cleanup still runs when microphone cleanup fails', async () => {
+  const f = fixture({ connectGrpcAutoPipeline: async () => ({ autoPipelineReady: true,
+    connectionStatus: 'connected', clientAudioRelay: true, manualRun: 1, systemAudio: { active_audio_source: 'microphone' } }) })
+  let hostedClosed = 0
+  const session = await createGrpcAutoSession({ ...f.options, stream: undefined,
+    createHostedCapture: async () => ({ stream: { getTracks: () => [], getAudioTracks: () => [] }, close: () => { hostedClosed++ } }),
+    createMic: options => ({ start: async () => { await options.getUserMedia() }, close: () => { throw Error('mic close failed') } }) })
+  assert.equal(await session.close(), 'failed')
+  assert.equal(hostedClosed, 1)
+})
