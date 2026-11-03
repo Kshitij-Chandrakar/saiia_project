@@ -76,15 +76,25 @@ test('actual combined renderer acquires one microphone and uses one gRPC factory
   assert.equal(stopped, 1)
 })
 
-test('Stop during combined permission wait releases late tracks without opening gRPC', async () => {
+test('Stop during combined permission wait releases late tracks without opening gRPC', { timeout: 1000 }, async () => {
   let resolve, stopped = 0
-  const f = harness({ selected: 'both', getUserMedia: () => new Promise(done => { resolve = done }) })
+  let permissionStarted
+  const permissionRequested = new Promise(done => { permissionStarted = done })
+  const f = harness({ selected: 'both', getUserMedia: () => new Promise(done => {
+    resolve = done
+    permissionStarted()
+  }) })
   const pending = f.start()
+  // Startup awaits status before requesting permission. Stop only once that
+  // actual request is pending, rather than assuming it starts synchronously.
+  await permissionRequested
   f.context.autoStartTokenRef.current++
   resolve({ getTracks: () => [{ stop() { stopped++ } }] })
   await pending
   assert.equal(stopped, 1)
   assert.equal(f.counts().connects, 0)
+  assert.equal(f.context.streamRef.current, null)
+  assert.equal(f.context.autoGrpcSessionRef.current, null)
 })
 
 test('Stop while Computer health is pending suppresses late startup', async () => {

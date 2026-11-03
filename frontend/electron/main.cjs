@@ -2,6 +2,7 @@ const {
   app,
   BrowserWindow,
   desktopCapturer,
+  session,
   globalShortcut,
   ipcMain,
   Menu,
@@ -312,7 +313,7 @@ function cancelAllAnswerStreams() {
 
 const STARTUP_WINDOW_LAYOUTS = Object.freeze({
   auth: Object.freeze({ width: 504, height: 462, minWidth: 426, minHeight: 384 }),
-  home: Object.freeze({ width: 428, height: 462, minWidth: 428, minHeight: 384 }),
+  home: Object.freeze({ width: 428, height: 560, minWidth: 428, minHeight: 384 }),
   history: Object.freeze({ width: 428, height: 514, minWidth: 428, minHeight: 384 }),
   setup: Object.freeze({ width: 421, height: 484, minWidth: 421, minHeight: 484 }),
 })
@@ -435,7 +436,7 @@ const DESKTOP_AUTH_ENV_KEYS = new Set([
 ])
 
 loadDesktopEnvFiles()
-const grpcRealtimeClient = new GrpcRealtimeClient({ getCloudAuthorization: () => desktopAuthSessionManager.getGrpcCloudAuthorization(), getCloudAuthAvailable: () => Boolean(desktopAuthSessionManager?.isGrpcCloudAuthAvailable()) })
+const grpcRealtimeClient = new GrpcRealtimeClient({ allowHostedLoopback: global.__C132_ISOLATED_HOSTED__ === true, getBackendUrl: () => desktopAuthSessionManager?.backendUrl, getCloudAuthorization: () => desktopAuthSessionManager.getGrpcCloudAuthorization(), getCloudAuthAvailable: () => Boolean(desktopAuthSessionManager?.isGrpcCloudAuthAvailable()) })
 
 function loadDesktopEnvFiles() {
   const repoRoot = path.resolve(__dirname, '../..')
@@ -545,7 +546,11 @@ function createDesktopAuthSessionManager() {
     sessionPath: getDesktopAuthSessionPath(),
     safeStorage,
     openExternal: (url) => shell.openExternal(url),
-    onScreenContextBoundary: () => screenContext.invalidate(),
+    onScreenContextBoundary: () => {
+      screenContext.invalidate()
+      grpcRealtimeClient.close()
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('subscription:invalidate')
+    },
     onDiagramAuthBoundary: () => answerDiagrams.cancelAll(),
   })
 }
@@ -1925,6 +1930,28 @@ function checkScreenSharing() {
 
 app.on('ready', async () => {
   desktopAuthSessionManager = createDesktopAuthSessionManager()
+  if (process.env.ELECTRON_HOSTED_AUDIO_ENABLED === 'true') {
+    let grantedDisplayRun = 0
+    session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
+      try {
+        const status = grpcRealtimeClient.getStatus()
+        const expectedFrame = mainWindow?.webContents.mainFrame
+        if (process.platform !== 'win32' || !expectedFrame || !request.frame ||
+            request.frame.processId !== expectedFrame.processId || request.frame.routingId !== expectedFrame.routingId ||
+            !status.clientAudioRelay || !status.autoPipelineReady || status.connectionStatus !== 'connected' ||
+            !['system', 'both'].includes(status.systemAudio.active_audio_source)) return callback({})
+        const run = status.manualRun
+        if (grantedDisplayRun === run) return callback({})
+        grantedDisplayRun = run
+        const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } })
+        const current = grpcRealtimeClient.getStatus()
+        if (current.manualRun !== run || !current.autoPipelineReady || current.connectionStatus !== 'connected') return callback({})
+        const primary = sources.find(source => source.display_id === String(screen.getPrimaryDisplay().id))
+        if (!primary) return callback({})
+        callback({ video: primary, audio: 'loopback' })
+      } catch { callback({}) }
+    })
+  }
   const bufferedCallbacks = takeBufferedDesktopAuthCallbacks()
   validateMainWindowIpcSender = createIpcSenderValidator({
     getExpectedWindow: () => mainWindow,
@@ -2157,6 +2184,11 @@ ipcMain.handle('generate:answer', async (event, body) => {
   return desktopAuthSessionManager.generateAnswer(body)
 })
 
+ipcMain.handle('audio:transcribe', async (event, body) => {
+  validateTrustedRendererIpc(event)
+  return desktopAuthSessionManager.transcribeAudio(body)
+})
+
 ipcMain.handle('generate:answer:stream:start', async (event, body) => {
   validateAuthIpc(event)
   const clientRequestId = typeof body?.request_id === 'string' ? body.request_id.trim() : ''
@@ -2276,6 +2308,19 @@ ipcMain.handle('dashboard:open', async (event) => {
   const dashboardUrl = getDesktopDashboardUrl()
   await shell.openExternal(dashboardUrl)
   return { ok: true }
+})
+
+ipcMain.handle('subscription:current', async (event) => {
+  validateTrustedRendererIpc(event)
+  return desktopAuthSessionManager.getSubscription()
+})
+
+ipcMain.handle('subscription:upgrade', async (event) => {
+  validateTrustedRendererIpc(event)
+  if (desktopAuthSessionManager?.getSafeState?.().status !== 'connected') return { ok: false, reason: 'auth-required' }
+  const website = parseHttpUrl(getConfiguredWebAuthUrl(), 'Desktop web auth URL')
+  await shell.openExternal(new URL('/#pricing', website.origin).toString())
+  return { ok: true, checkout_ready: false }
 })
 
 ipcMain.on('overlay:update-state', (_event, nextState) => {

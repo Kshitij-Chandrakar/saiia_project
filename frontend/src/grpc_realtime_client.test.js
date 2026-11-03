@@ -25,6 +25,27 @@ function fixture(env = {}, failure = false, getCloudAuthorization) {
 }
 const enabled = { ELECTRON_GRPC_REALTIME_ENABLED: 'true' }
 
+test('subscription rejection during startup preserves only allowlisted authority guidance', async () => {
+  for (const code of ['subscription_relay_replay', 'subscription_auto_busy', 'subscription_auto_exhausted', 'subscription_auto_expired', 'subscription_denied', 'subscription_unavailable', 'subscription_auto_required']) {
+    const f = fixture(enabled)
+    f.stream.write = event => queueMicrotask(() => f.stream.emit('data', {
+      request_id: event.request_id, error: { code, message: 'private SQL token transcript' },
+    }))
+    const status = await f.client.connect()
+    assert.equal(status.connectionStatus, 'error')
+    assert.equal(status.grpc_last_failure_reason, code)
+    assert.doesNotMatch(status.lastErrorMessage, /private|SQL|token|transcript|STT/)
+    if (code === 'subscription_auto_busy') assert.match(status.lastErrorMessage, /already running/)
+    if (code === 'subscription_auto_expired') {
+      assert.match(status.lastErrorMessage, /Check your remaining allowance/)
+      assert.doesNotMatch(status.lastErrorMessage, /Start a new run to continue/)
+      assert.equal(f.counts().calls, 1)
+    }
+    assert.equal(status.autoPipelineReady, false)
+    f.client.close()
+  }
+})
+
 test('question diagnostics redact transcript excerpts from older servers and retain counters', async () => {
   const f = fixture(enabled)
   await f.client.connect()
@@ -143,7 +164,7 @@ test('enabled loopback client handshakes, pings, and closes resources', async ()
   assert.equal(f.counts().calls, 1)
   assert.equal(f.client.getStatus().connectionStatus, 'connected')
   assert.equal((await f.client.ping()).lastPingResult, 'pong')
-  assert.deepEqual(Object.keys(f.client.getStatus()).sort(), ['answerFailureRequestId', 'answerRequestId', 'answerFailureCode', 'grpc_health', 'grpc_last_health_success', 'grpc_last_health_failure', 'grpc_health_failure_reason', 'grpc_stt_available', 'grpc_answer_available', 'grpc_auto_available', 'grpc_cloud_context_available', 'grpc_system_audio_available', 'grpc_combined_audio_available', 'systemCleanupStatus', 'grpc_audio_sent', 'grpc_last_failure_reason', 'generation_committed', 'question_transport', 'answer_transport', 'question_stage', 'systemAudio', 'systemAudioPipelineSupported', 'questionIntake', 'cloudAuthAvailable', 'cloudContextPipelineEnabled', 'cloudAuthStatus', 'cloudSessionVerified', 'cloudContextLoaded', 'cloudAnswerSaveStatus', 'cloudBlockedReason', 'autoPipelineEnabled', 'autoPipelineReady', 'autoStatus', 'autoEventVersion', 'manualEventVersion', 'manualRun', 'manualTimings', 'manualPipelineEnabled', 'manualPipelineReady', 'manualStatus', 'audioBytesSent', 'audioChunksSent', 'audioEnabled', 'backendBytesReceived', 'backendChunksReceived', 'connectionStatus', 'currentTranscript', 'enabled', 'finalTranscriptCount', 'lastAudioStatus', 'lastErrorMessage', 'lastPingResult', 'lastTranscriptEventType', 'partialTranscriptCount', 'pcmDiagnostics', 'sttBridgeConnected', 'sttBytesForwarded', 'sttCallbackCount', 'sttChunksForwarded', 'sttEnabled', 'sttProvider', 'sttStatus', 'nonSilentChunks', 'answerStreamEnabled', 'answerStreamVersion', 'answerStreamIdentity', 'questionsDetectedCount', 'answerStartedCount', 'answerDeltaCount', 'answerCompletedCount', 'lastAnswerStatus', 'answerCategory', 'answerProvider', 'currentQuestion', 'currentAnswer'].sort())
+  assert.deepEqual(Object.keys(f.client.getStatus()).sort(), ['clientAudioRelay', 'answerFailureRequestId', 'answerRequestId', 'answerFailureCode', 'grpc_health', 'grpc_last_health_success', 'grpc_last_health_failure', 'grpc_health_failure_reason', 'grpc_stt_available', 'grpc_answer_available', 'grpc_auto_available', 'grpc_cloud_context_available', 'grpc_system_audio_available', 'grpc_combined_audio_available', 'systemCleanupStatus', 'grpc_audio_sent', 'grpc_last_failure_reason', 'generation_committed', 'question_transport', 'answer_transport', 'question_stage', 'systemAudio', 'systemAudioPipelineSupported', 'questionIntake', 'cloudAuthAvailable', 'cloudContextPipelineEnabled', 'cloudAuthStatus', 'cloudSessionVerified', 'cloudContextLoaded', 'cloudAnswerSaveStatus', 'cloudBlockedReason', 'autoPipelineEnabled', 'autoPipelineReady', 'autoStatus', 'autoEventVersion', 'manualEventVersion', 'manualRun', 'manualTimings', 'manualPipelineEnabled', 'manualPipelineReady', 'manualStatus', 'audioBytesSent', 'audioChunksSent', 'audioEnabled', 'backendBytesReceived', 'backendChunksReceived', 'connectionStatus', 'currentTranscript', 'enabled', 'finalTranscriptCount', 'lastAudioStatus', 'lastErrorMessage', 'lastPingResult', 'lastTranscriptEventType', 'partialTranscriptCount', 'pcmDiagnostics', 'sttBridgeConnected', 'sttBytesForwarded', 'sttCallbackCount', 'sttChunksForwarded', 'sttEnabled', 'sttProvider', 'sttStatus', 'nonSilentChunks', 'answerStreamEnabled', 'answerStreamVersion', 'answerStreamIdentity', 'questionsDetectedCount', 'answerStartedCount', 'answerDeltaCount', 'answerCompletedCount', 'lastAnswerStatus', 'answerCategory', 'answerProvider', 'currentQuestion', 'currentAnswer'].sort())
   await f.client.endSession()
   assert.deepEqual(f.counts(), { calls: 1, canceled: 1, closed: 1 })
   assert.equal(f.client.pending.size, 0)
@@ -692,6 +713,29 @@ function computerFixture() {
   return { ...f, finish: (...args) => finish(...args) }
 }
 
+test('source restart refreshes a cached busy device denial after owned cleanup', async () => {
+  const f = computerFixture()
+  const first = await f.client.connectAuto({ source: 'system' })
+  const closing = f.client.close(first.manualRun)
+  f.client.health.grpc_combined_audio_available = false
+  let probes = 0
+  f.client.checkHealth = async () => {
+    probes++
+    assert.equal(f.client.stream, null)
+    assert.equal(f.client.systemCleanupStatus, 'clean')
+    f.client.health.grpc_combined_audio_available = true
+    return f.client.getStatus()
+  }
+  const restarting = f.client.connectAuto({ source: 'both' })
+  assert.equal(probes, 0)
+  f.finish()
+  await closing
+  const second = await restarting
+  assert.equal(probes, 1)
+  assert.equal(f.writes.filter(event => event.start_session).length, 2)
+  const stopped = f.client.close(second.manualRun); f.finish(); await stopped
+})
+
 test('combined main accepts microphone PCM with sequencing and waits for native cleanup before restart', async () => {
   const f = computerFixture()
   f.client.health.grpc_combined_audio_available = true
@@ -786,4 +830,31 @@ test('Computer cleanup failure is reported and prevents reopen without fresh bac
   await f.client.connectAuto({ source: 'system' })
   assert.equal(f.writes.filter(x => x.start_session).length, 1)
   assert.equal(f.client.getStatus().grpc_last_failure_reason, 'system_cleanup_failed')
+})
+
+test('account Auto heartbeat pings, closes on account change and clears private answer state', async () => {
+  const originalSet = global.setInterval, originalClear = global.clearInterval
+  let tick, cleared = false, current = true
+  global.setInterval = (fn, ms) => { assert.equal(ms, 5000); tick = fn; return { unref() {} } }
+  global.clearInterval = () => { cleared = true }
+  const f = fixture({ ...enabled, ELECTRON_GRPC_AUDIO_ENABLED: 'true', USE_GRPC_AUTO_PIPELINE: 'true', USE_GRPC_CLOUD_CONTEXT_PIPELINE: 'true' }, false,
+    async () => ({ authorization: 'Bearer synthetic', isCurrent: () => current }))
+  try {
+    await f.client.connectAuto({ activeSessionId: '11111111-1111-4111-8111-111111111111' })
+    assert.equal(typeof tick, 'function')
+    await tick()
+    assert.ok(f.writes.some(event => event.ping))
+    f.client.currentQuestion = 'Private prior question'
+    f.client.currentAnswer = 'Private prior answer'
+    current = false
+    await tick()
+    assert.equal(f.counts().canceled, 1)
+    assert.equal(f.client.currentQuestion, '')
+    assert.equal(f.client.currentAnswer, '')
+    assert.equal(cleared, true)
+  } finally {
+    await f.client.close()
+    global.setInterval = originalSet
+    global.clearInterval = originalClear
+  }
 })

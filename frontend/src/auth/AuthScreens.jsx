@@ -34,6 +34,7 @@ import './auth.css'
 import './account-setup-recovery.css'
 import DashboardLayout from './DashboardLayout'
 import DashboardLoading from './DashboardLoading'
+import ResumeAccessSelection from './ResumeAccessSelection'
 import WebsiteResumes from './WebsiteResumes'
 import DashboardOverview from './DashboardOverview'
 import WebsiteSessionTable from './WebsiteSessionTable'
@@ -1694,6 +1695,7 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
   const transcriptDeletion = useRef(false)
   const transcriptEpoch = useRef(0)
   const notesRequest = useRef(0)
+  const notesIdentity = useRef(null)
   const [transcriptEntries, setTranscriptEntries] = useState([])
   const [loadedTranscriptSessionId, setLoadedTranscriptSessionId] = useState('')
   const [transcriptLoading, setTranscriptLoading] = useState(false)
@@ -1746,6 +1748,7 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
 
   useEffect(() => () => {
     resetAskAIState()
+    notesIdentity.current = null
   }, [])
   const profileBootstrapDisabled = bootstrapLoading || logoutPending
 
@@ -2041,18 +2044,28 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
         setNotesError('Could not verify AI notes generation access. Please sign in again.')
         return
       }
+      const semantics = `${data.session.user.id}:${normalizedSessionId}:${Boolean(forceRegenerate)}`
+      if (notesIdentity.current?.semantics !== semantics) notesIdentity.current = { semantics, sessionId: normalizedSessionId, forceRegenerate: Boolean(forceRegenerate), key: crypto.randomUUID() }
       const result = await generateInterviewSessionNotes(data.session.access_token, normalizedSessionId, {
+        requestId: notesIdentity.current.key,
         backendUrl,
         forceRegenerate,
       })
       if (!activeRef.current || request !== notesRequest.current) return
       setSessionNotes(result)
+      notesIdentity.current = null
     } catch (generateError) {
       if (!activeRef.current || request !== notesRequest.current) return
+      if (generateError?.code === 'notes_operation_failed') notesIdentity.current = null
       setNotesError(String(generateError?.message || '').trim() || 'Could not generate AI notes. Please try again.')
     } finally {
       if (activeRef.current && request === notesRequest.current) { setNotesLoading(false); setNotesGenerateKey('') }
     }
+  }
+
+  function retryNotesGenerate(sessionId) {
+    const existing = notesIdentity.current
+    handleNotesGenerate(sessionId, existing?.sessionId === String(sessionId || '').trim() ? existing.forceRegenerate : false)
   }
 
   async function handleAskAIToggle(sessionId, { reload = false } = {}) {
@@ -2349,7 +2362,7 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
                           <button
                             className="auth-session-history__action"
                             type="button"
-                            onClick={() => handleNotesGenerate(session.id, true)}
+                            onClick={() => retryNotesGenerate(session.id)}
                             disabled={Boolean(notesGenerateKey)}
                           >
                             Retry AI Notes
@@ -2519,6 +2532,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
   const fileInputRef = useRef(null)
   const returnFocusRef = useRef(null)
   const operationRef = useRef(null)
+  const uploadIdentityRef = useRef(null)
   const [dialog, setDialog] = useState(null)
   const [manual, setManual] = useState(false)
   const [manualDraft, setManualDraft] = useState(null)
@@ -2528,6 +2542,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
     return () => {
       confirmControllerRef.current?.abort()
       operationRef.current?.abort()
+      uploadIdentityRef.current = null
     }
   }, [])
 
@@ -2673,7 +2688,8 @@ function WebsiteResumeContent({ backendUrl, user }) {
 
     try {
       const token = await getSessionToken()
-      const uploaded = await uploadCloudResume(token, file, { backendUrl, signal: controller.signal })
+      if (uploadIdentityRef.current?.file !== file || uploadIdentityRef.current?.account !== user.user_id) uploadIdentityRef.current = { file, account: user.user_id, key: crypto.randomUUID() }
+      const uploaded = await uploadCloudResume(token, file, { backendUrl, signal: controller.signal, requestId: uploadIdentityRef.current.key })
       if (controller.signal.aborted) return
       setResumeRecord(uploaded)
       setReviewCandidate(uploaded)
@@ -2854,6 +2870,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
         setDialog(null)
       }
       setPhase('idle')
+      setStatusAttempt(value => value + 1)
       setManualDraft(null)
       setMessage('Resume deleted.')
     } catch (deleteError) {
@@ -2908,6 +2925,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
   }
 
   return <DashboardLayout user={user} title="Resumes">
+    <ResumeAccessSelection user={user} backendUrl={backendUrl} refreshKey={statusAttempt + ':' + phase} onChanged={() => setStatusAttempt(value => value + 1)} />
     <WebsiteResumes currentResume={currentResume} candidate={reviewCandidate || resumeRecord}
       phase={phase} busy={busy} file={file} error={error} message={message}
       dialog={dialog} onClose={() => setDialog(null)} onUpload={openUpload}

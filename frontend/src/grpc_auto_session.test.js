@@ -57,6 +57,19 @@ test('G7 partials only preview, deltas render before done, continuous capture an
   assert.equal(f.counts().subscribed, false)
 })
 
+test('completed v1 answers with failed cloud saves are not reported as saved', async () => {
+  const f = fixture(), session = await createGrpcAutoSession(f.options)
+  const identity = { run: 1, epoch: 'epoch-1', sessionId: 'session-1', requestId: 'request-1', accepted_turn: '1', display_revision: '0', retry_attempt: '0', provider_attempt: '0', terminal: false }
+  try {
+    f.emit({ questionsDetectedCount: 1, currentQuestion: 'Explain transactions', answerStreamVersion: 1,
+      answerRequestId: 'request-1', answerStreamIdentity: identity })
+    f.emit({ currentAnswer: 'Answer', lastAnswerStatus: 'answer_completed', cloudAnswerSaveStatus: 'failed',
+      answerStreamIdentity: { ...identity, terminal: true } })
+    assert.equal(f.answers.at(-1).status, 'complete')
+    assert.equal(f.answers.at(-1).answerSaved, false)
+  } finally { await session.close() }
+})
+
 test('G9 failure before audio or question commitment falls back once and releases subscription/capture', async () => {
   const f = fixture(), session = await createGrpcAutoSession(f.options)
   f.emit({ connectionStatus: 'error' }); f.emit({ connectionStatus: 'error' })
@@ -303,4 +316,85 @@ test('Computer failed startup retains an honest cleanup failure without creating
   assert.equal(f.lifecycle.at(-1).stop_cleanup_status, 'failed')
   assert.equal(f.counts().captures, 0)
   assert.equal(f.fallbacks.length, 0)
+})
+
+for (const source of ['microphone', 'both']) test(`lazy ${source} acquisition observes device loss without fallback`, async () => {
+  const f = fixture()
+  let ended, acquired = 0
+  const track = { readyState: 'live', addEventListener: (event, cb) => { ended = cb }, removeEventListener: () => {}, stop: () => {} }
+  const stream = { getAudioTracks: () => [track], getTracks: () => [track] }
+  f.api.connectGrpcAutoPipeline = async () => ({ autoPipelineReady: true, connectionStatus: 'connected', manualRun: 1, systemAudio: { active_audio_source: source } })
+  const session = await createGrpcAutoSession({ ...f.options, source, stream: undefined,
+    getUserMedia: async () => { acquired++; return stream },
+    createMic: options => ({ start: async () => { assert.equal(await options.getUserMedia(), stream) }, close: () => {} }) })
+  assert.equal(acquired, 1)
+  assert.equal(typeof ended, 'function')
+  ended()
+  await session.close()
+  assert.equal(f.counts().closed, 1)
+  assert.equal(f.errors.length, 1)
+  assert.deepEqual(f.fallbacks, [])
+})
+
+ test('hosted authorization denial never opens capture', async () => {
+  const f = fixture({ connectGrpcAutoPipeline: async () => ({ autoPipelineReady: false, connectionStatus: 'error', clientAudioRelay: true }) })
+  let captures = 0
+  assert.equal(await createGrpcAutoSession({ ...f.options, createHostedCapture: async () => { captures++; throw Error('must not capture') } }), null)
+  assert.equal(captures, 0)
+})
+
+test('a late hosted capture is released after connection or account state changes', async () => {
+  const f = fixture({ connectGrpcAutoPipeline: async () => ({ autoPipelineReady: true, connectionStatus: 'connected', clientAudioRelay: true, manualRun: 1 }) })
+  let opened, resolveCapture, released = 0
+  const opening = new Promise(resolve => { opened = resolve })
+  const acquisition = new Promise(resolve => { resolveCapture = resolve })
+  const result = createGrpcAutoSession({ ...f.options, stream: undefined,
+    createHostedCapture: () => { opened(); return acquisition },
+    createMic: options => ({ start: async () => { await options.getUserMedia() }, close: () => {} }) })
+  await opening
+  f.emit({ connectionStatus: 'error' })
+  resolveCapture({ stream: {}, close: () => { released++ } })
+  const session = await result
+  assert.equal(released, 1)
+  assert.equal(session.failed, true)
+  assert.deepEqual(f.fallbacks, [])
+})
+
+test('hosted system capture waits for an authorized user-gesture display stream', async () => {
+  const f = fixture({ connectGrpcAutoPipeline: async () => ({ autoPipelineReady: true,
+    connectionStatus: 'connected', clientAudioRelay: true, manualRun: 1,
+    systemAudio: { active_audio_source: 'system' } }) })
+  const display = { getAudioTracks: () => [], getTracks: () => [] }
+  let requested = 0, captured
+  const session = await createGrpcAutoSession({ ...f.options, source: 'system', stream: undefined,
+    requestHostedDisplayCapture: async () => { requested++; return display },
+    createHostedCapture: async options => { captured = options.displayStream; return { stream: {}, close() {}, status: () => [] } },
+    createMic: options => ({ start: async () => { await options.getUserMedia() }, close() {} }) })
+  assert.equal(requested, 1)
+  assert.equal(captured, display)
+  await session.close()
+})
+
+test('hosted capture releases a replaced caller stream', async () => {
+  const f = fixture({ connectGrpcAutoPipeline: async () => ({ autoPipelineReady: true,
+    connectionStatus: 'connected', clientAudioRelay: true, manualRun: 1, systemAudio: { active_audio_source: 'microphone' } }) })
+  let stopped = 0
+  const previous = { getTracks: () => [{ stop: () => { stopped++ } }] }
+  const hosted = { getTracks: () => [], getAudioTracks: () => [] }
+  const session = await createGrpcAutoSession({ ...f.options, stream: previous,
+    createHostedCapture: async () => ({ stream: hosted, close() {} }),
+    createMic: options => ({ start: async () => { await options.getUserMedia() }, close() {} }) })
+  assert.equal(stopped, 1)
+  await session.close()
+})
+
+test('hosted capture cleanup still runs when microphone cleanup fails', async () => {
+  const f = fixture({ connectGrpcAutoPipeline: async () => ({ autoPipelineReady: true,
+    connectionStatus: 'connected', clientAudioRelay: true, manualRun: 1, systemAudio: { active_audio_source: 'microphone' } }) })
+  let hostedClosed = 0
+  const session = await createGrpcAutoSession({ ...f.options, stream: undefined,
+    createHostedCapture: async () => ({ stream: { getTracks: () => [], getAudioTracks: () => [] }, close: () => { hostedClosed++ } }),
+    createMic: options => ({ start: async () => { await options.getUserMedia() }, close: () => { throw Error('mic close failed') } }) })
+  assert.equal(await session.close(), 'failed')
+  assert.equal(hostedClosed, 1)
 })

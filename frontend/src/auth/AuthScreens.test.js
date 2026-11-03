@@ -413,7 +413,7 @@ test('cloud resume upload validates files and calls upload extract status flow',
   assert.match(resumePresentationSource, /disabled=\{uploadDisabled\}/)
   assert.match(resumePresentationSource, /disabled=\{busy\}/)
   assert.match(resumePresentationSource, /ref=\{fileInputRef\}/)
-  assert.match(resumePageSource, /uploadCloudResume\(token, file, \{ backendUrl, signal: controller\.signal \}\)/)
+  assert.match(resumePageSource, /uploadCloudResume\(token, file, \{ backendUrl, signal: controller\.signal, requestId: uploadIdentityRef\.current\.key \}\)/)
   assert.match(resumePageSource, /const uploadedStatus = await fetchCloudResumeStatus\(token, uploaded\.id, \{ backendUrl, signal: controller\.signal \}\)/)
   assert.match(resumePageSource, /if \(uploadedStatus\.status !== 'uploaded'\) \{[\s\S]*return/)
   assert.match(resumePageSource, /extractCloudResume\(token, uploaded\.id, \{ backendUrl, signal: controller\.signal \}\)/)

@@ -1,0 +1,44 @@
+/* Current-plan copy needs natural height inside the existing desktop shell. */
+.startup-choice-window.startup-choice-window--home {
+  width: min(428px, 100vw);
+  height: min(560px, 100dvh);
+  overflow-y: auto;
+}
+.startup-choice-window.startup-choice-window--home .startup-choice-card {
+  width: 100%;
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+}
+.startup-choice-window.startup-choice-window--home .startup-choice-header,
+.startup-choice-window.startup-choice-window--home .startup-choice-main,
+.startup-choice-window.startup-choice-window--home .startup-choice-tabs,
+.startup-choice-window.startup-choice-window--home .startup-choice-footer {
+  width: 100%;
+}
+.startup-choice-window--home .startup-choice-option--subscription {
+  height: auto;
+  min-height: 208px;
+  gap: 4px;
+  overflow: visible;
+}
+.startup-choice-option--subscription h3,
+.startup-choice-option--subscription p {
+  flex-shrink: 0;
+  overflow-wrap: anywhere;
+}
+.startup-choice-window--home .startup-choice-option--subscription p { line-height: 1.4; }
+.startup-choice-option--subscription .startup-choice-link-button {
+  flex-shrink: 0;
+  min-height: 36px;
+  height: auto;
+  padding-top: 8px;
+}
+@media (max-width: 427px) {
+  .startup-choice-window.startup-choice-window--home { height: auto; max-height: 100dvh; bottom: auto; }
+  .startup-choice-window.startup-choice-window--home .startup-choice-header { height: auto; flex-wrap: wrap; gap: 10px; }
+  .startup-choice-window--home .startup-choice-header__actions { margin-left: auto; }
+  .startup-choice-window--home .startup-choice-main { padding: 18px; gap: 18px; }
+  .startup-choice-window--home .startup-choice-options { flex-direction: column; }
+  .startup-choice-window--home .startup-choice-option { flex: none; }
+}
