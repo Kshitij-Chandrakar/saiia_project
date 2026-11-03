@@ -24,7 +24,7 @@ export default function ResumeAccessSelection({ user, backendUrl, refreshKey, on
       if (cap?.mode !== 'limited' || BigInt(cap.used) <= BigInt(cap.allowance)) return
       const records = await fetchCloudResumeList(token, { backendUrl, signal: controller.signal })
       if (!active.current || own !== sequence.current) return
-      setState({ records: records.filter(x => x.status === 'ready'), cap: Number(cap.allowance) })
+      setState({ accountId: user.user_id, records: records.filter(x => x.status === 'ready'), cap: Number(cap.allowance) })
       setSelected(records.filter(x => x.status === 'ready' && x.can_generate).map(x => x.id))
     }
     load().catch(() => { /* Existing resume status handles backend availability. */ })
@@ -47,7 +47,7 @@ export default function ResumeAccessSelection({ user, backendUrl, refreshKey, on
     } catch (failure) { if (active.current && own === sequence.current) setError(customerWebsiteError(failure, 'Could not update resume access. Refresh your plan and try again.')) }
     finally { lock.current = false; if (active.current) setPending(false) }
   }
-  if (!state) return null
+  if (!state || state.accountId !== user.user_id) return null
   return <form className="wr-active-set" onSubmit={save}>
     <fieldset disabled={pending}><legend>Choose resumes for your current plan</legend>
       <p>Your saved resumes are kept. Choose up to {state.cap} for interviews. New uploads stay blocked while you have more stored resumes than your plan allows.</p>

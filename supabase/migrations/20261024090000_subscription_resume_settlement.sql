@@ -17,10 +17,19 @@ create table public.subscription_resume_active_sets (
  binding_revision bigint not null,
  resume_ids uuid[] not null
 );
+create table public.subscription_resume_cleanup_jobs (
+ cleanup_id uuid primary key default gen_random_uuid(),
+ storage_path text not null unique,
+ attempts integer not null default 0 check(attempts>=0),
+ lease_token uuid,
+ lease_until timestamptz,
+ next_attempt_at timestamptz not null default clock_timestamp(),
+ created_at timestamptz not null default clock_timestamp()
+);
 
 create function public.subscription_resume_call(p_account uuid,p_action text,p_doc jsonb) returns jsonb
 language plpgsql security definer set search_path=pg_catalog as $$
-declare r public.resumes; n public.resumes; j public.subscription_resume_jobs; terms jsonb; a jsonb; cap bigint; stored bigint; pending bigint; operation jsonb; replacing uuid; patch jsonb; selected uuid[]; revision bigint;
+declare r public.resumes; n public.resumes; j public.subscription_resume_jobs; terms jsonb; a jsonb; cap bigint; stored bigint; pending bigint; operation jsonb; replacing uuid; replaced_path text; patch jsonb; selected uuid[]; revision bigint;
 begin
  if session_user<>'usage_executor' or current_setting('role',true)<>'none' then raise exception 'denied' using errcode='42501'; end if;
  if p_action not in ('list','read','capacity') then
@@ -87,7 +96,12 @@ begin
  end if;
  select * into j from public.subscription_resume_jobs where account_id=p_account and resume_id=r.id for update;
  if p_action='activate' then
-   if r.status='ready' and r.confirmed_profile=p_doc->'profile' and r.extraction_attempt=(p_doc->>'attempt')::integer then return to_jsonb(r); end if;
+   if r.status='ready' and r.confirmed_profile=p_doc->'profile' and r.extraction_attempt=(p_doc->>'attempt')::integer then
+     if j.replacement_of is not null then
+       select storage_path into replaced_path from public.resumes where id=j.replacement_of and user_id=p_account;
+     end if;
+     return to_jsonb(r)||jsonb_build_object('replaced_storage_path',replaced_path);
+   end if;
    if r.status='ready' then raise exception 'conflicting activation identity' using errcode='P0003'; end if;
    if cap is not null and stored-(case when j.replacement_of is not null and exists(select 1 from public.resumes where id=j.replacement_of and user_id=p_account and status='ready') then 1 else 0 end)>=cap then raise exception 'capacity exhausted' using errcode='P0004'; end if;
    if exists(select 1 from public.subscription_resume_history where account_id=p_account) and (stored=0 or j.replacement_of is not null) then
@@ -98,10 +112,15 @@ begin
      update public.subscription_resume_jobs set usage_id=j.usage_id where account_id=p_account and resume_id=r.id;
    end if;
    select * into strict n from public.activate_cloud_resume(p_account,r.id,(p_doc->>'attempt')::integer,(p_doc->>'generation')::uuid,p_doc->'profile');
-   if j.replacement_of is not null then update public.resumes set status='deleted',is_active=false where id=j.replacement_of and user_id=p_account; end if;
+   if j.replacement_of is not null then
+     select storage_path into replaced_path from public.resumes where id=j.replacement_of and user_id=p_account for update;
+     delete from public.resume_chunks where user_id=p_account and resume_id=j.replacement_of;
+     update public.resumes set status='deleted',is_active=false where id=j.replacement_of and user_id=p_account;
+     insert into public.subscription_resume_cleanup_jobs(storage_path) values(replaced_path) on conflict(storage_path) do nothing;
+   end if;
    if j.usage_id is not null then perform public.subscription_result_finish(p_account,j.usage_id,1,r.id); end if;
    insert into public.subscription_resume_history(account_id) values(p_account) on conflict do nothing;
-   return to_jsonb(n);
+   return to_jsonb(n)||jsonb_build_object('replaced_storage_path',replaced_path);
  end if;
  if p_action='update' then
    if p_doc ? 'statuses' and not (p_doc->'statuses' ? r.status) or p_doc ? 'attempt' and r.extraction_attempt<>(p_doc->>'attempt')::integer then raise exception 'state changed' using errcode='40001'; end if;
@@ -119,13 +138,42 @@ begin
  end if;
  raise exception 'invalid operation' using errcode='22023';
 end $$;
+create function public.subscription_resume_cleanup_claim(p_limit integer) returns jsonb
+language plpgsql security definer set search_path=pg_catalog as $$
+declare claimed jsonb;
+begin
+ if session_user<>'usage_executor' or current_setting('role',true)<>'none' or p_limit<1 or p_limit>50 then raise exception 'denied' using errcode='42501'; end if;
+ with picked as (
+   select cleanup_id from public.subscription_resume_cleanup_jobs
+   where (lease_until is null or lease_until<clock_timestamp()) and next_attempt_at<=clock_timestamp()
+   order by next_attempt_at,created_at,cleanup_id for update skip locked limit p_limit
+ ), updated as (
+   update public.subscription_resume_cleanup_jobs j set attempts=j.attempts+1,lease_token=gen_random_uuid(),lease_until=clock_timestamp()+interval '60 seconds'
+   from picked where j.cleanup_id=picked.cleanup_id
+   returning j.cleanup_id,j.storage_path,j.lease_token
+ ) select coalesce(jsonb_agg(to_jsonb(updated)),'[]'::jsonb) into claimed from updated;
+ return claimed;
+end $$;
+create function public.subscription_resume_cleanup_complete(p_cleanup uuid,p_token uuid,p_deleted boolean) returns void
+language plpgsql security definer set search_path=pg_catalog as $$
+begin
+ if session_user<>'usage_executor' or current_setting('role',true)<>'none' then raise exception 'denied' using errcode='42501'; end if;
+ if p_deleted then delete from public.subscription_resume_cleanup_jobs where cleanup_id=p_cleanup and lease_token=p_token;
+ else update public.subscription_resume_cleanup_jobs
+   set lease_token=null,lease_until=null,
+       next_attempt_at=clock_timestamp()+make_interval(secs=>least(300,1::integer<<least(attempts,8)))
+   where cleanup_id=p_cleanup and lease_token=p_token;
+ end if;
+end $$;
 alter table public.subscription_resume_history enable row level security;
 alter table public.subscription_resume_history force row level security;
 alter table public.subscription_resume_jobs enable row level security;
 alter table public.subscription_resume_jobs force row level security;
 alter table public.subscription_resume_active_sets enable row level security;
 alter table public.subscription_resume_active_sets force row level security;
-revoke all on public.subscription_resume_history,public.subscription_resume_jobs,public.subscription_resume_active_sets from public,anon,authenticated,service_role,usage_executor;
-revoke all on function public.subscription_resume_call(uuid,text,jsonb) from public,anon,authenticated,service_role;
-grant execute on function public.subscription_resume_call(uuid,text,jsonb) to usage_executor;
+alter table public.subscription_resume_cleanup_jobs enable row level security;
+alter table public.subscription_resume_cleanup_jobs force row level security;
+revoke all on public.subscription_resume_history,public.subscription_resume_jobs,public.subscription_resume_active_sets,public.subscription_resume_cleanup_jobs from public,anon,authenticated,service_role,usage_executor;
+revoke all on function public.subscription_resume_call(uuid,text,jsonb),public.subscription_resume_cleanup_claim(integer),public.subscription_resume_cleanup_complete(uuid,uuid,boolean) from public,anon,authenticated,service_role;
+grant execute on function public.subscription_resume_call(uuid,text,jsonb),public.subscription_resume_cleanup_claim(integer),public.subscription_resume_cleanup_complete(uuid,uuid,boolean) to usage_executor;
 commit;

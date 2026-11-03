@@ -2066,8 +2066,10 @@ def resume_case(u, monkeypatch):
                 extracted_text_length=25,
             )
 
+    storage = Storage()
+    storage.objects = objects
     service = CloudResumeService(
-        client=Storage(), parser=Parser(), indexer=ResumeIndexService()
+        client=storage, parser=Parser(), indexer=ResumeIndexService()
     )
     monkeypatch.setattr(resumes, "_cached_cloud_resume_service", lambda: service)
     monkeypatch.setattr(settings, "SUBSCRIPTIONS_ENABLED", "true")
@@ -2111,6 +2113,9 @@ def test_native_resume_initial_replacement_delete_history_and_retries(
     assert upload().status_code == 409
     result = ready(rid)
     assert result.status_code == 200, result.text
+    old_path = u["client"].get(
+        f"/api/resumes/{rid}/status", headers=headers(u["account"])
+    ).json()["storage_path"]
     assert (
         u["db"].rows(
             f"select count(*) n from usage_operations where account_id='{u['account']}' and period_id in (select period_id from usage_periods where meter='resume.replacements')"
@@ -2122,6 +2127,10 @@ def test_native_resume_initial_replacement_delete_history_and_retries(
     rid2 = second.json()["id"]
     result = ready(rid2)
     assert result.status_code == 200, result.text
+    assert old_path not in service._client.objects
+    assert u["db"].rows(
+        f"select count(*) n from resume_chunks where user_id='{u['account']}' and resume_id='{rid}'"
+    )[0]["n"] == 0
     assert (
         u["db"].rows(
             f"select sum(charged) n from usage_operations where account_id='{u['account']}' and period_id in (select period_id from usage_periods where meter='resume.replacements')"
@@ -2584,6 +2593,9 @@ def test_native_resume_lost_activation_response_replays_without_reindex_or_charg
     upload, ready, service = resume_case(u, monkeypatch)
     first = upload().json()["id"]
     assert ready(first).status_code == 200
+    old_path = u["client"].get(
+        f"/api/resumes/{first}/status", headers=headers(u["account"])
+    ).json()["storage_path"]
     second = upload().json()["id"]
     original = AccountResumeClient.call
     lost = []
@@ -2617,6 +2629,10 @@ def test_native_resume_lost_activation_response_replays_without_reindex_or_charg
         },
     )
     assert result.status_code == 200 and result.json()["ready"], result.text
+    assert old_path not in service._client.objects
+    assert u["db"].rows(
+        f"select count(*) n from resume_chunks where user_id='{u['account']}' and resume_id='{first}'"
+    )[0]["n"] == 0
     assert (
         u["db"].rows(
             f"select sum(charged) n from usage_operations where account_id='{u['account']}' and operation='resume.replace'"

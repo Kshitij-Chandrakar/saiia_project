@@ -79,7 +79,7 @@ def test_manual_demo(pricing,monkeypatch):
                 result=ROOT/'tmp/subscription-demo-results.json'
                 return self.reply(200,result.read_text() if result.exists() else '{"state":"verification running"}')
             # Never expose AI, payment, account or unrelated application routes.
-            if not (route=='/api/catalog' or route=='/api/commercial/admin/me' or route.startswith('/api/admin/catalog/')):
+            if '..' in self.path or '%' in route or not (route=='/api/catalog' or route=='/api/commercial/admin/me' or route.startswith('/api/admin/catalog/')):
                 return self.reply(404,'{"detail":"Not found"}')
             length=int(self.headers.get('Content-Length','0'))
             if length>262144:return self.reply(413,'{"detail":"Too large"}')
@@ -92,6 +92,7 @@ def test_manual_demo(pricing,monkeypatch):
 
     server=ThreadingHTTPServer(('127.0.0.1',0),Bridge)
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    (ROOT/'tmp').mkdir(exist_ok=True)
     stop=ROOT/'tmp/subscription-demo.stop'
     initial=stop.stat().st_mtime_ns if stop.exists() else None
     env={**os.environ,'SUBSCRIPTION_DEMO_BRIDGE':f'http://127.0.0.1:{server.server_port}'}

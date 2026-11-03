@@ -1,5 +1,4 @@
 import React from 'react'
-import { WebsiteMounted } from '../../../src/auth/WebsiteRenderFailure.jsx'
 import ReactDOM from 'react-dom/client'
 import Choice from '../../../src/components/StartupSessionChoiceScreen.jsx'
 import '../../../src/index.css'
@@ -25,4 +24,4 @@ export default function Harness() {
   }
   return <Choice authenticatedEmail={email} />
 }
-ReactDOM.createRoot(document.getElementById('root')).render(<WebsiteMounted><Harness /></WebsiteMounted>)
+ReactDOM.createRoot(document.getElementById('root')).render(<Harness />)

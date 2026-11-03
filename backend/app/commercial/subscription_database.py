@@ -60,6 +60,7 @@ class SubscriptionDatabase:
             "subscription_resume_history",
             "subscription_resume_jobs",
             "subscription_resume_active_sets",
+            "subscription_resume_cleanup_jobs",
             "subscription_notes_versions",
             "subscription_relay_frames",
             "subscription_relay_connections",
@@ -94,6 +95,8 @@ class SubscriptionDatabase:
             "public.subscription_session_read(uuid,uuid)",
             "public.subscription_screen_call(uuid,text,jsonb)",
             "public.subscription_resume_call(uuid,text,jsonb)",
+            "public.subscription_resume_cleanup_claim(integer)",
+            "public.subscription_resume_cleanup_complete(uuid,uuid,boolean)",
             "public.subscription_aux_call(uuid,text,jsonb)",
             "public.subscription_result_sweep(integer)",
             "public.subscription_answer_turn(text,uuid,uuid,text,text,integer,text,uuid,jsonb)",
@@ -206,6 +209,7 @@ class SubscriptionDatabase:
                         "SELECT public.subscription_auto_sweep(50)", ()
                     ),
                 )
+                self._sweep_resume_cleanup(service)
                 service._channel._transaction(
                     True,
                     lambda query: query(
@@ -216,6 +220,38 @@ class SubscriptionDatabase:
                 # Pending work is durable; a later sweep retries reconciliation,
                 # never provider execution or an authorization extension.
                 continue
+
+    def _sweep_resume_cleanup(self, service: SubscriptionService) -> None:
+        from app.cloud.cloud_resume import CloudResumeError, SupabaseCloudResumeClient
+
+        jobs = service._channel._transaction(
+            True,
+            lambda query: query(
+                "SELECT public.subscription_resume_cleanup_claim(%s)", (10,)
+            ),
+        )
+        if not isinstance(jobs, list):
+            raise CatalogStoreError(ErrorCode.STORED_INVALID)
+        try:
+            client = SupabaseCloudResumeClient()
+        except Exception:
+            return
+        for job in jobs:
+            cleanup_id, token, path = job.get("cleanup_id"), job.get("lease_token"), job.get("storage_path")
+            if not all(isinstance(value, str) and value for value in (cleanup_id, token, path)):
+                raise CatalogStoreError(ErrorCode.STORED_INVALID)
+            deleted = True
+            try:
+                client.delete_resume_object(path)
+            except CloudResumeError:
+                deleted = False
+            service._channel._transaction(
+                True,
+                lambda query, cleanup_id=cleanup_id, token=token, deleted=deleted: query(
+                    "SELECT public.subscription_resume_cleanup_complete(%s::uuid,%s::uuid,%s)",
+                    (cleanup_id, token, deleted),
+                ),
+            )
 
     def close(self) -> None:
         self._stop.set()

@@ -1,10 +1,5 @@
-import WebsiteProgress from './WebsiteProgress'
-import { resumeConfirmationIsCurrent } from './resumeConfirmation'
-import { WebsiteLogout, WebsiteUnsubscribe } from './WebsiteAccountActions'
-import { customerWebsiteError } from './customerErrors'
-import WebsiteRecovery from './WebsiteRecovery'
 import { DashboardOnboardingGate } from './DashboardOnboarding'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { Eye, EyeOff, FileText, LogOut, Upload } from 'lucide-react'
 
@@ -54,6 +49,8 @@ import WebsiteConfirmLoading from './WebsiteConfirmLoading'
 import WebsitePasswordResetPage, { PasswordResetDialog } from './WebsitePasswordReset'
 import { isWebsiteRecoveryEntry } from './passwordRecovery'
 import { beginGoogleSignupConsent, readGoogleSignupConsent, clearGoogleSignupConsent } from './signup_oauth_consent'
+import { resumeConfirmationIsCurrent } from './resumeConfirmation'
+import { customerWebsiteError } from './customerErrors'
 
 
 const AUTH_CALLBACK_URL = 'http://localhost:5173/auth/callback'
@@ -272,7 +269,7 @@ function useProfileBootstrap({ backendUrl, sessionErrorMessage, disabled = false
     try {
       if (!supabase) {
         if (bootstrapOperationRef.current === operationId) {
-          setError(window.electronAPI ? 'Supabase auth is not configured for this build.' : 'Sign-in is unavailable right now. Please try again later.')
+          setError('Supabase auth is not configured for this build.')
         }
         return
       }
@@ -301,7 +298,7 @@ function useProfileBootstrap({ backendUrl, sessionErrorMessage, disabled = false
       }
     } catch (bootstrapError) {
       if (bootstrapOperationRef.current === operationId) {
-        setError(customerWebsiteError(bootstrapError, 'Account setup could not be completed. Please try again.'))
+        setError(bootstrapError.message)
       }
     } finally {
       if (bootstrapOperationRef.current === operationId) {
@@ -370,7 +367,7 @@ function ConfigNotice() {
 
   return (
     <p className="auth-message error">
-      {window.electronAPI ? 'Supabase auth is not configured for this build.' : 'Sign-in is unavailable right now. Please try again later.'}
+      Supabase auth is not configured for this build.
     </p>
   )
 }
@@ -381,7 +378,7 @@ function AuthMessage({ message, tone = 'info' }) {
     return null
   }
 
-  return <p className={`auth-message ${tone}`} role={!window.electronAPI && tone === 'error' ? 'alert' : undefined}>{message}</p>
+  return <p className={`auth-message ${tone}`}>{message}</p>
 }
 
 
@@ -450,10 +447,24 @@ function formatSessionTime(value) {
 }
 
 
+function formatSessionContextLine(session) {
+  const role = session?.target_role || 'No target role'
+  const company = session?.company_name || 'No company'
+  return `${role} · ${company}`
+}
 
 
-
-
+function formatTranscriptMetaLine(entry) {
+  const parts = []
+  if (entry?.source) {
+    parts.push(`Source: ${entry.source}`)
+  }
+  if (entry?.category) {
+    parts.push(`Category: ${entry.category}`)
+  }
+  parts.push(`Created: ${formatSessionTime(entry?.created_at)}`)
+  return parts.join(' · ')
+}
 
 
 function triggerTextDownload(filename, content, format) {
@@ -677,7 +688,7 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
 
     if (error) {
       form.setLoading(false)
-      form.setError(customerWebsiteError(error, 'Sign-up could not be completed. Please try again.'))
+      form.setError(error.message)
       return
     }
     if (data.session) {
@@ -693,7 +704,7 @@ export function AuthSignupPage({ backendUrl, desktopState = '' }) {
         }
         return true
       } catch (signupSetupError) {
-        form.setError(customerWebsiteError(signupSetupError, 'Account setup could not be completed. Please sign in again.'))
+        form.setError(signupSetupError?.message || 'Account setup could not be completed. Please sign in again.')
       } finally {
         form.setLoading(false)
       }
@@ -863,7 +874,7 @@ export function AuthLoginPage({ backendUrl, desktopState = '', desktopError = ''
 
     if (error) {
       form.setLoading(false)
-      form.setError(safeDesktopState ? (error.code === 'invalid_credentials' ? 'Invalid email or password.' : 'Desktop sign-in could not be completed. Please try again.') : customerWebsiteError(error, 'Sign-in could not be completed. Please try again.'))
+      form.setError(safeDesktopState ? (error.code === 'invalid_credentials' ? 'Invalid email or password.' : 'Desktop sign-in could not be completed. Please try again.') : error.message)
       return
     }
 
@@ -879,7 +890,7 @@ export function AuthLoginPage({ backendUrl, desktopState = '', desktopError = ''
       form.setMessage('Login successful.')
       navigate(safeNextRoute, { replace: true })
     } catch (verifyError) {
-      form.setError(safeDesktopState ? 'Desktop login could not be completed. Try logging in again.' : customerWebsiteError(verifyError, 'We could not verify your account. Please try again.'))
+      form.setError(safeDesktopState ? 'Desktop login could not be completed. Try logging in again.' : verifyError.message)
     } finally {
       form.setLoading(false)
     }
@@ -1053,17 +1064,10 @@ function EmailConfirmationPage({ backendUrl }) {
     // Share the pending verification across StrictMode's effect replay.
     operation.current.then((value) => { if (active) setResult(value) })
     return () => { active = false }
-  }, [backendUrl])
+  }, [])
 
   if (!window.electronAPI && (!result || result.status === 'verified' || result.reason === 'email_link_expired')) return <WebsiteConfirmLoading result={result} />
   if (result?.status === 'recovery') return <AuthResetPasswordPage />
-  if (!window.electronAPI) return <WebsiteRecovery
-    title={result?.retrySignupBootstrap ? 'Finish setting up your account' : 'Secure link unavailable'}
-    message={result?.message || 'We could not verify this link. Return to sign in to continue.'}
-    note={result?.retrySignupBootstrap ? 'Your email is verified. Continue to your dashboard to retry account setup.' : 'If you need a new verification link, return to sign in. Do not share the link from your email.'}>
-    <Link to={result?.href || '/auth/login'} state={result?.retrySignupBootstrap ? { retrySignupBootstrap: true } : undefined}>{result?.retrySignupBootstrap ? 'Continue to dashboard' : result?.href === '/auth/forgot-password' ? 'Request a new reset link' : 'Back to sign in'}</Link>
-    <Link to="/">Return home</Link>
-  </WebsiteRecovery>
   return (
     <AuthShell title={result?.status === 'verified' ? 'Email verified' : result ? 'Secure link unavailable' : 'Checking your secure link…'}>
       <img className="auth-action-logo" src={authLogo} alt="Intervu AI" />
@@ -1147,8 +1151,6 @@ export function AuthCallbackPage({ backendUrl }) {
   const attempt = !window.electronAPI ? searchParams.get('signup_attempt') || '' : ''
   const [status, setStatus] = useState('Finishing sign in...')
   const [error, setError] = useState('')
-  const [stalled, setStalled] = useState(false)
-  const [stage, setStage] = useState('session')
 
   function retryPersistence() {
     if (!retryAllowed.current) return
@@ -1162,14 +1164,11 @@ export function AuthCallbackPage({ backendUrl }) {
 
   useEffect(() => {
     let active = true, accountChanged = false, establishedSession = null
-    setStalled(false)
-    const stallTimer = websiteCallback ? setTimeout(() => { if (active) setStalled(true) }, 15000) : null
     retryAllowed.current = false
     const subscription = supabase?.auth.onAuthStateChange?.((_event, session) => {
       const expectedAccount = verifiedAccount.current || verification.current?.userId
       if (expectedAccount && session?.user?.id !== expectedAccount) {
         accountChanged = true
-        verification.current?.control?.abort()
         retryAllowed.current = false
         if (active) {
           setCanRetry(false)
@@ -1196,7 +1195,7 @@ export function AuthCallbackPage({ backendUrl }) {
         if (verification.current?.key !== verificationKey) {
           verifiedAccount.current = null
           operation.current = null
-          verification.current = { key: verificationKey, control: websiteCallback ? new AbortController() : null, promise: (async () => {
+          verification.current = { key: verificationKey, promise: (async () => {
             if ((websiteCallback && callbackError.current) || (attempt && (searchParams.has('error') || new URLSearchParams(window.location.hash.slice(1)).has('error')))) {
               clearGoogleSignupConsent(attempt)
               throw authFailure()
@@ -1209,17 +1208,11 @@ export function AuthCallbackPage({ backendUrl }) {
             if (verification.current?.key === verificationKey) {
               verification.current.userId = data.session.user?.id
               verification.current.session = data.session
-              verification.current.stage = 'account'
-              verification.current.reportStage?.('account')
             }
-            if (websiteCallback && (verification.current?.key !== verificationKey || !verification.current.isCurrent?.())) throw authFailure()
-            const user = await fetchCurrentUser(data.session.access_token, { backendUrl, ...(websiteCallback ? { signal: verification.current.control.signal } : {}) })
+            const user = await fetchCurrentUser(data.session.access_token, { backendUrl })
             return { user, session: data.session }
           })() }
         }
-        verification.current.isCurrent = isCurrent
-        verification.current.reportStage = value => { if (websiteCallback && isCurrent()) setStage(value) }
-        if (websiteCallback) setStage(verification.current.stage || 'session')
         const verified = await verification.current.promise
         if (!isCurrent()) return
         const { user } = verified
@@ -1227,7 +1220,6 @@ export function AuthCallbackPage({ backendUrl }) {
         if (verifiedAccount.current && verifiedAccount.current !== user.user_id) throw authFailure()
         verifiedAccount.current = user.user_id
         if (attempt || (websiteCallback && CONSENT_FEATURE_ENABLED && pendingSignupConsentForSession(establishedSession))) {
-          if (websiteCallback) setStage('preferences')
           if (!operation.current) {
             operation.current = { promise: (async () => {
               const { data, error: sessionError } = await supabase.auth.getSession()
@@ -1271,16 +1263,11 @@ export function AuthCallbackPage({ backendUrl }) {
       }
     }
     void finishCallback()
-    return () => {
-      active = false; clearTimeout(stallTimer); subscription?.unsubscribe()
-      const pendingVerification = verification.current
-      // Strict Mode reattaches the same cached operation before this microtask.
-      queueMicrotask(() => { if (!pendingVerification?.isCurrent?.()) pendingVerification?.control?.abort() })
-    }
+    return () => { active = false; subscription?.unsubscribe() }
   }, [backendUrl, navigate, nextRoute, attempt, retry, searchParams, websiteCallback])
 
   if (websiteCallback) return <WebsiteCallbackLoading error={error} nextRoute={nextRoute} canRetry={canRetry}
-    onRetry={retryPersistence} stalled={stalled} stage={stage} />
+    onRetry={retryPersistence} />
 
   return <AuthShell title="Auth Status">
     <AuthMessage message={error} tone="error" />
@@ -1291,10 +1278,6 @@ export function AuthCallbackPage({ backendUrl }) {
 }
 
 export function AuthUnsubscribePage({ backendUrl }) {
-  return window.electronAPI ? <LegacyUnsubscribePage backendUrl={backendUrl} /> : <WebsiteUnsubscribe backendUrl={backendUrl} />
-}
-
-function LegacyUnsubscribePage({ backendUrl }) {
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token')?.trim() || ''
   const [state, setState] = useState(token ? 'loading' : 'missing')
@@ -1547,20 +1530,9 @@ function RequireAuth({ backendUrl, children }) {
   const [attempt, setAttempt] = useState(0)
   const [error, setError] = useState('')
   const location = useLocation()
-  const [stalled, setStalled] = useState(false)
-  const retryLock = useRef(false)
-  const [lookupStage, setLookupStage] = useState('session')
-  function retrySessionCheck() {
-    if (retryLock.current) return
-    retryLock.current = true
-    setStalled(false); setUser(null); setLoading(true); setAttempt(value => value + 1)
-  }
 
   useEffect(() => {
     let ignore = false
-    let requestController
-    let stallTimer
-    const stopStall = () => { clearTimeout(stallTimer); if (!ignore) setStalled(false) }
     let operation = 0
     let accountId = null
     let hadSession = false
@@ -1571,7 +1543,6 @@ function RequireAuth({ backendUrl, children }) {
     function loseSession(sessionError = null) {
       const notice = createWebsiteSessionLoss(hadSession, sessionError)
       setSessionLoss(current => current || notice)
-      stopStall()
       setUser(null)
       setSignedOut(true)
       setLoading(false)
@@ -1579,19 +1550,11 @@ function RequireAuth({ backendUrl, children }) {
 
     async function loadUser() {
       const currentOperation = ++operation
-      requestController?.abort()
-      requestController = window.electronAPI ? null : new AbortController()
-      const readSignal = requestController?.signal
-      setLookupStage('session')
-      stopStall()
-      retryLock.current = false
-      if (!window.electronAPI) stallTimer = setTimeout(() => { if (!ignore && currentOperation === operation) setStalled(true) }, 15000)
       let bootstrapping = false
       setSetupFailed(false)
       setError('')
       if (!supabase) {
-        setError(window.electronAPI ? 'Supabase auth is not configured for this build.' : 'Sign-in is unavailable right now. Please try again later.')
-        stopStall()
+        setError('Supabase auth is not configured for this build.')
         setLoading(false)
         return
       }
@@ -1605,7 +1568,6 @@ function RequireAuth({ backendUrl, children }) {
 
       if (sessionError && !['session_expired', 'refresh_token_not_found', 'refresh_token_already_used', 'session_not_found'].includes(sessionError.code) && !signedOutWhileChecking) {
         setError('Could not verify your session. Please try again.')
-        stopStall()
         setLoading(false)
         return
       }
@@ -1620,14 +1582,12 @@ function RequireAuth({ backendUrl, children }) {
 
       try {
         accountId = data.session.user?.id || null
-        setLookupStage('account')
-        const currentUser = await fetchCurrentUser(data.session.access_token, { backendUrl, signal: readSignal })
+        const currentUser = await fetchCurrentUser(data.session.access_token, { backendUrl })
         if (ignore || currentOperation !== operation) return
         // Website entry must ensure settings exist before the onboarding gate reads them.
         // Ordinary entry preserves preferences; explicit verification recovery reuses pending consent.
         if (!window.electronAPI) {
           bootstrapping = true
-          setLookupStage('setup')
           // Recovery hint only: consent must still match this verified session.
           if (location.state?.retrySignupBootstrap && CONSENT_FEATURE_ENABLED && pendingSignupConsentForSession(data.session)) {
             await persistPendingSignupConsent(data.session, backendUrl, () => !ignore && currentOperation === operation)
@@ -1642,11 +1602,10 @@ function RequireAuth({ backendUrl, children }) {
       } catch (verifyError) {
         if (!ignore && currentOperation === operation) {
           if (bootstrapping) setSetupFailed(true)
-          else setError(customerWebsiteError(verifyError, 'We could not verify your account. Please try again.'))
+          else setError(verifyError.message)
         }
       } finally {
         if (!ignore && currentOperation === operation) {
-          stopStall()
           setLoading(false)
         }
       }
@@ -1677,8 +1636,6 @@ function RequireAuth({ backendUrl, children }) {
     })
     return () => {
       ignore = true
-      clearTimeout(stallTimer)
-      requestController?.abort()
       operation += 1
       subscription?.data.subscription.unsubscribe()
       stopLogoutWatch()
@@ -1686,11 +1643,7 @@ function RequireAuth({ backendUrl, children }) {
   }, [backendUrl, attempt, location.state?.retrySignupBootstrap])
 
   if (loading) {
-    if (!window.electronAPI) return <div className="website-session-loading"><DashboardLoading page={location.pathname === '/auth/resume' ? 'resume' : location.pathname === '/auth/sessions' ? 'sessions' : 'dashboard'} />
-      {stalled && <WebsiteProgress title="Your account check is taking longer" message={lookupStage === 'setup' ? 'Your account setup has not finished. You can keep waiting or return home. Leaving this page does not cancel an update already in progress.' : 'We have not confirmed your session yet. Keep waiting, or check again. Your workspace will open only after verification.'}>
-        {lookupStage !== 'setup' && <button type="button" onClick={retrySessionCheck}>Retry session check</button>}<a href="/">Return home</a>
-      </WebsiteProgress>}
-    </div>
+    if (!window.electronAPI) return <DashboardLoading page={location.pathname === '/auth/resume' ? 'resume' : location.pathname === '/auth/sessions' ? 'sessions' : 'dashboard'} />
     return (
       <AuthShell title="Account">
         <p className="auth-message info">Checking session...</p>
@@ -1709,13 +1662,9 @@ function RequireAuth({ backendUrl, children }) {
     )
   }
 
-  if (setupFailed && !window.electronAPI) return <WebsiteAccountSetupRecovery onRetry={() => { retrySessionCheck() }} />
+  if (setupFailed && !window.electronAPI) return <WebsiteAccountSetupRecovery onRetry={() => { setLoading(true); setAttempt(value => value + 1) }} />
 
   if (error) {
-    if (!window.electronAPI) return <WebsiteRecovery title="Unable to open your workspace" message={error}>
-      <button type="button" onClick={() => { retrySessionCheck() }}>Retry session check</button>
-      <a href="/">Return home</a>
-    </WebsiteRecovery>
     return (
       <AuthShell title="Account">
         <AuthMessage message={error} tone="error" />
@@ -1730,7 +1679,7 @@ function RequireAuth({ backendUrl, children }) {
 
 
 export function AuthDashboardPage({ backendUrl, page = 'dashboard' }) {
-  return <RequireAuth backendUrl={backendUrl}>{(user) => <DashboardOnboardingGate key={user.user_id} backendUrl={backendUrl} user={user}><WebsiteDashboardContent key={user.user_id + page} user={user} backendUrl={backendUrl} page={page} /></DashboardOnboardingGate>}</RequireAuth>
+  return <RequireAuth backendUrl={backendUrl}>{(user) => <DashboardOnboardingGate key={user.user_id} backendUrl={backendUrl}><WebsiteDashboardContent key={user.user_id + page} user={user} backendUrl={backendUrl} page={page} /></DashboardOnboardingGate>}</RequireAuth>
 }
 
 function WebsiteDashboardContent({ backendUrl, user, page }) {
@@ -2098,7 +2047,7 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
         return
       }
       const semantics = `${data.session.user.id}:${normalizedSessionId}:${Boolean(forceRegenerate)}`
-      if (notesIdentity.current?.semantics !== semantics) notesIdentity.current = { semantics, key: crypto.randomUUID() }
+      if (notesIdentity.current?.semantics !== semantics) notesIdentity.current = { semantics, sessionId: normalizedSessionId, forceRegenerate: Boolean(forceRegenerate), key: crypto.randomUUID() }
       const result = await generateInterviewSessionNotes(data.session.access_token, normalizedSessionId, {
         requestId: notesIdentity.current.key,
         backendUrl,
@@ -2109,10 +2058,16 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
       notesIdentity.current = null
     } catch (generateError) {
       if (!activeRef.current || request !== notesRequest.current) return
-      setNotesError(customerWebsiteError(generateError, 'Could not generate AI notes. Please try again.'))
+      if (generateError?.code === 'notes_operation_failed') notesIdentity.current = null
+      setNotesError(String(generateError?.message || '').trim() || 'Could not generate AI notes. Please try again.')
     } finally {
       if (activeRef.current && request === notesRequest.current) { setNotesLoading(false); setNotesGenerateKey('') }
     }
+  }
+
+  function retryNotesGenerate(sessionId) {
+    const existing = notesIdentity.current
+    handleNotesGenerate(sessionId, existing?.sessionId === String(sessionId || '').trim() ? existing.forceRegenerate : false)
   }
 
   async function handleAskAIToggle(sessionId, { reload = false } = {}) {
@@ -2284,7 +2239,7 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
           [normalizedSessionId]: '',
         }))
       } else {
-        setAskAIError(customerWebsiteError(askError, 'Could not ask AI about this session. Please try again.'))
+        setAskAIError(message || 'Could not ask AI about this session. Please try again.')
       }
     } finally {
       if (askAISubmitControllerRef.current === controller) {
@@ -2409,7 +2364,7 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
                           <button
                             className="auth-session-history__action"
                             type="button"
-                            onClick={() => handleNotesGenerate(session.id, true)}
+                            onClick={() => retryNotesGenerate(session.id)}
                             disabled={Boolean(notesGenerateKey)}
                           >
                             Retry AI Notes
@@ -2594,7 +2549,6 @@ function WebsiteResumeContent({ backendUrl, user }) {
   })
 
   function askResumeConfirmation(kind, target = null) {
-    // This route is shared. Keep Electron's existing native confirmation contract.
     if (window.electronAPI) {
       const label = [target?.original_filename, target?.status].filter(Boolean).join(' - ')
       return Promise.resolve(window.confirm(kind === 'upload' ? 'Uploading another resume replaces your unconfirmed draft. Continue?' : kind === 'extract' ? 'Extracting again replaces your unconfirmed edits. Continue?' : label ? `Delete this cloud resume (${label})?` : 'Delete this cloud resume?'))
@@ -2611,8 +2565,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
     if (!pending) return
     confirmationRequest.current = null
     setResumeConfirmation(null)
-    const latest = latestResumeState.current
-    const unchanged = resumeConfirmationIsCurrent(pending.snapshot, latest, operationRef.current)
+    const unchanged = resumeConfirmationIsCurrent(pending.snapshot, latestResumeState.current, operationRef.current)
     if (approved && !unchanged) setError('This resume changed while the confirmation was open. Review its current status before trying again.')
     pending.resolve(approved && unchanged)
   }
@@ -2628,7 +2581,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
     }
   }, [])
 
-  const getSessionToken = useCallback(async (sessionErrorMessage = 'Session expired or signed out. Please log in again.') => {
+  async function getSessionToken(sessionErrorMessage = 'Session expired or signed out. Please log in again.') {
     if (!supabase) {
       throw new Error('Supabase auth is not configured for this build.')
     }
@@ -2637,7 +2590,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
       throw new Error(sessionErrorMessage)
     }
     return data.session.access_token
-  }, [user.user_id])
+  }
 
   function beginResumeOperation() {
     if (operationRef.current) return null
@@ -2671,7 +2624,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
     setDialog('review')
   }
 
-  const loadCloudResumeState = useCallback(async (signal) => {
+  async function loadCloudResumeState(signal) {
     const token = await getSessionToken()
     const [current, candidate, items] = await Promise.all([
       fetchCurrentCloudResume(token, { backendUrl, signal }),
@@ -2680,7 +2633,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
     ])
     const pending = items.find(item => item.id !== current.resume?.id && ['uploaded', 'extracting', 'needs_review', 'indexing', 'failed', 'timeout', 'cancelled'].includes(item.status))
     return { current, candidate, pending }
-  }, [getSessionToken, backendUrl])
+  }
 
   useEffect(() => {
     let ignore = false
@@ -2717,7 +2670,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
           return
         }
         setPhase('failed')
-        setError(customerWebsiteError(stateError, 'We could not load your resume. Please try again.'))
+        setError(stateError.message || 'Could not load cloud resume state.')
       }
     }
 
@@ -2726,7 +2679,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
       ignore = true
       controller.abort()
     }
-  }, [loadCloudResumeState, statusAttempt])
+  }, [backendUrl, statusAttempt])
 
   function handleFileChange(selectedFile) {
     setFile(selectedFile)
@@ -2757,7 +2710,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
       return
     }
 
-    if (draftProfile && !await askResumeConfirmation('upload')) return
+    if (draftProfile && !window.confirm('Uploading another resume replaces your unconfirmed draft. Continue?')) return
     const controller = beginResumeOperation()
     if (!controller) return
     setManual(false)
@@ -2765,7 +2718,8 @@ function WebsiteResumeContent({ backendUrl, user }) {
     setError('')
     setMessage('Uploading resume...')
     setPhase('uploading')
-    if (window.electronAPI) { setDraftProfile(null); setExtractionAttempt(null) }
+    setDraftProfile(null)
+    setExtractionAttempt(null)
 
     try {
       const token = await getSessionToken()
@@ -2774,8 +2728,6 @@ function WebsiteResumeContent({ backendUrl, user }) {
       if (controller.signal.aborted) return
       setResumeRecord(uploaded)
       setReviewCandidate(uploaded)
-      setDraftProfile(null)
-      setExtractionAttempt(null)
       setMessage('Resume uploaded. Starting extraction...')
       const uploadedStatus = await fetchCloudResumeStatus(token, uploaded.id, { backendUrl, signal: controller.signal })
       if (controller.signal.aborted) return
@@ -2800,7 +2752,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
     } catch (resumeError) {
       if (controller.signal.aborted || resumeError.name === 'AbortError') return
       setPhase('failed')
-      setError(customerWebsiteError(resumeError, 'Extraction failed. Try again or upload another file.'))
+      setError(resumeError.message || 'Extraction failed. Try again or upload another file.')
       setMessage('')
     } finally { finishResumeOperation(controller) }
   }
@@ -2809,7 +2761,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
     if (!reviewCandidate?.id || busy || operationRef.current) {
       return
     }
-    if (draftProfile && !await askResumeConfirmation('extract', reviewCandidate)) return
+    if (draftProfile && !window.confirm('Extracting again replaces your unconfirmed edits. Continue?')) return
     const controller = beginResumeOperation()
     if (!controller) return
     setManual(false)
@@ -2831,7 +2783,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
     } catch (resumeError) {
       if (controller.signal.aborted || resumeError.name === 'AbortError') return
       setPhase('failed')
-      setError(customerWebsiteError(resumeError, 'Extraction failed. Try again or upload another file.'))
+      setError(resumeError.message || 'Extraction failed. Try again or upload another file.')
       setMessage('')
     } finally { finishResumeOperation(controller) }
   }
@@ -2902,7 +2854,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
         return
       }
       setDialog('review')
-      setError(customerWebsiteError(confirmError, 'Could not confirm the reviewed profile.'))
+      setError(confirmError.message || 'Could not confirm the reviewed profile.')
       setMessage('')
     } finally {
       if (!confirmController.signal.aborted) {
@@ -2947,11 +2899,12 @@ function WebsiteResumeContent({ backendUrl, user }) {
         setDialog(null)
       }
       setPhase('idle')
+      setStatusAttempt(value => value + 1)
       setManualDraft(null)
       setMessage('Resume deleted.')
     } catch (deleteError) {
       if (controller.signal.aborted || deleteError.name === 'AbortError') return
-      setError(customerWebsiteError(deleteError, 'Could not delete the resume. Try again.'))
+      setError(deleteError.message || 'Could not delete the resume. Try again.')
       setMessage('')
     } finally {
       if (!controller.signal.aborted) setDeletePending(false)
@@ -2981,7 +2934,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
       setMessage('Resume index rebuilt.')
     } catch (rebuildError) {
       if (controller.signal.aborted || rebuildError.name === 'AbortError') return
-      setError(customerWebsiteError(rebuildError, 'Could not rebuild the resume index. Try again.'))
+      setError(rebuildError.message || 'Could not rebuild the resume index. Try again.')
       setMessage('')
     } finally {
       if (!controller.signal.aborted) setRebuildPending(false)
@@ -3018,10 +2971,6 @@ function WebsiteResumeContent({ backendUrl, user }) {
 
 
 export function AuthLogoutPage() {
-  return window.electronAPI ? <LegacyLogoutPage /> : <WebsiteLogout />
-}
-
-function LegacyLogoutPage() {
   const [message, setMessage] = useState('Signing out...')
 
   useEffect(() => {

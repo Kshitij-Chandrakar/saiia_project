@@ -53,10 +53,12 @@ export async function verifyAuthEmailAction(search, client, onEmailVerified = as
 async function parseJsonResponse(response, fallbackMessage) {
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) {
-    const detail = typeof payload.detail === 'string' ? payload.detail.trim() : ''
+    const rawDetail = payload.detail
+    const detail = typeof rawDetail === 'string' ? rawDetail.trim() : ''
     const error = new Error(detail || fallbackMessage)
     error.status = response.status
     if (typeof payload.code === 'string') error.code = payload.code
+    else if (rawDetail && typeof rawDetail === 'object' && typeof rawDetail.code === 'string') error.code = rawDetail.code
     throw error
   }
   return payload
@@ -222,7 +224,7 @@ export function normalizeReadableAskAIText(value) {
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/g, "'")
-  text = text.replace(/\\([\\`*_{}[\]()#+\-.!>])/g, '$1')
+  text = text.replace(/\\([\\`*_{}\[\]()#+\-.!>])/g, '$1')
   text = text
     .split('\n')
     .map((line) => line
@@ -292,10 +294,10 @@ export async function fetchCurrentUser(accessToken, options = {}) {
 
   const response = await fetchImpl(`${backendUrl}/api/auth/me`, {
     method: 'GET',
-    ...(signal ? { signal } : {}),
     headers: {
       Authorization: `Bearer ${token}`,
     },
+    signal,
   })
 
   const payload = await parseJsonResponse(response, 'Unable to verify the current user.').catch(error => {
