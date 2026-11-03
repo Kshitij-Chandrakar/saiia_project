@@ -81,6 +81,12 @@ class BillingDatabase(SubscriptionDatabase):
     def start(self):
         s = self.settings
         if (
+            getattr(s, "BILLING_ADMIN_ENABLED", "false") == "true"
+            and getattr(s, "BILLING_NOTIFICATIONS_ENABLED", "false") != "true"
+        ):
+            logger.error("billing admin requires billing notifications")
+            return
+        if (
             s.BILLING_ENABLED != "true"
             or s.BILLING_RENEWAL != "automatic"
             or not s.BILLING_TOTAL_POLICY_REF

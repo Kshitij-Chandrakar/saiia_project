@@ -1,8 +1,10 @@
 """No-network Resend adapter and template contracts."""
 
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from app.commercial.billing_database import BillingDatabase
 from app.email.billing import (
     ResendBillingProvider,
     SendNotAccepted,
@@ -10,6 +12,19 @@ from app.email.billing import (
 )
 from app.email.config import EmailSettings
 from app.email.provider import EmailSendRequest
+
+
+def test_billing_admin_requires_notification_worker():
+    runtime = BillingDatabase(
+        SimpleNamespace(
+            BILLING_DSN="",
+            BILLING_ENABLED="true",
+            BILLING_ADMIN_ENABLED="true",
+            BILLING_NOTIFICATIONS_ENABLED="false",
+        )
+    )
+    runtime.start()
+    assert runtime.billing is None and runtime.admin is None
 
 
 class Session:
