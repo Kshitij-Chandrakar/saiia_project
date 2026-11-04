@@ -118,7 +118,7 @@ class RazorpaySubscriptions:
         subscription = self.subscription(subscription_id)
         if subscription.get("status") in ("cancelled", "completed", "expired"):
             return subscription
-        if subscription.get("cancel_at_cycle_end"):
+        if subscription.get("change_scheduled_at") == "cycle_end":
             return subscription
         if subscription.get("status") not in (
             "created",

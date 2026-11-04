@@ -40,6 +40,7 @@ class Provider:
         self.calls = 0
         self.timeout = ""
         self.cancel_failures = 0
+        self.cancel_calls = 0
         self.plans = {}
 
     def plan(self, key):
@@ -84,6 +85,7 @@ class Provider:
         return signature(SECRET, (payment + "|" + sub).encode(), supplied)
 
     def cancel(self, key):
+        self.cancel_calls += 1
         if self.cancel_failures:
             self.cancel_failures -= 1
             raise TimeoutError()
@@ -437,6 +439,17 @@ def test_status_retries_a_failed_cancellation(billing):
     assert u["billing"].status(actor(u["account"]), op["operation_id"])[
         "provider_state"
     ] == "cancelled"
+
+
+def test_status_does_not_retry_cycle_end_cancellation(billing):
+    u = billing
+    op = ready(u)
+    u["provider"].orders[op["provider_id"]]["change_scheduled_at"] = "cycle_end"
+    u["db"].run(
+        f"update billing_operations set cancel_requested=true where operation_id='{op['operation_id']}'"
+    )
+    u["billing"].status(actor(u["account"]), op["operation_id"])
+    assert u["provider"].cancel_calls == 0
 
 
 def test_complete_empty_provider_scan_expires_stale_checkout(billing):

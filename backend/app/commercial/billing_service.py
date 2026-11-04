@@ -224,7 +224,7 @@ class BillingService:
         if (
             op["cancel_requested"]
             and subscription.get("status") not in ("cancelled", "completed", "expired")
-            and not subscription.get("cancel_at_cycle_end")
+            and subscription.get("change_scheduled_at") != "cycle_end"
         ):
             try:
                 subscription = self.provider.cancel(op["provider_id"])
