@@ -221,6 +221,16 @@ class BillingService:
             op = self._operation(account, operation)
         subscription = self.provider.subscription(op["provider_id"])
         self._validate_subscription(op, subscription)
+        if (
+            op["cancel_requested"]
+            and subscription.get("status") not in ("cancelled", "completed", "expired")
+            and not subscription.get("cancel_at_cycle_end")
+        ):
+            try:
+                subscription = self.provider.cancel(op["provider_id"])
+                self._validate_subscription(op, subscription)
+            except Exception:
+                logger.exception("billing operation unavailable", exc_info=False)
         invoices = sorted(
             self.provider.invoices(op["provider_id"]),
             key=lambda i: i.get("billing_end") or 0,

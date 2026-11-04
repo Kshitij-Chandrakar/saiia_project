@@ -428,14 +428,15 @@ def test_renewal_out_of_order_and_cancel_retains_paid_access(billing):
     ) == [{"n": 1}]
 
 
-def test_cancel_retries_after_a_confirmed_nonterminal_read(billing):
+def test_status_retries_a_failed_cancellation(billing):
     u = billing
     op = ready(u)
-    u["provider"].cancel_failures = 1
+    u["provider"].cancel_failures = 2
     first = u["billing"].cancel(actor(u["account"]), op["operation_id"])
     assert first["cancel_requested"] and first["provider_state"] == "created"
-    second = u["billing"].cancel(actor(u["account"]), op["operation_id"])
-    assert second["provider_state"] == "cancelled"
+    assert u["billing"].status(actor(u["account"]), op["operation_id"])[
+        "provider_state"
+    ] == "cancelled"
 
 
 def test_complete_empty_provider_scan_expires_stale_checkout(billing):
