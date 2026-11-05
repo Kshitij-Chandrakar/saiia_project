@@ -1114,6 +1114,7 @@ function MainWindow() {
   const activeAudioPipelineRequestIdRef = useRef('')
   const activeScreenOperationRef = useRef(null)
   const committedScreenOperationIdsRef = useRef(new Set())
+  const toolbarHandlerRef = useRef(null)
   const sourceWarningTimeoutRef = useRef(null)
   const answerReadyResetTimeoutRef = useRef(null)
   const generatingWatchdogTimeoutRef = useRef(null)
@@ -5845,12 +5846,7 @@ function MainWindow() {
     }
   }
 
-  useEffect(() => {
-    if (!window.electronAPI?.onToolbarAction) {
-      return undefined
-    }
-
-    const unsubscribe = window.electronAPI.onToolbarAction(async (payload) => {
+  toolbarHandlerRef.current = async (payload) => {
       const action = payload?.action
       const nextValue = payload?.payload?.value
 
@@ -6104,14 +6100,12 @@ function MainWindow() {
         setStatus('Request failed.')
         scheduleAudioPipelineIdleReset()
       }
-    })
+  }
 
-    return () => {
-      if (unsubscribe) {
-        unsubscribe()
-      }
-    }
-  })
+  useEffect(() => {
+    if (!window.electronAPI?.onToolbarAction) return undefined
+    return window.electronAPI.onToolbarAction(payload => toolbarHandlerRef.current?.(payload))
+  }, [])
 
   return (
     <MainDiagnosticsWindow

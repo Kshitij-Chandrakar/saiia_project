@@ -1,4 +1,4 @@
-# Frontend lint gate closure ? 27 October 2026
+# Frontend lint gate closure - 27 October 2026
 
 **Lint gate passes: 60 errors / 29 warnings ? 0 errors / 12 warnings.** This is not warning-free or full-CI acceptance. C11/C12/C13 remain open for their separately recorded gates. No provider/installed-app test, external action, migration, credential/configuration change, commit or push occurred.
 
@@ -111,11 +111,11 @@ Five historical provider execution journals retain their exact recorded hashes (
 Graphify queried the existing root graph for App/startup/auth/Screen relationships: 47 related nodes, BFS depth 2 (`graph-query.txt`), no semantic extraction/model calls. The existing graph is historical navigation evidence, not proof that it reflects these edits; it was not overwritten or visualized. Direct source/reference inspection and runtime checks establish the changes above.
 
 
-## Paired isolated gRPC follow-up ? 27 October 2026
+## Paired isolated gRPC follow-up - 27 October 2026
 
 Both reported failures now reproduce under identical commands and environment in separate pre-lint/current input copies: two tests, zero passes, two failures, exit 1 on each. Current working sources were byte-verified unchanged. [Baseline provenance, exact commands, hashes and limitations](FRONTEND_LINT_GRPC_BASELINE_COMPARISON.md). No regression from the lint edits was found in those two cases; lint changes are ready for review, while full-CI green remains blocked by the existing failures and the 12 warnings remain documented. Prior acceptance results were not rerun.
 
 
-## Separate test-fixture fixes ? 27 October 2026
+## Separate test-fixture fixes - 27 October 2026
 
 The two historical gRPC blockers above are now resolved by a subsequent test-only change: 164/164 relevant lifecycle cases pass. Production bytes unchanged; lint remains 0 errors / 12 warnings. [Separate root-cause/fix evidence](GRPC_BASELINE_FAILURE_FIXES_20261027.md). Earlier baseline logs/counts are retained unchanged; full CI was not rerun and is not claimed passed.
