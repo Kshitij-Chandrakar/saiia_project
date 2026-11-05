@@ -103,7 +103,16 @@ export default function DashboardOnboarding({ backendUrl, initial, onComplete })
   }
   function move(next) { void action(async () => { const value = await onboardingRequest(backendUrl, '/step', { current_step: next }, 'PATCH'); if (!active.current) return; if (value.onboarding_completed_at) onComplete(); else { setStep(value.onboarding_current_step); changeEditor('') } }) }
   function finish() { void action(async () => { const value = await onboardingRequest(backendUrl, '/complete', {}, 'POST'); if (!value.onboarding_completed_at) throw Error(); if (active.current) onComplete() }) }
-  function uploadFile(file) { if (!file) return; void action(async () => { if (uploadKey.current?.file !== file) uploadKey.current = { file, key: crypto.randomUUID() }; const result = await onboardingUpload(backendUrl, file, uploadKey.current.key); if (active.current) { setSelectedResume(result); setNotice('Resume uploaded. Review and confirm it in Resumes before using it for interviews.') } }) }
+  function uploadFile(file) {
+    if (!file) return
+    const fingerprint = `${file.name}:${file.size}:${file.lastModified}:${file.type}`
+    void action(async () => {
+      if (uploadKey.current?.fingerprint !== fingerprint) uploadKey.current = { fingerprint, key: crypto.randomUUID() }
+      const result = await onboardingUpload(backendUrl, file, uploadKey.current.key)
+      uploadKey.current = null
+      if (active.current) { setSelectedResume(result); setNotice('Resume uploaded. Review and confirm it in Resumes before using it for interviews.') }
+    })
+  }
   function extractJob(event) {
     event.preventDefault()
     if (!documentFile || !processingConsent) return

@@ -163,7 +163,7 @@ $env:PYTHONPATH=Join-Path $env:TEMP 'c113c-db-driver'
 
 The test runner creates its own fresh loopback cluster and never consumes a remote DSN. The source migration remains unapplied outside isolated tests. No normal configuration, admin grants, offers, provider/payment calls, Electron, activation, commits, pushes or deployment changed.
 
-### Historical C13.1 handoff ? superseded by the current C13.2 evidence
+### Historical C13.1 handoff — superseded by the current C13.2 evidence
 
 See the **fixed [C11 closure checklist](C11_CLOSURE_CHECKLIST.md)**. C13.1 now supplies internal account binding and durable accounting evidence; it does not close C11 normalized subscription state, initial Free enrollment, client current-plan parity, live feature gates, pending session-owner native acceptance or deployment checks. Overall C11/C13 remain partial.
 
@@ -174,7 +174,7 @@ No live Auto clock, heartbeats/renewals, audio relay, real provider-attempt cost
 Genuinely pending business choices remain the six rows above: initial source/state/expiry, upgrade/downgrade usage and timing, Auto stop/disconnect/concurrent-run accounting, failure/cancellation/uncertain-result charges, Screen classification/counting and successful resume replacement/over-cap treatment. Refund/tax/trial/support decisions stay in their own phases. Missing choices keep affected operations unavailable, not unlimited or free. Compatibility preserves V1/V2/V3 bytes; rollback leaves the unwired foundation disabled, preserves immutable history/outstanding reservations/events, and reconciles claims rather than resetting balances or dropping tables. Shared migration/provisioning/production enablement require separate authorization.
 
 
-### Current hosted desktop continuation ? 25 October 2026
+### Current hosted desktop continuation — 25 October 2026
 
 The default-off Electron hosted client now uses authenticated capabilities and the existing relay, main-owned bounded PCM forwarding, server leases and a single mixed Both stream. Native claim-once fencing prevents duplicate relay connection ownership. Isolated packaged acceptance exercises two workers, durable answers, Stop, worker failure/recovery and logout; see [implementation evidence](C13_2_IMPLEMENTATION_EVIDENCE.md) for exact logs and overlapping suite counts (51 backend native, 48 local native, 189 Node, 58 browser cases; hosted packaged wrapper 1/embedded 2). This supersedes earlier statements that desktop relay delivery is missing.
 

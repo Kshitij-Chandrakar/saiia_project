@@ -368,6 +368,16 @@ def test_pending_request_is_not_a_missing_transcript():
     with pytest.raises(DiagramError,match='source_not_found'):store.source('owner','session',transcript='synthetic')
 
 
+def test_subscription_pending_request_maps_missing_source_to_pending(monkeypatch):
+    from app.commercial.subscription_sketch import SubscriptionSketchStore
+
+    store = SubscriptionSketchStore.__new__(SubscriptionSketchStore)
+    monkeypatch.setattr(store, "_call", lambda *_args, **_kwargs: (_ for _ in ()).throw(DiagramError("source_not_found", 404)))
+    with pytest.raises(DiagramError, match="source_pending") as error:
+        store.source("owner", "session", request="synthetic")
+    assert error.value.status == 202
+
+
 def test_disabled_generation_still_resolves_saved_sources(monkeypatch):
     monkeypatch.setattr(settings,'DIAGRAM_GENERATION_ENABLED',False)
     store=Mock();store.source.return_value=({'eligible':True,'source_revision':'synthetic'}, {})

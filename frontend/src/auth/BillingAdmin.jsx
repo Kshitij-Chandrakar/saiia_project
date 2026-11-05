@@ -25,6 +25,7 @@ export default function BillingAdmin({backendUrl = '', client = supabase}) {
     let alive = true;
     const epoch = generation;
     async function update(next) {
+      if (session.current?.user?.id === next?.user?.id && next?.user?.id) {session.current = next; return;}
       const ticket = ++generation.current;
       session.current = next; setData(null); setReview(null); setAccess(null); setAccount(''); setBusy(false);
       if (!next) {setMessage('Sign in to use billing administration.'); return;}

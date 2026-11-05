@@ -151,6 +151,21 @@ def test_valid_token_accepted(auth_client: TestClient, monkeypatch):
     assert "exp" in payload["claims"]
 
 
+def test_current_user_is_verified_once_per_request(monkeypatch):
+    from starlette.requests import Request
+
+    calls = []
+    user = CurrentUser(user_id=TEST_USER_ID)
+    monkeypatch.setattr(supabase_auth, "verify_supabase_token", lambda token: calls.append(token) or user)
+    request = Request(
+        {"type": "http", "headers": [(b"authorization", b"Bearer synthetic-token")]}
+    )
+
+    assert get_current_user(request) is user
+    assert get_current_user(request) is user
+    assert calls == ["synthetic-token"]
+
+
 def test_jwks_url_config_is_preferred_when_configured(monkeypatch):
     _configure_legacy_secret(monkeypatch, secret="https://project-ref.supabase.co/auth/v1/.well-known/jwks.json")
 

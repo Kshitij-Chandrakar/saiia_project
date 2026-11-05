@@ -57,6 +57,7 @@ async function parseJsonResponse(response, fallbackMessage) {
     const error = new Error(detail || fallbackMessage)
     error.status = response.status
     if (typeof payload.code === 'string') error.code = payload.code
+    else if (payload.detail && typeof payload.detail === 'object' && typeof payload.detail.code === 'string') error.code = payload.detail.code
     throw error
   }
   return payload

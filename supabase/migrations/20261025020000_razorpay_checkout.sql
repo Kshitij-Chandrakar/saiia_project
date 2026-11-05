@@ -91,6 +91,10 @@ begin
  elsif p_action='attach' then
   if o.provider_id is not null and o.provider_id<>p_doc->>'provider_id' then raise exception 'provider conflict' using errcode='P0003'; end if;
   update public.billing_operations set provider_id=p_doc->>'provider_id',state='ready' where operation_id=p_id and state in ('creating','uncertain','ready') returning * into o;
+ elsif p_action='evidence' then
+  select * into e from public.billing_evidence where payment_id=p_doc->>'payment_id';
+  if found and (e.operation_id<>p_id or e.evidence_hash<>p_doc->>'evidence_hash') then raise exception 'evidence conflict' using errcode='P0003'; end if;
+  return to_jsonb(o)||jsonb_build_object('evidence_recorded',found);
  elsif p_action='record' then
   if o.provider_id is distinct from p_doc->>'provider_id' then raise exception 'provider conflict' using errcode='P0003'; end if;
   select * into e from public.billing_evidence where payment_id=p_doc->>'payment_id';
@@ -99,6 +103,10 @@ begin
   else
    insert into public.billing_evidence(payment_id,operation_id,evidence_hash,event_id,invoice_id,paid_until)
    values(p_doc->>'payment_id',p_id,p_doc->>'evidence_hash',(p_doc->>'event_id')::uuid,p_doc->>'invoice_id',(p_doc->>'paid_until')::timestamptz);
+  end if;
+ elsif p_action='expire' then
+  if o.provider_id is null and o.state in ('creating','uncertain') and o.created_at<clock_timestamp()-interval '24 hours' then
+   update public.billing_operations set state='expired' where operation_id=p_id returning * into o;
   end if;
  elsif p_action in ('apply','recover') then
   update public.billing_operations set last_checked_at=clock_timestamp() where operation_id=p_id;
@@ -115,6 +123,7 @@ begin
    update public.billing_operations set cancel_requested=true where operation_id=p_id returning * into o;
    return to_jsonb(o)||jsonb_build_object('dispatch',true);
   end if;
+  if o.provider_state in ('created','authenticated','active','pending','halted') then return to_jsonb(o)||jsonb_build_object('dispatch',true); end if;
  elsif p_action='provider_state' then
   update public.billing_operations set provider_state=p_doc->>'status' where operation_id=p_id returning * into o;
   if o.state='ready' and o.provider_state in ('authenticated','active','pending','halted') then
@@ -133,13 +142,13 @@ begin
 end $$;
 revoke all on function public.billing_call(uuid,text,uuid,jsonb) from public,anon,authenticated,service_role,usage_executor;
 grant execute on function public.billing_call(uuid,text,uuid,jsonb) to usage_binding_executor;
-create function public.billing_pending() returns jsonb language plpgsql security definer set search_path=pg_catalog as $$
+create function public.billing_pending(p_merchant text) returns jsonb language plpgsql security definer set search_path=pg_catalog as $$
 begin
  if session_user<>'usage_binding_executor' or current_setting('role',true)<>'none' then raise exception 'denied' using errcode='42501'; end if;
- return coalesce((select jsonb_agg(to_jsonb(x)) from (select operation_id,account_id,provider_id,merchant,state from public.billing_operations where state<>'expired' order by last_checked_at nulls first,created_at limit 50) x),'[]');
+ return coalesce((select jsonb_agg(to_jsonb(x)) from (select operation_id,account_id,provider_id,merchant,state from public.billing_operations where state<>'expired' and merchant=p_merchant order by last_checked_at nulls first,created_at limit 50) x),'[]');
 end $$;
-revoke all on function public.billing_pending() from public,anon,authenticated,service_role,usage_executor;
-grant execute on function public.billing_pending() to usage_binding_executor;
+revoke all on function public.billing_pending(text) from public,anon,authenticated,service_role,usage_executor;
+grant execute on function public.billing_pending(text) to usage_binding_executor;
 create function public.billing_lookup(p_provider text) returns jsonb language plpgsql security definer set search_path=pg_catalog as $$
 begin
  if session_user<>'usage_binding_executor' or current_setting('role',true)<>'none' then raise exception 'denied' using errcode='42501'; end if;

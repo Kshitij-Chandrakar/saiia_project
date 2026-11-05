@@ -115,7 +115,19 @@ class RazorpaySubscriptions:
         return self._request("GET", "plans/" + plan_id)
 
     def cancel(self, subscription_id):
-        self.subscription(subscription_id)
+        subscription = self.subscription(subscription_id)
+        if subscription.get("status") in ("cancelled", "completed", "expired"):
+            return subscription
+        if subscription.get("change_scheduled_at") is not None:
+            return subscription
+        if subscription.get("status") not in (
+            "created",
+            "authenticated",
+            "active",
+            "pending",
+            "halted",
+        ):
+            raise PaymentUnavailable()
         return self._request(
             "POST",
             "subscriptions/" + subscription_id + "/cancel",

@@ -1,5 +1,7 @@
 ﻿# SAIIA Cloud Product Implementation Roadmap
 
+**C13.2 continuation - local implementation evidence (24 October 2026):** The missing Auto mic/system/Both gRPC lease integration, durable Screen classification/results/settlement, resume capacity/initial-history/replacement/active-set/reindex paths, native Notes/Ask AI/history/export gates and client account cleanup are implemented default-off. Actual Windows Electron main/preload/renderer now passes native-JWT Current plan/Upgrade/logout and synthetic STT acceptance; packaged installed-device acceptance is separate. Native integration: **48 passed**, including two actual-native Playwright browser/Electron subcases. Backend regressions: **662 + 105 passed**; existing catalog/admin Playwright: **57 passed**, plus the separately mocked resume chooser. The [current evidence](https://github.com/Kshitij-Chandrakar/saiia_project/blob/85c56ee94c4891073d6caa8542f7a8e10d95f701/docs/C13_2_IMPLEMENTATION_EVIDENCE.md) records final native/check/build counts, exact migrations, transport boundaries and remaining limits. No shared changes or production activation. **C11/C13 remain partial; C13.2 release acceptance is not inferred from isolated tests or a failing repository-wide lint.**
+
 > **Current model-selection status - 2026-10-18:** Configuration-driven Electron Create Session selection, immutable backend session bindings, HTTP/gRPC answer routing, silent fallback, Retry and final-answer persistence are implemented and activated on **Saiia-dev only** (`rbmxfazjbldmkomdpyzl`). Default: Gemini 3.5 Flash-Lite; fallback: Groq GPT-OSS 120B. Selection stays locked; restricted metadata distinguishes selected and actual models. Production rollout remains separate. See [feature closeout](docs/SESSION_ANSWER_MODELS_CLOSEOUT.md) for scope, configuration/restart instructions, verification and pending checks. Earlier phase/status text below is historical for this feature; unrelated roadmap phases are unchanged.
 
 
@@ -7,7 +9,7 @@
 **Document type:** Detailed implementation roadmap and execution source of truth  
 **Track:** Desktop stabilization → Cloud account system → Website integration → Session intelligence → Subscription and release
 **Version:** 1.1  
-**Last updated:** 2026-09-04
+**Last updated:** 2026-10-29
 **Created:** 2026-07-10  
 **Current active phase:** C10.3 - Backend transactional email delivery remains after completion of C10.3A, C10.3B, C10.3C, and C10.3D dry-run/event foundations; PR #32 is merged and `outbound_email_events` migration `20260904143000_add_outbound_email_events.sql` is applied to remote Supabase dev with post-apply tests passed. C10.4A/B welcome-template/trigger dry-run work and C10.5A feature-template/helper work are complete locally. C10.5B dry-run trigger wiring is complete locally for AI-notes generation and transcript-export success points; no existing session-summary preparation flow was found, so that trigger remains deferred. C10.2B live Supabase Auth delivery remains blocked pending a verified Resend sender/domain and real C10.4/C10.5 delivery is not enabled. C10.1 and the C10.2A runbook are completed/merged; C10.2 delivery is not complete, C10.5 is incomplete, and real email sending/payments/admin/pricing remain not started. See `docs/C10_2A_SUPABASE_AUTH_RESEND_SMTP_RUNBOOK.md`.
 **Primary owner:** Project developer  
@@ -2269,7 +2271,7 @@ Templates should include:
 ## Status
 
 ```text
-[ ] Not started
+[~] C11.0 validated locally; C11.1A/B foundation and C11.2B pure catalog contracts implemented locally; C11.1C/C11.2A reviews/design complete. C11.1 and C11.2 remain partial. Bounded C11.2C storage/native verification accepted locally on PostgreSQL 17.11; 12 SQL groups passed. D closed adapter is native-tested; no shared/remote apply, production composition/editor/API or activation.
 ```
 
 ## Goal
@@ -2282,9 +2284,39 @@ This phase does not process money yet.
 
 It creates the stable contract that payment integration will update.
 
+## Approved execution breakdown (2026-10-22)
+
+C11 = pricing/subscription foundation; C12 = payments; C13 = usage/enforcement.
+Execution order: **C11.0 -> C11.1 -> C11.2 -> C11.3 -> C11.4 -> C13.1 -> C13.2 -> C12.1 -> C12.2 -> C12.3 -> closure**.
+
+C11.0 validates capabilities/provider ingress. C11.1 establishes trusted backend/admin authorization, default-closed until real entitlements/reservations exist. C11.2 separates immutable plan/offer/price/entitlement/allowance versions. C11.3 implements only subscription administration (Draft -> Preview -> Publish -> Retire, CAS/audit, validated features/discounts/limits). C11.4 exposes published public-safe offers/customer state consistently to website/account/Electron, while checkout stays unavailable until provider mapping/readiness. Broader C15.5 remains deferred; only subscription authorization/administration is brought forward by explicit product authorization.
+
+Only implemented features may be offered. Providers are company-funded. Prices, names, quotas, provider and unresolved commercial lifecycle rules are not chosen here. Separate payment frequency from quota resets; edits/retirement cannot silently rewrite accepted subscriber terms. The older mutable-table sketches below are historical design starting points, not an approved implementation schema; versioning supersedes them.
+
+Details, mapping from the superseded subphase labels, acceptance/testing/rollback and exact current status: [approved plan](docs/C11_C13_SUBSCRIPTION_IMPLEMENTATION_PLAN.md). Route/source evidence: [C11.0 audit addendum](docs/C11_SUBSCRIPTION_READINESS_AUDIT.md#8-authorized-c110-revalidation-and-first-c111-slice-2026-10-22). Hosted mode remains off by default; no plan catalog, editor, ledger, payments, migrations or production activation were implemented in this slice.
+
+C11.1C review (2026-10-22): the plan now specifies proposed public/auth/read versus funded ingress, device-originated hosted audio prerequisites, shared-state/TLS/proxy/secret validation, reservation failure/recovery semantics and authoritative admin-revocation requirements. Actual deployment infrastructure and immediate distributed admin revocation are absent/unverified; static permission removal requires every affected worker to restart/drain. C11.1 is not marked complete. **C11.2 catalog design does not require payments, a completed quota engine, hosted audio or deployment**; its implementation still needs separate authorization, foundation acceptance and isolated server-only ownership/immutability tests. C13.1 supplies accounting, C11.3 supplies authoritative shared permission/audit before editor writes, and C16.1 retains shared desktop-handoff ownership. No additional route, successful production authority, runtime behavior or environment was changed by C11.1C. Evidence: [C11.1C audit](docs/C11_SUBSCRIPTION_READINESS_AUDIT.md#10-c111c-prerequisite-review-2026-10-22).
+
+C11.2A design (2026-10-22): [plan section 12](docs/C11_C13_SUBSCRIPTION_IMPLEMENTATION_PLAN.md#12-c112a--catalog-and-admin-management-contract-design-2026-10-22) specifies draft/revision and immutable published offer-price terms, pinned subscriber versions, registered feature/meter units (Auto seconds including silence; Both once), separate billing/reset/permission/quota/storage/concurrency semantics, versioned discounts, transactional publication/CAS/audit/revocation and public-safe APIs/cache. All schema/API/migration details are proposed, not executable or deployed. Final commercial values/provider/policies remain pending. Independent **local catalog contracts and isolated schema implementation do not require deployment, payments or a finished quota engine**; C11.1 acceptance remains tracked separately and live admin/public/checkout/enforcement gates remain explicit. Proposed C11.2B is only typed document contracts/registry/validation/snapshots and tests, with no DB/routes/editor/paid authority. Evidence: [C11.2A audit](docs/C11_SUBSCRIPTION_READINESS_AUDIT.md#11-c112a-catalogadmin-contract-design-2026-10-22).
+
+C11.2B (2026-10-22): bounded pure catalog domain contracts are implemented/tested locally, including the closed feature/meter registry, strict validation, deeply immutable snapshots/digests and safe public projection with checkout unavailable. No persistence, executable migration, API/editor, actual offers/admins, payment/quota engine or successful admission was added. C11.1 and C11.2 remain partial; next proposed work is isolated storage/immutability and DB role/function verification, separately authorized, with shared authoritative permission/audit/revocation before editor writes. Actual results/limits: [plan section 13](docs/C11_C13_SUBSCRIPTION_IMPLEMENTATION_PLAN.md#13-c112b--pure-catalog-domain-layer-local-implementation-2026-10-22).
+
+C11.2C (2026-10-22): additive closed storage and native verification accepted locally. PostgreSQL 17.11 portable, task-owned disposable cluster: 12 SQL groups passed, including deterministic independent-session CAS and both revocation orders; 201 focused regressions passed. No shared/remote migration apply, production grants, seeds, runtime resolver, API or publication activation. C11.1/C11.2 remain partial. Next proposed C11.2D closed persistence adapter and C11.3 live admin/publication work remain separately authorized. Server/cluster cleaned up; inactive downloaded files remain after automatic cleanup rejection. Details: [plan section 15](docs/C11_C13_SUBSCRIPTION_IMPLEMENTATION_PLAN.md#15-c112c-native-verification-closure-2026-10-22).
+
+C11.2D (2026-10-22): closed draft persistence and validated-source immutable snapshot archive/readback implemented with four additive private RPCs and no application grants. Actual Python adapter/native PostgreSQL 17.11: 12 tests passed; 224 focused cases and all 12 accepted C native groups passed. No production wiring, editor/API, publication or entitlement activation; C11.1/C11.2 remain partial. Next proposed C11.3A is the closed authoritative permission probe and server-only identity/validation transport contract, separately authorized. Details: [plan section 16](docs/C11_C13_SUBSCRIPTION_IMPLEMENTATION_PLAN.md#16-c112d--closed-persistence-adapter-2026-10-22).
+
+C11.3A (2026-10-22): existing exact read-only admin self-probe now uses verified JWT identity and authoritative caller-scoped shared permission storage, with safe errors/no-store headers and internal bounded validation only. Prepared additive self-read SQL primitive tested only in disposable PostgreSQL 17.11: 11 native API/database tests, 12 native adapter regressions and 282 focused cases passed. No mutation grants/routes, editor, real offers, remote apply or commercial activation. C11.1/C11.2/C11.3 remain partial; next proposed C11.3B is the closed draft-service and nonbypassable mutation identity protocol. Full pricing comparisons are website-only; Electron's future Buy Credits shows current plan and browser-opening Upgrade, with no UI changes now. Free/Plus/Pro allocations/prices require discussion before configuring/publishing offers, not before generic editor development. [Plan section 17](docs/C11_C13_SUBSCRIPTION_IMPLEMENTATION_PLAN.md#17-c113a--authoritative-read-only-admin-access-2026-10-22).
+
+C11.3B (2026-10-22): closed validated draft create/read/CAS-edit/preview service accepted locally, reusing B/C/D and current authoritative permissions. Durable actor/key/semantic retry state returns the original historical result only after fresh authorization, without duplicate edit/audit. Additive server-only SQL entry point and NOLOGIN/memberless executor; no customer/service-role mutation grants, API/editor, production factory, offers or activation. PostgreSQL 17.11: 23 native service, 12 native adapter, 11 native probe and 282 focused tests passed; disposable migration apply only, retained downloads untouched. C11.1/C11.2/C11.3 remain partial. Next proposed C11.3C narrow draft APIs/explicit backend connection composition, separately authorized. Website full pricing/comparison/discounts/checkout; Electron future Buy Credits current plan + browser Upgrade, no UI changes here. Commercial allocations/values require discussion before real configuration/publication. [Plan section 18](docs/C11_C13_SUBSCRIPTION_IMPLEMENTATION_PLAN.md#18-c113b--closed-validated-draft-service-2026-10-22).
+
+C11.3C (2026-10-22): four authenticated draft API operations and reviewed direct PostgreSQL pool implemented/native-tested locally. Default-disabled composition; exact canonical path/method ingress, verified JWT/server actor, current transactional permissions, durable UUID retry protocol, bounded pool/transactions and clean identity reuse. No public-JWT mutation RPC fallback, table privilege widening, shared apply, real login/admin/offer provision, UI/publication/payment/metering or commercial activation. 40 API/composition checks, 23 native service, 12 adapter, 11 probe tests passed; focused 281 passed and one unchanged PDF-DLL import subprocess regression remains environment-blocked. C11.1/C11.2/C11.3 remain partial. Next proposed C11.3D website draft workspace, separately authorized; pending Free/Plus/Pro commercial discussion before real catalog configuration/publication. [Plan section 19](docs/C11_C13_SUBSCRIPTION_IMPLEMENTATION_PLAN.md#19-c113c-authenticated-draft-apis-and-database-composition-2026-10-22).
+
+
+
+
 ## Plan model
 
-Initial conceptual plans:
+Historical conceptual examples only (not approved plan names or seed data):
 
 - Free
 - Student
@@ -2385,6 +2417,10 @@ GET /api/billing/subscription
 GET /api/billing/entitlements
 ```
 
+### C11.4 current local implementation update - 2026-10-23
+
+Website published-catalog/pricing is locally integrated and accepted: approved Free/Plus/Pro admin imports -> save/reopen/edit -> reviewed synthetic publication -> dedicated read-only GET /api/catalog -> the existing landing pricing section. New V3 representation preserves historical V1/V2 terms; real backend policy storage/resolution is explicit and fail-closed, with no approved defaults/seeds. Separate public/lifecycle configuration remains off. Support is Coming soon; paid checkout disabled. Native PostgreSQL 17.11/JWT/browser evidence and exact remaining gates are in [the current acceptance record](https://github.com/Kshitij-Chandrakar/saiia_project/blob/a800c087aba17bf4c0f494e53bd01021fc2ab3ea/docs/PLUS_PRO_APPROVED_DECISIONS.md). This supersedes earlier Plus/Pro-pending/public-display-not-started status only. Customer subscription state, future Electron current-plan/Upgrade, C12 and C13 remain pending. C11 overall is partial; no shared migrations, real offers/admins or deployment occurred.
+
 ## C11 tests
 
 - default free plan
@@ -2412,14 +2448,32 @@ GET /api/billing/entitlements
 ## Status
 
 ```text
-[ ] Not started
+[~] Local/synthetic billing-flow and synchronization checks recorded; billing email/admin locally implemented and substitute-verified. Separate reported Razorpay Test Mode results are not verified by this PR; actual provider acceptance, cancellation/support, delivery/admin, desktop and live release gates remain open
 ```
 
 ## Goal
 
 Connect a real payment provider and synchronize payment state into SAIIA subscriptions.
 
+## Approved execution breakdown
+
+C12.1 selects a provider and builds authenticated idempotent sandbox checkout only after C13.2, approved commercial terms and official provider-doc verification. C12.2 synchronizes signed durable payment events with ordering/reconciliation and confirmed-state email through actual C10 readiness. C12.3 adds permission-controlled provider-backed admin billing actions with confirmation/audit; complimentary grants stay separate from payment facts. No arbitrary unpaid-to-paid edits or client redirect grants.
+
+C12.1/C12.2 now have a default-off local Razorpay Subscriptions implementation, explicitly authorized to proceed alongside remaining C11/C13 acceptance on 25 October 2026. The user approved automatic renewal with explicit consent and configurable maxima of 12 monthly / 5 yearly cycles, fresh consent after completion and paid-period-end preservation. This is an explicit exception to the earlier start-order and final-provider-decision prerequisites for the authorized default-off local Razorpay slice only. It does not select or approve the final production payment provider. C12.3 and actual Razorpay test-mode, email and live acceptance remain open. No tax, refund, discount or upgrade-charge behavior is invented. See [committed local billing implementation](https://github.com/Kshitij-Chandrakar/saiia_project/blob/a0a178455428fb73323e2783e904a951e356a173/backend/app/commercial/billing_service.py). Production activation remains separate; prior staging deadlines/authorization are unchanged. The start-order/provider-choice exception does not waive approved commercial terms or official provider-document verification; their local-slice status and evidence are recorded below.
+
+### Local C12 prerequisite evidence - 29 October 2026
+
+- **Approved commercial terms, local slice:** the [committed approved Free/Plus/Pro terms](https://github.com/Kshitij-Chandrakar/saiia_project/blob/a800c087aba17bf4c0f494e53bd01021fc2ab3ea/docs/PLUS_PRO_APPROVED_DECISIONS.md#confirmed-terms) supply the reviewed prices, intervals and feature allocations. The 25 October authorization recorded above adds explicit recurring consent, maximum 12 monthly / 5 yearly cycles, fresh consent after completion and preservation of the paid period. These are the approved inputs for this bounded test-only implementation, not approval of a production provider or additional commercial policies. The [committed service](https://github.com/Kshitij-Chandrakar/saiia_project/blob/a0a178455428fb73323e2783e904a951e356a173/backend/app/commercial/billing_service.py) binds checkout to immutable accepted terms; the [committed consent/mandate and binding tests](https://github.com/Kshitij-Chandrakar/saiia_project/blob/a0a178455428fb73323e2783e904a951e356a173/backend/tests/test_billing_native.py) record the intended enforcement. Unsupported or unapproved tax, refund, discount and upgrade/proration behavior remains blocked pending its own approval; no exemption from approval is implied.
+- **Official provider-document verification:** rechecked on 29 October 2026 for this local slice against [Subscriptions integration and server-side signature verification](https://razorpay.com/docs/payments/subscriptions/integration-guide/), [subscription creation](https://razorpay.com/docs/api/payments/subscriptions/create-subscription/), [subscription invoices](https://razorpay.com/docs/api/payments/subscriptions/fetch-invoices/), [webhook validation and event ordering](https://razorpay.com/docs/webhooks/validate-test/) and [cancellation](https://razorpay.com/docs/api/payments/subscriptions/cancel-subscription/). The [committed adapter](https://github.com/Kshitij-Chandrakar/saiia_project/blob/a0a178455428fb73323e2783e904a951e356a173/backend/app/commercial/razorpay.py) uses the documented finite-cycle fields, server subscription ID in the payment signature, raw-body webhook validation, invoice retrieval and period-end cancellation. This source/document review records the local verification gate; it does not claim that all production/provider acceptance is complete or that a real provider call was made during this review.
+
+The two local prerequisites above are recorded separately from the explicit start-order/final-provider-choice exception. Actual provider acceptance, final production commercial approval, configuration and deployment remain separate release gates.
+
+
+Local/synthetic provider-flow tests cover totals, signatures and synchronization; they are not Razorpay Test Mode payment acceptance. The pinned C13.2 evidence records a different local scope with no provider/payment calls or real subscriptions. A separate excluded operational record for 26 October session 03 reports four initial real Test Mode paid flows (GST-added totals, signed subscription events, C13 receipts and account refresh); its execution evidence is not included in this PR, so this document does not independently certify those reported passes or use them to close actual Test Mode acceptance. They must not be relabelled as synthetic results. That operational record also reports four cancellation schedules as **unknown** and two unauthenticated cancellation requests as **rejected**; Active plus a next-charge date is not cancellation confirmation. Actual Test Mode acceptance remains pending verification of its own retained evidence, independently of the local/synthetic checks. Confirmed-state billing email delivery, permission-controlled provider-backed admin acceptance, recovery/renewal/expiry and installed Electron gates remain open. C12 is not complete. No provider calls, payment repeats or cancellation retries were made for this documentation review.
+
 ## Provider decision gate
+
+Current C12.2/C12.3 local follow-up: [billing email and billing-only admin acceptance](docs/C12_BILLING_EMAIL_ADMIN_LOCAL_ACCEPTANCE.md) now covers C10-backed durable notifications, explicit billing read/manage permissions, state-bound confirmations, eligible retries, queued provider reconciliation and audits. No real email/provider call or shared migration occurred. Earlier email/admin implementation-pending statements are superseded for this scope only; actual delivery/provider acceptance and all six cancellation confirmations remain open. The [support packet](docs/C12_RAZORPAY_CANCELLATION_SUPPORT_DRAFT.md) is prepared, not sent. C11/C13 staging application acceptance is preserved.
 
 Choose:
 
@@ -2533,12 +2587,20 @@ Recommended fields:
 ## Status
 
 ```text
-[ ] Not started
+[~] C13.1 locally accepted; C13.2 implemented default-off; production enforcement and release acceptance pending
 ```
 
 ## Goal
 
 Track expensive operations and enforce plan limits consistently.
+
+## Approved execution breakdown
+
+C13.1 follows C11.4: durable operations, atomic reservations/settlement/releases/reconciliation, periods and bounded renewable leases. C13.2 follows C13.1: every enabled costly route/model/account limit and shared website/Electron used/reserved/remaining/reset views. C13.1 has a locally accepted, production-unwired foundation, and C13.2 has a default-off local implementation; production enforcement and release acceptance remain pending. The C11.1 closed authority is not a ledger or production entitlement service.
+
+Auto allowance is **elapsed authorized running time, including silence**. Combined microphone/system audio counts once per logical run. Trusted server time governs; client clocks/balances are not authority. Customer allowance is separate from provider cost. Do not implement dependent pause/disconnect/failure charging policies until recorded decisions exist. Avoid double charging retries/reconnects/fallback/lost responses, and verify last-unit/concurrent-device races.
+
+The existing table sketches below remain proposals; exact schemas need the durable reservation/versioning design in the approved plan. Payments follow enforcement in the revised order; C13 does not become C12.
 
 ## `usage_events` table
 
@@ -2939,6 +3001,8 @@ Do not store private content in audit logs.
 ---
 
 # C15.5 — Internal Admin, Support, and Audit Console
+
+> 2026-10-22 narrow execution carve-out: C11.1 subscription-only permission/bootstrap foundation and C11.3 subscription administration are brought forward by explicit product authorization. Broader C15.5 support/admin operations, candidate-content access, account mutation and its C15 privacy prerequisites remain here and are not completed by C11.
 
 ## Status
 

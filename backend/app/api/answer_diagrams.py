@@ -3,6 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 
 from app.auth.supabase_auth import CurrentUserDep
 from app.cloud.answer_diagrams import DiagramError, diagram_store
@@ -76,7 +77,8 @@ class DiagramRequest(BaseModel):
 async def read_diagram(session_id: UUID, transcript_id: UUID, current_user: CurrentUserDep, request: Request = None,
                        source_revision: str = Query(pattern=r'^v1:[a-f0-9]{64}$')):
     try:
-        return await _service(request).read((current_user.user_id, str(session_id), str(transcript_id), source_revision, None))
+        service = await run_in_threadpool(_service, request)
+        return await service.read((current_user.user_id, str(session_id), str(transcript_id), source_revision, None))
     except DiagramError as exc:
         if exc.code == 'schema_unavailable':
             return dict(state='unavailable', reason=exc.code, source_revision=source_revision)
@@ -91,7 +93,7 @@ async def mutate_diagram(session_id: UUID, transcript_id: UUID, payload: Diagram
         raise HTTPException(404)
     identity = (current_user.user_id, str(session_id), str(transcript_id), payload.source_revision, str(payload.operation_id))
     try:
-        service = _service(request)
+        service = await run_in_threadpool(_service, request)
         return await service.cancel(identity) if action == 'cancel' else await service.run(identity, retry=action == 'retry')
     except DiagramError as exc:
         raise HTTPException(exc.status, detail={'code': exc.code}) from None

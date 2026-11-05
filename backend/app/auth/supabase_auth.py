@@ -190,6 +190,21 @@ def _bearer_token_from_request(request: Request) -> str:
 def get_current_user(request: Request) -> CurrentUser:
     try:
         token = _bearer_token_from_request(request)
+    except SupabaseAuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=AUTH_ERROR_DETAIL,
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+    cached = getattr(request.state, "_saiia_current_user", None)
+    if (
+        isinstance(cached, tuple)
+        and len(cached) == 2
+        and cached[0] == token
+        and isinstance(cached[1], CurrentUser)
+    ):
+        return cached[1]
+    try:
         user = verify_supabase_token(token)
     except SupabaseAuthConfigurationError as exc:
         raise HTTPException(
@@ -217,6 +232,7 @@ def get_current_user(request: Request) -> CurrentUser:
         except CatalogStoreError as error:
             raise HTTPException(403 if error.code == ErrorCode.DENIED else 503,
                                 detail={'code': 'subscription_denied' if error.code == ErrorCode.DENIED else 'subscription_unavailable'}) from None
+    request.state._saiia_current_user = (token, user)
     return user
 
 

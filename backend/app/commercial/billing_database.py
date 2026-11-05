@@ -66,7 +66,7 @@ class BillingDatabase(SubscriptionDatabase):
                 raise RuntimeError("billing unavailable")
         for function in (
             "billing_call(uuid,text,uuid,jsonb)",
-            "billing_pending()",
+            "billing_pending(text)",
             "billing_lookup(text)",
             "billing_event(text,text,text,text)",
             "billing_current(uuid)",
@@ -80,6 +80,12 @@ class BillingDatabase(SubscriptionDatabase):
 
     def start(self):
         s = self.settings
+        if (
+            getattr(s, "BILLING_ADMIN_ENABLED", "false") == "true"
+            and getattr(s, "BILLING_NOTIFICATIONS_ENABLED", "false") != "true"
+        ):
+            logger.error("billing admin requires billing notifications")
+            return
         if (
             s.BILLING_ENABLED != "true"
             or s.BILLING_RENEWAL != "automatic"

@@ -56,7 +56,10 @@ window.installPhysicalAcceptance = ({ sessionId, hosted = false }) => {
       mark('final_settlement_read_ms')
       timing.final = settled
       window.physicalTimingResult = structuredClone(timing)
+      timing = undefined
+      return window.physicalTimingResult
     }
+    return undefined
   }
   const button = (label, action) => {
     const node = document.createElement('button')
@@ -102,11 +105,11 @@ window.installPhysicalAcceptance = ({ sessionId, hosted = false }) => {
     mark('start_requested_ms')
     await start('microphone')
     if (session) timedStop = setTimeout(async () => {
-      await stop()
-      report({ capture: 'stopped', timing: window.physicalTimingResult })
+      const completedTiming = await stop()
+      report({ capture: 'stopped', ...(completedTiming ? { timing: completedTiming } : {}) })
     }, 120000)
   })
-  button('Stop', async () => { await stop(); report({ capture: 'stopped', ...(timing ? { timing: window.physicalTimingResult } : {}) }) })
+  button('Stop', async () => { const completedTiming = await stop(); report({ capture: 'stopped', ...(completedTiming ? { timing: completedTiming } : {}) }) })
   button('Read safe status', async () => {
     const value = await window.electronAPI.getGrpcRealtimeStatus()
     report({ connection: value.connectionStatus, auto: value.autoStatus,

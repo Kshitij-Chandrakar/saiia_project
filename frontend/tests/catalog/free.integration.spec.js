@@ -42,7 +42,7 @@ test('approved Free import save reopen edit preview over JWT native PostgreSQL',
   await button('Save draft').click();
   await expect(page.getByRole('alert')).toContainText('not confirmed');
   await button('Retry same save').click();
-  expect(keys).toHaveLength(2);
+  await expect.poll(() => keys.length).toBe(2);
   expect(keys[0]).toBe(keys[1]);
   await expect(button('Save changes')).toBeVisible();
   await button('Open draft').click();
@@ -51,9 +51,9 @@ test('approved Free import save reopen edit preview over JWT native PostgreSQL',
   const preview = page.getByRole('region', {
     name: 'Draft preview'
   });
-  await expect(preview).toContainText('600 second(s) per day');
-  await expect(preview).toContainText('5 save(s) per month');
-  await expect(preview).toContainText('Unlimited');
+  await expect(preview.getByRole('listitem').filter({hasText: /^Auto Mode:/})).toHaveText('Auto Mode: 600 second(s) per day, midnight Asia/Kolkata');
+  await expect(preview.getByRole('listitem').filter({hasText: /^New Clipboard saves:/})).toHaveText('New Clipboard saves: 5 save(s) per month, midnight Asia/Kolkata, original signup day (clamped and restored)');
+  await expect(preview.getByRole('listitem').filter({hasText: /^Answer assistance:/})).toHaveText('Answer assistance: Unlimited');
   await expect(preview.locator('s')).toHaveText('Introducing Sketch');
   await expect(preview.getByRole('button', {
     name: 'Preview Clipboard unavailable'

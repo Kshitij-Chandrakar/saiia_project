@@ -96,13 +96,16 @@ class Gates:
 
 
 @asynccontextmanager
-async def transport(monkeypatch, source, probe, version=0, turns=None, legacy_types=None, external_client=None):
+async def transport(monkeypatch, source, probe, version=0, turns=None, legacy_types=None, external_client=None,
+                    enable_session_answer_models=False):
     """Real gRPC handler/adapter; mock only auth, STT websocket and native capture."""
     from app.services.assemblyai_streaming import AssemblyAIStreamingBridge
     from app.api.question_detect import classifier
     for name in ('USE_GRPC_AUTO_PIPELINE', 'GRPC_STT_ENABLED',
                  'GRPC_ANSWER_STREAM_ENABLED', 'USE_GRPC_CLOUD_CONTEXT_PIPELINE'):
         monkeypatch.setattr(grpc_server.settings, name, True)
+    if enable_session_answer_models:
+        monkeypatch.setattr(grpc_server.settings, 'ENABLE_SESSION_ANSWER_MODELS', True)
     cloud = NS(session_id=SID, request=request(), load=lambda: dict(profile_context_used=False))
     cloud.save = lambda *args: pytest.fail('managed route must have one save owner')
     monkeypatch.setattr(GrpcCloudContext, 'authorize', lambda *args: cloud)

@@ -42,15 +42,20 @@ class SubscriptionSketchStore:
         transcript: str | None = None,
         request: str | None = None
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        result = self._call(
-            user,
-            False,
-            lambda q: json_query(
-                q,
-                "SELECT public.subscription_sketch_source(%s,%s,%s,%s)",
-                (user, session, transcript, request),
-            ),
-        )
+        try:
+            result = self._call(
+                user,
+                False,
+                lambda q: json_query(
+                    q,
+                    "SELECT public.subscription_sketch_source(%s,%s,%s,%s)",
+                    (user, session, transcript, request),
+                ),
+            )
+        except DiagramError as error:
+            if transcript is None and error.code == "source_not_found":
+                raise DiagramError("source_pending", 202) from None
+            raise
         return result["descriptor"], result["source"]
 
     def authorize_generation(self, user: str) -> None:

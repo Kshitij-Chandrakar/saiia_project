@@ -3,7 +3,7 @@ begin;
 create table public.subscription_relay_frames (
  run_id uuid primary key references public.subscription_auto_runs(run_id) on delete restrict,
  account_id uuid not null references auth.users(id) on delete restrict,
- session_id uuid not null references public.interview_sessions(id) on delete restrict,
+ session_id uuid not null references public.interview_sessions(id) on delete cascade,
  source text not null check(source in ('microphone','system','both')),
  last_sequence bigint not null default 0,
  last_hash text,
@@ -154,7 +154,7 @@ begin
   where f.contype='f' and f.confrelid='auth.users'::regclass and n.nspname='public'
   union select 'storage','objects' where to_regclass('storage.objects') is not null
  loop
-  execute format('create policy subscription_deletion_barrier on %I.%I as restrictive for all to authenticated using(public.subscription_account_accessible()) with check(public.subscription_account_accessible())',target.nspname,target.relname);
+  execute format('create policy subscription_deletion_barrier on %I.%I as restrictive for all to authenticated using((select public.subscription_account_accessible())) with check((select public.subscription_account_accessible()))',target.nspname,target.relname);
  end loop;
 end $$;
 commit;

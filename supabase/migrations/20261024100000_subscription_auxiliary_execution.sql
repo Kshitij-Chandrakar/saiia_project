@@ -14,6 +14,13 @@ language plpgsql security definer set search_path=pg_catalog as $$
 declare sid uuid; terms jsonb; feature text; meter text; k public.interview_session_ask_ai_request_keys; n public.interview_session_ai_notes; o jsonb; result jsonb; body jsonb; created boolean;
 begin
  if session_user<>'usage_executor' or current_setting('role',true)<>'none' then raise exception 'denied' using errcode='42501'; end if;
+ if p_action='transcripts.clear' then
+   sid:=(p_doc->>'session_id')::uuid;
+   perform pg_advisory_xact_lock(hashtextextended(sid::text,0));
+   perform 1 from public.interview_sessions where user_id=p_account and id=sid for update;
+   if not found then raise exception 'not found' using errcode='P0002'; end if;
+   return jsonb_build_object('deleted_count',public.delete_interview_session_transcript_entries(p_account,sid));
+ end if;
  perform public.subscription_current(p_account,false);
  select c.canonical_json::jsonb->'terms' into terms from public.account_plan_bindings b join public.catalog_offer_versions c using(offer_version_id) where b.account_id=p_account;
  feature:=case when p_action like 'notes.%' then 'notes.generate' when p_action like 'ask.%' then 'session.ask_ai' else 'sessions.history' end;
@@ -25,9 +32,6 @@ begin
  perform pg_advisory_xact_lock(hashtextextended(sid::text,0));
  perform 1 from public.interview_sessions where user_id=p_account and id=sid for update;
  if not found then raise exception 'not found' using errcode='P0002'; end if;
- if p_action='transcripts.clear' then
-   return jsonb_build_object('deleted_count',public.delete_interview_session_transcript_entries(p_account,sid));
- end if;
  if p_action='transcripts' then
    return jsonb_build_object('items',(select coalesce(jsonb_agg(to_jsonb(x)),'[]') from (select * from public.interview_session_transcript_entries where user_id=p_account and session_id=sid order by turn_index,created_at,id limit least(200,(p_doc->>'limit')::integer) offset greatest(0,(p_doc->>'offset')::integer)) x));
  end if;
