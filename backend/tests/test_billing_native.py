@@ -444,7 +444,9 @@ def test_status_retries_a_failed_cancellation(billing):
 def test_status_does_not_retry_cycle_end_cancellation(billing):
     u = billing
     op = ready(u)
-    u["provider"].orders[op["provider_id"]]["change_scheduled_at"] = "cycle_end"
+    u["provider"].orders[op["provider_id"]].update(
+        status="active", change_scheduled_at=int(time.time())
+    )
     u["db"].run(
         f"update billing_operations set cancel_requested=true where operation_id='{op['operation_id']}'"
     )
