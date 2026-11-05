@@ -8,7 +8,7 @@ import WebsiteNotFound, { WebsiteRouteHistory } from './WebsiteNotFound'
 import { createGrpcAutoSession, getGrpcAutoBlockReason } from './grpc_auto_session.js'
 import { selectRealtimeRoute, realtimeRouteDiagnostics, AUTH_BLOCKS } from './realtime_router.js'
 import { canUseGrpcManual, createGrpcManualSession, getGrpcManualBlockReason } from './grpc_manual_session.js'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import {
   AuthCallbackPage,
@@ -5846,7 +5846,8 @@ function MainWindow() {
     }
   }
 
-  toolbarHandlerRef.current = async (payload) => {
+  useLayoutEffect(() => {
+    toolbarHandlerRef.current = async (payload) => {
       const action = payload?.action
       const nextValue = payload?.payload?.value
 
@@ -6100,7 +6101,8 @@ function MainWindow() {
         setStatus('Request failed.')
         scheduleAudioPipelineIdleReset()
       }
-  }
+    }
+  })
 
   useEffect(() => {
     if (!window.electronAPI?.onToolbarAction) return undefined
