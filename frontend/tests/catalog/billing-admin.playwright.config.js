@@ -1,0 +1,2 @@
+import {defineConfig} from '@playwright/test';
+export default defineConfig({testDir:'.',testMatch:'billing-admin.spec.js',workers:1,use:{baseURL:'http://127.0.0.1:5293',trace:'off'},webServer:{command:'npx vite --config tests/catalog/billing-admin.vite.config.js',cwd:new URL('../..',import.meta.url).pathname.replace(/^\/([A-Za-z]:)/,'$1'),url:'http://127.0.0.1:5293',reuseExistingServer:false,timeout:30000}});
