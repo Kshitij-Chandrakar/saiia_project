@@ -329,5 +329,5 @@ test('desktop auth wiring leaves local no-auth controls available', () => {
   assert.match(diagnosticsSource, /<DesktopAuthStatus onSignedOut=\{resetStartupAuthentication\} \/>/)
   assert.match(diagnosticsSource, /Setup Profile/)
   assert.match(diagnosticsSource, /Start Recording \(Fallback\)/)
-  assert.match(diagnosticsSource, /Analyze Active Window/)
+  assert.match(diagnosticsSource, /Analyze Screen/)
 })

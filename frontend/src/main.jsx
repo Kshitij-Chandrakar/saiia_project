@@ -8,12 +8,16 @@ import SubscriptionAdmin from './auth/SubscriptionAdmin';
 import BillingAdmin from './auth/BillingAdmin';
 
 const isAdminPath = () => window.location.pathname.toLowerCase().startsWith('/auth/admin/')
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'
+const reportRouterError = (error, { location } = {}) => {
+  if (location?.pathname.toLowerCase().startsWith('/auth/admin/')) console.error(error)
+}
 const websiteRouter = window.electronAPI ? null : createBrowserRouter([{
   path: '/auth/admin/subscriptions',
-  element: <SubscriptionAdmin />,
+  element: <SubscriptionAdmin backendUrl={BACKEND_URL} />,
 }, {
   path: '/auth/admin/billing',
-  element: <BillingAdmin />,
+  element: <BillingAdmin backendUrl={BACKEND_URL} />,
 }, {
   path: '*',
   element: <App />,
@@ -30,5 +34,5 @@ if (websiteRouter) window.addEventListener('vite:preloadError', event => {
   root.render(<WebsiteRenderFailure />);
 });
 root.render(<React.StrictMode>
-    {websiteRouter ? <WebsiteMounted><RouterProvider router={websiteRouter} /></WebsiteMounted> : <BrowserRouter><App /></BrowserRouter>}
+    {websiteRouter ? <WebsiteMounted><RouterProvider router={websiteRouter} onError={reportRouterError} /></WebsiteMounted> : <BrowserRouter><App /></BrowserRouter>}
   </React.StrictMode>);

@@ -928,7 +928,7 @@ export default function MainDiagnosticsWindow(props) {
                 onClick={handleScreenCapture}
                 disabled={recording || autoMode || autoProcessing}
               >
-                {ocrProcessing ? 'Analyzing Active Window...' : 'Analyze Active Window'}
+                {ocrProcessing ? 'Analyzing Active Window...' : 'Analyze Screen'}
               </button>
             </div>
 
