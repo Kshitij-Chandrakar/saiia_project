@@ -330,4 +330,6 @@ test('desktop auth wiring leaves local no-auth controls available', () => {
   assert.match(diagnosticsSource, /Setup Profile/)
   assert.match(diagnosticsSource, /Start Recording \(Fallback\)/)
   assert.match(diagnosticsSource, /Analyze Screen/)
+  assert.match(diagnosticsSource, /then run Analyze Screen again/)
+  assert.match(diagnosticsSource, /Chat, or Analyze Screen/)
 })

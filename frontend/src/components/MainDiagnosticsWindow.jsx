@@ -292,7 +292,7 @@ function getReadableErrorAction(message) {
   }
 
   if (/active window|identified|target question window|focus the question window/i.test(value)) {
-    return 'Focus the question window first, then run Analyze Active Window again. If SAIIA still cannot identify it, use the screen source picker or browser extension path.'
+    return 'Focus the question window first, then run Analyze Screen again. If SAIIA still cannot identify it, use the screen source picker or browser extension path.'
   }
 
   if (/profile|complete your profile/i.test(value)) {
@@ -477,7 +477,7 @@ function getRuntimeGuidance({
     tone: 'neutral',
     phase: 'Idle',
     headline: 'Ready for the next interview prompt.',
-    detail: status || 'Choose recording, Auto Mode, Chat, or Analyze Active Window.',
+    detail: status || 'Choose recording, Auto Mode, Chat, or Analyze Screen.',
     action: 'Focus the source first: microphone for speech, question window for screen analysis.',
     steps: [
       { label: 'Choose input', state: 'active' },
