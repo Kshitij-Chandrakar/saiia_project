@@ -193,15 +193,19 @@ class BillingNotifications:
                     html_body=template.html,
                     idempotency_key=job["idempotency_key"],
                 )
-                outcome = self.provider.send_email(request)
-            except SendNotAccepted:
+            except EmailValidationError:
                 outcome = {"state": "failed", "provider": "resend"}
-            except Exception:
-                # No exception text: it can contain recipients or credentials.
-                logger.exception(
-                    "Billing email result requires reconciliation", exc_info=False
-                )
-                outcome = {"state": "unknown", "provider": "resend"}
+            else:
+                try:
+                    outcome = self.provider.send_email(request)
+                except SendNotAccepted:
+                    outcome = {"state": "failed", "provider": "resend"}
+                except Exception:
+                    # No exception text: it can contain recipients or credentials.
+                    logger.exception(
+                        "Billing email result requires reconciliation", exc_info=False
+                    )
+                    outcome = {"state": "unknown", "provider": "resend"}
             self.call(
                 "complete", identifier, {**outcome, "claim_token": job["claim_token"]}
             )

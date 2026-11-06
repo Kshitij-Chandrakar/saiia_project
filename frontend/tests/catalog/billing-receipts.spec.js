@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const root = resolve('..', 'tmp', 'c12-billing-email-redesign');
+const previews = resolve('..', 'tmp', 'c12-billing-email-admin');
 const variants = [
   ['billing_payment', 'Payment received'],
   ['billing_renewal', 'Your subscription is renewed'],
@@ -15,7 +16,7 @@ class ReceiptPreview {
   async open(kind, blocked) {
     // These are local HTML fixtures and local raster assets only.
     await this.page.route(/^https?:\/\//, route => route.abort());
-    await this.page.goto(pathToFileURL(resolve(root, 'previews', `${kind}${blocked ? '-images-blocked' : ''}.html`)).href);
+    await this.page.goto(pathToFileURL(resolve(previews, `${kind}${blocked ? '-images-blocked' : ''}.html`)).href);
     await this.page.waitForFunction(() => [...document.images].every(image => image.complete));
   }
 

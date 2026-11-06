@@ -1,4 +1,4 @@
-# gRPC comparison for lint review ? 27 October 2026
+# gRPC comparison for lint review - 27 October 2026
 
 **Both reported failures reproduce before and after the lint changes. No lint regression was found in these two cases.** No application/test source was edited by this comparison. No providers, installed/external acceptance, migrations or credentials were used.
 

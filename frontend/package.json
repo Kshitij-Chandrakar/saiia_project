@@ -11,6 +11,9 @@
     "electron:build": "vite build && electron-builder",
     "lint": "eslint .",
     "preview": "vite preview",
+    "test:website:branding": "node scripts/website-test.cjs ../tmp/website-batch3-production 5329 playwright.website-branding.config.js",
+    "test:website:fallback": "node scripts/website-test.cjs ../tmp/website-batch1-production 5309 playwright.website-fallback.config.js",
+    "test:website:progress": "node scripts/website-test.cjs ../tmp/website-batch2-production 5319 playwright.website-progress.config.js",
     "grpc:sync-proto": "node scripts/sync-grpc-proto.cjs",
     "preelectron:build": "npm run grpc:sync-proto"
   },

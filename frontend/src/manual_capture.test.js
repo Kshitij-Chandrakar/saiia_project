@@ -299,7 +299,7 @@ function appManualHarness(manualConfig = { manual_stt_provider: 'openai_whisper'
     start() { this.state = 'recording' }
     stop() { this.state = 'inactive'; this.ondataavailable({ data: new Blob(['backup']) }); this.onstop() }
   }
-  const code = appSource.slice(appSource.indexOf('  const handleRecordToggle ='), appSource.indexOf('  useEffect(', appSource.indexOf('  const handleRecordToggle =')))
+  const code = appSource.slice(appSource.indexOf('  const handleRecordToggle ='), appSource.indexOf('  useLayoutEffect(', appSource.indexOf('  const handleRecordToggle =')))
   const context = {
     window: { electronAPI: {} }, startupSessionConfigRef: { current: {} }, canUseGrpcManual: () => false, getGrpcManualBlockReason,
     crypto: { randomUUID: () => 'app-session' }, Date, performance, console,

@@ -17,6 +17,25 @@ async function fixture(page, body) {
   await page.goto('/')
 }
 
+test('real entrypoint keeps both admin routes available', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__session = { access_token: 'synthetic', user: { id: '10000000-0000-4000-8000-000000000001' } }
+    window.__listeners = []
+  })
+  await page.route('**/src/auth/supabaseClient.js*', route => route.fulfill({
+    contentType: 'application/javascript',
+    body: `export const supabase={auth:{getSession:async()=>({data:{session:window.__session}}),onAuthStateChange:fn=>({data:{subscription:{unsubscribe(){}}}})}};export function getSupabaseAuthConfig(){return {}};`,
+  }))
+  await page.route('**/api/**', route => {
+    const pathname = new URL(route.request().url()).pathname
+    return route.fulfill({ json: pathname === '/api/commercial/admin/me' ? { permissions: ['subscriptions.manage'] } : { read: false, manage: false } })
+  })
+  await page.goto('/auth/admin/subscriptions')
+  await expect(page.getByRole('heading', { name: 'Subscription drafts' })).toBeVisible()
+  await page.goto('/auth/admin/billing')
+  await expect(page.getByRole('heading', { name: 'Billing administration' })).toBeVisible()
+})
+
 test('pending startup auth uses latest parent callback without repeating the request', async ({ page }) => {
   await fixture(page, `import Login from '/src/components/StartupLoginScreen.jsx';
     window.loads=0;window.callbacks=[];

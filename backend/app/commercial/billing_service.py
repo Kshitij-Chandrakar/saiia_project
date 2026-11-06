@@ -211,6 +211,9 @@ class BillingService:
             if op["state"] not in ("creating", "uncertain"):
                 return op
             matches = self.provider.find(op)
+            if not matches:
+                # `find` only returns after its complete bounded scan.
+                return self._call(account, "expire", operation)
             if len(matches) != 1:
                 return op
             self._validate_subscription(op, matches[0])
@@ -218,6 +221,16 @@ class BillingService:
             op = self._operation(account, operation)
         subscription = self.provider.subscription(op["provider_id"])
         self._validate_subscription(op, subscription)
+        if (
+            op["cancel_requested"]
+            and subscription.get("status") not in ("cancelled", "completed", "expired")
+            and subscription.get("change_scheduled_at") is None
+        ):
+            try:
+                subscription = self.provider.cancel(op["provider_id"])
+                self._validate_subscription(op, subscription)
+            except Exception:
+                logger.exception("billing operation unavailable", exc_info=False)
         invoices = sorted(
             self.provider.invoices(op["provider_id"]),
             key=lambda i: i.get("billing_end") or 0,
@@ -226,9 +239,31 @@ class BillingService:
         for invoice in invoices:
             if invoice.get("status") != "paid":
                 continue
-            payment = self.provider.payment(invoice["payment_id"])
-            if expected_payment_id == payment.get("id"):
+            if expected_payment_id == invoice.get("payment_id"):
                 matched = True
+            if type(invoice.get("billing_end")) is not int:
+                raise PaymentUnavailable()
+            until = datetime.fromtimestamp(invoice["billing_end"], timezone.utc)
+            evidence = {
+                "provider_id": op["provider_id"],
+                "payment_id": invoice["payment_id"],
+                "invoice_id": invoice["id"],
+                "event_id": str(
+                    uuid5(
+                        NAMESPACE_URL,
+                        "razorpay:test:" + self.merchant + ":" + invoice["id"],
+                    )
+                ),
+                "paid_until": until.isoformat(),
+            }
+            evidence["evidence_hash"] = hashlib.sha256(
+                c.canonical_json(evidence).encode()
+            ).hexdigest()
+            if self._call(account, "evidence", operation, evidence).get(
+                "evidence_recorded"
+            ):
+                continue
+            payment = self.provider.payment(invoice["payment_id"])
             if (
                 invoice.get("entity") != "invoice"
                 or type(invoice.get("amount")) is not int
@@ -265,23 +300,6 @@ class BillingService:
                 )
             ):
                 raise PaymentUnavailable()
-            # Exact provider invoice period, independent of signup allowance resets.
-            until = datetime.fromtimestamp(invoice["billing_end"], timezone.utc)
-            evidence = {
-                "provider_id": op["provider_id"],
-                "payment_id": payment["id"],
-                "invoice_id": invoice["id"],
-                "event_id": str(
-                    uuid5(
-                        NAMESPACE_URL,
-                        "razorpay:test:" + self.merchant + ":" + invoice["id"],
-                    )
-                ),
-                "paid_until": until.isoformat(),
-            }
-            evidence["evidence_hash"] = hashlib.sha256(
-                c.canonical_json(evidence).encode()
-            ).hexdigest()
             self._call(account, "record", operation, evidence)
         if not matched:
             # Authorization-only callbacks are pending, never an access grant.
@@ -342,7 +360,7 @@ class BillingService:
         if not self.enabled:
             raise PaymentUnavailable()
         return self.channel._transaction(
-            False, lambda q: q("SELECT public.billing_pending()", ())
+            False, lambda q: q("SELECT public.billing_pending(%s)", (self.merchant,))
         )
 
     def sweep(self):
@@ -353,8 +371,6 @@ class BillingService:
         for op in self.pending()[:5]:
             if time.monotonic() > deadline:
                 break
-            if op["merchant"] != self.merchant:
-                continue
             try:
                 updated = self.reconcile(op["account_id"], op["operation_id"])
                 result["checked"] += 1

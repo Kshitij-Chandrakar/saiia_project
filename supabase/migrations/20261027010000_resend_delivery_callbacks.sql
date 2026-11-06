@@ -55,7 +55,7 @@ begin
    if existing.raw_hash<>p_doc->>'raw_hash' then return '{"error":"conflict"}'::jsonb; end if;
    return '{"duplicate":true}'::jsonb;
   end if;
-  if (select count(*) from public.billing_email_delivery_events)>=100000 or (select count(*) from public.billing_email_delivery_events where processing_state='pending')>=1000 then raise exception 'receipt capacity reached' using errcode='54000'; end if;
+  if (select count(*) from public.billing_email_delivery_events where processing_state='pending')>=1000 then raise exception 'receipt capacity reached' using errcode='54000'; end if;
   insert into public.billing_email_delivery_events(event_hash,scope,delivery_id,raw_hash,message_id,event_type,event_at,processing_state,failure_detail)
    values(encode(sha256(convert_to((p_doc->>'scope')||':'||(p_doc->>'delivery_id'),'UTF8')),'hex'),p_doc->>'scope',p_doc->>'delivery_id',p_doc->>'raw_hash',(p_doc->>'message_id')::uuid,p_doc->>'event_type',(p_doc->>'event_at')::timestamptz,'pending',p_doc->>'failure_detail');
   return '{"received":true}'::jsonb;
