@@ -6,7 +6,7 @@ import OverlayWindow from '../../src/components/OverlayWindow.jsx'
 import '../../src/styles/glass.css'
 const canonical='**Purpose**\n\nSystem design describes components and their relationships.\n\n1. Establish requirements.\n2. Compare tradeoffs.\n\n```python\ndef identity(value):\n    return value\n```'
 const api={answerDiagram:async action=>({ok:true,data:action==='history'?{items:[{id:'synthetic-saved',question_text:'Explain system design.',answer_text:canonical}]}:{eligible:false}}),onAnswerDiagramInvalidated:()=>()=>{}}
-function Fixture(){
+export default function Fixture(){
  const [state,setState]=useState({text:'',streaming:true})
  window.setPresentation=value=>setState(value)
  window.finishPresentation=()=>setState({text:canonical,streaming:false})

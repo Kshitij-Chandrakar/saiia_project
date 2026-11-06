@@ -15,12 +15,12 @@ const loginPageSource = source.match(/export function AuthLoginPage[\s\S]*?expor
 const unsubscribePageSource = source.match(/export function AuthUnsubscribePage[\s\S]*?export function AuthStatusPage/)?.[0] || ''
 const statusPageSource = source.match(/export function AuthStatusPage[\s\S]*?function RequireAuth/)?.[0] || ''
 const dashboardPageSource = source.match(/export function AuthDashboardPage[\s\S]*?export function AuthResumePage/)?.[0] || ''
-const askAIToggleSource = dashboardPageSource.match(/async function handleAskAIToggle[\s\S]*?\n  \}\n\n  async function handleAskAILoadMore/)?.[0] || ''
+const askAIToggleSource = dashboardPageSource.match(/async function handleAskAIToggle[\s\S]*?\n {2}\}\n\n {2}async function handleAskAILoadMore/)?.[0] || ''
 const resumePageSource = source.match(/export function AuthResumePage[\s\S]*?export function AuthLogoutPage/)?.[0] || ''
-const statusLogoutSource = statusPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n  \}\n\n  return \(/)?.[0] || ''
-const dashboardLogoutSource = dashboardPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n  \}\n\n  return \(/)?.[0] || ''
+const statusLogoutSource = statusPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n {2}\}\n\n {2}return \(/)?.[0] || ''
+const dashboardLogoutSource = dashboardPageSource.match(/async function handleLogout\(\) \{[\s\S]*?\n {2}\}\n\n {2}return \(/)?.[0] || ''
 const resumeRefreshCatchSource = resumePageSource.match(/catch \(refreshError\) \{[\s\S]*?\}\s*catch \(confirmError\)/)?.[0] || ''
-const resumeDeleteSource = resumePageSource.match(/async function handleDeleteResume\(targetResumeArg = null\) \{[\s\S]*?\n  \}\n\n  async function handleRebuildIndex/)?.[0] || ''
+const resumeDeleteSource = resumePageSource.match(/async function handleDeleteResume\(targetResumeArg = null\) \{[\s\S]*?\n {2}\}\n\n {2}async function handleRebuildIndex/)?.[0] || ''
 const openDesktopHandoffSource = source.match(/async function openDesktopHandoff[\s\S]*?\n\}/)?.[0] || ''
 const sourceWithoutDesktopHandoff = source.replace(openDesktopHandoffSource, '')
 
@@ -116,12 +116,12 @@ test('desktop handoff passes only handoff code and state to Electron callback UR
 test('desktop mode preserves email password and Google auth without changing normal website redirects', () => {
   assert.match(signupPageSource, /const safeDesktopState = getSafeDesktopState\(desktopState \|\| searchParams\.get\('desktop_state'\)\)/)
   assert.match(signupPageSource, /const safeNextRoute = safeDesktopState[\s\S]*\? desktopLoginRoute\(safeDesktopState\)[\s\S]*: getSafeAuthNextRoute/)
-  assert.match(signupPageSource, /emailRedirectTo: getAuthRedirectUrl\(safeDesktopState, safeDesktopState \|\| window.electronAPI \? \'\' : safeNextRoute\)/)
+  assert.match(signupPageSource, /emailRedirectTo: getAuthRedirectUrl\(safeDesktopState, safeDesktopState \|\| window.electronAPI \? '' : safeNextRoute\)/)
   assert.match(signupPageSource, /if \(data\.session\) \{[\s\S]*if \(safeDesktopState\) \{[\s\S]*await openDesktopHandoff\(data\.session, safeDesktopState, backendUrl\)/)
   assert.match(loginPageSource, /if \(safeDesktopState\) \{[\s\S]*await openDesktopHandoff\(data\.session, safeDesktopState, backendUrl\)/)
   assert.match(loginPageSource, /fetchCurrentUser\(data\.session\.access_token, \{ backendUrl \}\)[\s\S]*navigate\(safeNextRoute, \{ replace: true \}\)/)
   assert.match(source, /async function startGoogleLogin\(desktopState = '', nextRoute = '', signupAttempt = ''\) \{[\s\S]*provider: 'google'[\s\S]*redirectTo: signupAttempt[\s\S]*getAuthRedirectUrl\(desktopState, nextRoute\)/)
-  assert.match(signupPageSource, /async function handleGoogleLogin\(\) {[\s\S]*const \{ error \} = await startGoogleLogin\(safeDesktopState(?:,[^)]*)?\)[\s\S]*form\.setError\(attempt \? [^\n]+error.message/)
+  assert.match(signupPageSource, /async function handleGoogleLogin\(\) {[\s\S]*const \{ error \} = await startGoogleLogin\(safeDesktopState(?:,[^)]*)?\)[\s\S]*form\.setError\(attempt \? [^\n]+customerWebsiteError\(error, /)
   assert.match(loginPageSource, /async function handleGoogleLogin\(\) {[\s\S]*const \{ error \} = await startGoogleLogin\(safeDesktopState, safeDesktopState \? '' : safeNextRoute\)[\s\S]*form\.setError\(safeDesktopState \? 'Google login could not be started\.'/)
   assert.match(signupPageSource, /onClick=\{handleGoogleLogin\}/)
   assert.match(loginPageSource, /onGoogleLogin=\{handleGoogleLogin\}/)
@@ -197,7 +197,6 @@ test('dashboard loads session history and transcript controls with separate load
   assert.match(dashboardPageSource, /const askAISubmitControllerRef = useRef\(null\)/)
   assert.match(dashboardPageSource, /function resetAskAIState\(\) \{[\s\S]*askAIMessagesControllerRef\.current\?\.abort\(\)[\s\S]*askAISubmitControllerRef\.current\?\.abort\(\)[\s\S]*setAskAIMessagesNextPage\(null\)[\s\S]*setAskAILoading\(false\)/)
   assert.match(source, /function formatSessionTime\(value\)/)
-  assert.match(source, /function formatSessionContextLine\(session\)/)
   assert.match(source, /function formatSessionDisplayContextLine\(session\)/)
   assert.match(source, /function formatTranscriptDisplayMetaLine\(entry\)/)
   assert.match(source, /function formatInterviewNotesMetaLine\(notes\)/)
@@ -468,7 +467,8 @@ test('cloud resume page supports delete and rebuild lifecycle controls safely', 
   assert.match(resumePageSource, /const \[rebuildPending, setRebuildPending\] = useState\(false\)/)
   assert.match(resumePageSource, /async function handleDeleteResume\(targetResumeArg = null\)/)
   assert.match(resumePageSource, /const targetResume = targetResumeArg \|\| currentResume \|\| reviewCandidate \|\| resumeRecord/)
-  assert.match(resumePageSource, /Delete this cloud resume \(\$\{resumeLabel\}\)\?/)
+  assert.match(resumeDeleteSource, /await askResumeConfirmation\('delete', targetResume\)/)
+  assert.match(resumePageSource, /if \(window\.electronAPI\) \{[\s\S]*Promise\.resolve\(window\.confirm/)
   assert.match(resumePageSource, /deleteCloudResume\(token, targetResume\.id, \{ backendUrl, signal: controller\.signal \}\)/)
   assert.match(resumePageSource, /if \(currentResume\?\.id === targetResume\.id\) \{[\s\S]*setCurrentResume\(null\)/)
   assert.match(resumePageSource, /if \(reviewCandidate\?\.id === targetResume\.id\) \{[\s\S]*setReviewCandidate\(null\)/)

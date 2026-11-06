@@ -275,7 +275,7 @@ test('runtime logout returns renderer to startup login gate without stale identi
   const resetLogoutBody = extractArrowFunctionBody(appSource, 'resetRuntimeForDesktopLogout')
 
   assert.match(source, /function DesktopAuthStatus\(\{ onSignedOut \}\)/)
-  assert.match(source, /const nextState = getDesktopAuthViewModel\(payload\)[\s\S]*?setAuthState\(nextState\)[\s\S]*?if \(shouldShowStartupLogin\(nextState\)\) {[\s\S]*?onSignedOut\?\.\(nextState\)/)
+  assert.match(source, /const nextState = getDesktopAuthViewModel\(payload\)[\s\S]*?setAuthState\(nextState\)[\s\S]*?if \(shouldShowStartupLogin\(nextState\)\) {[\s\S]*?authCallback\.current\?\.\(nextState\)/)
   assert.match(diagnosticsSource, /onDesktopSignedOut,\s*\} = props/)
   assert.match(diagnosticsSource, /const resetStartupAuthentication = \(\) => {[\s\S]*?onDesktopSignedOut\?\.\(\)[\s\S]*?setStartupAuthenticated\(false\)/)
   assert.match(diagnosticsSource, /<DesktopAuthStatus onSignedOut=\{resetStartupAuthentication\} \/>/)
@@ -329,5 +329,7 @@ test('desktop auth wiring leaves local no-auth controls available', () => {
   assert.match(diagnosticsSource, /<DesktopAuthStatus onSignedOut=\{resetStartupAuthentication\} \/>/)
   assert.match(diagnosticsSource, /Setup Profile/)
   assert.match(diagnosticsSource, /Start Recording \(Fallback\)/)
-  assert.match(diagnosticsSource, /Analyze Active Window/)
+  assert.match(diagnosticsSource, /Analyze Screen/)
+  assert.match(diagnosticsSource, /then run Analyze Screen again/)
+  assert.match(diagnosticsSource, /Chat, or Analyze Screen/)
 })

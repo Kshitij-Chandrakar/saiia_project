@@ -6,6 +6,7 @@ export default function SignupVerificationNotice({ onDismiss, returnFocusRef }) 
   const dialogRef = useRef(null)
 
   useEffect(() => {
+    const returnTarget = returnFocusRef.current
     const dialog = dialogRef.current
     const body = document.body
     const overflow = body.style.overflow
@@ -18,7 +19,7 @@ export default function SignupVerificationNotice({ onDismiss, returnFocusRef }) 
       dialog.close()
       body.style.overflow = overflow
       body.style.paddingRight = paddingRight
-      if (returnFocusRef.current?.isConnected) returnFocusRef.current.focus()
+      if (returnTarget?.isConnected) returnTarget.focus()
     }
   }, [returnFocusRef])
 

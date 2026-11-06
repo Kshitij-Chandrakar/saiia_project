@@ -273,7 +273,7 @@ test('Auto microphone callbacks retain partial preview, final generation and fal
     'setStatus', 'keepMicAutoListeningVisual', 'logAutoModeDebug', 'setSttProvider', 'setSttFallbackUsed', 'setSttFallbackReason', 'appendEventLog', 'setError']) {
     context[name] = (...args) => calls.push({ [name]: args })
   }
-  const code = appSource.slice(appSource.indexOf('  const startAutoStreamingMic ='), appSource.indexOf('  const startAutoStreamingSystem ='))
+  const code = appSource.slice(appSource.indexOf('  const startAutoStreamingMic ='), appSource.indexOf('  const runAutoModeCycle ='))
   const start = vm.runInNewContext(`${code}; startAutoStreamingMic`, context)
   await start('auto-1', {})
   await socket.onmessage({ data: JSON.stringify({ event: 'turn', transcript: 'What is React?', end_of_turn: false }) })

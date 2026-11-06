@@ -49,7 +49,7 @@ export default function WebsiteSignup({ form, checkingSession, configured, terms
         <Link to="/" className="website-login__brand website-signup__brand" aria-label="Intervucopilot home"><span className="website-login__brand-icon"><img src={brandMark} alt="" /></span><span>Intervucopilot</span></Link>
         <header><h1 id="signup-title">Create your account</h1><p>Start your personalized interview preparation journey with Intervucopilot.</p></header>
         <div className="website-signup__messages" aria-live="polite">
-          {!configured && <p role="alert">Supabase auth is not configured for this build.</p>}
+          {!configured && <p role="alert">Sign-in is unavailable right now. Please try again later.</p>}
           {checkingSession && <p role="status">Checking session...</p>}
           {form.error && <p role="alert" id="signup-error">{form.error}</p>}
           {form.message && <p role="status">{form.message}</p>}

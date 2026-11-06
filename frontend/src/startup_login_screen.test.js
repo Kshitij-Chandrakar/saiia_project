@@ -8,6 +8,7 @@ import {
   getDesktopStartupErrorView,
 } from './desktop_auth_ui.js'
 
+const desktopAuthUiSource = readFileSync(new URL('./desktop_auth_ui.js', import.meta.url), 'utf8')
 const startupSource = readFileSync(new URL('./components/StartupLoginScreen.jsx', import.meta.url), 'utf8')
 const startupChoiceSource = readFileSync(new URL('./components/StartupSessionChoiceScreen.jsx', import.meta.url), 'utf8')
 const accountMenuSource = readFileSync(new URL('./components/StartupAccountMenu.jsx', import.meta.url), 'utf8')
@@ -37,9 +38,9 @@ test('startup login screen renders for signed-out and token-expired states', () 
   assert.equal(visibleStatuses.has(getDesktopAuthViewModel({ status: 'token-expired' }).status), true)
   assert.equal(visibleStatuses.has(getDesktopAuthViewModel({ status: 'signing-in' }).status), true)
   assert.equal(visibleStatuses.has(getDesktopAuthViewModel({ status: 'connected' }).status), false)
-  assert.match(startupSource, /const LOGIN_VISIBLE_STATUSES = new Set/)
+  assert.match(desktopAuthUiSource, /const LOGIN_VISIBLE_STATUSES = new Set/)
   assert.match(startupSource, /DESKTOP_AUTH_STATUSES\.SIGNED_OUT/)
-  assert.match(startupSource, /DESKTOP_AUTH_STATUSES\.TOKEN_EXPIRED/)
+  assert.match(desktopAuthUiSource, /DESKTOP_AUTH_STATUSES\.TOKEN_EXPIRED/)
   assert.match(startupSource, /if \(!shouldShowStartupLogin\(nextState\)\)/)
 })
 
@@ -502,7 +503,7 @@ test('startup session setup screen collects local setup and routes back or into 
   assert.match(appSource, /generationRequestIncludesSessionId: Boolean\(generateRequestBody\.session_id\)/)
   assert.match(appSource, /generationRequestIncludesSelectedResumeId: Boolean\(generateRequestBody\.selected_resume_id\)/)
   const selectedResumeDiagnosticsBlock =
-    appSource.match(/const selectedResumeDiagnostics = \{[\s\S]*?\n    \}/)?.[0] || ''
+    appSource.match(/const selectedResumeDiagnostics = \{[\s\S]*?\n {4}\}/)?.[0] || ''
   assert.ok(selectedResumeDiagnosticsBlock, 'selectedResumeDiagnostics block should exist')
   assert.doesNotMatch(selectedResumeDiagnosticsBlock, /selectedResumeName/)
   assert.match(appSource, /Selected resume is not ready for generation\. Please finish resume setup or rebuild the index from the dashboard\./)

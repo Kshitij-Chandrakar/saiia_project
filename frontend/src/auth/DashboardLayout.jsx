@@ -19,18 +19,18 @@ export default function DashboardLayout({ user, title, children, onLogout, logou
   const navigate = useNavigate()
   const location = useLocation()
   useEffect(() => {
-    if (window.electronAPI) return
+    if (window.electronAPI || !location.pathname.toLowerCase().startsWith('/auth/admin/')) return
     const previousTitle = document.title
     const favicon = document.querySelector('link[rel="icon"]')
     const parent = favicon?.parentNode, next = favicon?.nextSibling
     document.title = `${title} | Intervucopilot`
-    // No approved website favicon exists; hide the development Vite icon here.
+    // Preserve legacy admin metadata handling separately from customer routes.
     if (favicon?.getAttribute('href') === '/vite.svg') favicon.remove()
     return () => {
       document.title = previousTitle
       if (favicon && !favicon.isConnected) parent.insertBefore(favicon, next?.parentNode === parent ? next : null)
     }
-  }, [title])
+  }, [title, location.pathname])
   async function logout() {
     if (loading) return
     if (onLogout) return onLogout()

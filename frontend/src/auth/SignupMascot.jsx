@@ -8,7 +8,7 @@ const gait = [1, 2, 3, 4, 5, 6]
 const ease = value => value * value * (3 - 2 * value)
 
 // One finite timeline; travel and the genuine character poses are separate layers.
-export function signupMascotPose(elapsed) {
+function signupMascotPose(elapsed) {
   const walk = Math.max(0, Math.min(1, (elapsed - 1550) / 1800))
   const opening = Math.max(0, Math.min(1, (elapsed - 1000) / 650))
   return {

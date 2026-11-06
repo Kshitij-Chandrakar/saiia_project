@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import SessionConfirmation from './SessionConfirmation'
 
-export const sessionSuggestions = [
+const sessionSuggestions = [
   ['Follow-up Email', 'Draft a professional follow-up email for this interview using the selected session’s role, company, and supported discussion highlights.'],
   ['Grade the call', 'Review this interview session based on the available transcript. Explain strengths, areas for improvement, and any limits in the available evidence.'],
   ['How was the vibe?', 'Describe the tone of this interview based on the available text. Explain what supports your assessment and what cannot be determined from the transcript.'],

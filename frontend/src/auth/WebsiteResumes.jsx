@@ -13,20 +13,22 @@ const sections = [
   ['Certifications and achievements', ['certifications', 'achievements']],
 ]
 
-function ResumeDialog({ title, wide, onClose, returnFocusRef, children }) {
+function ResumeDialog({ title, wide, onClose, returnFocusRef, children, descriptionId }) {
   const ref = useRef(null)
   useEffect(() => {
+    const returnTarget = returnFocusRef.current
     const element = ref.current, overflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     element.showModal()
+    element.querySelector('[data-initial-focus]')?.focus({ preventScroll: true })
     return () => {
       element.close()
       document.body.style.overflow = overflow
-      const target = returnFocusRef.current?.isConnected ? returnFocusRef.current : document.querySelector('.website-resumes .wr-page-upload')
+      const target = returnTarget?.isConnected ? returnTarget : document.querySelector('.website-resumes .wr-page-upload')
       target?.focus({ preventScroll:true })
     }
   }, [returnFocusRef])
-  return <dialog ref={ref} className={`website-dashboard wr-dialog ${wide ? 'wr-dialog--wide' : ''}`} aria-modal="true" aria-labelledby="wr-dialog-title" onCancel={event => { event.preventDefault(); onClose() }} onKeyDown={event => {
+  return <dialog ref={ref} className={`website-dashboard wr-dialog ${wide ? 'wr-dialog--wide' : ''}`} aria-modal="true" aria-labelledby={descriptionId ? 'wr-confirm-title' : 'wr-dialog-title'} aria-describedby={descriptionId} onCancel={event => { event.preventDefault(); event.stopPropagation(); onClose() }} onKeyDown={event => {
     if (event.key !== 'Tab') return
     const controls = [...event.currentTarget.querySelectorAll('button,input,textarea,select,a[href],[tabindex="0"]')].filter(element => !element.disabled && element.getClientRects().length)
     const first = controls[0], last = controls.at(-1)
@@ -37,9 +39,22 @@ function ResumeDialog({ title, wide, onClose, returnFocusRef, children }) {
     const rect = event.currentTarget.getBoundingClientRect()
     if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) onClose()
   }}>
-    <header className="wr-dialog-header"><h2 id="wr-dialog-title">{title}</h2><button type="button" aria-label={`Close ${title}`} onClick={onClose}><X size={20} aria-hidden="true" /></button></header>
+    <header className="wr-dialog-header"><h2 id={descriptionId ? 'wr-confirm-title' : 'wr-dialog-title'}>{title}</h2><button type="button" aria-label={`Close ${title}`} onClick={onClose}><X size={20} aria-hidden="true" /></button></header>
     {children}
   </dialog>
+}
+
+export function ResumeConfirmation({ request, onCancel, onConfirm, returnFocusRef }) {
+  const deleting = request.kind === 'delete'
+  const title = deleting ? 'Delete this resume?' : request.kind === 'upload' ? 'Replace your draft?' : 'Extract this resume again?'
+  const action = deleting ? 'Delete resume' : request.kind === 'upload' ? 'Replace draft and upload' : 'Extract again'
+  return <ResumeDialog title={title} onClose={onCancel} returnFocusRef={returnFocusRef} descriptionId="wr-confirm-description">
+    <div className="wr-dialog-body wr-confirm-body">
+      <p className="wr-confirm-file">{request.filename || 'Your resume'}</p>
+      <p id="wr-confirm-description">{deleting ? 'This deletes the selected cloud resume. If it is your active resume, it will no longer be available for new sessions.' : request.kind === 'upload' ? 'Uploading another file replaces your unconfirmed draft. Your active resume stays unchanged until a new profile is confirmed.' : 'Extraction replaces the unconfirmed edits for this resume. Your active resume stays unchanged until a new profile is confirmed.'}</p>
+    </div>
+    <footer className="wr-dialog-footer"><button type="button" data-initial-focus onClick={onCancel}>{deleting ? 'Keep resume' : 'Keep editing'}</button><button type="button" className={deleting ? 'wr-confirm-delete' : 'wd-primary'} onClick={onConfirm}>{action}</button></footer>
+  </ResumeDialog>
 }
 
 function ResumeCard({ record, active, confirmed, children }) {

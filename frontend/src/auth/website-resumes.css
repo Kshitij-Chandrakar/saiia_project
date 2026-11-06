@@ -37,6 +37,11 @@
 .wr-dialog .wr-indeterminate::after { content:''; display:block; height:100%; width:35%; border-radius:inherit; background:#2978cb; animation:wr-progress 1.5s ease-in-out infinite alternate; }
 .wr-dialog .wr-spinner { animation:wr-spin 1.2s linear infinite; }
 .wr-dialog .wr-instruction { color:#64748b; margin-bottom:20px; }
+.wr-dialog .wr-confirm-file { font-weight:600; margin-bottom:16px; overflow-wrap:anywhere; color:#10234f; }
+.wr-dialog .wr-confirm-body p { line-height:1.65; }
+.wr-dialog .wr-confirm-delete { color:#fff; background:#b42318; border-color:#b42318; }
+.wr-dialog button:focus-visible { outline:3px solid #2563eb; outline-offset:3px; }
+.wr-dialog .wr-dialog-header h2 { overflow-wrap:anywhere; }
 .wr-dialog fieldset { min-width:0; border:0; margin:0 0 24px; padding:0; }
 .wr-dialog legend { font-weight:600; font-size:14px; margin-bottom:12px; }
 .wr-dialog .wr-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
