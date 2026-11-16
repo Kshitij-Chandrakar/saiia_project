@@ -1,4 +1,4 @@
-﻿# SAIIA Cloud Product Implementation Roadmap
+# SAIIA Cloud Product Implementation Roadmap
 
 **C13.2 continuation - local implementation evidence (24 October 2026):** The missing Auto mic/system/Both gRPC lease integration, durable Screen classification/results/settlement, resume capacity/initial-history/replacement/active-set/reindex paths, native Notes/Ask AI/history/export gates and client account cleanup are implemented default-off. Actual Windows Electron main/preload/renderer now passes native-JWT Current plan/Upgrade/logout and synthetic STT acceptance; packaged installed-device acceptance is separate. Native integration: **48 passed**, including two actual-native Playwright browser/Electron subcases. Backend regressions: **662 + 105 passed**; existing catalog/admin Playwright: **57 passed**, plus the separately mocked resume chooser. The [current evidence](https://github.com/Kshitij-Chandrakar/saiia_project/blob/85c56ee94c4891073d6caa8542f7a8e10d95f701/docs/C13_2_IMPLEMENTATION_EVIDENCE.md) records final native/check/build counts, exact migrations, transport boundaries and remaining limits. No shared changes or production activation. **C11/C13 remain partial; C13.2 release acceptance is not inferred from isolated tests or a failing repository-wide lint.**
 
@@ -2862,11 +2862,15 @@ C14 is the final design-complete integration phase:
 
 # C15 — Privacy, Export, Retention, and Deletion
 
+30 October 2026 local update: [Stage 1C supported Auth/credential report](docs/C15_STAGE_1C_AUTH_INTEGRATION.md) records prepared supported-only packaging, encrypted revocation recovery and remaining Google-only/managed-Auth acceptance blockers. Activation stays disabled; no C15 exit criterion is marked complete by this update.
+
 ## Status
 
 ```text
-[ ] Not started
+[~] Stage 1 confirmation/restriction foundation implemented locally, default off; C15 incomplete
 ```
+
+29 October 2026: owner-approved C15 decisions are recorded in [policy](docs/C15_APPROVED_POLICIES.md); [Stage 1 local evidence](docs/C15_STAGE_1_LOCAL_IMPLEMENTATION.md) records synthetic native/browser verification, prepared additive migration, immediate product barrier/confirmation/suppression and pending follow-ups. No personal purge, real export, remote SQL/Auth setting/provider action or activation. Controlled retirement, actual backup/provider retention, complete cleanup/revocation and configured Auth/Google-only reauthentication acceptance remain unresolved. Existing Clear Transcript, saved-answer rules and payment/email/admin acceptance are preserved. C15.5 and Razorpay execution remain paused.
 
 ## Goal
 

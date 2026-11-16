@@ -3,6 +3,8 @@
 @font-face { font-family:'Dashboard Inter'; font-style:normal; font-weight:600; font-display:swap; src:url('../assets/website-login/inter-600.ttf') format('truetype'); }
 @font-face { font-family:'Dashboard Inter'; font-style:normal; font-weight:700; font-display:swap; src:url('../assets/website-login/inter-700.ttf') format('truetype'); }
 @font-face { font-family:'Dashboard Manrope'; font-style:normal; font-weight:200 800; font-display:swap; src:url('../assets/dashboard/manrope.ttf') format('truetype'); }
+.website-dashboard .wd-profile-menu { position:fixed; inset:auto auto 84px 16px; width:240px; border:1px solid #d1d5db; border-radius:8px; padding:12px; background:white; color:#111827; }
+.website-dashboard .wd-profile-menu a { display:block; padding:10px; }
 .website-dashboard { --wd-blue:#2978cb; --wd-border:#e5e7eb; color-scheme:light; color:#111827; background:#fff; font:400 14px/1.5 'Dashboard Inter',sans-serif; display:grid; grid-template-columns:280px minmax(0,1fr); min-height:100svh; }
 .website-dashboard * { box-sizing:border-box; }
 .website-dashboard :is(h1,h2,h3,p) { margin:0; }
