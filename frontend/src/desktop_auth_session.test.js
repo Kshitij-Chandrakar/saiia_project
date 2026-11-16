@@ -472,6 +472,7 @@ test('handoff callback exchanges one-time code through backend and verifies boot
       callbackUrlFor(ctx.manager, { handoff_code: 'handoff-code-1234567890', state: pendingState }),
     )
 
+    assert.equal(ctx.manager._readStoredSession().account_owner, 'user-1')
     assert.equal(result.status, AUTH_STATUSES.CONNECTED)
     assert.equal(ctx.manager.session.access_token, 'handoff-access-token')
     assert.equal(ctx.manager.session.refresh_token, 'handoff-refresh-token')
@@ -489,6 +490,8 @@ test('handoff callback exchanges one-time code through backend and verifies boot
     const bootstrap = ctx.calls.find((call) => call.url.endsWith('/api/auth/profile/bootstrap'))
     assert.equal(me.init.headers.Authorization, 'Bearer handoff-access-token')
     assert.equal(bootstrap.init.headers.Authorization, 'Bearer handoff-access-token')
+    await ctx.manager.logout()
+    assert.equal(existsSync(ctx.manager.sessionPath), false)
   } finally {
     ctx.cleanup()
   }
@@ -2519,10 +2522,10 @@ test('offline reconnect verifies eligibility and never releases prohibited queue
   try {
     ctx.manager.session = { access_token: 'synthetic' }; ctx.manager.user = { user_id: 'user-1' }; ctx.manager.status = AUTH_STATUSES.CONNECTED
     ctx.manager.pendingClipboardSave = { identity: 'pending' }
-    assert.equal(await ctx.manager._checkAccountEligibility('synthetic'), false)
+    assert.equal((await ctx.manager._checkAccountEligibility('synthetic')).ok, false)
     assert.notEqual(ctx.manager.pendingClipboardSave, null)
     ctx.manager.fetchImpl = async () => jsonResponse(403)
-    assert.equal(await ctx.manager._checkAccountEligibility('synthetic'), false)
+    assert.equal((await ctx.manager._checkAccountEligibility('synthetic')).ok, false)
     assert.equal(ctx.manager.pendingClipboardSave, null)
   } finally { ctx.cleanup() }
 })
@@ -2535,7 +2538,7 @@ test('late restriction for an old account cannot clear a new account', async () 
     const pending = ctx.manager._checkAccountEligibility('A')
     ctx.manager.sessionGeneration++; ctx.manager.session = { access_token: 'B' }; ctx.manager.user = { user_id: 'B' }
     ctx.manager.cloudCache.profile = { full_name: 'B' }
-    finish(jsonResponse(403)); assert.equal(await pending, false)
+    finish(jsonResponse(403)); assert.equal((await pending).ok, false)
     assert.equal(ctx.manager.user.user_id, 'B'); assert.equal(ctx.manager.cloudCache.profile.full_name, 'B')
   } finally { ctx.cleanup() }
 })
@@ -2550,3 +2553,32 @@ test('cleanup preserves an encrypted session attributed to another account', () 
     assert.equal(ctx.manager._readStoredSession().account_owner, 'B')
   } finally { ctx.cleanup() }
 })
+
+
+for (const status of [0, 503]) {
+  test(`eligibility failure ${status} preserves encrypted session and uncertain Clipboard save`, async () => {
+    const calls = []
+    const ctx = createManager({ fetchImpl: async (url, init) => {
+      calls.push({ url, init })
+      if (status === 0) throw Error('offline')
+      return jsonResponse(status)
+    } })
+    try {
+      ctx.manager.session = { access_token: 'synthetic', user: { id: 'user-1' } }
+      ctx.manager.user = { user_id: 'user-1' }; ctx.manager.status = AUTH_STATUSES.CONNECTED
+      ctx.manager._hasFreshVerification = () => true
+      ctx.manager._writeStoredSession(ctx.manager.session)
+      const body = 'Synthetic saved answer'
+      const crypto = require('node:crypto')
+      const session = '11111111-1111-4111-8111-111111111111'
+      const pending = { identity: crypto.createHash('sha256').update(JSON.stringify(['user-1', session, body])).digest('hex'), key: 'synthetic-operation' }
+      ctx.manager.pendingClipboardSave = pending
+      const result = await ctx.manager.saveMyAnswer(session, body)
+      assert.match(result.error, /temporarily unavailable/)
+      assert.equal(ctx.manager.pendingClipboardSave, pending)
+      assert.equal(ctx.manager.session.access_token, 'synthetic')
+      assert.equal(existsSync(ctx.manager.sessionPath), true)
+      assert.equal(calls.length, 1); assert.equal(calls[0].init.method, 'GET')
+    } finally { ctx.cleanup() }
+  })
+}

@@ -88,3 +88,52 @@ for (const [name, width, height] of [['desktop', 1440, 1000], ['mobile', 390, 84
     await expect(dialog).not.toBeVisible()
   })
 }
+
+
+for (const dismiss of ['button', 'escape']) {
+  test(`export ${dismiss} cancellation discards password`, async ({ page }) => {
+    await page.goto('/auth/export-fixture')
+    await page.getByRole('button', { name: 'Request account export' }).click()
+    await page.getByLabel('Verify your password').fill('synthetic-private')
+    if (dismiss === 'button') await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+    else await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Request account export' }).click()
+    await expect(page.getByLabel('Verify your password')).toHaveValue('')
+  })
+}
+
+test('new export never inherits readiness from the previous archive', async ({ page }) => {
+  await page.goto('/auth/export-fixture')
+  await page.evaluate(() => sessionStorage.setItem('intervucopilot.export-request.10000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000001'))
+  await page.reload(); await page.getByRole('button', { name: 'Check export request status' }).click()
+  await expect(page.getByRole('button', { name: 'Download private archive' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Request account export' }).click()
+  await expect(page.getByRole('button', { name: 'Download private archive' })).toHaveCount(0)
+})
+
+test('unmount while session lookup is pending prevents export POST', async ({ page }) => {
+  await page.goto('/auth/export-fixture')
+  await page.evaluate(() => {
+    window.privacyPosts = 0
+    const original = window.fetch
+    window.fetch = (...args) => { if (String(args[0]).includes('/api/privacy/content/')) window.privacyPosts++; return original(...args) }
+    window.holdSyntheticSession()
+  })
+  await page.getByRole('button', { name: 'Request account export' }).click()
+  await expect.poll(() => page.evaluate(() => window.syntheticSessionEntered)).toBe(true)
+  await page.evaluate(async () => { window.unmountSynthetic(); window.releaseSyntheticSession(); await Promise.resolve(); await Promise.resolve() })
+  expect(await page.evaluate(() => window.privacyPosts)).toBe(0)
+})
+
+
+for (const dismiss of ['button', 'escape']) {
+  test(`mailbox ${dismiss} cancellation discards code (Request account export)`, async ({ page }) => {
+    await page.goto('/auth/export-fixture?google')
+    await page.getByRole('button', { name: 'Request account export', exact: true }).click()
+    await page.getByLabel('Mailbox code', { exact: true }).fill('12345678')
+    if (dismiss === 'button') await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+    else await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Request account export', exact: true }).click()
+    await expect(page.getByLabel('Mailbox code', { exact: true })).toHaveValue('')
+  })
+}

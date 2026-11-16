@@ -1,6 +1,8 @@
 // Keys without verifiable ownership remain intact, including legacy PKCE data.
-export function clearAccountOwnedState(account, email, authKey, local = localStorage, session = sessionStorage) {
+export function clearAccountOwnedState(account, email, authKey, local, session) {
   const result = { removed: [], preservedUnknown: [] }
+  if (local === undefined) { try { local = globalThis.localStorage } catch { result.preservedUnknown.push('local-storage') } }
+  if (session === undefined) { try { session = globalThis.sessionStorage } catch { result.preservedUnknown.push('session-storage') } }
   if (typeof account !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(account)) return { removed: [], preservedUnknown: ['account-ownership'] }
   function ownedJson(key, ownerOf, category) {
     try {

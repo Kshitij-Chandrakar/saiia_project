@@ -1,5 +1,7 @@
 # Authoritative C15 closure matrix
 
+> **Evidence availability:** Links to `evidence/` below are local-only references, deliberately excluded from this repository/PR. They report recorded local acceptance, which cannot be independently verified from the repository alone. Reviewers need the separately preserved local evidence package or must rerun the documented synthetic checks. Source/tests and production gates remain reviewable here.
+
 2 November 2026. **Development/local acceptance COMPLETE; production activation BLOCKED; overall INCOMPLETE.** This is the current requirement/evidence matrix. Prior reports are preserved. Sources: owner-approved C15 instructions consolidated in C15_APPROVED_POLICIES.md, current roadmap C15 exit criteria and explicitly approved closure decisions. Exact versions, commands, failure attribution, source inventory and production checklist: [final verification record](C15_FINAL_LOCAL_CLOSURE.md).
 
 | Approved requirement / expected behavior | Implementation and objective evidence | Status / remaining work |
@@ -34,4 +36,4 @@
 
 The three unfinished local engineering requirements are resolved; no additional policy approval was needed. Financial/shared/processor/backup/replay-evidence lifetimes are not inferred from90/180d. The final report separates completed local engineering from genuine production-only gates; a blocked-path test is not functionality acceptance.
 
-2 November closure evidence supersedes only the affected previous results: [normal main/SDK/workers](evidence/c15-three-gaps-20261101/normal-main-verified/normal-results.json), [all3 eligible identity tasks](evidence/c15-three-gaps-20261101/normal-main-verified/normal-workers.json), [restricted retirement candidate](evidence/c15-three-gaps-20261101/usage-retirement-verified/tests.json), [exact report and production checklist](C15_FINAL_LOCAL_CLOSURE.md). Previous matrix preserved [here](evidence/c15-three-gaps-20261101/previous-C15_CLOSURE_MATRIX.md). Production activation remains disabled; C15.5/Razorpay paused.
+2 November closure evidence supersedes only the affected previous results: [Local-only: normal main/SDK/workers](evidence/c15-three-gaps-20261101/normal-main-verified/normal-results.json), [Local-only: all3 eligible identity tasks](evidence/c15-three-gaps-20261101/normal-main-verified/normal-workers.json), [Local-only: restricted retirement candidate](evidence/c15-three-gaps-20261101/usage-retirement-verified/tests.json), [exact report and production checklist](C15_FINAL_LOCAL_CLOSURE.md). Previous matrix preserved [Local-only: here](evidence/c15-three-gaps-20261101/previous-C15_CLOSURE_MATRIX.md). Production activation remains disabled; C15.5/Razorpay paused.

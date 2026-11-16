@@ -42,11 +42,12 @@ export default function PrivacyExport({ user, client, backendUrl = '', enabled =
     else if (dialog.current?.open) { dialog.current.close(); trigger.current?.focus() }
   }, [open])
   async function call(action, id = requestId, extra = {}) {
-    const { data } = await client.auth.getSession()
-    if (data.session?.user?.id !== (user.user_id || user.id)) throw new Error('Account changed. Start again.')
+    const ticket = epoch.current
     const controller = new AbortController()
     requests.current.add(controller)
     try {
+    const { data } = await client.auth.getSession()
+    if (ticket !== epoch.current || controller.signal.aborted || data.session?.user?.id !== (user.user_id || user.id)) throw new Error('Account changed. Start again.')
     const response = await fetch(`${backendUrl}/api/privacy/content/${action}`, {
       method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` },
       signal: controller.signal,
@@ -70,12 +71,13 @@ export default function PrivacyExport({ user, client, backendUrl = '', enabled =
       if (current()) { setChoices(result.sessions); setNextCursor(result.next_cursor); setSelected('') }
     })
   }
+  function cancelVerification() { setPassword(''); setCode(''); setOpen(false) }
   function start() {
     void perform(async current => {
       const id = crypto.randomUUID()
       const begun = await call('begin', id)
       notBefore.current = Number(begun.not_before || 0) * 1000
-      if (current()) { setRequestId(id); try { sessionStorage.setItem(`intervucopilot.${operationScope}-request.${user.user_id || user.id}`, id) } catch { /* In-memory request remains usable. */ } setText(''); setReady(false); setSent(false); setOpen(true) }
+      if (current()) { setRequestId(id); setStatus(null); try { sessionStorage.setItem(`intervucopilot.${operationScope}-request.${user.user_id || user.id}`, id) } catch { /* In-memory request remains usable. */ } setText(''); setReady(false); setSent(false); setOpen(true) }
     })
   }
   function verify() {
@@ -123,7 +125,7 @@ export default function PrivacyExport({ user, client, backendUrl = '', enabled =
     </div>}
     {exporting && <p>Deletion stops new download authorization and further delivery where possible. Files or bytes already delivered cannot be recalled.</p>}
     {error && <p role="alert">{error}</p>}
-    <dialog ref={dialog} className="privacy-dialog" aria-labelledby={`${prefix}-dialog-title`} onCancel={event => { if (pending) event.preventDefault(); else setOpen(false) }}>
+    <dialog ref={dialog} className="privacy-dialog" aria-labelledby={`${prefix}-dialog-title`} onCancel={event => { if (pending) event.preventDefault(); else cancelVerification() }}>
       <h2 id={`${prefix}-dialog-title`} tabIndex={-1}>{exporting ? 'Confirm your account export' : `Confirm: ${title}`}</h2>
       {exporting ? <p>Only your own allowlisted content is included. Credentials, internal support notes and numeric embeddings are excluded. No archive is emailed.</p> : <p>This privacy erasure includes contained saved answers and cannot be undone after acceptance. Other resources stay available. Acceptance and verified cleanup are separate states.</p>}
       {google ? <><p>Fresh mailbox verification is not Google reauthentication or MFA.</p>
@@ -134,7 +136,7 @@ export default function PrivacyExport({ user, client, backendUrl = '', enabled =
       <label htmlFor={`${prefix}-confirm`}>Type <code>{confirmationWord}</code> to confirm</label><input id={`${prefix}-confirm`} value={text} disabled={!ready || pending} onChange={e => setText(e.target.value)} autoComplete="off" />
       {pending && <p role="status">Request in progress. Completion has not been verified.</p>}
       {error && <p role="alert">{error}</p>}
-      <footer><button disabled={pending} onClick={() => setOpen(false)}>Cancel</button><button disabled={pending || !ready || text !== confirmationWord} onClick={confirm}>{exporting ? 'Create private export' : 'Yes, erase selected history'}</button></footer>
+      <footer><button disabled={pending} onClick={cancelVerification}>Cancel</button><button disabled={pending || !ready || text !== confirmationWord} onClick={confirm}>{exporting ? 'Create private export' : 'Yes, erase selected history'}</button></footer>
     </dialog>
   </section>
 }

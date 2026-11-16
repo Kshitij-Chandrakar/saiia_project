@@ -743,31 +743,34 @@ class DesktopAuthSessionManager {
     this.status = AUTH_STATUSES.CONNECTED
     this.error = ''
     this.errorCode = ''
+    this._writeStoredSession(session)
     this._storeVerificationCache(session, nextUser.user_id)
     return this.getSafeState()
   }
 
   async _checkAccountEligibility(accessToken) {
+    const unavailable = status => ({ ok: false, status, payload: { detail: 'Account eligibility is unavailable.' } })
     const captured = this.captureCloudRequestContext()
-    if (!captured.user_id || this.session?.access_token !== accessToken) return false
+    if (!captured.user_id || this.session?.access_token !== accessToken) return unavailable(409)
     const result = await this._backendJson('/api/auth/me', 'GET', accessToken)
-    if (!this._cloudRequestStillCurrent(captured)) return false
+    if (!this._cloudRequestStillCurrent(captured)) return unavailable(409)
     if (result.status === 401 || result.status === 403) {
       this._clearLocalSession(AUTH_STATUSES.SIGNED_OUT, 'Account unavailable.')
-      return false
+      return unavailable(result.status)
     }
     if (!result.ok || safeUser(result.payload).user_id !== captured.user_id) {
       this._clearVerificationCache()
       this.status = result.status === 0 ? AUTH_STATUSES.OFFLINE : AUTH_STATUSES.BACKEND_UNAVAILABLE
-      return false
+      return unavailable(result.ok ? 503 : result.status)
     }
-    return true
+    return { ok: true, status: 200 }
   }
 
   async _backendJson(route, method, accessToken, body = null, extraHeaders = null, timeoutMs = null) {
     try {
       if (method !== 'GET' && route !== '/api/auth/profile/bootstrap' && this.user?.user_id) {
-        if (!(await this._checkAccountEligibility(accessToken))) return { ok: false, status: 401, payload: { detail: 'Account unavailable.' } }
+        const eligibility = await this._checkAccountEligibility(accessToken)
+        if (!eligibility.ok) return eligibility
       }
       const headers = {
         Authorization: `Bearer ${accessToken}`,
@@ -1161,7 +1164,7 @@ class DesktopAuthSessionManager {
 
   async getGrpcCloudAuthorization() {
     if (this.status !== AUTH_STATUSES.CONNECTED || !this.session?.access_token) throw Error('auth_unavailable')
-    if (!(await this._checkAccountEligibility(this.session.access_token))) throw Error('auth_unavailable')
+    if (!(await this._checkAccountEligibility(this.session.access_token)).ok) throw Error('auth_unavailable')
     if (!this._hasFreshVerification(this.session)) await this._verifyAndBootstrap(this.session)
     if (this.status !== AUTH_STATUSES.CONNECTED || !this.session?.access_token || !this.user?.user_id) throw Error('auth_unavailable')
     const token = this.session.access_token
@@ -1210,7 +1213,8 @@ class DesktopAuthSessionManager {
       return { ok: false, status: 422, payload: { detail: 'Invalid recording.' } }
     }
     if (this.status !== AUTH_STATUSES.CONNECTED || !this.session?.access_token) return { ok: false, status: 401 }
-    if (!(await this._checkAccountEligibility(this.session.access_token))) return { ok: false, status: 401 }
+    const eligibility = await this._checkAccountEligibility(this.session.access_token)
+    if (!eligibility.ok) return eligibility
     const captured = this.captureCloudRequestContext()
     const form = new FormData()
     form.append('file', new Blob([bytes], { type: payload.contentType }), 'recording.' + payload.contentType.split('/')[1])
@@ -1268,7 +1272,8 @@ class DesktopAuthSessionManager {
       const captured = this.captureCloudRequestContext()
       let response
       try {
-        if (!(await this._checkAccountEligibility(this.session.access_token))) return { ok: false, status: 401, reason: 'auth-required' }
+        const eligibility = await this._checkAccountEligibility(this.session.access_token)
+        if (!eligibility.ok) return { ...eligibility, reason: eligibility.status === 401 || eligibility.status === 403 ? 'auth-required' : 'cloud-unavailable' }
         if (!this._cloudRequestStillCurrent(captured)) return { ok: false, status: 409 }
         this.logger?.debug?.('generation_auth', { required: true, token_attached: true })
         generateRequestSent = true

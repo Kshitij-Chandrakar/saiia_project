@@ -33,11 +33,14 @@ test('exact text, reauth, keyboard containment and restored focus', async ({ pag
 })
 
 test('duplicate clicks cannot submit twice; accepted means pending cleanup', async ({ page }) => {
-  let finish, calls = 0
-  await page.route('**/api/privacy/deletion/confirm', async route => { calls++; await new Promise(resolve => { finish = resolve }); await route.fulfill({ json: { state: 'accepted_restricted', cleanup_state: 'pending', content_erased: false } }) })
+  let finish, entered
+  let calls = 0
+  const entry = new Promise(resolve => { entered = resolve })
+  await page.route('**/api/privacy/deletion/confirm', async route => { calls++; entered(); await new Promise(resolve => { finish = resolve }); await route.fulfill({ json: { state: 'accepted_restricted', cleanup_state: 'pending', content_erased: false } }) })
   const ui = new PrivacyPage(page); await ui.open(); await ui.verify(); await ui.type()
   await page.evaluate(() => localStorage.setItem('sb-synthetic-auth-token', JSON.stringify({ user: { id: '10000000-0000-4000-8000-000000000001' } })))
   await ui.delete.click(); await expect(page.getByRole('button', { name: 'Confirming…' })).toBeDisabled()
+  await entry
   expect(calls).toBe(1); finish()
   await expect(page).toHaveURL(/privacy-status/)
   await expect(page.getByText('Personal-content cleanup is pending.', { exact: false })).toBeVisible()
@@ -57,12 +60,14 @@ test('unknown outcome checks same request status without claiming success', asyn
 })
 
 test('account switch discards in-flight responses', async ({ page }) => {
-  let finish
-  await page.route('**/api/privacy/deletion/challenge', async route => { await new Promise(resolve => { finish = resolve }); await route.fulfill({ json: { state: 'awaiting_confirmation' } }) })
+  let finish, entered
+  const entry = new Promise(resolve => { entered = resolve })
+  await page.route('**/api/privacy/deletion/challenge', async route => { entered(); await new Promise(resolve => { finish = resolve }); await route.fulfill({ json: { state: 'awaiting_confirmation', expires_at: new Date(Date.now() + 300000).toISOString() } }) })
   const ui = new PrivacyPage(page); await ui.open()
   await page.getByRole('dialog').getByLabel('Reauthenticate with your password').fill('synthetic-only')
   await page.getByRole('button', { name: 'Verify identity' }).click()
   await expect(page.getByRole('button', { name: 'Verifying…' })).toBeDisabled()
+  await entry
   await page.evaluate(() => window.switchSyntheticAccount()); finish()
   await expect(ui.dialog).not.toBeVisible()
   await expect(page.getByText('Identity verified.', { exact: false })).not.toBeVisible()
@@ -138,12 +143,14 @@ for (const scenario of ['wrong-password', 'wrong-account']) {
 }
 
 test('navigation during operation start cannot resume or confirm deletion', async ({ page }) => {
-  let release
-  await page.route('**/api/privacy/deletion/begin', async route => { await new Promise(resolve => { release = resolve }); await route.fulfill({ json: {} }).catch(() => {}) })
+  let release, entered
+  const entry = new Promise(resolve => { entered = resolve })
+  await page.route('**/api/privacy/deletion/begin', async route => { entered(); await new Promise(resolve => { release = resolve }); await route.fulfill({ json: {} }).catch(() => {}) })
   const ui = new PrivacyPage(page); await ui.open()
   await page.getByRole('dialog').getByLabel('Reauthenticate with your password').fill('synthetic-only')
   await page.getByRole('button', { name: 'Verify identity' }).click()
   await expect(page.getByRole('button', { name: 'Verifying…' })).toBeDisabled()
+  await entry
   await page.goto('/auth/privacy-status'); release()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByText('No accepted deletion has been verified.')).toBeVisible()
@@ -191,3 +198,52 @@ test('status retries temporary quarantine without claiming completion', async ({
   expect(attempts).toBeGreaterThan(1)
   await expect(page.getByText('This does not confirm that all files, backups or processor copies have been erased.',{exact:false})).toBeVisible()
 })
+
+
+test('valid current-account challenge reaches verified state', async ({ page }) => {
+  await page.route('**/api/privacy/deletion/challenge', route => route.fulfill({ json: { state: 'awaiting_confirmation', expires_at: new Date(Date.now() + 300000).toISOString() } }))
+  const ui = new PrivacyPage(page); await ui.open(); await ui.verify()
+  await expect(page.getByText('Identity verified.', { exact: false })).toBeVisible()
+})
+
+for (const dismiss of ['button', 'escape']) {
+  test(`deletion ${dismiss} cancellation discards password`, async ({ page }) => {
+    const ui = new PrivacyPage(page); await ui.open()
+    await page.getByLabel('Reauthenticate with your password').fill('synthetic-private')
+    if (dismiss === 'button') await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+    else await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Delete Account', exact: true }).click()
+    await expect(page.getByLabel('Reauthenticate with your password')).toHaveValue('')
+  })
+}
+
+test('older automatic status cannot overwrite a newer refresh', async ({ page }) => {
+  let release, entered, calls = 0
+  const entry = new Promise(resolve => { entered = resolve })
+  await page.route('**/api/privacy/deletion/status', async route => {
+    if (++calls === 1) { entered(); await new Promise(resolve => { release = resolve }); await route.fulfill({ json: { state: 'awaiting_confirmation' } }) }
+    else await route.fulfill({ json: { state: 'accepted_restricted', cleanup_state: 'pending' } })
+  })
+  await page.goto('/auth/settings')
+  await page.evaluate(() => sessionStorage.setItem('intervucopilot.privacy-receipt', JSON.stringify({ request_id: 'synthetic', status_token: 'synthetic' })))
+  await page.goto('/auth/privacy-status'); await entry
+  await page.getByRole('button', { name: 'Refresh request status' }).click()
+  await expect(page.getByRole('heading', { name: 'Request accepted. Product access is restricted.' })).toBeVisible()
+  const response = page.waitForResponse('**/api/privacy/deletion/status')
+  release(); await response
+  await expect(page.getByRole('heading', { name: 'Request accepted. Product access is restricted.' })).toBeVisible()
+})
+
+
+for (const dismiss of ['button', 'escape']) {
+  test(`mailbox ${dismiss} cancellation discards code (Delete Account)`, async ({ page }) => {
+    await page.goto('/auth/settings?google')
+    await page.getByRole('button', { name: 'Delete Account', exact: true }).click()
+    await page.getByRole('button', { name: 'Send email code', exact: true }).click()
+    await page.getByLabel('Email confirmation code', { exact: true }).fill('12345678')
+    if (dismiss === 'button') await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+    else await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Delete Account', exact: true }).click()
+    await expect(page.getByLabel('Email confirmation code', { exact: true })).toHaveValue('')
+  })
+}

@@ -28,3 +28,20 @@ test('storage failures never turn unknown data into authority to wipe', () => {
   const denied = { getItem() { throw Error('unavailable') }, removeItem() { throw Error('unavailable') } }
   assert.doesNotThrow(() => clearAccountOwnedState('A', '', 'sb-test-auth-token', denied, denied))
 })
+
+
+test('throwing browser storage accessors return incomplete cleanup instead of throwing', () => {
+  const descriptors = ['localStorage', 'sessionStorage'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
+  try {
+    for (const [key] of descriptors) Object.defineProperty(globalThis, key, { configurable: true, get() { throw Error('denied') } })
+    const result = clearAccountOwnedState('A', '', 'sb-test-auth-token')
+    assert.ok(result.preservedUnknown.includes('local-storage'))
+    assert.ok(result.preservedUnknown.includes('session-storage'))
+    assert.deepEqual(result.removed, [])
+  } finally {
+    for (const [key, descriptor] of descriptors) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+      else delete globalThis[key]
+    }
+  }
+})

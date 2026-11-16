@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { TriangleAlert } from 'lucide-react'
 import DashboardLayout from './DashboardLayout'
 import { supabase } from './supabaseClient'
@@ -53,6 +53,7 @@ export default function WebsiteSettings({ user, backendUrl = '', client = supaba
     node.showModal(); node.querySelector('#delete-title').focus({ preventScroll: true }); node.scrollTop = 0
     return () => { node.close(); trigger?.focus() }
   }, [open])
+  function cancelVerification() { setPassword(''); setCode(''); setOpen(false) }
   async function authenticate() {
     if (lock.current) return
     lock.current = true; setPending(true); setError('')
@@ -159,7 +160,7 @@ export default function WebsiteSettings({ user, backendUrl = '', client = supaba
       const first = controls[0], last = controls.at(-1)
       if (event.shiftKey && globalThis.document.activeElement === first) { event.preventDefault(); last?.focus() }
       else if (!event.shiftKey && globalThis.document.activeElement === last) { event.preventDefault(); first?.focus() }
-    }} onCancel={event => { if (pending || uncertain) event.preventDefault(); else setOpen(false) }}>
+    }} onCancel={event => { if (pending || uncertain) event.preventDefault(); else cancelVerification() }}>
       <div className="privacy-heading"><span className="privacy-warning"><TriangleAlert size={24} aria-hidden="true" /></span><h2 id="delete-title" tabIndex={-1}>Delete your account?</h2></div>
       <div id="delete-description" className="privacy-consequences"><p>You will lose product access immediately after acceptance. There is no undo, and this email address will be permanently blocked from signing up again, including with Google.</p>
         <p>Personal-content cleanup is targeted within 24 hours. Minimized usage records remain for 90 days and security records for 180 days. The restricted email-matching identifier is retained permanently.</p>
@@ -174,29 +175,33 @@ export default function WebsiteSettings({ user, backendUrl = '', client = supaba
       <label htmlFor="privacy-confirm">Type <code>delete</code> to confirm</label><input id="privacy-confirm" autoComplete="off" value={text} disabled={pending || uncertain} onChange={event => setText(event.target.value)} />
       {error && <p role="alert" className="privacy-error">{error}</p>}
       {uncertain && <button disabled={pending} onClick={recover}>Check request status</button>}
-      <footer><button ref={cancel} disabled={pending || uncertain} onClick={() => setOpen(false)}>Cancel</button><button className="privacy-delete" disabled={pending || uncertain || !ready || text !== 'delete'} onClick={confirm}>{pending ? 'Confirming…' : 'Yes, Delete My Account'}</button></footer>
+      <footer><button ref={cancel} disabled={pending || uncertain} onClick={cancelVerification}>Cancel</button><button className="privacy-delete" disabled={pending || uncertain || !ready || text !== 'delete'} onClick={confirm}>{pending ? 'Confirming…' : 'Yes, Delete My Account'}</button></footer>
     </dialog>}
   </DashboardLayout>
 }
 
 export function PrivacyStatus({ backendUrl = '' }) {
   const [result, setResult] = useState(null), [error, setError] = useState('')
-  async function refresh() {
+  const sequence = useRef(0), retryTimer = useRef(null)
+  const refresh = useCallback(async function load(attempt = 0) {
+    const ticket = ++sequence.current
+    clearTimeout(retryTimer.current)
     try {
       const receipt = readPrivacyReceipt()
       if (!receipt) throw Error()
-      setResult(await privacyRequest('status', receipt, null, backendUrl)); setError('')
-    } catch { setError('Request status is unavailable. No completion has been verified. Your receipt grants no product access.') }
-  }
-  useEffect(() => {
-    let alive = true, timer
-    const receipt = readPrivacyReceipt()
-    async function load(attempt = 0) {
-      try { const value = await privacyRequest('status', receipt, null, backendUrl); if (alive) { setResult(value); setError('') } }
-      catch { if (alive && attempt < 5) timer = setTimeout(() => void load(attempt + 1), 1000); else if (alive) setError('Request status is unavailable. No completion has been verified.') }
+      const value = await privacyRequest('status', receipt, null, backendUrl)
+      if (ticket === sequence.current) { setResult(value); setError('') }
+    } catch {
+      if (ticket !== sequence.current) return
+      if (attempt < 5) retryTimer.current = setTimeout(() => void load(attempt + 1), 1000)
+      else setError('Request status is unavailable. No completion has been verified. Your receipt grants no product access.')
     }
-    if (receipt) void load(); else setError('No request receipt is available in this browser tab.')
-    return () => { alive = false; clearTimeout(timer) }
   }, [backendUrl])
-  return <main className="privacy-status"><h1>Account deletion request</h1>{result?.state === 'accepted_restricted' ? <><h2>Request accepted. Product access is restricted.</h2><p>{result.primary_content_verified ? 'Controlled primary content removal is verified; retained obligations remain pending.' : ({ blocked: 'Personal-content cleanup needs follow-up; completion has not been verified.', failed: 'Personal-content cleanup failed; completion has not been verified.', running: 'Personal-content cleanup is in progress; completion has not been verified.', pending: 'Personal-content cleanup is pending.' })[result.cleanup_state] || 'Personal-content cleanup status is unknown; completion has not been verified.'} Session revocation: {({ succeeded: 'refresh sessions revoked', blocked: 'requires follow-up', running: 'in progress', pending: 'pending' })[result.session_revocation] || 'pending'}. Auth cleanup: {({ succeeded: 'original identity fields removed; a restricted tombstone remains', blocked: result.identity_cleanup_reason === 'billing_contact_required' ? 'retained for billing resolution' : 'requires follow-up', running: 'in progress', pending: 'pending', not_scheduled: 'not scheduled' })[result.identity_cleanup] || 'unverified'}. This does not confirm that all files, backups or processor copies have been erased.</p><p>Subscription cancellation is unverified. Further charges may remain possible while billing resolution is pending.</p></> : <p>No accepted deletion has been verified.</p>}{error && <p role="alert">{error}</p>}<button onClick={refresh}>Refresh request status</button></main>
+  useEffect(() => {
+    const lifecycle = sequence
+    if (readPrivacyReceipt()) void refresh()
+    else setError('No request receipt is available in this browser tab.')
+    return () => { lifecycle.current++; clearTimeout(retryTimer.current) }
+  }, [refresh])
+  return <main className="privacy-status"><h1>Account deletion request</h1>{result?.state === 'accepted_restricted' ? <><h2>Request accepted. Product access is restricted.</h2><p>{result.primary_content_verified ? 'Controlled primary content removal is verified; retained obligations remain pending.' : ({ blocked: 'Personal-content cleanup needs follow-up; completion has not been verified.', failed: 'Personal-content cleanup failed; completion has not been verified.', running: 'Personal-content cleanup is in progress; completion has not been verified.', pending: 'Personal-content cleanup is pending.' })[result.cleanup_state] || 'Personal-content cleanup status is unknown; completion has not been verified.'} Session revocation: {({ succeeded: 'refresh sessions revoked', blocked: 'requires follow-up', running: 'in progress', pending: 'pending' })[result.session_revocation] || 'pending'}. Auth cleanup: {({ succeeded: 'original identity fields removed; a restricted tombstone remains', blocked: result.identity_cleanup_reason === 'billing_contact_required' ? 'retained for billing resolution' : 'requires follow-up', running: 'in progress', pending: 'pending', not_scheduled: 'not scheduled' })[result.identity_cleanup] || 'unverified'}. This does not confirm that all files, backups or processor copies have been erased.</p><p>Subscription cancellation is unverified. Further charges may remain possible while billing resolution is pending.</p></> : <p>No accepted deletion has been verified.</p>}{error && <p role="alert">{error}</p>}<button onClick={() => void refresh()}>Refresh request status</button></main>
 }

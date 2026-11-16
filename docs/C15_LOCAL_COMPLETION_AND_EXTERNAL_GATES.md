@@ -1,3 +1,5 @@
+> **Historical handoff:** The 31 October body below predates actual local Auth/Storage acceptance and restricted normal runtime composition. Its zero scenario counts, unset image digests and local-engine launch blockers are historical, superseded by the 1 November addendum and [final local closure / current production gates](C15_FINAL_LOCAL_CLOSURE.md). Evidence links are local-only and excluded from the repository; hosting, independent witness, hosted/provider and copy-lifecycle acceptance remain separate production gates.
+
 
 ## 1 November 2026 ? actual local Auth/Storage rehearsal
 
@@ -82,7 +84,7 @@ Remaining sensitive copies: legacy `subscription_auto_replies.document.owner_tok
 
 Final execution contract for review remains the fixed class-specific procedures described in `C15_LEGACY_RETIREMENT_PROPOSAL.md`: opaque unit ID + expected revision, independently provisioned restricted maintenance session, closed ownership/member/clock/dependency/reader/hold/writer checks after stable locks, private transaction-bound permit, fixed child-before-parent deletion, exact nonmember/integrity verification and payload-free attestation in the same transaction. No dynamic table/predicate SQL, generic DML, disabled/shared trigger or content archive. **Not installed:** replacement per-table mutation guards, execution permit, retirement DELETE capability, legacy backfill or destructive worker. Authorize the exact reviewed guard/procedure/consumer migration and scoped backfill separately before any retirement rehearsal/execution. Stopping future execution cannot restore retired data.
 
-## Actual engine and deployment handoff
+## Historical 31 October 2026 engine and deployment handoff
 
 One tooling inspection found no Docker/Podman/Supabase CLI; `wsl --list --quiet` reports WSL not installed. No unsupported Windows build was repeated, no system software installed, no hosted substitute or provider call made. **Actual Auth scenarios: zero. Actual Storage service scenarios: zero.** Google identity fixtures/mailbox OTP are not Google reauthentication or MFA.
 
