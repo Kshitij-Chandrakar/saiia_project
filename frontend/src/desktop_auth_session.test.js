@@ -2582,3 +2582,33 @@ for (const status of [0, 503]) {
     } finally { ctx.cleanup() }
   })
 }
+
+
+for (const status of [401, 503, 0]) {
+  test(`startup token-only session uses persisted owner on refresh ${status}`, async () => {
+    const ctx = createManager({ fetchImpl: async () => {
+      if (status === 0) throw Error('offline')
+      return jsonResponse(status)
+    } })
+    try {
+      ctx.manager.session = { access_token: 'synthetic-access', refresh_token: 'synthetic-refresh' }
+      ctx.manager.user = { user_id: 'owner-A' }
+      ctx.manager._writeStoredSession(ctx.manager.session)
+      assert.equal(ctx.manager._readStoredSession().account_owner, 'owner-A')
+      ctx.manager.session = null; ctx.manager.user = null
+      const result = await ctx.manager.initialize()
+      assert.equal(result.status, status === 401 ? AUTH_STATUSES.TOKEN_EXPIRED : status === 503 ? AUTH_STATUSES.BACKEND_UNAVAILABLE : AUTH_STATUSES.OFFLINE)
+      assert.equal(existsSync(ctx.manager.sessionPath), status !== 401)
+    } finally { ctx.cleanup() }
+  })
+}
+
+test('persisted owner fallback cannot remove another account session', () => {
+  const ctx = createManager()
+  try {
+    ctx.manager._writeStoredSession({ access_token: 'B', refresh_token: 'B-refresh', user: { id: 'B' } })
+    ctx.manager.session = { access_token: 'A', account_owner: 'A' }; ctx.manager.user = null
+    ctx.manager._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED)
+    assert.equal(ctx.manager._readStoredSession().account_owner, 'B')
+  } finally { ctx.cleanup() }
+})

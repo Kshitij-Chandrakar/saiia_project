@@ -1577,7 +1577,7 @@ class DesktopAuthSessionManager {
   }
 
   _clearLocalSession(status, message = '', errorCode = '') {
-    const affectedAccount = this.user?.user_id || this.session?.user?.id
+    const affectedAccount = this.user?.user_id || this.session?.user?.id || this.session?.account_owner
     this.pendingClipboardSave = null
     this.onDiagramAuthBoundary()
     this.onScreenContextBoundary()
