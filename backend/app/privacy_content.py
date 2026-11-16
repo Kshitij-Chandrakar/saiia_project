@@ -692,7 +692,11 @@ class ContentEngine:
             self.finish(job, "blocked", ["storage_forbidden_not_absence"])
         except ContentBlocked as exc:
             if str(exc) != "stale_worker":
-                self.finish(job, "blocked", [str(exc)])
+                try:
+                    self.finish(job, "blocked", [str(exc)])
+                except ContentBlocked as finish_error:
+                    if str(finish_error) != "stale_worker":
+                        raise
         except Exception as error:  # noqa: BLE001 -- redact all external/driver errors
             # Storage/network errors never enter logs or status verbatim.
             import logging

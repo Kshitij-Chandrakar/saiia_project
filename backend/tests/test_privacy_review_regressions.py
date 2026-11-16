@@ -238,3 +238,30 @@ def test_rehearsal_cleanup_failure_is_not_success(monkeypatch):
     assert reports["cleanup.json"]["remaining_containers"] == [
         "synthetic-owned-container"
     ]
+
+
+@pytest.mark.parametrize(
+    "finish_error", ["stale_worker", "previous_session_cleanup_pending"]
+)
+def test_lost_export_lease_does_not_skip_worker_tick(monkeypatch, finish_error):
+    from app.privacy_content import ContentEngine
+
+    engine = object.__new__(ContentEngine)
+    job = {"kind": "export"}
+    monkeypatch.setattr(engine, "claim", lambda: job)
+
+    def build(_job):
+        raise ContentBlocked("export_lease_unavailable")
+
+    def finish(_job, state, blockers):
+        assert _job is job and state == "blocked"
+        assert blockers == ["export_lease_unavailable"]
+        raise ContentBlocked(finish_error)
+
+    monkeypatch.setattr(engine, "build", build)
+    monkeypatch.setattr(engine, "finish", finish)
+    if finish_error == "stale_worker":
+        assert engine.run_one() is True
+    else:
+        with pytest.raises(ContentBlocked, match=finish_error):
+            engine.run_one()

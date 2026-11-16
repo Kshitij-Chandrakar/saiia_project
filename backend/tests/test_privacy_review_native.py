@@ -287,6 +287,12 @@ def test_unmanifested_resume_object_blocks_primary_completion(runtime, complete)
             (key + ".late",),
         )
     assert error.value.sqlstate == "42501"
+    with pytest.raises(psycopg.Error) as error, complete[1].connect() as c:
+        c.execute(
+            "insert into resumes(id,user_id,storage_path,original_filename) values(%s,%s,%s,'late.pdf')",
+            (str(uuid4()), u["account"], key + ".late"),
+        )
+    assert error.value.sqlstate == "42501"
 
 
 def test_restore_runtime_can_fence_runs_and_preserve_replay_keys(runtime, complete):
@@ -328,3 +334,34 @@ def test_restore_runtime_can_fence_runs_and_preserve_replay_keys(runtime, comple
         )
 
         c.execute("update privacy_restore_state set required=false,ready=true")
+
+
+def test_expiring_export_during_upload_does_not_abort_tick(
+    runtime, complete, monkeypatch
+):
+    u, engine, storage, *_ = runtime
+    request = str(uuid4())
+    engine.request(u["account"], request)
+    lost = threading.Event()
+    original = engine.renew
+
+    def renew(job):
+        try:
+            original(job)
+        except ContentBlocked:
+            lost.set()
+            raise
+
+    def expire_during_upload(*args):
+        with complete[1].connect() as c:
+            c.execute(
+                "update privacy_content_jobs set state='expired' where id=%s",
+                (request,),
+            )
+        assert lost.wait(10), "heartbeat did not observe expired export"
+
+    monkeypatch.setattr(engine, "renew", renew)
+    monkeypatch.setattr(engine, "LEASE_RENEW_INTERVAL", 0.02)
+    monkeypatch.setattr(storage, "put", expire_during_upload)
+    assert engine.run_one() is True
+    assert engine.status(u["account"], request)["state"] == "expired"
