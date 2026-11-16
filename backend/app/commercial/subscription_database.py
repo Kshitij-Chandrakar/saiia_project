@@ -204,7 +204,7 @@ class SubscriptionDatabase:
         from app.privacy_revocation import RevocationWorker, configured_worker
 
         try:
-            privacy_worker = configured_worker(self.connect, observer_connect=self._privacy_observer_connect, recover=self._privacy_auth_recovery)
+            privacy_worker = None if getattr(settings, 'C15_RUNTIME_ENABLED', 'false') == 'true' else configured_worker(self.connect, observer_connect=self._privacy_observer_connect, recover=self._privacy_auth_recovery)
         except Exception:  # noqa: BLE001 -- never format key/configuration failures
             privacy_worker = None  # missing key/config: requests stay restricted
         while not self._stop.wait(5):

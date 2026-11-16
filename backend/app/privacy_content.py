@@ -8,6 +8,7 @@ import hashlib
 import json
 import secrets
 import tempfile
+import threading
 import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -184,9 +185,11 @@ class ContentEngine:
                 "request_id": request_id,
                 "session_id": session,
                 "verified_email": user.email,
-                "purpose": ":export.v1"
-                if operation_scope == "export"
-                else ":" + operation_scope + ".erase.v1",
+                "purpose": (
+                    ":export.v1"
+                    if operation_scope == "export"
+                    else ":" + operation_scope + ".erase.v1"
+                ),
             }
             if action == "otp_start":
                 providers = (
@@ -281,13 +284,19 @@ class ContentEngine:
             # is supplied by application composition in this stage.
             sender(user.email, code)
         return {
-            "state": "requested"
-            if action == "confirm"
-            else "proof_pending"
-            if action == "begin"
-            else "mailbox_verified"
-            if action == "otp_verify"
-            else "code_requested",
+            "state": (
+                "requested"
+                if action == "confirm"
+                else (
+                    "proof_pending"
+                    if action == "begin"
+                    else (
+                        "mailbox_verified"
+                        if action == "otp_verify"
+                        else "code_requested"
+                    )
+                )
+            ),
             "request_id": request_id,
             # Auth AMR timestamps have whole-second precision. Presence must
             # follow the operation, not merely share its truncated second.
@@ -344,12 +353,14 @@ class ContentEngine:
             result.setdefault(table, set()).add(column)
         # Follow indirect children too: relying only on direct Auth FKs misses
         # result/replay/evidence stores behind session or ledger parents.
-        cursor.execute("""with recursive linked(oid) as (
+        cursor.execute(
+            """with recursive linked(oid) as (
           select 'auth.users'::regclass::oid union
           select f.conrelid from pg_constraint f join linked p on p.oid=f.confrelid
           where f.contype='f'
         ) select c.relname from linked l join pg_class c on c.oid=l.oid
-          join pg_namespace n on n.oid=c.relnamespace where n.nspname='public'""")
+          join pg_namespace n on n.oid=c.relnamespace where n.nspname='public'"""
+        )
         for (table,) in cursor.fetchall():
             result.setdefault(table, set()).add("__account_linked__")
         return result
@@ -471,6 +482,8 @@ class ContentEngine:
         if kind == "export":
             self.snapshot(c, account, job_id)
         else:
+            if kind == "history":
+                self.history_dependencies(c, account, job_id)
             if kind in {"session", "history"}:
                 c.execute(
                     "insert into privacy_erased_sessions(account_id,session_id,job_id) select user_id,id,%s from interview_sessions where user_id=%s and (%s::uuid is null or id=%s::uuid) on conflict do nothing",
@@ -497,6 +510,15 @@ class ContentEngine:
             ),
         )
         return job_id
+
+    @staticmethod
+    def history_dependencies(c, account, job_id):
+        c.execute(
+            "select 1 from privacy_erased_sessions e join privacy_content_jobs owner on owner.id=e.job_id join interview_sessions s on s.id=e.session_id and s.user_id=e.account_id join privacy_content_jobs requested on requested.id=%s and requested.account_id=e.account_id where e.account_id=%s and owner.id<>requested.id and owner.state<>'primary_verified' and s.created_at<=requested.cutoff_at limit 1",
+            (job_id, account),
+        )
+        if c.fetchone():
+            raise ContentBlocked("previous_session_cleanup_pending")
 
     def snapshot(self, c, account, job_id):
         from app.privacy_schema import validate_schema
@@ -675,7 +697,16 @@ class ContentEngine:
             # Storage/network errors never enter logs or status verbatim.
             import logging
             import traceback
-            logging.getLogger("privacy").warning("Content worker deferred: type=%s sqlstate=%s frames=%s", type(error).__name__, getattr(error, "sqlstate", None), [(frame.name, frame.lineno) for frame in traceback.extract_tb(error.__traceback__)])
+
+            logging.getLogger("privacy").warning(
+                "Content worker deferred: type=%s sqlstate=%s frames=%s",
+                type(error).__name__,
+                getattr(error, "sqlstate", None),
+                [
+                    (frame.name, frame.lineno)
+                    for frame in traceback.extract_tb(error.__traceback__)
+                ],
+            )
             with self.transaction() as c:
                 c.execute(
                     "update privacy_content_jobs set state=case when attempts>=5 then 'failed' else 'pending' end,retry_at=clock_timestamp()+least(300,power(2,attempts)::integer)*interval '1 second',lease_id=null where id=%s and lease_id=%s and state='running'",
@@ -686,6 +717,8 @@ class ContentEngine:
     def finish(self, job, state, blockers=None):
         with self.transaction() as c:
             self.live(c, job)
+            if state == "primary_verified" and job["kind"] == "history":
+                self.history_dependencies(c, job["account"], job["id"])
             c.execute(
                 "update privacy_content_jobs set state=%s,blockers=%s::jsonb,lease_id=null,revision=revision+1 where id=%s",
                 (state, json.dumps(blockers or []), job["id"]),
@@ -703,7 +736,51 @@ class ContentEngine:
                     ),
                 )
 
+    LEASE_RENEW_INTERVAL = 5
+
+    def renew(self, job):
+        with self.transaction() as c:
+            self.live(c, job, restrict=False)
+            c.execute(
+                "update privacy_content_jobs set lease_until=clock_timestamp()+interval '30 seconds' where id=%s and lease_id=%s and state='running'",
+                (job["id"], job["lease"]),
+            )
+
+    @contextmanager
+    def keep_lease(self, job):
+        self.renew(job)
+        stop = threading.Event()
+        failures = []
+
+        def heartbeat():
+            while not stop.wait(self.LEASE_RENEW_INTERVAL):
+                try:
+                    self.renew(job)
+                except Exception:  # noqa: BLE001 -- lost lease prevents publication
+                    failures.append(True)
+                    return
+
+        worker = threading.Thread(target=heartbeat, daemon=True)
+        worker.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            worker.join(timeout=20)
+        if worker.is_alive() or failures:
+            raise ContentBlocked("export_lease_unavailable")
+
     def build(self, job):
+        with self.keep_lease(job):
+            self._build(job)
+        with self.transaction() as c:
+            self.live(c, job, restrict=False)
+            c.execute(
+                "update privacy_content_jobs set state='ready',ready_at=clock_timestamp(),expires_at=clock_timestamp()+interval '24 hours',lease_id=null,revision=revision+1 where id=%s",
+                (job["id"],),
+            )
+
+    def _build(self, job):
         account, job_id = str(job["account"]), str(job["id"])
         key = f"{account}/{job_id}/{job['lease']}.zip"
         # Record before put: a crash at either side leaves a removable artifact.
@@ -723,7 +800,6 @@ class ContentEngine:
                 output, "w", compression=zipfile.ZIP_DEFLATED
             ) as archive:
                 with self.transaction() as c:
-                    self.live(c, job, restrict=False)
                     c.execute(
                         "select cutoff_at from privacy_content_jobs where id=%s",
                         (job_id,),
@@ -806,12 +882,6 @@ class ContentEngine:
                         raise ContentBlocked("resume_changed_during_export")
             output.seek(0)
             self.storage.put("exports", key, output)
-        with self.transaction() as c:
-            self.live(c, job, restrict=False)
-            c.execute(
-                "update privacy_content_jobs set state='ready',ready_at=clock_timestamp(),expires_at=clock_timestamp()+interval '24 hours',lease_id=null,revision=revision+1 where id=%s",
-                (job_id,),
-            )
 
     def authorize(self, account, job_id):
         token = secrets.token_urlsafe(32)
@@ -1081,7 +1151,9 @@ class ContentEngine:
                         )
                         if c.fetchone()[0]:
                             raise ContentBlocked("absence_not_verified")
-                except Exception as exc:  # noqa: BLE001 -- savepoint preserves protections
+                except (
+                    Exception
+                ) as exc:  # noqa: BLE001 -- savepoint preserves protections
                     # SQLSTATE identifies integrity/immutability blockers without
                     # exposing private SQL errors or bypassing any protection.
                     blockers.append(
@@ -1096,6 +1168,14 @@ class ContentEngine:
                 )
         if job["kind"] == "account":
             self.remove_objects(job)
+            with self.transaction() as c:
+                self.live(c, job)
+                c.execute(
+                    "select name from storage.objects where bucket_id='resumes' and split_part(name,'/',1)=%s limit 1",
+                    (str(job["account"]),),
+                )
+                if c.fetchone():
+                    raise ContentBlocked("resume_object_absence_not_verified")
         self.finish(job, "blocked" if blockers else "primary_verified", blockers)
 
     def remove_objects(self, job):

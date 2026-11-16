@@ -17,7 +17,7 @@ output = Path(sys.argv[1]).resolve()
 root = Path(__file__).resolve().parents[1]
 if not output.is_relative_to(root / "docs/evidence") or output.exists():
     raise ValueError("fresh repository evidence path required")
-sys.argv = sys.argv[2:]
+sys.argv = [sys.argv[0], *sys.argv[2:]]
 
 
 def execute(self, query, params=None, *args, **kwargs):

@@ -11,6 +11,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from app.auth.supabase_auth import (
     CurrentUser,
@@ -202,17 +203,17 @@ async def deletion(request: Request, action: str) -> JSONResponse:
         model = (
             Status
             if action == "status"
-            else Confirmation
-            if action == "confirm"
-            else EmailCode
-            if action == "otp_verify"
-            else Challenge
+            else (
+                Confirmation
+                if action == "confirm"
+                else EmailCode if action == "otp_verify" else Challenge
+            )
         )
         doc = model.model_validate_json(raw).model_dump()
         doc["request_id"] = str(UUID(doc["request_id"]))
         if action != "status":
             token = _bearer_token_from_request(request)
-            user = verify_supabase_token(token)
+            user = await run_in_threadpool(verify_supabase_token, token)
             if user.role != "authenticated":
                 raise SupabaseAuthError()
             if action in {"begin", "otp_start", "otp_verify", "otp_ready"}:
@@ -239,7 +240,6 @@ async def deletion(request: Request, action: str) -> JSONResponse:
         runtime = getattr(request.app.state, "subscriptions", None)
         if runtime is None:
             raise CatalogStoreError(ErrorCode.UNAVAILABLE)
-        from starlette.concurrency import run_in_threadpool
 
         service = PrivacyService(runtime.connect)
         if (
@@ -297,7 +297,9 @@ async def deletion(request: Request, action: str) -> JSONResponse:
             403 if code == "privacy_denied" else 503,
             headers=HEADERS,
         )
-    except Exception:  # noqa: BLE001 -- closed security boundary, never expose driver/body errors
+    except (
+        Exception
+    ):  # noqa: BLE001 -- closed security boundary, never expose driver/body errors
         # Never format request bodies, email, SQL, driver errors or capabilities.
         return JSONResponse(
             {"detail": {"code": "privacy_outcome_unknown"}}, 503, headers=HEADERS

@@ -37,6 +37,7 @@ create function public.privacy_identity_call(p_action text,p_doc jsonb) returns 
 declare t public.privacy_followup_tasks; account uuid; reason text; verified boolean; begin
  if session_user<>'privacy_identity_executor' or current_setting('role',true)<>'none' then raise exception 'identity denied' using errcode='42501'; end if;
  if p_action='claim' then
+  update public.privacy_followup_tasks set state='blocked',safe_error='attempts_exhausted',lease_id=null,lease_until=null where kind='identity_cleanup' and state='running' and attempts>=5 and lease_until<=clock_timestamp();
   select x.* into t from public.privacy_followup_tasks x where x.kind='identity_cleanup' and x.attempts<5 and ((x.state in ('pending','blocked') and x.due_at<=clock_timestamp() and coalesce(x.safe_error,'')<>'attempts_exhausted') or (x.state='running' and x.lease_until<=clock_timestamp())) and exists(select 1 from public.privacy_followup_tasks v where v.request_id=x.request_id and v.kind='revoke_sessions' and v.state='succeeded') order by x.due_at,x.request_id for update skip locked limit 1;
   if t.request_id is null then return '{}'::jsonb; end if;
   select account_id into account from public.privacy_deletion_requests where request_id=t.request_id and state='accepted_restricted' and accepted_at is not null;

@@ -1,7 +1,7 @@
 """Private provisioning adapter. Never mount this as a public/admin endpoint.
 
 The caller must be a separately restricted control-plane worker. Keep the email
-lock through the bounded Auth call so accepted suppression cannot race creation.
+preflight transaction separate from Auth; the Auth commit trigger serializes suppression.
 An uncertain remote commit is not retried as a new import; operator correlation
 must resolve it. Direct project administrators remain outside this boundary.
 """
@@ -26,10 +26,11 @@ class ProvisioningGate:
                 ).fetchone()[0]
                 if not allowed:
                     raise ContentBlocked("provisioning_denied")
-                # Fixed operation reference is local correlation, never an Auth
-                # idempotency guarantee. Do not retry an uncertain HTTP result.
-                return self.create(operation, email, password)
+            # Auth commits under its own suppression lock; never hold ours while waiting.
+            return self.create(operation, email, password)
         except ContentBlocked:
             raise
-        except Exception:  # noqa: BLE001 -- never expose Auth/DB credentials or payloads
+        except (
+            Exception
+        ):  # noqa: BLE001 -- never expose Auth/DB credentials or payloads
             raise ContentBlocked("provisioning_unavailable") from None

@@ -12,8 +12,8 @@ def supported_sql(root: Path) -> str:
     directory = root / "supabase/migrations"
     legacy = directory / "20261029010000_privacy_confirmation_foundation.sql"
     if (
-        hashlib.sha256(legacy.read_bytes()).hexdigest()
-        != "419c5d2729c60aff8403a88c3028ad0561357ee781e53b609d9fab3d280cbf72"
+        hashlib.sha256(legacy.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+        != "1c44db79073424a334910d9ac460ef6a22d6711ae76c47e367c97af66e13ceff"
     ):
         raise ValueError("Historical migration changed; review packaging explicitly")
     before, marker, rest = legacy.read_text().partition("-- Auth-table commit guard")

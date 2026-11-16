@@ -2,6 +2,7 @@
 
 import argparse
 import base64
+from contextlib import ExitStack
 import json
 import multiprocessing
 import os
@@ -18,7 +19,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import requests
-from c15_actual_engines import ROOT, Rehearsal, docker
+from c15_actual_engines import ROOT, Rehearsal, docker, stop_local_process
 
 
 def port():
@@ -599,7 +600,9 @@ def main():
             },
         )
         return 0
-    except Exception as error:  # noqa: BLE001 -- safe diagnostics and owned-resource cleanup
+    except (
+        Exception
+    ) as error:  # noqa: BLE001 -- safe diagnostics and owned-resource cleanup
         r.save(
             "normal-failure.json",
             {
@@ -618,27 +621,27 @@ def main():
         print("normal rehearsal failed:", type(error).__name__, flush=True)
         return 1
     finally:
-        if vite:
-            vite.terminate()
-            vite.wait(timeout=10)
-        if uv_server:
-            uv_server.should_exit = True
-        if uv_thread:
-            uv_thread.join(timeout=40)
-        if gateway:
-            gateway.shutdown()
-            gateway.server_close()
-        if witness:
-            witness.terminate()
-            witness.join(timeout=10)
-        if owned:
-            import shutil
+        with ExitStack() as cleanup:
+            cleanup.callback(r.cleanup)
+            if owned:
+                import shutil
 
-            assert owned.parent == Path(
-                tempfile.gettempdir()
-            ).resolve() and owned.name.startswith("c15-normal-checkpoint-")
-            shutil.rmtree(owned)
-        r.cleanup()
+                assert owned.parent == Path(
+                    tempfile.gettempdir()
+                ).resolve() and owned.name.startswith("c15-normal-checkpoint-")
+                cleanup.callback(shutil.rmtree, owned)
+            if witness:
+                cleanup.callback(witness.join, timeout=10)
+                cleanup.callback(witness.terminate)
+            if gateway:
+                cleanup.callback(gateway.server_close)
+                cleanup.callback(gateway.shutdown)
+            if uv_thread:
+                cleanup.callback(uv_thread.join, timeout=40)
+            if uv_server:
+                cleanup.callback(setattr, uv_server, "should_exit", True)
+            if vite:
+                cleanup.callback(stop_local_process, vite, 10)
         # Only owned ports/processes are inspected; unrelated services are untouched.
         listeners = []
         for candidate_port in [

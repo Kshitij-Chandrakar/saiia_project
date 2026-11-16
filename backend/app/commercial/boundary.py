@@ -31,6 +31,7 @@ _STATIC_INGRESS = frozenset(
         ("POST", "/api/privacy/deletion/challenge"),
         ("POST", "/api/privacy/deletion/confirm"),
         ("POST", "/api/privacy/deletion/status"),
+        ("POST", "/api/privacy/content/sessions"),
         ("POST", "/api/privacy/content/begin"),
         ("POST", "/api/privacy/content/download_begin"),
         ("POST", "/api/privacy/content/otp_start"),

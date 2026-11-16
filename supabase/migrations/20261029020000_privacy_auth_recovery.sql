@@ -22,6 +22,7 @@ create or replace function public.privacy_email_denied(p_email text) returns boo
 language plpgsql security definer set search_path=pg_catalog,extensions,public as $$
 declare normalized text; begin
  if not exists(select 1 from public.privacy_matching_keys where current_key) then
+  if not exists(select 1 from public.privacy_configuration where enabled) and not exists(select 1 from public.privacy_email_suppression) and not exists(select 1 from public.privacy_deletion_requests where state='accepted_restricted') then return false; end if;
   raise exception 'privacy dependency unavailable' using errcode='P0005';
  end if;
  normalized:=public.privacy_normal_email(p_email);

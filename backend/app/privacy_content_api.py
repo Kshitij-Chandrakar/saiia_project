@@ -10,7 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse, StreamingResponse
 
-from app.auth.supabase_auth import _bearer_token_from_request, verify_supabase_token
+from app.auth.supabase_auth import (
+    SupabaseAuthError,
+    _bearer_token_from_request,
+    verify_supabase_token,
+)
 from app.privacy import HEADERS, recent_presence
 from app.privacy_content import ContentBlocked
 
@@ -59,7 +63,9 @@ async def content(request: Request, action: str):
 
         document = Document.model_validate_json(await body(request, 2048))
         job_id = str(UUID(document.request_id))
-        user = verify_supabase_token(_bearer_token_from_request(request))
+        user = await run_in_threadpool(
+            verify_supabase_token, _bearer_token_from_request(request)
+        )
         if user.role != "authenticated":
             raise ContentBlocked("denied")
         account = str(UUID(user.user_id))
@@ -114,6 +120,10 @@ async def content(request: Request, action: str):
                 },
             )
         return JSONResponse(jsonable_encoder(result), headers=HEADERS)
+    except SupabaseAuthError:
+        return JSONResponse({"detail": {"code": "auth_required"}}, 401, headers=HEADERS)
+    except HTTPException:
+        raise
     except ContentBlocked as error:
         category = str(error).split(":", 1)[0]
         if not re.fullmatch(r"[a-z_]{1,64}", category):
@@ -122,7 +132,9 @@ async def content(request: Request, action: str):
         return JSONResponse(
             {"detail": {"code": "privacy_scope_blocked"}}, 409, headers=HEADERS
         )
-    except Exception as error:  # noqa: BLE001 -- no credentials, payloads or driver errors in responses
+    except (
+        Exception
+    ) as error:  # noqa: BLE001 -- no credentials, payloads or driver errors in responses
         logging.getLogger("privacy").warning(
             "Privacy outcome unknown: type=%s sqlstate=%s relation=%s column=%s frames=%s",
             type(error).__name__,

@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from c15_actual_engines import ROOT, Rehearsal, docker
+from c15_actual_engines import ROOT, Rehearsal, docker, stop_local_process
 
 
 def prepare_browser(r):
@@ -269,7 +269,9 @@ def serve(r):
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
-            except Exception:  # noqa: BLE001 -- never expose request credentials or engine errors
+            except (
+                Exception
+            ):  # noqa: BLE001 -- never expose request credentials or engine errors
                 self.send_error(503, "isolated boundary unavailable")
 
         do_GET = handle_request
@@ -467,10 +469,11 @@ def main():
         if tested.returncode:
             raise RuntimeError("browser_acceptance_failed")
     finally:
-        if vite:
-            vite.terminate()
-            vite.wait(timeout=15)
-        r.cleanup()
+        try:
+            if vite:
+                stop_local_process(vite, 15)
+        finally:
+            r.cleanup()
 
 
 if __name__ == "__main__":

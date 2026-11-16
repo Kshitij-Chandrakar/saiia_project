@@ -159,7 +159,7 @@ begin
   insert into public.privacy_deletion_requests(account_id,request_id,session_id,reauthenticated_at,policy_version,scope,confirmation_hash,status_hash,email_key_version,email_digest,expires_at)
    values(p_account,(p_doc->>'request_id')::uuid,(p_doc->>'session_id')::uuid,(p_doc->>'reauthenticated_at')::timestamptz,p_doc->>'policy_version','whole_account',p_doc->>'confirmation_hash',p_doc->>'status_hash',k.version,hmac(convert_to(email,'UTF8'),k.secret,'sha256'),at_time+interval '5 minutes')
    on conflict(account_id) do update set request_id=excluded.request_id,session_id=excluded.session_id,reauthenticated_at=excluded.reauthenticated_at,
-    policy_version=excluded.policy_version,confirmation_hash=excluded.confirmation_hash,status_hash=excluded.status_hash,email_key_version=excluded.email_key_version,email_digest=excluded.email_digest,expires_at=excluded.expires_at,revision=privacy_deletion_requests.revision+1
+    policy_version=excluded.policy_version,confirmation_hash=excluded.confirmation_hash,status_hash=excluded.status_hash,status_expires_at=excluded.status_expires_at,email_key_version=excluded.email_key_version,email_digest=excluded.email_digest,expires_at=excluded.expires_at,revision=privacy_deletion_requests.revision+1
    returning * into r;
   insert into public.privacy_lifecycle_audit(request_id,action) values(r.request_id,'deletion.challenge');
  elsif p_action='confirm' then

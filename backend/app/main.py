@@ -79,6 +79,8 @@ async def lifespan(app):
             kwargs = {'subscriptions':subscriptions} if settings.SUBSCRIPTIONS_ENABLED=='true' else {}
             if privacy_runtime is not None:
                 kwargs['readiness'] = privacy_runtime.coordinator.ready
+            elif settings.C15_RESTORE_BOOT_REQUIRED == 'true':
+                kwargs['readiness'] = coordinator.ready
             server, _ = await start_server(settings.GRPC_REALTIME_HOST, settings.GRPC_REALTIME_PORT,
                                            settings.GRPC_MAX_MESSAGE_MB, **kwargs)
         except Exception:

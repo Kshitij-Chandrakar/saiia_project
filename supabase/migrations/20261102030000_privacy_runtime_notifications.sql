@@ -31,10 +31,20 @@ grant execute on function public.reconcile_outbound_email_event(uuid,uuid) to pr
 grant execute on function public.resolve_outbound_email_event_reconciliation(uuid,uuid,uuid,text,text,boolean,timestamptz,text,text,text) to privacy_runtime_owner;
 create function public.privacy_pending_notices() returns jsonb language sql security definer set search_path=pg_catalog as $$
  select coalesce(jsonb_agg(to_jsonb(candidate)),'[]') from (
- select r.account_id,case when not exists(select 1 from public.outbound_email_events e where e.user_id=r.account_id and e.email_type='privacy_request_accepted' and e.status='sent') and not exists(select 1 from public.privacy_minimized_records m where m.account_id=r.account_id and m.event_kind='privacy_request_accepted' and m.outcome='sent') then 'accepted' else case when j.state='primary_verified' then 'primary_verified' else 'attention_required' end end stage
- from public.privacy_deletion_requests r join auth.users u on u.id=r.account_id left join public.privacy_content_jobs j on j.id=r.request_id
+ select r.account_id, stage.name as stage
+ from public.privacy_deletion_requests r join auth.users u on u.id=r.account_id
+ left join public.privacy_content_jobs j on j.id=r.request_id
+ cross join lateral (
+  select 'accepted'::text name where
+   not exists(select 1 from public.outbound_email_events e where e.user_id=r.account_id and e.idempotency_key='privacy.'||r.request_id::text||'.accepted' and e.status='sent')
+   and not exists(select 1 from public.privacy_minimized_records m where m.account_id=r.account_id and m.event_kind='privacy_request_accepted' and m.outcome='sent')
+  union all
+  select case when j.state='primary_verified' then 'primary_verified' else 'attention_required' end
+  where j.state in ('primary_verified','blocked','failed')
+   and not exists(select 1 from public.outbound_email_events e where e.user_id=r.account_id and e.idempotency_key='privacy.'||r.request_id::text||'.'||case when j.state='primary_verified' then 'primary_verified' else 'attention_required' end and e.status='sent')
+  limit 1
+ ) stage
  where r.state='accepted_restricted' and public.privacy_runtime_contact_available(u.id)
- and (not exists(select 1 from public.outbound_email_events e where e.user_id=r.account_id and e.email_type='privacy_request_accepted' and e.status='sent') or (j.state in ('primary_verified','blocked','failed') and not exists(select 1 from public.outbound_email_events e where e.user_id=r.account_id and e.idempotency_key='privacy.'||r.request_id::text||'.'||case when j.state='primary_verified' then 'primary_verified' else 'attention_required' end and e.status='sent')))
  order by r.accepted_at limit 16) candidate
 $$;
 alter function public.privacy_pending_notices() owner to privacy_runtime_owner;

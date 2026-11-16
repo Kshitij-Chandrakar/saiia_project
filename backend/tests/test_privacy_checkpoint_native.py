@@ -3,6 +3,7 @@
 # ruff: noqa: F401,F811 -- pytest fixtures imported explicitly
 import hashlib
 import json
+import os
 import secrets
 import shutil
 import socket
@@ -62,16 +63,35 @@ def database(request):
         generator.close()
         # The offline fixture forbids socket.connect globally. Inspect OS
         # listeners instead; no network boundary or guard bypass is needed.
-        count = subprocess.check_output(
-            [
-                "powershell",
-                "-NoProfile",
-                "-Command",
-                f"@(Get-NetTCPConnection -State Listen -LocalPort {int(db.port)} -ErrorAction SilentlyContinue).Count",
-            ],
-            text=True,
-        ).strip()
-        closed = count == "0"
+        if os.name == "nt":
+            count = subprocess.check_output(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    f"@(Get-NetTCPConnection -State Listen -LocalPort {int(db.port)} -ErrorAction SilentlyContinue).Count",
+                ],
+                text=True,
+            ).strip()
+            closed = count == "0"
+        elif Path("/proc/net/tcp").exists():
+            closed = not any(
+                int(line.split()[1].rsplit(":", 1)[1], 16) == db.port
+                and line.split()[3] == "0A"
+                for table in (Path("/proc/net/tcp"), Path("/proc/net/tcp6"))
+                if table.exists()
+                for line in table.read_text().splitlines()[1:]
+            )
+        else:
+            tool = shutil.which("lsof")
+            assert tool, "lsof required for POSIX listener verification"
+            result = subprocess.run(
+                [tool, "-nP", f"-iTCP:{int(db.port)}", "-sTCP:LISTEN"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            closed = result.returncode == 1 and not result.stdout.strip()
         assert closed and not db.directory.exists()
         path = (
             Path(__file__).parents[2]

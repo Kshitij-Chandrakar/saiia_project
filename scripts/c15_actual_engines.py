@@ -48,6 +48,17 @@ def docker(*args, data=None, check=True):
     return r
 
 
+def stop_local_process(process, timeout):
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=timeout)
+
+
 class Rehearsal:
     key_lifetime_seconds = 7200
 
@@ -499,15 +510,17 @@ class Rehearsal:
                     "boundary": "actual local engine",
                 }
             )
-        except Exception as error:  # noqa: BLE001 -- safe scenario categories; cleanup must always run
+        except (
+            Exception
+        ) as error:  # noqa: BLE001 -- safe scenario categories; cleanup must always run
             self.results.append(
                 {
                     "scenario": name,
                     "result": "failed",
                     "error_type": type(error).__name__,
-                    "safe_category": str(error)
-                    if isinstance(error, RuntimeError)
-                    else None,
+                    "safe_category": (
+                        str(error) if isinstance(error, RuntimeError) else None
+                    ),
                     "stack": [
                         {
                             "file": Path(t.filename).name,
@@ -774,6 +787,18 @@ class Rehearsal:
             and receipt.json()["identity_cleanup"] == "succeeded"
             and receipt.json()["content_erased"] is False
         )
+        # A crashed final attempt must reach an explicit terminal recovery state.
+        with self.connect() as c:
+            c.execute(
+                "update privacy_followup_tasks set state='running',attempts=5,lease_id=%s,lease_until=clock_timestamp()-interval '1 second' where request_id=%s and kind='identity_cleanup'",
+                (str(uuid4()), doc["request_id"]),
+            )
+        identity.call("claim", {"lease_id": str(uuid4())})
+        with self.connect() as c:
+            assert c.execute(
+                "select state,safe_error,lease_id,lease_until from privacy_followup_tasks where request_id=%s and kind='identity_cleanup'",
+                (doc["request_id"],),
+            ).fetchone() == ("blocked", "attempts_exhausted", None, None)
         # A genuine financial linkage retains restricted contact, never product access.
         billed, billdoc = self.accepted_password()
         with self.connect() as c:
@@ -1625,9 +1650,9 @@ class Rehearsal:
                 "private_archive_via_app_succeeded": True,
             },
         )
-        assert direct_ready != 200 and direct_sign != 200 and direct_expired != 200, (
-            "archive_direct_storage_access"
-        )
+        assert (
+            direct_ready != 200 and direct_sign != 200 and direct_expired != 200
+        ), "archive_direct_storage_access"
         self.store.remove("exports", artifact)
         # A late backend put after manifest removal still cannot escape the job
         # namespace boundary. Its job identity remains durable.
@@ -2456,28 +2481,36 @@ class Rehearsal:
                 failures.append("network_ownership")
             elif docker("network", "rm", self.name, check=False).returncode:
                 failures.append(self.name)
-        self.save(
-            "cleanup.json",
-            {
-                "failures": failures,
-                "remaining_containers": docker(
-                    "ps", "-aq", "--filter", "label=c15.rehearsal=" + self.name
-                ).stdout.splitlines(),
-                "remaining_volumes": docker(
-                    "volume", "ls", "-q", "--filter", "label=c15.rehearsal=" + self.name
-                ).stdout.splitlines(),
-                "remaining_networks": docker(
-                    "network",
-                    "ls",
-                    "-q",
-                    "--filter",
-                    "label=c15.rehearsal=" + self.name,
-                ).stdout.splitlines(),
-                "published_ports": [],
-                "ephemeral_configuration": "in memory and removed owned container environment; no secret files",
-            },
-        )
+        report = {
+            "failures": failures,
+            "remaining_containers": docker(
+                "ps", "-aq", "--filter", "label=c15.rehearsal=" + self.name
+            ).stdout.splitlines(),
+            "remaining_volumes": docker(
+                "volume", "ls", "-q", "--filter", "label=c15.rehearsal=" + self.name
+            ).stdout.splitlines(),
+            "remaining_networks": docker(
+                "network",
+                "ls",
+                "-q",
+                "--filter",
+                "label=c15.rehearsal=" + self.name,
+            ).stdout.splitlines(),
+            "published_ports": [],
+            "ephemeral_configuration": "in memory and removed owned container environment; no secret files",
+        }
+        self.save("cleanup.json", report)
         self.http.close()
+        if failures or any(
+            report[key]
+            for key in (
+                "remaining_containers",
+                "remaining_volumes",
+                "remaining_networks",
+            )
+        ):
+            raise RuntimeError("owned_rehearsal_cleanup_incomplete")
+        return report
 
 
 class ActualStorage:
@@ -2495,10 +2528,10 @@ class ActualStorage:
                 "Authorization": "Bearer " + (token or self.r.service),
                 "apikey": self.r.anon,
                 "Content-Type": (
-                    "application/zip" if "/exports/" in path else "text/plain"
-                )
-                if "data" in kw
-                else "application/json",
+                    ("application/zip" if "/exports/" in path else "text/plain")
+                    if "data" in kw
+                    else "application/json"
+                ),
             },
             timeout=10,
             **kw,
@@ -2650,7 +2683,9 @@ def main():
                         "isolated_client_failed:" + str(result.returncode)
                     )
 
-    except Exception as error:  # noqa: BLE001 -- safe scenario categories; cleanup must always run
+    except (
+        Exception
+    ) as error:  # noqa: BLE001 -- safe scenario categories; cleanup must always run
         if isinstance(error, psycopg.Error):
             r.save(
                 "safe-error.json",

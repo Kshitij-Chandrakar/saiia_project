@@ -103,6 +103,81 @@ for node in ast.walk(
             "source": "privacy_retained.py",
             "method": "primary_safe",
         }
+# Fixed branches must exist even when a capture fixture has no matching row.
+fixed_branches = [
+    (
+        "privacy_content.py",
+        "renew",
+        "update privacy_content_jobs set lease_until=",
+        ["uuid", "uuid"],
+        [],
+    ),
+    (
+        "privacy_content.py",
+        "history_dependencies",
+        "select 1 from privacy_erased_sessions e join privacy_content_jobs owner",
+        ["uuid", "uuid"],
+        [23],
+    ),
+    (
+        "privacy_content.py",
+        "cleanup",
+        "select name from storage.objects",
+        ["text"],
+        [25],
+    ),
+    (
+        "privacy_restore.py",
+        "apply",
+        "update subscription_auto_runs set active=false,fence=fence+1",
+        ["uuid"],
+        [],
+    ),
+    (
+        "privacy_restore.py",
+        "_replay_sessions",
+        "insert into privacy_restored_replays",
+        ["uuid", "integer", "text"],
+        [],
+    ),
+    (
+        "privacy_remaining.py",
+        "run",
+        "delete from subscription_relay_connections",
+        ["uuid", "uuid"],
+        [],
+    ),
+]
+for source, method_name, prefix, parameters, results in fixed_branches:
+    module = ast.parse((root / "backend/app" / source).read_text(encoding="utf8"))
+    method = next(
+        n
+        for n in ast.walk(module)
+        if isinstance(n, ast.FunctionDef) and n.name == method_name
+    )
+    calls = [
+        n.args[0].value
+        for n in ast.walk(method)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "execute"
+        and n.args
+        and isinstance(n.args[0], ast.Constant)
+        and isinstance(n.args[0].value, str)
+        and n.args[0].value.startswith(prefix)
+    ]
+    assert len(calls) == 1, (source, prefix)
+    text = calls[0]
+    assert text.count("%s") == len(parameters)
+    numbers = iter(range(1, len(parameters) + 1))
+    operations[hashlib.sha256(text.encode()).hexdigest()] = {
+        "sql": text,
+        "prepared": re.sub(r"%s", lambda _: "$" + str(next(numbers)), text),
+        "parameters": parameters,
+        "results": results,
+        "source": source,
+        "method": method_name,
+    }
 client = {}
 statements = []
 for method in ast.walk(
@@ -155,6 +230,8 @@ for key, spec in sorted(operations.items()):
         "to_jsonb(u)->>'deleted_at' is null",
         "public.privacy_runtime_contact_available(u.id)",
     )
+    if spec["sql"] == "delete from outbound_email_events where id=%s and user_id=%s":
+        statement += " and email_type not like 'billing_%' and public.privacy_runtime_allows(user_id,null::uuid)"
     if spec["sql"] == "select public.privacy_restore_accessible()":
         statement = "select (session_user='privacy_restore_executor' or public.privacy_restore_accessible())"
     if spec["results"] and not stream:
@@ -310,6 +387,9 @@ for t in sorted(refs):
         owner, session, _ = CONTENT[t]
         session_sql = "null::uuid" if session is None else '"' + session + '"'
         predicate = f'public.privacy_runtime_allows("{owner}",{session_sql})'
+        if t == "subscription_notes_versions":
+            predicate = "exists(select 1 from public.usage_operations o where o.operation_id=subscription_notes_versions.operation_id and o.account_id=subscription_notes_versions.account_id and o.operation='notes.generate' and public.privacy_runtime_allows(o.account_id,o.resource_id))"
+
         head += f'grant update("{owner}") on public.{t} to privacy_runtime_owner;\ncreate policy c15_runtime_lock on public.{t} for update to privacy_runtime_owner using(true) with check(true);\n'
         head += f"create policy c15_runtime_read on public.{t} for select to privacy_runtime_owner using(true);\n"
         head += f"create policy c15_runtime_delete on public.{t} for delete to privacy_runtime_owner using({predicate});\n"
@@ -319,6 +399,14 @@ head += """do $$ declare n text; t text; begin foreach t in array array['privacy
 grant select on public.privacy_runtime_operations to privacy_runtime_owner;
 """
 head += "grant update on public.privacy_deletion_requests,public.privacy_content_jobs to privacy_runtime_owner;\n"
+head += """grant update(active,fence) on public.subscription_auto_runs to privacy_runtime_owner;
+grant usage on schema storage to privacy_runtime_owner;
+grant select(bucket_id,name) on storage.objects to privacy_runtime_owner;
+create policy c15_runtime_object_read on storage.objects for select to privacy_runtime_owner using(bucket_id='resumes' and public.privacy_runtime_allows((split_part(name,'/',1))::uuid,null::uuid));
+create policy c15_runtime_relay_delete_scope on public.subscription_relay_connections as restrictive for delete to privacy_runtime_owner using(public.privacy_runtime_allows(account_id,null::uuid));
+create policy c15_runtime_email_delete_scope on public.outbound_email_events as restrictive for delete to privacy_runtime_owner using(email_type not like 'billing_%' and public.privacy_runtime_allows(user_id,null::uuid));
+"""
+
 head += "grant execute on function public.privacy_restore_accessible(),public.privacy_capture_erasure_keys(uuid,uuid),public.privacy_email_denied(text),public.subscription_auto_finish_slice(uuid,timestamptz) to privacy_runtime_owner;\n"
 body = """
 create function public.privacy_runtime_call(p_action text,p_operation text,p_args jsonb) returns jsonb language plpgsql security definer set search_path=pg_catalog,public,pg_temp as $$

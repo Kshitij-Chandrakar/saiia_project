@@ -91,7 +91,7 @@ declare u public.privacy_legacy_reply_retirements; r public.subscription_auto_ru
  select accepted_at into confirmation from public.privacy_deletion_requests where request_id=u.request_id and account_id=u.account_id and state='accepted_restricted' for update;
  if confirmation is null or confirmation<>u.accepted_at or u.eligible_at<>confirmation+interval '90 days' or clock_timestamp()<u.eligible_at then raise exception 'retirement clock denied' using errcode='42501'; end if;
  select * into strict r from public.subscription_auto_runs where run_id=p_run for update;
- if r.account_id<>u.account_id or r.active or r.owner_token is not null then raise exception 'retirement ownership or writer denied' using errcode='42501'; end if;
+ if r.account_id<>u.account_id or r.active or r.owner_token is not null or r.owner_verifier is not null then raise exception 'retirement ownership or writer denied' using errcode='42501'; end if;
  if exists(select 1 from public.usage_operations where account_id=u.account_id and state in ('reserved','dispatched','checkpointed','uncertain')) then raise exception 'recovery remains active' using errcode='42501'; end if;
  if exists(select 1 from public.privacy_retirement_units x join public.privacy_retirement_holds h using(unit_id) where x.account_id=u.account_id and h.active) then raise exception 'retirement hold' using errcode='42501'; end if;
  if exists(select 1 from public.privacy_auto_reply_payloads where run_id=p_run and state<>'erased') then raise exception 'private payload present' using errcode='42501'; end if;
@@ -151,7 +151,7 @@ do $$ declare n text; begin
  execute format('drop trigger %I on public.privacy_lifecycle_audit',n);
 end $$;
 create trigger legacy_audit_mutation_guard before insert or update or delete on public.privacy_lifecycle_audit for each row execute function public.privacy_legacy_audit_guard();
-create function public.privacy_prepare_legacy_security(p_request uuid) returns integer language plpgsql security definer set search_path=pg_catalog as $$
+create function public.privacy_prepare_legacy_security(p_request uuid) returns integer language plpgsql security definer set search_path=pg_catalog set timezone='UTC' as $$
 declare account uuid; accepted timestamptz; n integer; begin
  if session_user<>'privacy_preparation_executor' or current_setting('role',true)<>'none' then raise exception 'preparation denied' using errcode='42501'; end if;
  select account_id,accepted_at into account,accepted from public.privacy_deletion_requests where request_id=p_request and state='accepted_restricted';
@@ -162,7 +162,7 @@ declare account uuid; accepted timestamptz; n integer; begin
  return n;
 end $$;
 alter function public.privacy_prepare_legacy_security(uuid) owner to privacy_retirement_owner;
-create function public.privacy_retire_legacy_security(p_request uuid,p_revision bigint) returns integer language plpgsql security definer set search_path=pg_catalog as $$
+create function public.privacy_retire_legacy_security(p_request uuid,p_revision bigint) returns integer language plpgsql security definer set search_path=pg_catalog set timezone='UTC' as $$
 declare u public.privacy_legacy_audit_retirements; accepted timestamptz; n integer; begin
  if session_user<>'privacy_retirement_executor' or current_setting('role',true)<>'none' then raise exception 'retirement denied' using errcode='42501'; end if;
  select * into strict u from public.privacy_legacy_audit_retirements where request_id=p_request;
@@ -193,7 +193,7 @@ grant execute on function public.privacy_prepare_legacy_security(uuid) to privac
 grant execute on function public.privacy_retire_legacy_security(uuid,bigint) to privacy_retirement_executor;
 
 grant insert on public.privacy_legacy_reply_retirements to privacy_retirement_owner;
-create function public.privacy_prepare_legacy_replies(p_run uuid,p_request uuid) returns integer language plpgsql security definer set search_path=pg_catalog as $$
+create function public.privacy_prepare_legacy_replies(p_run uuid,p_request uuid) returns integer language plpgsql security definer set search_path=pg_catalog set timezone='UTC' as $$
 declare account uuid; accepted timestamptz; n integer; begin
  if session_user<>'privacy_preparation_executor' or current_setting('role',true)<>'none' then raise exception 'preparation denied' using errcode='42501'; end if;
  select account_id,accepted_at into account,accepted from public.privacy_deletion_requests where request_id=p_request and state='accepted_restricted';

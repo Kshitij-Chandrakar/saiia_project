@@ -2236,5 +2236,45 @@
     "source": "privacy_restore.py",
     "stream": false,
     "types": []
+  },
+  "30d855b50f311b667e6226ab1fc345b844efc34e5ed3be9396a71049155512f7": {
+    "types": [
+      25
+    ],
+    "stream": false,
+    "source": "privacy_content.py",
+    "method": "cleanup"
+  },
+  "410b844b387273ef79c6ca25d88135b57e671a8f1a41573b5831e30610eb4faa": {
+    "types": [],
+    "stream": false,
+    "source": "privacy_remaining.py",
+    "method": "run"
+  },
+  "4b380d55bf9f424ca986844686a5759b9033950a86f6996ad3bcb0a03bcdb04b": {
+    "types": [],
+    "stream": false,
+    "source": "privacy_restore.py",
+    "method": "apply"
+  },
+  "5ba5653207bab980de80c7db083579b6ee62a7945e8b5c2e205ec9d8b6a1255f": {
+    "types": [],
+    "stream": false,
+    "source": "privacy_restore.py",
+    "method": "_replay_sessions"
+  },
+  "cc5b0ee955949f908553d64805c99d73d6e40ba6a96e7384bbdb1f8e1cfbeb3a": {
+    "types": [
+      23
+    ],
+    "stream": false,
+    "source": "privacy_content.py",
+    "method": "history_dependencies"
+  },
+  "f9b72d134f90c9db7b6fe9255fd8785425f5126b82e1dbd6483b4e0408a1e215": {
+    "types": [],
+    "stream": false,
+    "source": "privacy_content.py",
+    "method": "renew"
   }
 }

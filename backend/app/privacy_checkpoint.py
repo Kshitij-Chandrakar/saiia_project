@@ -340,9 +340,15 @@ class RestoreReadinessMiddleware:
         startup = self.coordinator is not None or getattr(
             state, "restore_startup_ready", False
         )
-        if self.required and (
-            not startup or coordinator is None or not coordinator.ready()
-        ):
+        ready = not self.required
+        if self.required and startup and coordinator is not None:
+            from starlette.concurrency import run_in_threadpool
+
+            try:
+                ready = await run_in_threadpool(coordinator.ready)
+            except Exception:  # noqa: BLE001 -- unavailable evidence must quarantine
+                ready = False
+        if not ready:
             if scope["type"] == "websocket":
                 return await send({"type": "websocket.close", "code": 1013})
             from starlette.responses import JSONResponse
@@ -350,4 +356,4 @@ class RestoreReadinessMiddleware:
             return await JSONResponse(
                 {"status": "restore_quarantined"}, status_code=503
             )(scope, receive, send)
-        await self.app(scope, receive, send)
+        return await self.app(scope, receive, send)

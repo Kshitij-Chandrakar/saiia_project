@@ -43,6 +43,8 @@ FIELDS = (
 
 
 class RestoreJournal:
+    MAX_BYTES = 16 * 1024 * 1024
+
     def __init__(self, path, keys, current):
         self.path = Path(path)
         if current not in keys or any(len(k) != 32 for k in keys.values()):
@@ -64,10 +66,7 @@ class RestoreJournal:
             if not expected or self.path.is_symlink():
                 raise ValueError()
             raw = self.path.read_bytes()
-            if (
-                len(raw) > 16 * 1024 * 1024
-                or hashlib.sha256(raw).hexdigest() != expected
-            ):
+            if len(raw) > self.MAX_BYTES or hashlib.sha256(raw).hexdigest() != expected:
                 raise ValueError()
             previous = "genesis"
             result = []
@@ -84,7 +83,9 @@ class RestoreJournal:
                 result.append(json.loads(clear))
                 previous = hashlib.sha256(line).hexdigest()
             return result
-        except Exception:  # noqa: BLE001 -- no identifiers, ciphertext or keys in diagnostics
+        except (
+            Exception
+        ):  # noqa: BLE001 -- no identifiers, ciphertext or keys in diagnostics
             raise ContentBlocked("restore_evidence_unavailable") from None
 
     def append(self, event, expected):
@@ -116,6 +117,8 @@ class RestoreJournal:
             ).encode()
             + b"\n"
         )
+        if self.path.stat().st_size + len(line) > self.MAX_BYTES:
+            raise ContentBlocked("restore_evidence_size")
         with self.path.open("ab") as stream:
             stream.write(line)
             stream.flush()
