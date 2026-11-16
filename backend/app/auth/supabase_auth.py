@@ -52,7 +52,7 @@ class AuthVerificationConfig:
 def _safe_claims(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         key: payload[key]
-        for key in ("aud", "iss", "exp", "iat")
+        for key in ("aud", "iss", "exp", "iat", "session_id", "amr", "aal", "c15_auth_method", "app_metadata")
         if key in payload
     }
 
@@ -219,7 +219,7 @@ def get_current_user(request: Request) -> CurrentUser:
         ) from exc
 
     from app.config import settings
-    if settings.SUBSCRIPTIONS_ENABLED == 'true':
+    if settings.SUBSCRIPTIONS_ENABLED == 'true' or getattr(settings, 'C15_RESTRICTIONS_REQUIRED', 'false') == 'true':
         from app.commercial.admin_access import VerifiedActor
         from app.commercial.catalog_store import CatalogStoreError, ErrorCode
         from app.commercial.hosted_coordination import HostedCoordination

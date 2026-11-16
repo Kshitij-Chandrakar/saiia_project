@@ -346,7 +346,8 @@ def test_supabase_rest_select_failure_logs_sanitized_context(caplog: pytest.LogC
     assert "table=profiles" in log_text
     assert "operation=select" in log_text
     assert "status=401" in log_text
-    assert "invalid key [redacted]" in log_text
+    assert "invalid key" not in log_text
+    assert "body=" not in log_text
     assert service_role_key not in log_text
 
 
@@ -362,4 +363,5 @@ def test_supabase_rest_upsert_failure_logs_sanitized_context(caplog: pytest.LogC
     assert "table=user_settings" in caplog.text
     assert "operation=upsert" in caplog.text
     assert "status=400" in caplog.text
-    assert "bad payload" in caplog.text
+    assert "bad payload" not in caplog.text
+    assert "body=" not in caplog.text

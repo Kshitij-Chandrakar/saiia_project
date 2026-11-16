@@ -11,6 +11,9 @@ from fastapi.templating import Jinja2Templates
 from app.api import onboarding, auth, auto_stt, classify, email_unsubscribe, generate, interview_sessions, job_context, job_contexts, question_detect, resume, resumes, system_audio, transcribe
 from app.api.debug import router as debug_router
 from app.api import answer_diagrams
+from app.privacy import router as privacy_router
+from app.privacy_content_api import router as privacy_content_router
+from app.privacy_checkpoint import RestoreReadinessMiddleware
 from app.commercial.admin import router as commercial_router
 from app.commercial.boundary import CommercialBoundaryMiddleware
 from app.commercial.catalog_database import CatalogDatabase
@@ -30,6 +33,30 @@ from app.services.resume_index_service import ResumeIndexError, ResumeIndexServi
 
 @asynccontextmanager
 async def lifespan(app):
+    privacy_runtime = None
+    privacy_prepared = False
+    if getattr(settings, 'C15_RUNTIME_ENABLED', 'false') == 'true':
+        try:
+            from app.privacy_runtime import configure
+            privacy_runtime = configure(app, settings)
+            await run_in_threadpool(privacy_runtime.prepare)
+            privacy_prepared = True
+        except Exception:  # noqa: BLE001 -- failed runtime preparation must quarantine startup
+            app.state.restore_startup_ready = False
+    if settings.C15_RESTORE_BOOT_REQUIRED == 'true' or getattr(settings, 'C15_RUNTIME_ENABLED', 'false') == 'true':
+        app.state.restore_startup_ready = False
+        coordinator = getattr(app.state, 'restore_coordinator', None)
+        if getattr(settings, 'C15_RUNTIME_ENABLED', 'false') == 'true' and not privacy_prepared:
+            coordinator = None
+        if coordinator is None or not await run_in_threadpool(coordinator.ready):
+            # Quarantined HTTP only: do not start workers or gRPC. A verified
+            # operator composition and process restart are required to serve.
+            try:
+                yield
+            finally:
+                if privacy_runtime is not None:
+                    await run_in_threadpool(privacy_runtime.close)
+            return
     from app.cloud.interview_sessions import validate_session_model_dev_activation
     validate_session_model_dev_activation()
     server = None
@@ -50,6 +77,8 @@ async def lifespan(app):
         try:
             from app.grpc_server import start_server
             kwargs = {'subscriptions':subscriptions} if settings.SUBSCRIPTIONS_ENABLED=='true' else {}
+            if privacy_runtime is not None:
+                kwargs['readiness'] = privacy_runtime.coordinator.ready
             server, _ = await start_server(settings.GRPC_REALTIME_HOST, settings.GRPC_REALTIME_PORT,
                                            settings.GRPC_MAX_MESSAGE_MB, **kwargs)
         except Exception:
@@ -58,8 +87,13 @@ async def lifespan(app):
     await run_in_threadpool(catalog_database.start)
     await run_in_threadpool(catalog_public.start)
     try:
+        app.state.restore_startup_ready = True
+        if privacy_runtime is not None:
+            privacy_runtime.start()
         yield
     finally:
+        if privacy_runtime is not None:
+            await run_in_threadpool(privacy_runtime.close)
         from app.services.answer_diagram_service import shutdown_diagrams
         await shutdown_diagrams()
         if server is not None:
@@ -75,6 +109,7 @@ async def lifespan(app):
 
 
 app = FastAPI(title="SAIIA Backend", lifespan=lifespan)
+app.add_middleware(RestoreReadinessMiddleware, required=settings.C15_RESTORE_BOOT_REQUIRED == 'true' or getattr(settings, 'C15_RUNTIME_ENABLED', 'false') == 'true')
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 PROFILE_PATH = Path(__file__).parent.parent / "candidate_profile.json"
 logger = logging.getLogger("profile_api")
@@ -97,6 +132,8 @@ app.add_middleware(
 
 app.include_router(commercial_router, prefix="/api/commercial", tags=["Commercial Foundation"])
 app.include_router(public_catalog_router)
+app.include_router(privacy_router)
+app.include_router(privacy_content_router)
 app.include_router(subscription_router)
 app.include_router(billing_router)
 app.include_router(billing_admin_router)

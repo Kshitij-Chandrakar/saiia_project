@@ -73,20 +73,12 @@ class SupabaseRestClient:
         if response.status_code != 200:
             self._raise_for_response("user_settings", "check_consent_schema", response)
 
-    def _safe_response_body(self, response: requests.Response) -> str:
-        body = response.text[:500]
-        service_role_key = getattr(self, "_service_role_key", "")
-        if service_role_key:
-            body = body.replace(service_role_key, "[redacted]")
-        return body
-
     def _log_failure(self, table: str, operation: str, response: requests.Response) -> None:
         logger.error(
-            "Supabase REST failure during profile bootstrap: table=%s operation=%s status=%s body=%s",
+            "Supabase REST failure during profile bootstrap: table=%s operation=%s status=%s",
             table,
             operation,
             response.status_code,
-            self._safe_response_body(response),
         )
 
     def _raise_for_response(self, table: str, operation: str, response: requests.Response) -> NoReturn:
@@ -95,12 +87,11 @@ class SupabaseRestClient:
 
     def _raise_for_request_error(self, table: str, operation: str, exc: requests.RequestException) -> NoReturn:
         logger.error(
-            "Supabase REST failure during profile bootstrap: table=%s operation=%s status=request_error body=%s",
+            "Supabase REST failure during profile bootstrap: table=%s operation=%s status=request_error",
             table,
             operation,
-            str(exc)[:500],
         )
-        raise SupabaseProfileBootstrapError("Supabase profile bootstrap failed.") from exc
+        raise SupabaseProfileBootstrapError("Supabase profile bootstrap failed.") from None
 
     def row_exists(self, table: str, user_id: str) -> bool:
         try:

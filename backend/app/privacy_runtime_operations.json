@@ -1,0 +1,2240 @@
+{
+  "007acff741e8a4188a6a30bd4ab3dd1008087ce9d98c0bc457f56302e517bf49": {
+    "method": "proof",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20,
+      20
+    ]
+  },
+  "03d98351e33b320db5c378ccc135fff979093c6b8a89b8592899b35938c467f2": {
+    "method": "proof",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "03f3ebef17e630d21af90dc4e064855062bfff7443476ca649596e01cf419224": {
+    "method": "apply",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "04c3ab51d5d36054d890c46da6b5ae14d1993865a7572bb0967335742b7b6d7d": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "0559252b8eb543e3982fa5eeaae57806f6f852bdf7789d0ca61a59a7590ab137": {
+    "method": "build",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      25,
+      25,
+      2950,
+      25
+    ]
+  },
+  "05c2e9f55409ba929fa46f2046ece35243a19439ec116018a6f4bfe7976bddb9": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "068d908abe75e517aed6cd2b58aa16eea81c39de35c608b65c5b31b660d08b00": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "0758955f14ff54680c659a8e6bd7c6babc1bda9a8e9581d3374d0b8dde82c7a6": {
+    "method": "run",
+    "source": "privacy_remaining.py",
+    "stream": false,
+    "types": []
+  },
+  "0772f0b55e84f49dff82f7d15a85c276da1fab1e433dbecc3edcc26e6d6d174e": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "08c31480d7a03f8dab7f4a2a7d09112a90897782889663d97b6281307afee9da": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "0b3e657925dc7ed03cc7309be9bf9730626e5b5ddfc85f2a64a0a2ed5fe48fae": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "0b5e1b533e06c8a998af57d3aa11cb9234d8fae2f6e5bb030402868e17789f49": {
+    "method": "publish",
+    "source": "privacy_checkpoint.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "0b8f791111ab4e0bafa063c2e5f89c3d212d2e355cc72955261318052981fa0b": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "0c25f5ec625fdf3d848515af7d07b815467693b286343a2217eddee7f603a865": {
+    "method": "lock",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      2950
+    ]
+  },
+  "0ee47701194257beac61353d75d57dc35425010d29117c343a78be9bc3e6d379": {
+    "method": "proof",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "10823bb8e96472c5da8a4efa4c3958a6def01d01c44b318ff9d34153803b3f77": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "10a1635cdabfd14e05ad2b2b40c30aa52da0b4a7677e03839d5d72b55c35eafd": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "1288f1ecc6c105435b1b7a3e4d24b6d90e9f6deaf8bdb4078fe76be2b5e7da6b": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "14429c079bdf1acf8c1cfba4a3a8559ee265bb4dfb58b5ef96d861dd904d5dab": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "14ae3c510a689589763096dc45f53a232a372f29f49dd892167d079fe0638553": {
+    "method": "publish",
+    "source": "privacy_checkpoint.py",
+    "stream": false,
+    "types": [
+      2950,
+      2950
+    ]
+  },
+  "14e29444920402861a489a25f0cfa598ac5f2bdc63cdde767caea75e32fd63dc": {
+    "method": "deliver",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "1626fceba424af66455a154280c3996865723f56e727751b9d4939d3cb79b576": {
+    "method": "call",
+    "source": "privacy_remaining.py",
+    "stream": false,
+    "types": [
+      3802
+    ]
+  },
+  "17179561f8999650f95210a09b9eefbd542999a47670f7ce4e1201cb094c976f": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "1754098dac51780e3f2f480d8851888ae7a3cdf3cfa2ed096d9cef50fd5ecf15": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "18dbdf17cbcbea8bc0e34d056c53ce34bb556e72b0a9d9322319c546aad5bed5": {
+    "method": "expire_one",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "1a13108510b517bb6249d60199d80f937771cad7fb096d94862b2cacc228c27b": {
+    "method": "download",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      25
+    ]
+  },
+  "1b627791a60d447ac53521260d63fe5308090a0fbde9924500132a232b902b5b": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "1c65122b65d87d59d9ea9503041dc2ecdcaff52118509468c9846ed768463985": {
+    "method": "live",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "1d33b44f92d0afbed88d66ce53d1a98b9f25bc357fa960cc8ab74c7e3c6a1216": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "1e02295c20882fc7903974404c66557258585de1fef5ede6010206a782d0495e": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "1f6343dafe46a2a81046322470e2829398d128e5c295809972c8a3109627d1b4": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "1f9f92efa202afcc6dae284bd1cf3f91b8afd2a4e4d70845ad1ff173425e1228": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "21117356f4c12b69fce312a7437b402fd37bd3da824b8db76d711043e3d3b214": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "2426580e0775ca86637192b5773396320e9c17e42fc0f2f02a1e8575dae18a2e": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "2555ea3b6880df4a29251202f6c95c634a374c3a637a831ca3d7cfd2b5822db8": {
+    "method": "reconcile",
+    "source": "privacy_checkpoint.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "27a3c5aad7fdff1d698ffda38fb827d43cf0d8ed4ab121881da70c9b7bc85db2": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "27a90ea7d3eea179bbe5645d06229ece472f23a0cd29b8a37d7707d035f4705c": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "27cbaad4f81df53a6d5626a287b5c2a6a8656a6732d43e595a7d184221fd1df3": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "28a1971c25256341d6efdbe9ebaf1263603b650e67f7c9a5b5a39fe87e2a1d96": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "28e47b9b823abb034a5a91cd9757c5b9eb8988dca5c0ce39bddc65a404afc5bd": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "295369b974972eeb101571ad3eea4f83ee8aa80daedc3e0eccffbfcfecebf02b": {
+    "method": "expire_one",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "2a1126a5bf7c93a6b6bd6a182dd0c43d0cd188ac06d02c225bf35a3ffdecb1cf": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "2bbc809caa44333f2b773e55421e502747b3278903c82dad93b424d5786cb036": {
+    "method": "apply",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "2c22a76512c4d3b216a357016781a59d0f9f14459a3d1c143a6b06fa280b1e41": {
+    "method": "run_one",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "2ca34eb565786ae8c6f05093973b151bff5b7e1bd4c16eacf0b8bcc6b14f8979": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "2cf1f284a5bee583bb46463df85c67a6ace4a32a9addaa994707c2c4f176490c": {
+    "method": "_request_in_transaction",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      2950
+    ]
+  },
+  "2d28aaf48a5e5f669416f1c31336a19cf25c60db68bf2261169441bb296122cb": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "2dd739b88210b4131fb21a7b769f9fa7a1a7ce102df27e9ce62934b3a09f338f": {
+    "method": "expire_one",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      25
+    ]
+  },
+  "2e44d00ef5f28a9a6b7d19e75b76bd7848b79f8428721a806efe6ce56e68a1b8": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "2ea55cb4d9a530c61bef0659ee83470413c9a2bfe90ee1126ca9fc0cafbf4322": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "2f2720ef7841d861b22dd48e7808063d75a4cfb3a4b414241d93263739eea1e4": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "2f2ff0998926d7c61caa7508cded0d2152ef8b0e4757bc8114c1c33ee659787b": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "30ff5ab3c6a09a192b358d23df5fcc92b9590ce96657f0971facb441a7a19e9c": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "31658fb61fd9cb9f4a69cd3d472961c9434211becca3e4106991a23981211a3d": {
+    "method": "finish",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "325c908fe454de752d8b4a9f922572a1e726f4356366b9338f238870aa7f5d4c": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "3273b108fef0a4870c5e0c26b0dbcd659b069bd4b8f166c935e7df373443bcc3": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "33272602478623c24698663cecffc1e758118e7415b789521c01c0dc6cd9946c": {
+    "method": "_request_in_transaction",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "33e6dbff1dde065db7bde0668e19eeceac74634ab2ea1436deed0e7b954f566b": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "34d9e831cc7e87ab602d8e707a6ec97053d7f6ada4434301f232fdc9c8e338c9": {
+    "method": "claim",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      2950,
+      2950,
+      25,
+      2950,
+      25,
+      2950,
+      25,
+      3802,
+      3802
+    ]
+  },
+  "353058ce346072e798106f9467d675bb9b1d490d4924b164fc421a656599558a": {
+    "method": "run",
+    "source": "privacy_remaining.py",
+    "stream": false,
+    "types": [
+      1184
+    ]
+  },
+  "356a69e3f7201ce942c9398fad4e9c46496f509f5223db40400180257e3fee9e": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "37cc4f62dc226b37ce23a68fb6cee520d073bd4411085673ae2564beb59b8645": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "38cb19571d1f528ef85b5c060c6422b57956d0d0c2ab18d6e16495a320686e8d": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "38f127722b8641de210cde4b3cbcd9f53896617824b666ba3ae9a82cd46609bd": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "398bdd96836b576e16f7b605e3b98c8bd81806b62b74b532996ac4538a0663ce": {
+    "method": "expire_one",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "3aecd2a599546bc9f30617407a3b440a44df3cf6693c35cc7c2e2fc9f32b73b6": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "3bc813c4ce8441a1a9ca9cb44e44169113ca8bffa46377859cee14d2c123266c": {
+    "method": "lock",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "3c3f377d0dbaadf47520594c5dab16b854e6c5b73a51a84f1b462d6cbc7655d8": {
+    "method": "proof",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "3c6077300bdbe85e1b8439ff8025b1e893a1ef84f24b6dc0a24a9af98d42e265": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "3cde25be2bd10406f0ac79b4d6d3f2c74767df537233b59cf1ec73906aa59dc0": {
+    "method": "remove_objects",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      25,
+      25
+    ]
+  },
+  "3ebb74f024fe5bbda86c98c4321a0b2d18871d3fa3b568cdd8ffc23ceba847e6": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "3f75b25a600a93f40674a35afbcbcc38641e912075166ac51109bf5269106a57": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "3fed8821b76adaf8b90e9f17a864d140b7156f9e6f53db0d8a36d201e04f01e5": {
+    "method": "remove_objects",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "40422511f43c609bc0bc9e41aa4b9c14385979a2e467f6a89efe472d8efd7c12": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "4111210f8bcc4e6385e7739d04844762ed4d81069351ed5041c6f40974f11930": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "42a2ec2db290c328090996aec298fbaf32d106d08a82f9d94534e2463d3fd5fb": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "436ab7e927baee8a8655ac50fe48785f8643a6861b31d92a8b81c4e6cf838e0a": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "44d17832c516744b6dff4b56d4e839c6a0eb1fd13922962afb1fc4e7fc875f7f": {
+    "method": "finish",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "468ad025dfb0c7238f90038c0cd0d787bffda0ccd4259474cacee0d8e7575ba4": {
+    "method": "seal_source",
+    "source": "privacy_checkpoint.py",
+    "stream": false,
+    "types": [
+      16,
+      16
+    ]
+  },
+  "469e9ea3fef037ffbf016d4182cae50b67791a7336bd6ea0a5e78db0a8a6fa67": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "469ff866443708b56d202505dd4793a87b328058d5bcdb55fc3847a4bd815590": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "46b24cee345016326a740e191322a2aeb94fdf34d372138c980968a33dabae8f": {
+    "method": "apply",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "47f761ad99f051f4cc44db796dae3c4d3a6d6de345f9edf407756cb80e2a8563": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "4802c1dc03ec2e40c4ad97e1f5014e1337339e393df6bb151eaa410e924722b1": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "490a769bb3e3bf9630fa231f3addee2bf432d928e999a525ad97cd136781ca43": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "4aa0be3f10c2a44a1819fcbef9983fb5ed2741a45caf2ecf6aeaa0b5fb90b214": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "4b375721626af32dc6d31d0f059329b529a907331958688ba99a7ba073bf9d23": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      25
+    ]
+  },
+  "4bb64910dbd6dcb29122bc26e7ae078fea1f9ea64d833daf52ab791c18271564": {
+    "method": "apply",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "4c502774edf949ff930d80b711b719e6852a76df012e9c2f0e4409b53b0b0cc0": {
+    "method": "status",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      1184
+    ]
+  },
+  "4e713c2d738586e68cf2569af1d11329623d7b975f14b6d4e5f3ac6f48e7a1c1": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "4f0136f3b0e9cc242e109f1b11ba5a44dbe7055a57a7932a4653f602c1fb0240": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "4f0da94e0506c1010d1ecedecdbb1c18cd4dd6af99cf9524dc68fefc3b847f5f": {
+    "method": "run",
+    "source": "privacy_remaining.py",
+    "stream": false,
+    "types": []
+  },
+  "4fc233b5f86a29143982693790440c5ebe3ac203760d06aedcab3283f76ef9b9": {
+    "method": "finish",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "508e08856bd8463dd4fb24397b23bd0a7b737fcd0459b6ec64d967182037c888": {
+    "method": "build",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "5107edfa52c5995cffa0664448a82203ddd28e388a248693d480f5aac6946038": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "512df856d211a4a469fcd9de18274edda3b89962237e50eddb15ec62a0745d7e": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "52623ee5b999f9f9a18ed1162ba547c395b8179173b684392392eba8fa721c30": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "543f37e2d6e087cbdcb9e08ea9d8bef2ddfe51894f4ed4979bb98562590ec3c9": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "54b48f065e6e802cd1d8743ee9226c25ef210b615fc3a332dfeb4f397651e3d0": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "55c3d7d26e737f6c8276c5c7eee72988976dbdd7d2778909a2a4aa8593ed3c69": {
+    "method": "reconcile",
+    "source": "privacy_checkpoint.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "55d7364dd8c06c25fbfa075e409e1a1366eae5a189522b468243dad203273211": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "5706f45ab99e51b6f38ed65c162a636ef11372808f3a7f9559f63dbf0b3a9885": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "57915acff669e3e3932c15123f172b9c2a75405eac7372cba66e331312b88969": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "585d82661480cee16d307439d8e815a725357abd9c822d5eb3f60e6dd76e33b1": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "58d97c0c4625c52ad96c88a005f5ad5823a7b0921d5133a9f194b0225ae23512": {
+    "method": "reconcile",
+    "source": "privacy_checkpoint.py",
+    "stream": false,
+    "types": []
+  },
+  "599df658182202cbcd171fb303be03bff3d8db473cd56bbd710ba2bdd9887a65": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "59b46bbef42efb50a41247c6243864ee29650cbd2402187e7249677f276b8563": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "59d27978237a7abb00dc17e5b63ba150d8dbf263266bfc28eed7c312a70107f2": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "5a022919a8193209064d0e663f195b9a40aa25822ce92c018a96f62de497954b": {
+    "method": "build",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20,
+      25,
+      3802
+    ]
+  },
+  "5c832c0d716e852556a4829a3bbfe97eeccc715a65adb352f6a0a59c68a389cc": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "5d32b935e41afbe5ffb1c512cd3c7a55bff4ec089312dacc144cbdc2147ad023": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "5d716fcaaf0f97cd92a93e0c1a14622086e96b9722643311d10b051a5b836b8f": {
+    "method": "lock",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "5da2cf597bad9e5b374d2212045d9cbb1bbad5823e17bd25cb5485614e50c490": {
+    "method": "primary_safe",
+    "source": "privacy_retained.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "5f87f03340f974b59c6abe66df93f8a17d63730cd39ce144738c61be81d45edc": {
+    "method": "download_presence",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      25,
+      25
+    ]
+  },
+  "61975d539b992aa591e954860896ba738873bf0f61cea397de26249a24e609bd": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "6262843c62f242a37042b874722ab7de76b665de6d07c99a6f3be208122ae285": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "626387eab1f8f15eabcb3fd2a5d713787424fa62ff7e24eeefb55a53c5b0aac2": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "62651ec8d96f2aad805389a0a402b010bdf1001fdb1d4053e72d3357e1368326": {
+    "method": "_request_in_transaction",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "62c71c90a19305ecf10c128bcd7604154fa52e94aea6d97d67dd0049dfea25f9": {
+    "method": "publish",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      23,
+      25
+    ]
+  },
+  "6321659a876b888d70900185a8273af5267671b6e7c9628e6c027e96c222255f": {
+    "method": "build",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "6344ba504feac29b33330c9a6bd7d84501ae980ef0d4a0f4a2768fee8e394af2": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "63fbf443124018db788dab5898a12936277fc5935b672d1b750fe8ca06fa7978": {
+    "method": "proof",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "64e549ed4176567d6d0d5a5bb81fe93f637f9c7ad6be6a58a7dc081c232bd0a7": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "66afaafea3d437f94b9357ae41d49e2efc11cf6421493eb1ed6dfa7fa47f1940": {
+    "method": "reconcile",
+    "source": "privacy_checkpoint.py",
+    "stream": false,
+    "types": []
+  },
+  "6855dde2a3c351702e96ae03d1a65804a174b854dadf93ec4be1dc155f4b7b95": {
+    "method": "run",
+    "source": "privacy_remaining.py",
+    "stream": false,
+    "types": [
+      2950,
+      1184,
+      2950,
+      2950,
+      16
+    ]
+  },
+  "6d205ed87075983b004fbe21be77a2a1436b2e5ab234800f36aaf29c9b60157a": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "6e16fb8d020900b3c23522420aa0d45665b99db4f3249481c4935975be1cbdc3": {
+    "method": "queue_accepted",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      2950,
+      2950
+    ]
+  },
+  "7249c41ddfc1785a83007f8382dae2a1f62fc50983a98bfb9f65e9800f4ff0ee": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "72804cdd10edb82702d6d1aaa5bfbf328fdce2e5799ead7f058478012bedfc9f": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "72de2f4743856a77eb654f70173133f789ba45039526e0017790082f9c9b8e4b": {
+    "method": "apply",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      2950,
+      25,
+      1184,
+      25,
+      23,
+      17
+    ]
+  },
+  "73061e55578810a08a89cee483b1f0e37b0b0d24b8fc95fc23d565cb1a4b6b49": {
+    "method": "claim",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "7384b3b4cb3085853d1cd64611b903bfa9d5a3e041818f3c1b975e9a197aae81": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "73df756f2b60e692a5ac5717bf50605648fb26e83ada07b48b29b9730869a2ec": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "74a9169903069351aa88868d772dc4b0a4da0370f5bb7104073e03bbda407e69": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "74be3f26b6e4114ed297aa010b0ea96110f139770572e7e1fdab51456b20fb62": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "74ec0f33e8dd1098a90f90c6e32212d7e5a56ef7565d06f0933505953d3a0538": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "76be5ef595262b26302be1b0534c57ae00efa7054be5c9b1dfc4f69a22c1deae": {
+    "method": "status",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      25,
+      20,
+      1184,
+      1184,
+      1184,
+      3802,
+      3802
+    ]
+  },
+  "7725cd106e71e1d71c9fc467a608e8ed2d8cb25342d19420dcf85033464e4eff": {
+    "method": "run",
+    "source": "privacy_remaining.py",
+    "stream": false,
+    "types": [
+      2950,
+      25,
+      25,
+      1184
+    ]
+  },
+  "77a2133865082d299ebe5ec4f2f612b9586aee3b0864ff83707815fcdf5a3b2b": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "78e881c16f8e212be48d6dabd6955735739769c5f7bfa641c4845cad609fbd65": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "796cb54b3c3e37963911a4a01290ad8c874952ed0297ba54cb04e7d8b452f532": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "7b397f08f69db7f577adbc1d62599435fb4d4e97ce9966583857260960bea124": {
+    "method": "matching_keys",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      23,
+      17
+    ]
+  },
+  "7b7e795fed505df630842b716a28957b9c3540a39170e0e275296e2d0ccb6407": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "7d3bd5a0fe0615ffca6d18e03b605e2d810099b1ad1a191aac7f3b025bf565a0": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "7e0e26ed1a25a50115d72de95f5b9619c137078c972342b06569229be24952b9": {
+    "method": "publish",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "80c41b2d1c58d7c3a201a98c830661c8b2f05dca72e8bff462ae29b3fa7e57bf": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "80c6db7743a39588aa0390e39c553195a0e1909ca72bee83cd3ac6b9fb17ef7d": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "81a4553a03e7f54c89f0d41e0dccb5931aa7156969647683e6dbf8339b7b42a4": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "8314cfeed1996e3b4d0f6e4e467728e25200eab33c4a4a6cd70c06de29ff69f3": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "85b77f06046103ffebb754401977fe14715a6c7e49d98253a46492f9c3d27c21": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "869b3413e24ea60fdb2e76d6f221a84eeb63849f1d6669bbb83d619fe93fd95c": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "87b43d4edd97c675e9a6c216e3cd1582453689dd6e159fb61d0b316c1578cd0e": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "8916d6c816a781f5dbe3217a2c8013e9fd960a2cc2187e68bb47b5f5efbe771d": {
+    "method": "run",
+    "source": "privacy_remaining.py",
+    "stream": false,
+    "types": []
+  },
+  "899cb5f71fe0546249cbd6f152ea4c7837867ab35e2c4dc672507cb4d322d016": {
+    "method": "publish",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      2950
+    ]
+  },
+  "8b3e5e354367fa5fb28addaba53fb85af6ccb94c3583967150cf938b37a42c59": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "8bba39e5aaad8cc0bdd908d05540f17adfae3c17dc7a6e8d52ff9ca5b93b25f9": {
+    "method": "proof",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "8ca1b83d38453c98fa71e83a6c0c7bf81e3841a83715196b246e95b666fd6259": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "8cf427f4dba6f5cf60fea433dfeb2ae1ccf76a2bac5be197ee9b5ea05acda9ce": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "8d81eae5566bf6dd3e79ca4f676a00a2419e8a937026071a09dc7b51f1ca12bb": {
+    "method": "live_schema",
+    "source": "privacy_schema.py",
+    "stream": false,
+    "types": [
+      19,
+      19,
+      1043,
+      19
+    ]
+  },
+  "8e7c50ce6e15a35f0134445ebefd5bd9f3ab77c0f4cb7a7d2b8e6cf00b6f0220": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "8ebeb86099328f1b760e83659fbd81d7e9c3a72abd098b2290e4e546d4ef5664": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "8eec93d011047cf147e961ac1031cb5b1540cda7171726dd7872f8182f67f411": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "907121f5e279a1560e764cac9432d8d3422f6cde8f45dcfb34c3c3d87a484393": {
+    "method": "_outbox_complete",
+    "source": "privacy_checkpoint.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "91cce0587eb2f7e5e58f120a270de844939766bef3aa307ee0d769a260498542": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "91e5af9526820fb1197e2b401958785d5249ad21729a0d99e31d35d5abe6a12a": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "92dd5249e49282cca1a97fbed88f04c77a618bf44e487196b65235d79f7386a2": {
+    "method": "expire_one",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      2950,
+      2950
+    ]
+  },
+  "932ab4e4c2117f13af8c39fc40647dbb7371442a444bab5e69750b5ca2ee87aa": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "933a607dda7b2b216ad69c1933e697d6be1e9fb2755cc946d93cd337806e6215": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "949249e14926cdc7b53e2c412f638971781e02e9895ce3a1d3a1f930de8d8f5d": {
+    "method": "expire_one",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "94ba502872f8f71a6d81995af73d53ca85a374a5b1acd5293cd9a58f6b5987d1": {
+    "method": "publish",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      25,
+      2950,
+      1184
+    ]
+  },
+  "967f5d4ab44a8d9e14f0d5087fa621a2fea1ee0dcc0e16e9effe4af4b1ea4fc1": {
+    "method": "proof",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      1184,
+      1184,
+      2950,
+      25,
+      25,
+      25,
+      1184,
+      23,
+      1184,
+      1184,
+      1184,
+      25,
+      2950
+    ]
+  },
+  "96db93374f08084f435951098a92b4607f550ec7843c00435d525540244468f8": {
+    "method": "lock",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "971aaa1ca6dc2e2d0d8b5020c58a008fa03449f6a541ac19b3400b005b90a0d1": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "971c400f8432c268a8211258b6dd135b2c477140c7c4ab6d259a691d361d41bf": {
+    "method": "_request_in_transaction",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      2950
+    ]
+  },
+  "99195c87c9addb21ada1c491c3baf0e1e8e196cd830b5f2f729c3006306b317b": {
+    "method": "apply",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "99d472769797b90db05acf744241685a4f5010e5ce25bf5a5f6bb06bd3f7a50c": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "9a78aa84be5debd7ad4df916e242c913d755f7496cb7c1d2953dfb52a4f06da4": {
+    "method": "apply",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "9af5f57542496ef940f82d6b51d6d89b1d5280b6a6f5c1e2e709c9ea120535fb": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "9b8a041443f163d2e4e64a12180b3c2647a6f3f5e176bc8e6f2f86b32bb0f24a": {
+    "method": "lock",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "9d1e483f321e9465a42ed3dd9f50bfe489f1954a76630f98107dcdbeca6ccbcc": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "9d49faf70920141ec23c00cce3b470cf7ed67af26d390e248c0df9aff6d83d19": {
+    "method": "build",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      1184
+    ]
+  },
+  "9d91df26463f3a32170d4cfe61417d2c19a0f35c3a1635fdf09f4dc51fc4c62a": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "a074063b5b2cadef391a04e108f23551876d9c39809d2b553bc19abeda225b43": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "a27b4db386792a64fdd7cf95754bf2010b2c196b2c1b14127d05491ffb2d2394": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "a2abeea116dbfcc359c9460730b8ec1df5a525005f5163476e741f38d0a4f502": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "a39bac89ca6135254150d511bbba12c2a6f1887ec51c043674da3565dd4ebd9c": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "a3a5d4cdb667ed4066e5d304ba9272e2b2712b5d5a76a6a5f600b30bd7ca005a": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "a56a46cd59f51a81d9eff50c7d0422d6eee81f55b9167ba60765c05e272e2937": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "a5f85a864aac5e1c5eb94ad975a5bc0fdf2798669bbc2708d25352cdf55d25a7": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "a6b234528773268a4513cd896cd9e26bef72fb144cf536403970d766e4649eb8": {
+    "method": "run",
+    "source": "privacy_remaining.py",
+    "stream": false,
+    "types": []
+  },
+  "a6b825354733cbfd1edbf610ff340f085ddc90601aa8faa46c79acac9eaa7256": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "a6cc84323f127289e3695bb4eca7c69664819ff10cafeeb359822b6f27f6478e": {
+    "method": "_request_in_transaction",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "a868340decaf5c9d8054e4407b554d7cf3575ec359b2b35befaca5ae496037ca": {
+    "method": "_coverage",
+    "source": "privacy_checkpoint.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "aae34787b56009c1e1586f39fc9364dfd2604f063bf4087460fcc45d97e623fc": {
+    "method": "columns",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      19
+    ]
+  },
+  "aaecf64e1f4da1e384b8853942bf9d3cdd3d360def1db983ccba5987576abfc7": {
+    "method": "apply",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "aafeffd478c47ac4065bb0190765e3156b13894fe47c7d227ce7f06b9984b932": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "ad0a33de59ee0addfdeca9f36bd82e9941b7912df59350b03a112abedae7b48c": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "ad6062d20a12592cd7bf9a33161bb3578cf725cf9d6809e86926c58336aa23c1": {
+    "method": "proof",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "aea4205a75875d731c81c014556476afbe141bb77d373234e3e98164db278f0b": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "aec494eb8f764215e1543c4505deb6ef791edaab26923fdbff40ab8ac29a7989": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "b011c484b60bd56453dbce4918b76db84436e6b5869c5199a6161c9fe8b2ffc5": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "b1066cb1a141dba1e298869bd73fa221ebaae669942f8f683352b975574af450": {
+    "method": "publish",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      2950,
+      2950,
+      2950,
+      1184,
+      25,
+      25,
+      25,
+      25,
+      23,
+      17,
+      25,
+      20,
+      1184,
+      1184,
+      1184,
+      1184,
+      1184,
+      1184,
+      1184
+    ]
+  },
+  "b1404acd714e226e0c6bba22b38466975a64c8f358660c5189cb6bfc3edc87a1": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "b1acd7b4b53968ee79920bb7d7b683c6c9e2daf0b67942f752dcc2b2378ea23a": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "b2358374d736d2fdfc02882e27d3a54eb3693704689e9318ffa3267a7078bd10": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "b294a4c2b6c659a7734d586eee73b339dd3774daa4f9b276b5fdbe7ac4800e49": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "b29aa1496c1fd9182037b8aa6a218488cf7500f5e3777b02c1492aeca91210db": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "b363ab0ff2331b63165307ed11033e85f86c4d7ea71ece97d50e7d6a15db5e3e": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "b3cfa93466c73d00c63d066ca8789bcbf53f1ac8b4589f13bae16e46bf66e4b4": {
+    "method": "primary_safe",
+    "source": "privacy_retained.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "b3ec7472a94a177d423d679b62f6192fdee8d82b5914115c218f2d5e38826312": {
+    "method": "apply",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      2950
+    ]
+  },
+  "b4509864b5d1e94257b63997c4948f5235a364585eb925d717a61e3c03115e29": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "b5d399049a167e8dd67bd0f75c7f256617a07fbc3d7df44baa41e36da39d670b": {
+    "method": "lock",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "b764a392f4825bcb30acf8ab689c4d168cbf1727654407406a8b97c76be598a2": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "b78b9230d9820048922bb9807c820da1091e627536686b66d79a5b19115aedfe": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "b79a13b6118d2294329475bea287fd1ce7a332541604873b8abe2ceec00df1d2": {
+    "method": "seal_source",
+    "source": "privacy_checkpoint.py",
+    "stream": false,
+    "types": []
+  },
+  "b7f1af7d736f2017da9dcc387a0f9e333e54762a7e193a7aa9cff31625edcd04": {
+    "method": "_request_in_transaction",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      2278
+    ]
+  },
+  "ba81554843acf639a619f56ed8ad0944735e3a589c81bd24a385948529ce40c3": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "bad8b11257de1cde905f5411b0307dacb3d6ca01c824456b2539f43ac8a8726d": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "bae60ad3253d35854b1a5fbda632e3b6a93edff130c3b38f88cb9ea92ae1517f": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "bb671b39f94e5b136574e27beb29ab429e0ce1090bc609a12bb529d2a60c4d01": {
+    "method": "proof",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "bc6e00b213f8ab45b25f8849e8033ba541318624276cc9d2214772aee99f72e7": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "bda7961dd9734307b3b44ab00c9303628eaea36e95eae6ef9185c853b3ec6e48": {
+    "method": "apply",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "bde5e58170a0163910da748dd99e8d4a55f65b9c97eb20a789cf140cc2d75786": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "be76db700394dba0ef202c57244d428358d510010c12d1cb48d28dc8efe532ed": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "bee6dd0637aafd4714d6798af1ca79ec7d4aa6473a637ba29ae26b7e16250e5d": {
+    "method": "proof",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "beeb2f99b05c828b5056100cba65da27171566db979c347bbbb073dc612835bf": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "bf372e419f476e651f8e2042f4639ea91981419e6b8cd92f9d9f8ac3789bdd79": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "c03184a539169d8abc1e1fd1022c56a49e1341fe30aadc91c4d2b4c619fddf22": {
+    "method": "columns",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      19,
+      19
+    ]
+  },
+  "c33da3a87b05f6414919e39588b497ad379d24b2a9c86ff8370d1be26469789b": {
+    "method": "run",
+    "source": "privacy_remaining.py",
+    "stream": false,
+    "types": [
+      2950,
+      25,
+      20,
+      1184
+    ]
+  },
+  "c3c3fa400f0dd408c5e3e1f27f5d56d5729534e5ac7c304575b75d7e40df3bda": {
+    "method": "expire_one",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "c492a54b9d959c87640fd0bf73cac3f522a8d4daab29de6aeec8c30119f5b48c": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "c4bbd4ec84e0d88118aede0446a89e6b3d60b6d79443db4ecfd325c9ecb1e978": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "c6148d5769195b8919eee2ea549c16d19f537c4e17e584505951b6d08025529c": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": true,
+    "types": [
+      25,
+      3802
+    ]
+  },
+  "c76d562f292361953cc600487319858a753680ac050f24d9fc459051f1953c2a": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "c76f6d99549f568098d55485103b15c7fe6c7b43704a607cc5503e35d9c62f96": {
+    "method": "publish",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      2278
+    ]
+  },
+  "c998f5c551e1d27f7451664c52bc3795e63ee5c4828608604632f35e53a1d69e": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "ca54e54b9eac88fa22fba71272318e447b624ee6f575f9a2652d14a165040d91": {
+    "method": "_request_in_transaction",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      25,
+      2950
+    ]
+  },
+  "cab98fb26e7eca89bbcdb4efe8ca105266b0fb778b4802f65f6e85daaf8bb23b": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "cae8316b1389b56cf44652af1e50ca6038a1d432f16727f643dd7f283fbbd02e": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "cb0e84d7f5623ddfa557a7ca835fb25669b84e1f28c7a62c991c6665a614fc54": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "cc71898c9d87e740592d583514f9b4d2a0466d70b6ca1702bf0ca51d07294a1e": {
+    "method": "proof",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "ccc1289b8ce8371f5ff5ab032d76dac7ae531778a2ff34aac0d1daeb8fc7f080": {
+    "method": "_coverage",
+    "source": "privacy_checkpoint.py",
+    "stream": false,
+    "types": [
+      16,
+      16,
+      25
+    ]
+  },
+  "cd9777cb8fdc87f747d038ff98c55efeb5308afa4f7a14341097138aebf92749": {
+    "method": "build",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "cecc0a4e1a489152b74c049436a5c39914f2bea777806fa67aba3e18595802fd": {
+    "method": "primary_safe",
+    "source": "privacy_retained.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "cf7b6216acb9728c58af1dd317cd0ba490a090a866fd9958da091b679871de61": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "d1901a8e942588d744ecf3fd4c87890779b22d43c01c857f5cd61cd9d8d8d55f": {
+    "method": "sessions",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      2950,
+      25
+    ]
+  },
+  "d19e911b55baec2a21193aa05e1e6d5db1b3bde74537d5e70b630bcfbc8d7a21": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "d23e5b1cb3cca8e0abddb40bb334fed2c6d30bf22b34c8e50f62a05c860c4c7c": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "d2b959af5d164818583d49ed1fc5925564bef72d0e35a9a59295f9462921bab5": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "d2d5ab8cdfbcc35ab9c73c2da27dd8b5465bdbbb2084a4d396242f31916f6abd": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "d3e0ea5ae8984c8bcafb22f345a9cbea9fd4b994987d875a81b98ad20c12fb38": {
+    "method": "proof",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "d487bcf356662a2d06abb44e162f22ccdebbd435678856a234a6d433a92a10b7": {
+    "method": "proof",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      25
+    ]
+  },
+  "d4b318313feea0bdd944ca49f88bb4cd03d49c4d09783f52535113f2e72bffa1": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "d4df04046fd5e6ed2a22963910a0e232b073b56e5c80fdcfa368ca3cdef199b1": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "d544aa8523814505de3cb73feffcd1514ba7a4cd595e25fb98a3e24bae0c2d25": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "d67663d9f5b780f68f1b7396daa8b31020c19f3c0570d85ec00535e1427c2a85": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "d69b19e70acfcb0ca54eac0a7bceb1b8e4d8d5aad1f88dc27543796745f546ec": {
+    "method": "authorize",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      2950
+    ]
+  },
+  "d7447479c29427d6fd23bb1d3e851810c752646e7132a9cfa3be286cd4c5f887": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "d7b089cb79d363002977aef162a117dbac40cdc1886253eb5e4a67bd6d7bf3b6": {
+    "method": "primary_safe",
+    "source": "privacy_retained.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "d92071cce7da5979ef9a67a8745bb127400606c5fc422b7b07b127651baa6055": {
+    "method": "proof",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "d9f979eb182b6cf90c6913af06bd8e32516c5cdb6a2ae7957abef4ccb9bf5769": {
+    "method": "apply",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "da49b9bd75b6272880d210a59cc291de281838c802a419bf1c6833b778dd8e0f": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "da8452cb3a474ee7e1589963c36b77cee555513b9124575c0029378dd5bd882d": {
+    "method": "_request_in_transaction",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "db6162203d1ec32c5fcf9e04aeb2dc5d007a1acf0c78c01e5c33528337ef21c0": {
+    "method": "expire_one",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "dd514bb2e63c2bd6ace564b4eb802292ca473d637e626fa6e70af43aa6574639": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      3802
+    ]
+  },
+  "de8ba3e832a361d7778740dd5c6215d63b15bd3c0da7441e70417370132b4070": {
+    "method": "retained_blockers",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "deb28c8eec277484c7069bb1262cd24ff5362041db9cad132179b4fe3977e4ca": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "df585f68cf9cf94adc2d7b4ce83af93a376d13c3b7c81de0938ef6664def5126": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "e018d7c4aef93d89b1eca1c198f76b45269eb28ea354400f16b6e0b6b9f2bfc8": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "e23a0a2f3aa6182750403ce9d434b38ca4346e850eac2db29144e87b145cf267": {
+    "method": "primary_safe",
+    "source": "privacy_retained.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "e3bae33f43275a21530c3a10ab1147965a5edf2db8a139a65b8bbc983ac248fe": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "e48de88a969b91173095dd69f0a1b79ae4be092f0d17f0f27936a61b393999ec": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "e4f51d1a43a55e31e1afedeb2b005f5625e91f442774b344d73511f81bfa6553": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "e67cfa1e287b3901cc08c16caba09c27bb0bf66ba649df5fb0abee0280dbe771": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "e83a3f3bc1eadc4e18c9d55cbce5786466e46f766e77de60b6c01bbbbcb22a1a": {
+    "method": "lock",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "e8f30ea1ead44a86e2171da5cee47372279f8b9a03b6fe92a2bd2bdcd04fc447": {
+    "method": "apply",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "e9a11771e2def502ce2a59468b5b4f3dc59df21e5177807587cbbcc780ebe201": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "ea6689558ef20f5954575ec68933c5561ed1e89b0ed42cfce3e66507387c745f": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "eb4188ac3dce162f47d69d74b1099500e0919a7ddd8b685ed32b5f53bc2484e2": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      23
+    ]
+  },
+  "ebbe994f53b573aefc5c8f08815229239250cc9ee0013eb5b51fed9808323b49": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "edf5a3cc568f346c3191842f0e0aa4aab31947291d33c83d126dbedead5f7dab": {
+    "method": "seal_source",
+    "source": "privacy_checkpoint.py",
+    "stream": false,
+    "types": []
+  },
+  "f1ebd616bfc9545ffc74de0bd20ed153a0219763b62e83158798899ef9e78c70": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "f2a91ab3a4dda847b64f61766bc6924346f531dafcf5390efe651dbd41378f7b": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "f51452789ff4bdb112793bfb0621abcd3caeb99c489b37621f269393e8c16068": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "f515e735293187078a5a4ce283c63593c62d1247ed6b13e7ae47141de9bdb17d": {
+    "method": "notify",
+    "source": "privacy_notifications.py",
+    "stream": false,
+    "types": [
+      2950,
+      25,
+      25,
+      20
+    ]
+  },
+  "f5786eb96ff28f6d3e71389b076939e90f9304dd054300ee9d48fc677ae560d1": {
+    "method": "remove_objects",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "f5a2051d7d445afd1897ef02ad748661749be5760816418d2f8529c79b7d0660": {
+    "method": "apply",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "f755144a0838742687d0700532d398a23154230c4d12e2b77980a719edd37f98": {
+    "method": "apply",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  },
+  "f82f806b1f8f8f42ff340af88cd23dece208675a35d4a85b0b49d81c03d8ec21": {
+    "method": "publish",
+    "source": "privacy_checkpoint.py",
+    "stream": false,
+    "types": [
+      25
+    ]
+  },
+  "f8b7eeacb9f1fd28428eae8bc066c8bf95fe9ad7f26e70cf38d324a932be1038": {
+    "method": "snapshot",
+    "source": "privacy_content.py",
+    "stream": true,
+    "types": [
+      25,
+      3802
+    ]
+  },
+  "f9f6a467e97fe2dd8e0ff0d63c6174d0480823366d0c2cf1b5957b9363b8afd9": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "fb35af68ae545c12d9708315054bc22020209586341df4f05823ed259dd5c0e9": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "fc8eb0a1e9e57df76ed4b3e2b6af5c0cde06d2781e5b25d96cf193e523e1d9b9": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "fcf75e9191aba6b7b5609f2a091e53fa357fe647187e13bff6989842a1727c65": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "fdac538272c61459a2be5169ccd9b2c57ea17ce04b80ebde48245267af965722": {
+    "method": "cleanup",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": []
+  },
+  "fe9253fcb8720bac8ad01eef6cf62dae488bc0d881a484c4de4ae87cd190be1c": {
+    "method": "lock",
+    "source": "privacy_content.py",
+    "stream": false,
+    "types": [
+      16
+    ]
+  },
+  "fecd670c76d6852829dba8da79157e3fba3df09f0a0943603da158b11b1e5df0": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": [
+      20
+    ]
+  },
+  "fed0d737980e936376950f454dd68ad48cfba52bbe307da834446a434c971743": {
+    "method": "_replay_sessions",
+    "source": "privacy_restore.py",
+    "stream": false,
+    "types": []
+  }
+}
