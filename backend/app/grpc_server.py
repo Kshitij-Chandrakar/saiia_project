@@ -15,6 +15,7 @@ import uuid
 from app.answer_generation import GenerationStopped
 
 import grpc
+from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
 from app.grpc_generated import interview_realtime_pb2 as pb
@@ -87,10 +88,11 @@ def system_capture_available():
 
 
 class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
-    def __init__(self, subscriptions=None, *, client_relay=None):
+    def __init__(self, subscriptions=None, *, client_relay=None, readiness=None):
         self._system_owner = asyncio.Lock()
         self._system_cleanup_failed = False
         self._subscriptions = subscriptions
+        self._readiness = readiness
         # Internal ASGI adapter only; standalone gRPC never sets this capability.
         self._client_relay = client_relay
 
@@ -108,7 +110,19 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                                  system_audio_available=answer and settings.USE_GRPC_AUTO_PIPELINE and system_capture_available()
                                  and not self._system_owner.locked() and not self._system_cleanup_failed)
 
+    async def privacy_ready(self):
+        if self._readiness is None:
+            return True
+        try:
+            return bool(await asyncio.to_thread(self._readiness))
+        except Exception:  # noqa: BLE001 -- loss of trusted readiness always denies the stream
+            return False
+
+
     async def StreamInterview(self, request_iterator, context):
+        if not await self.privacy_ready():
+            await context.abort(grpc.StatusCode.UNAVAILABLE, "Privacy restore evidence is unavailable.")
+            return
         if (settings.HOSTED_COMMERCIAL_MODE and self._client_relay is None) or (settings.SUBSCRIPTIONS_ENABLED == 'true' and self._subscriptions is None):
             await context.abort(grpc.StatusCode.UNAVAILABLE, "Hosted commercial gRPC is not admitted.")
             return
@@ -705,6 +719,9 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             canceled = False
             try:
                 async for request in request_iterator:
+                    if not await self.privacy_ready():
+                        await context.abort(grpc.StatusCode.UNAVAILABLE, "Privacy restore evidence is unavailable.")
+                        return
                     last_request_id = request.request_id
                     kind = request.WhichOneof("event")
                     if kind == "ping":
@@ -905,6 +922,9 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 value = await output.get()
                 if value is None:
                     break
+                if not await self.privacy_ready():
+                    await context.abort(grpc.StatusCode.UNAVAILABLE, "Privacy restore evidence is unavailable.")
+                    return
                 yield value
         finally:
             resources = start_resource_cleanup()
@@ -919,7 +939,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 raise asyncio.CancelledError()
 
 
-async def start_server(host="127.0.0.1", port=50051, max_message_mb=4, subscriptions=None):
+async def start_server(host="127.0.0.1", port=50051, max_message_mb=4, subscriptions=None, readiness=None):
     # There is no authentication/TLS integration in G1. Never bind externally.
     if host != "localhost" and not ipaddress.ip_address(host).is_loopback:
         raise ValueError("G1 gRPC is restricted to loopback hosts.")
@@ -928,7 +948,7 @@ async def start_server(host="127.0.0.1", port=50051, max_message_mb=4, subscript
     limit = max_message_mb * 1024 * 1024
     server = grpc.aio.server(options=[("grpc.max_receive_message_length", limit),
                                       ("grpc.max_send_message_length", limit)])
-    rpc.add_InterviewRealtimeServiceServicer_to_server(InterviewRealtimeService(subscriptions), server)
+    rpc.add_InterviewRealtimeServiceServicer_to_server(InterviewRealtimeService(subscriptions, readiness=readiness), server)
     address = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
     bound_port = server.add_insecure_port(address)
     if not bound_port:

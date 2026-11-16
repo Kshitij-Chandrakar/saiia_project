@@ -309,11 +309,9 @@ class SupabaseOutboundEmailEventClient:
 
     def _log_failure(self, operation: str, response: requests.Response) -> None:
         logger.error(
-            "Outbound email event failure: operation=%s status=%s error_code=%s message=%s",
+            "Outbound email event failure: operation=%s status=%s",
             operation,
             response.status_code,
-            self._safe_error_code(response),
-            self._safe_error_message(response),
         )
 
     def _raise_response(self, operation: str, response: requests.Response) -> NoReturn:

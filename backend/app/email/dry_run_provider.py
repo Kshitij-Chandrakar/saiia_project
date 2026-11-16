@@ -34,9 +34,8 @@ class DryRunEmailProvider:
         }
         self._records.append(record)
         logger.info(
-            "email_dry_run email_type=%s recipient=%s dry_run=true",
+            "email_dry_run email_type=%s dry_run=true",
             request.email_type,
-            recipient_masked,
         )
         return EmailSendResult(
             status="dry_run",

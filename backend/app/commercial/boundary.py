@@ -24,6 +24,22 @@ _STATIC_INGRESS = frozenset(
         ("GET", "/api/billing/current"),
         ("GET", "/api/billing/availability"),
         ("GET", "/api/commercial/admin/me"),
+        ("POST", "/api/privacy/deletion/begin"),
+        ("POST", "/api/privacy/deletion/otp_start"),
+        ("POST", "/api/privacy/deletion/otp_verify"),
+        ("POST", "/api/privacy/deletion/otp_ready"),
+        ("POST", "/api/privacy/deletion/challenge"),
+        ("POST", "/api/privacy/deletion/confirm"),
+        ("POST", "/api/privacy/deletion/status"),
+        ("POST", "/api/privacy/content/sessions"),
+        ("POST", "/api/privacy/content/begin"),
+        ("POST", "/api/privacy/content/download_begin"),
+        ("POST", "/api/privacy/content/otp_start"),
+        ("POST", "/api/privacy/content/otp_verify"),
+        ("POST", "/api/privacy/content/confirm"),
+        ("POST", "/api/privacy/content/status"),
+        ("POST", "/api/privacy/content/authorize"),
+        ("POST", "/api/privacy/content/download"),
     }
 )
 

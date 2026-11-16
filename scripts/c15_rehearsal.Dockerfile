@@ -1,0 +1,3 @@
+FROM python@sha256:63669fd2563fa90b0442fa7b568e66e3667755636cda086d7bcaaa895f66fe39
+RUN pip install --no-cache-dir PyJWT==2.10.1 annotated-types==0.8.0 anyio==4.15.1 certifi==2026.10.23 cffi==2.1.1 charset-normalizer==3.5.2 cryptography==49.0.0 exceptiongroup==1.3.1 fastapi==0.116.1 h11==0.16.0 httpcore==1.0.9 httpx==0.28.1 idna==3.20 packaging==26.3 psycopg==3.3.6 psycopg-binary==3.3.6 psycopg-pool==3.3.0 pycparser==3.11 pydantic==2.11.7 pydantic_core==2.33.2 python-dotenv==1.1.1 requests==2.32.4 starlette==0.47.3 typing-inspection==0.4.4 typing_extensions==4.16.0 urllib3==2.8.0
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHON_DOTENV_DISABLED=1
