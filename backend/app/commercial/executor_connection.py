@@ -21,6 +21,11 @@ EXECUTORS = frozenset(
         "privacy_restore_executor",
         "privacy_identity_executor",
         "privacy_retention_executor",
+        "admin_executor",
+        "admin_bootstrap_executor",
+        "admin_retention_executor",
+        "admin_dispatch_executor",
+        "admin_restore_executor",
     }
 )
 _KEYS = {"host", "port", "dbname", "user", "password", "sslmode", "sslrootcert"}

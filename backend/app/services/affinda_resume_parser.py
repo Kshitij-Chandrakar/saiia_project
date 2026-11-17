@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.admin_telemetry import measured_http
 from pathlib import Path
 from typing import Any
 
@@ -284,9 +285,7 @@ class AffindaResumeParser:
     ) -> Response:
         headers = {"Authorization": f"Bearer {settings.AFFINDA_API_KEY}"}
         try:
-            response = requests.request(
-                method,
-                f"{self.base_url}{path}",
+            response = measured_http(requests.request, method, f"{self.base_url}{path}", telemetry_provider="affinda", telemetry_model="resume-parser",
                 headers=headers,
                 params=params,
                 data=data,

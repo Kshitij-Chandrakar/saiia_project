@@ -313,6 +313,10 @@ class BillingService:
 
     def cancel(self, actor, operation):
         account = self.channel._actor(actor)
+        return self._cancel_account(account, operation)
+
+    def _cancel_account(self, account, operation):
+        # Staff dispatch derives this account from its fixed, audited DB command.
         op = self._operation(account, operation)
         if not op["provider_id"]:
             raise PaymentUnavailable()

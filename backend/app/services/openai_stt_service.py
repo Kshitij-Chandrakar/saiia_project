@@ -1,5 +1,6 @@
 """OpenAI Whisper transcription for manual recordings."""
 
+from app.admin_telemetry import measured_call
 import time
 from pathlib import Path
 
@@ -36,7 +37,7 @@ class OpenAISTTService:
                 api_key=settings.OPENAI_API_KEY, timeout=self.timeout, max_retries=0
             ) as client:
                 with open(audio_path, "rb") as audio_file:
-                    response = client.audio.transcriptions.create(
+                    response = measured_call(client.audio.transcriptions.create, telemetry_provider="openai",
                         model=self.model,
                         file=(Path(original_filename).name, audio_file),
                         response_format="json",

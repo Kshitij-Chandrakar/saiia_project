@@ -19,9 +19,12 @@ class MarketingEmailRequest:
     idempotency_key: str
     safe_metadata: dict[str, object]
     email_type: str = field(default="marketing_product_update", init=False)
-    subject: str = field(default="What’s new in Intervu AI", init=False)
+    subject: str = "What’s new in Intervu AI"
+    body: str = field(default="", repr=False)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.subject, str) or not 1 <= len(self.subject) <= 160 or any(c in self.subject for c in "\r\n") or not isinstance(self.body, str) or len(self.body) > 10000:
+            raise EmailValidationError("Marketing content is invalid.")
         object.__setattr__(self, "recipient_email", validate_recipient_email(self.recipient_email))
         if not RAW_TOKEN_RE.fullmatch(self.raw_token):
             raise EmailValidationError("Marketing unsubscribe token is required.")
@@ -37,6 +40,8 @@ class MarketingEmailRequest:
 
     @property
     def text_body(self) -> str:
+        if self.body:
+            return self.body + "\n\nYou received this email because you opted in to product updates.\nUnsubscribe: " + self.unsubscribe_url
         return (
             "Intervu AI product updates\n\n"
             "Visit your Intervu AI dashboard to explore the product.\n"
@@ -102,12 +107,12 @@ class MarketingEmailService:
         self._provider = provider or ResendMarketingProvider(self.settings)
 
     def send_marketing_email(self, *, user_id: str, recipient_email: str,
-                             campaign_key: str, template_key: str, idempotency_key: str):
+                             campaign_key: str, template_key: str, idempotency_key: str, subject=None, body=""):
         try:
             user_id = str(UUID(user_id))
         except (ValueError, TypeError, AttributeError):
             raise EmailValidationError("Marketing user context is invalid.") from None
-        if template_key != "product_update" or not re.fullmatch(r"[a-z0-9_-]{1,64}", campaign_key):
+        if template_key not in {"product_update", "admin_campaign_v1"} or not re.fullmatch(r"[a-z0-9_-]{1,64}", campaign_key):
             raise EmailValidationError("Marketing campaign or template is invalid.")
         recipient_email = validate_recipient_email(recipient_email)
         claim = self._events.reserve(
@@ -129,6 +134,7 @@ class MarketingEmailService:
             request = MarketingEmailRequest(
                 recipient_email=recipient_email, raw_token=token.raw_token,
                 idempotency_key=f"marketing:{event.id}", safe_metadata=event.metadata_json,
+                subject=subject or "What’s new in Intervu AI", body=body,
             )
             # Re-read after token persistence; an intervening opt-out must stop dispatch.
             if not self._unsubscribe.is_marketing_allowed(user_id=user_id):

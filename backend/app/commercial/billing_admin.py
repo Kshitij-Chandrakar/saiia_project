@@ -102,7 +102,7 @@ class BillingAdmin:
 
 @router.api_route("/api/admin/billing/{account}", methods=["GET", "POST"])
 async def billing_admin(request: Request, account: str):
-    actor = verified_actor(request)
+    actor = await run_in_threadpool(verified_actor, request)
     service = getattr(request.app.state, "billing_admin", None)
     if service is None:
         raise HTTPException(503)
