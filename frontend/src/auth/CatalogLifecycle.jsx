@@ -35,6 +35,9 @@ export function Terms({
 }
 export default function CatalogLifecycle({
   saved,
+  hasDraft = true,
+  previewControl,
+  previewSummary,
   dirty,
   ready,
   busy,
@@ -331,8 +334,8 @@ export default function CatalogLifecycle({
   const reviewFeedback = <>
 {review && <p role="status">Review {review.state === 'current' ? `recorded for revision ${review.receipt.basis.revision}` : `is ${review.state.replaceAll('_', ' ')}`}. Changes require fresh review.</p>}
     {notice && <div ref={status} tabIndex={-1} className={`ca-feedback ca-${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'}><p>{notice.text}</p></div>}
-    {(pending || result) && <div className="ca-operation"><Field path="operation-id" label="Operation ID" value={pending?.key || result.receipt.request_id} readOnly onChange={() => {}} /><p>Keep this ID before leaving. No operation details are stored in this browser. After reload, paste the ID below to check its recorded result. Checking never repeats a write.</p>
-      {pending && <div className="ca-actions"><button type="button" disabled={busy} onClick={recover}>Check pending operation</button><button type="button" disabled={busy} onClick={() => send(pending)}>Retry same action</button></div>}</div>}
+    {(pending || result) && <details className="ca-operation" open={pending ? true : undefined}><summary>Troubleshooting this operation</summary><Field path="operation-id" label="Operation ID" value={pending?.key || result.receipt.request_id} readOnly onChange={() => {}} /><p>Keep this ID before leaving. No operation details are stored in this browser. After reload, paste the ID below to check its recorded result. Checking never repeats a write.</p>
+      {pending && <div className="ca-actions"><button type="button" disabled={busy} onClick={recover}>Check pending operation</button><button type="button" disabled={busy} onClick={() => send(pending)}>Retry same action</button></div>}</details>}
   </>;
   const publicationAction = <>
 {eligible && <button className="wd-primary" type="button" disabled={disabled || !reason.trim()} onClick={() => {
@@ -345,21 +348,22 @@ export default function CatalogLifecycle({
       }}>{bundle.basis.intent.action === 'replace' ? 'Replace reviewed offer' : 'Publish reviewed offer'}</button>}
   </>;
   return <section className="ca-lifecycle" aria-label="Offer lifecycle">
-    <PublishedOffers perform={perform} busy={busy} disabled={blocked || Boolean(pending)} refreshKey={result?.current_catalog_revision} onOpen={openListedOffer}/>
-    <div className="ca-lifecycle-title"><h2 tabIndex={-1} ref={heading}>Review and publication</h2><span className="ca-tag">Private catalog</span></div>
-    <p>Publication records versioned catalog terms and requires server approval. If approval is unavailable, your draft stays private. Public pricing, checkout and customer access remain unavailable.</p>
+    <section className="ca-review-stage" hidden={!hasDraft || !saved}><div className="ca-lifecycle-title"><h2 id="ca-review-stage" tabIndex={-1} ref={heading}>Review and publish</h2><span className="ca-tag">Private catalog</span></div>
+    <p>{dirty ? 'This draft has unsaved changes. Save and preview it again before publication review.' : 'Preview the saved plan, resolve any blockers, then review and confirm publication separately.'}</p>{previewControl}{previewSummary}<details className="ca-policy-note"><summary>Publication requirements</summary><p>Free terms are approved for draft configuration. Plus/Pro prices and allocations are approved. Tax, trials, discounts, review validity and subscriber policies still require explicit decisions before real publication. Publication still requires authoritative policy approval.</p><p>Publication records versioned catalog terms. It does not enable checkout, charge customers or change existing subscriber terms automatically.</p></details>
     <fieldset className="ca-editable" disabled={disabled || locked}>
       <div className="ca-grid"><Field path="lifecycle-action" label="Publication action" value={action} options={[["publish", "Publish a first offer"], ["replace", "Replace current offer"]]} onChange={v => change(setAction, v)} />
         <Field path="lifecycle-from" label="Offer starts at (IST)" type="datetime-local" step="1" value={from} onChange={v => change(setFrom, v)} help="India Standard Time (Asia/Kolkata)." />
         <Field path="lifecycle-until" label="Offer ends at (IST, optional)" type="datetime-local" step="1" value={until} onChange={v => change(setUntil, v)} help="Leave blank unless this offer should expire." /></div>
     </fieldset>
     <Field path="lifecycle-reason" label="Lifecycle reason" value={reason} onChange={v => change(setReason, v)} maxLength={2000} disabled={disabled} help="Required for an intentional review, publication or retirement." />
-    <div className="ca-actions"><button type="button" disabled={disabled || locked || !saved || dirty || !ready} onClick={prepareReview}>Review for publication</button>
+    <div className="ca-actions"><button className={ready ? 'wd-primary' : undefined} type="button" disabled={disabled || locked || !saved || dirty || !ready} onClick={prepareReview}>Review for publication</button>
       {!reviewOpen && publicationAction}</div>
     {(bundle || review || pending || notice) && <button type="button" style={reviewOpen ? {display:'none'} : undefined} onClick={() => setReviewOpen(true)}>Open subscription review</button>}
     {!ready && !locked && <p className="ca-muted">Save the draft and resolve all saved preview requirements before requesting review.</p>}
+    </section>
     {!reviewOpen && reviewFeedback}
-    <div className="ca-grid ca-lifecycle-reads"><form onSubmit={e => {
+    <PublishedOffers perform={perform} busy={busy} disabled={blocked || Boolean(pending)} refreshKey={result?.current_catalog_revision} onOpen={openListedOffer}/>
+    <details className="ca-troubleshooting" open={pending ? true : undefined}><summary>Troubleshooting</summary><p>Open a known plan version or check a previous operation. Checking a result never repeats a write.</p><div className="ca-grid ca-lifecycle-reads"><form onSubmit={e => {
         e.preventDefault();
         if (pending || blocked) return;
         const id = offerId.trim().toLowerCase();
@@ -383,28 +387,29 @@ export default function CatalogLifecycle({
       <form onSubmit={e => {
         e.preventDefault();
         if (!blocked) recover();
-      }}><Field path="recovery-id" label="Check an operation by ID" value={recoveryId} onChange={setRecoveryId} disabled={disabled} /><button type="submit" disabled={busy || blocked || Boolean(pending)}>Check operation</button></form></div>
+      }}><Field path="recovery-id" label="Check an operation by ID" value={recoveryId} onChange={setRecoveryId} disabled={disabled} /><button type="submit" disabled={busy || blocked || Boolean(pending)}>Check operation</button></form></div></details>
     {offer && <section className="ca-terminal" aria-label="Offer details"><h3>{offer.current.state === 'retired' ? 'Retired offer' : offer.current.state === 'visible' ? 'Published offer' : 'Hidden archive'} · version {offer.snapshot.version}</h3><p>Offer <code>{offer.snapshot.offer_version_id}</code>Availability revision {offer.current.revision}. {offer.current.state === 'retired' ? 'Removed from new offers. Historical terms remain; this does not cancel subscriptions or payments.' : 'Stored publication does not enable checkout or grant paid access.'}</p><Terms document={offer.snapshot} />
       <p>Offer starts {formatIst(offer.current.valid_from)}{offer.current.valid_until ? ` and ends ${formatIst(offer.current.valid_until)}` : '; no end scheduled'}.</p>
+      {(!saved || !hasDraft) && <Field path="offer-stop-reason" label="Lifecycle reason" value={reason} onChange={v => change(setReason, v)} maxLength={2000} disabled={disabled} help="Explain why this plan version should stop being offered." />}
       <div className="ca-actions">{offer.current.state !== 'retired' && <button type="button" disabled={disabled || !reason.trim()} onClick={() => {
           trigger.current = document.activeElement;
           setConfirmation({
             kind: 'retire',
             offer
           });
-        }}>Retire this offer</button>}
-        {offer.source && <button type="button" disabled={disabled} onClick={() => onNewVersion(offer.source)}>Create a new draft version</button>}</div></section>}
+        }}>Stop offering this version</button>}
+        {offer.source && <button type="button" disabled={disabled} onClick={() => onNewVersion(offer.source)}>Create updated version</button>}</div></section>}
     <SubscriptionReviewModal busy={busy} open={reviewOpen || Boolean(confirmation && confirmation.kind !== 'review')}
       onClose={() => { setReviewOpen(false); if (confirmation?.kind !== 'review') setConfirmation(null); }}
-      title={!confirmation || confirmation.kind === 'review' ? 'Subscription review' : confirmation.kind === 'retire' ? 'Retire this offer?' : confirmation.kind === 'replace' ? 'Replace this offer?' : 'Publish this offer?'}
+      title={!confirmation || confirmation.kind === 'review' ? 'Subscription review' : confirmation.kind === 'retire' ? 'Stop offering this version?' : confirmation.kind === 'replace' ? 'Replace this offer?' : 'Publish this offer?'}
       identity={`${saved?.terms.name || offer?.snapshot.terms.name || 'Plan'} / saved revision ${saved?.revision || 'not loaded'}`}>
       {reviewOpen && <>{busy && <p role="status">Loading subscription review...</p>}{reviewFeedback}</>}
       {reviewOpen && !confirmation && bundle && <><Terms document={bundle.document}/>{publicationAction}</>}
-      {confirmation && <><h3>{confirmation.kind === 'review' ? 'Confirm reviewed terms' : confirmation.kind === 'retire' ? 'Retire this offer?' : confirmation.kind === 'replace' ? 'Replace this offer?' : 'Publish this offer?'}</h3>
-        <p id="ca-lifecycle-dialog-help">{confirmation.kind === 'review' ? `Reviewing saved draft revision ${confirmation.bundle.basis.revision} only. Publication needs a separate confirmation.` : confirmation.kind === 'retire' ? 'Remove this exact version from new offers. Historical subscriber terms remain. No payment or subscription cancellation.' : 'Create immutable versioned terms in the private catalog. Customer checkout and access remain unavailable.'}</p>
+      {confirmation && <><h3>{confirmation.kind === 'review' ? 'Confirm reviewed terms' : confirmation.kind === 'retire' ? 'Stop offering this version?' : confirmation.kind === 'replace' ? 'Replace this offer?' : 'Publish this offer?'}</h3>
+        <p id="ca-lifecycle-dialog-help">{confirmation.kind === 'review' ? `Reviewing saved draft revision ${confirmation.bundle.basis.revision} only. Publication needs a separate confirmation.` : confirmation.kind === 'retire' ? 'Stops offering this version to new customers. Existing subscriber terms are kept. This does not cancel subscriptions or payments.' : 'Create immutable versioned terms in the private catalog. Customer checkout and access remain unavailable.'}</p>
         {confirmation.bundle?.previous && <section aria-label="Existing offer"><h3>Existing offer · version {confirmation.bundle.previous.snapshot.version}</h3><code>{confirmation.bundle.previous.snapshot.offer_version_id}</code><Terms document={confirmation.bundle.previous.snapshot} /></section>}
         <section aria-label={confirmation.kind === 'retire' ? 'Retirement target' : 'Proposed terms'}>{confirmation.kind === 'retire' ? <><h3>Version {confirmation.offer.snapshot.version}</h3><code>{confirmation.offer.snapshot.offer_version_id}</code><Terms document={confirmation.offer.snapshot} /></> : <><p>Saved revision {confirmation.bundle.basis.revision}. Offer starts {formatIst(confirmation.bundle.basis.intent.valid_from)}{confirmation.bundle.basis.intent.valid_until ? ` and ends ${formatIst(confirmation.bundle.basis.intent.valid_until)}` : '; no end scheduled'}.</p><Terms document={confirmation.bundle.document} /></>}</section>
-        <div className="ca-actions"><button type="button" data-cancel onClick={() => {setConfirmation(null);setReviewOpen(false);}}>Cancel</button><button className="wd-primary" type="button" disabled={busy} onClick={confirmAction}>{confirmation.kind === 'review' ? 'Confirm review' : confirmation.kind === 'retire' ? 'Confirm retirement' : confirmation.kind === 'replace' ? 'Confirm replacement' : 'Confirm publication'}</button></div></>}
+        <div className="ca-actions"><button className="ac-dismiss" type="button" data-cancel onClick={() => {setConfirmation(null);setReviewOpen(false);}}>Cancel</button><button className="wd-primary" type="button" disabled={busy} onClick={confirmAction}>{confirmation.kind === 'review' ? 'Confirm review' : confirmation.kind === 'retire' ? 'Confirm stop offering' : confirmation.kind === 'replace' ? 'Confirm replacement' : 'Confirm publication'}</button></div></>}
     </SubscriptionReviewModal>
   </section>;
 }

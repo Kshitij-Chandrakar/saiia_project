@@ -1,4 +1,6 @@
+import AdminSuccessor from './auth/AdminSuccessor'
 import SubscriptionAdmin from './auth/SubscriptionAdmin'
+import AdminConsole from './auth/AdminConsole'
 import { PrivacyStatus } from './auth/WebsiteSettings'
 import { completedDiagramSource } from './diagram_source_revision.js'
 import { mergeOverlaySnapshot } from './overlay_snapshot.js'
@@ -7040,6 +7042,8 @@ export default function App() {
       <Route path="/auth/sessions" element={<AuthDashboardPage backendUrl={BACKEND_URL} page="sessions" />} />
       <Route path="/auth/resume" element={<AuthResumePage backendUrl={BACKEND_URL} />} />
       {!window.electronAPI && <Route path="/auth/admin/subscriptions" element={<SubscriptionAdmin backendUrl={BACKEND_URL} />} />}
+      {!window.electronAPI && <Route path="/auth/admin/successor" element={<AdminSuccessor backendUrl={BACKEND_URL} />} />}
+      {!window.electronAPI && <Route path="/auth/admin" element={<AdminConsole backendUrl={BACKEND_URL} />} />}
       <Route path="/auth/logout" element={<AuthLogoutPage />} />
       <Route path="/" element={<LandingPage />} />
       <Route path="/landing" element={<LandingPage />} />

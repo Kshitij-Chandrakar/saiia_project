@@ -193,4 +193,9 @@ export function serialize(form, baseRevision, reason) {
   return d;
 }
 export const sectionFor = path => path.includes('allowances') || path.includes('presentation') || path.includes('unmetered_features') || path.includes('pricing_mode') || path.includes('model_selection') ? 'Usage & presentation' : path.includes('prices') ? 'Prices' : path.includes('limits') || path.includes('entitlements') ? 'Features & limits' : path.includes('discounts') ? 'Discounts' : 'Identity';
-export const issueLabel = issue => `${issue.path.join(' / ')}: ${issue.code === 'limit_unresolved' ? 'Add an allowance for this included feature.' : issue.code === 'policy_unresolved' ? 'A value or policy is still required.' : 'Review this field.'}`;
+const issueFields = { subscription_policy_ref: 'Subscription policy', migration_policy_ref: 'Existing subscriber update policy', tax_policy_ref: 'Tax policy', rounding_policy_ref: 'Rounding policy', name: 'Plan name', description: 'Plan description', currency: 'Currency', amount_minor: 'Price amount', billing: 'Billing frequency', prices: 'Pricing', entitlements: 'Included features', limits: 'Usage limits', allowances: 'Usage allowances', discounts: 'Discounts', presentation: 'Customer-facing plan details', pricing_mode: 'Pricing setup', model_selection: 'Model availability' };
+export function issueLabel(issue) {
+  const field = (Array.isArray(issue.path) ? [...issue.path] : []).reverse().find(key => Object.hasOwn(issueFields, key));
+  const message = issue.code === 'limit_unresolved' ? 'Set a usage allowance for this included feature.' : issue.code === 'policy_unresolved' ? 'An approved policy or required value is still needed.' : issue.code === 'required' ? 'Complete this field.' : 'Review this setting before publishing.';
+  return `${issueFields[field] || 'Plan setting'}: ${message}`;
+}

@@ -1,4 +1,12 @@
+import { checkDialogScroll } from '../c15-admin/dialogScroll.js';
 import { test, expect } from '@playwright/test';
+import { resumeDraft, troubleshooting } from './fixtures/workspace.js';
+async function leaveForCustomers(page) {
+  const menu = page.getByRole('button', { name: 'Open navigation', exact: true });
+  if (await menu.isVisible()) await menu.click();
+  await page.getByRole('navigation', { name: 'Administration', exact: true }).getByRole('button', { name: 'Customers', exact: true }).click();
+}
+
 const U = '10000000-0000-4000-8000-000000000001',
   D = '00000000-0000-4000-8000-000000000001',
   P = '00000000-0000-4000-8000-000000000002',
@@ -59,6 +67,7 @@ class Workspace {
     this.page = page;
   }
   async open() {
+    await resumeDraft(this.page);
     await this.page.getByLabel('Open a draft by ID', {
       exact: true
     }).fill(D);
@@ -114,7 +123,7 @@ class Workspace {
     }).click();
   }
 }
-async function setup(page) {
+async function setup(page, { openDraft = true } = {}) {
   const s = {
     draft: draft(),
     basis: null,
@@ -300,7 +309,7 @@ async function setup(page) {
   });
   await page.goto('/auth/admin/subscriptions');
   const ui = new Workspace(page);
-  await ui.open();
+  if (openDraft) await ui.open();
   return {
     s,
     ui
@@ -338,7 +347,7 @@ test('review, explicit confirmation, publish, terminal view and retire', async (
   expect(s.writes).toHaveLength(1);
   await ui.publish();
   await expect(page.getByRole('heading', {
-    name: 'Published offer · version 1',
+    name: 'Published offer \u00b7 version 1',
     exact: true
   })).toBeVisible();
   await expect(page.getByLabel('Display name', {
@@ -349,21 +358,21 @@ test('review, explicit confirmation, publish, terminal view and retire', async (
     fullPage: true
   });
   await page.getByRole('button', {
-    name: 'Retire this offer',
+    name: 'Stop offering this version',
     exact: true
   }).click();
   const retiring = page.getByRole('dialog', {
-    name: 'Retire this offer?',
+    name: 'Stop offering this version?',
     exact: true
   });
   await expect(retiring).toContainText(O);
-  await expect(retiring).toContainText('No payment or subscription cancellation');
+  await expect(retiring).toContainText('does not cancel subscriptions or payments');
   await retiring.getByRole('button', {
-    name: 'Confirm retirement',
+    name: 'Confirm stop offering',
     exact: true
   }).click();
   await expect(page.getByRole('heading', {
-    name: 'Retired offer · version 1',
+    name: 'Retired offer \u00b7 version 1',
     exact: true
   })).toBeVisible();
   expect(s.writes).toHaveLength(3);
@@ -386,10 +395,7 @@ test('uncertain write, Stay, same-key retry, recovery after reload never resubmi
     exact: true
   }).inputValue();
   const writes = s.writes.length;
-  await page.getByRole('link', {
-    name: 'Resumes',
-    exact: true
-  }).click();
+  await leaveForCustomers(page);
   const dialog = page.getByRole('dialog', {
     name: 'Leave this draft?',
     exact: true
@@ -406,17 +412,18 @@ test('uncertain write, Stay, same-key retry, recovery after reload never resubmi
     exact: true
   }).click();
   await expect(page.getByRole('heading', {
-    name: 'Published offer · version 1',
+    name: 'Published offer \u00b7 version 1',
     exact: true
   })).toBeVisible();
   expect(s.writes.length).toBe(writes);
   expect(s.keys.at(-1)).toBe(id);
   await page.reload();
   await expect(page.getByRole('heading', {
-    name: 'Review and publication',
+    name: 'Published plans',
     exact: true
   })).toBeVisible();
   expect(s.writes.length).toBe(writes);
+  await troubleshooting(page);
   await page.getByLabel('Check an operation by ID', {
     exact: true
   }).fill(id);
@@ -425,7 +432,7 @@ test('uncertain write, Stay, same-key retry, recovery after reload never resubmi
     exact: true
   }).click();
   await expect(page.getByRole('heading', {
-    name: 'Published offer · version 1',
+    name: 'Published offer \u00b7 version 1',
     exact: true
   })).toBeVisible();
   expect(s.writes.length).toBe(writes);
@@ -440,7 +447,8 @@ test('access outage warning protects an unresolved lifecycle operation ID', asyn
   s.accessUnavailable = true;
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
-  await page.getByRole('link', {name:'Dashboard', exact:true}).click();
+  await page.getByRole('button', {name:'Account options', exact:true}).click();
+  await page.getByRole('link', {name:'Home', exact:true}).click();
   const warning = page.getByRole('alert').filter({hasText:'Stay until access returns to keep the operation ID needed to check its outcome or retry safely.'});
   await expect(warning).toBeVisible();
   await expect(warning).not.toContainText(operationId);
@@ -545,7 +553,7 @@ for (const event of ['logout', 'switch', 'revocation']) test(`pending lifecycle 
   })).toBeVisible();
   release();
   await expect(page.getByRole('heading', {
-    name: 'Published offer · version 1',
+    name: 'Published offer \u00b7 version 1',
     exact: true
   })).toHaveCount(0);
   await expect(page.getByLabel('Operation ID', {
@@ -606,7 +614,7 @@ test('policy unavailable during review creates no receipt; operation not found s
     exact: true
   }).click();
   await expect(page.getByRole('heading', {
-    name: 'Published offer · version 1',
+    name: 'Published offer \u00b7 version 1',
     exact: true
   })).toBeVisible();
   expect(s.writes).toHaveLength(2);
@@ -704,18 +712,18 @@ test('published offers list opens current terms and creates a draft version with
  s.catalog={catalog_revision:'2',offers:[{name:'Synthetic plan',offer_version_id:O,version:'1'}]};
  const source={...draft(),state:'published'};
  s.offer={snapshot:{contract_version:'catalog.v1',registry_version:'catalog.features.v1',plan:source.plan,offer_version_id:O,version:'1',terms:source.terms},current:{offer_version_id:O,revision:'2',state:'visible',valid_from:'2026-01-01T00:00:00Z',valid_until:null,retired_at:null},publication:{fingerprint:'b'.repeat(64)},source,catalog_revision:'2',publication_enabled:false,purchasable:false};
- const list=page.getByRole('region',{name:'Published offers',exact:true});
- await list.getByRole('button',{name:'Refresh offers',exact:true}).click();
+ const list=page.getByRole('region',{name:'Published plans',exact:true});
+ await list.getByRole('button',{name:'Refresh plans',exact:true}).click();
  await expect(list).toContainText('Version 1');await expect(list).toContainText(O);
- await list.getByRole('button',{name:'Open Synthetic plan offer',exact:true}).click();
+ await list.getByRole('button',{name:'View Synthetic plan plan',exact:true}).click();
  await expect(page.getByRole('heading',{name:/Published offer.*version 1/})).toBeVisible();
- await list.getByRole('button',{name:'Create draft version for Synthetic plan',exact:true}).click();
+ await list.getByRole('button',{name:'Create updated version for Synthetic plan',exact:true}).click();
  await expect(page.getByLabel('Display name',{exact:true})).toHaveValue('Synthetic plan');
  await expect(page.getByLabel('Plan code',{exact:true})).toHaveValue('synthetic');
  await expect(page.getByText('Not saved yet',{exact:false})).toBeVisible();
  expect(s.writes).toHaveLength(0);
  await page.getByLabel('Display name',{exact:true}).fill('Keep local edits');
- await list.getByRole('button',{name:'Create draft version for Synthetic plan',exact:true}).click();
+ await list.getByRole('button',{name:'Create updated version for Synthetic plan',exact:true}).click();
  await expect(page.getByText('Discard unsaved local edits and continue?',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Keep editing',exact:true}).click();
  await expect(page.getByLabel('Display name',{exact:true})).toHaveValue('Keep local edits');
@@ -723,14 +731,66 @@ test('published offers list opens current terms and creates a draft version with
 });
 
 test('published offers distinguishes empty and unavailable and refresh clears stale entries',async({page})=>{
- const {s}=await setup(page);const list=page.getByRole('region',{name:'Published offers',exact:true});
- await expect(list).toContainText('No currently visible published offers');
+ const {s}=await setup(page);const list=page.getByRole('region',{name:'Published plans',exact:true});
+ await expect(list).toContainText('No currently visible published plans');
  s.catalog={catalog_revision:'2',offers:[{name:'Synthetic plan',offer_version_id:O,version:'1'}]};
- await list.getByRole('button',{name:'Refresh offers',exact:true}).click();
- await expect(list.getByRole('button',{name:'Open Synthetic plan offer',exact:true})).toBeVisible();
- s.catalogUnavailable=true;await list.getByRole('button',{name:'Refresh offers',exact:true}).click();
- await expect(list).toContainText('Published offers are unavailable');
- await expect(list.getByRole('button',{name:'Open Synthetic plan offer',exact:true})).toHaveCount(0);
- s.catalogUnavailable=false;s.catalog={catalog_revision:'3',offers:[]};await list.getByRole('button',{name:'Refresh offers',exact:true}).click();
- await expect(list).toContainText('No currently visible published offers');expect(s.writes).toHaveLength(0);
+ await list.getByRole('button',{name:'Refresh plans',exact:true}).click();
+ await expect(list.getByRole('button',{name:'View Synthetic plan plan',exact:true})).toBeVisible();
+ s.catalogUnavailable=true;await list.getByRole('button',{name:'Refresh plans',exact:true}).click();
+ await expect(list).toContainText('Published plans are unavailable');
+ await expect(list.getByRole('button',{name:'View Synthetic plan plan',exact:true})).toHaveCount(0);
+ s.catalogUnavailable=false;s.catalog={catalog_revision:'3',offers:[]};await list.getByRole('button',{name:'Refresh plans',exact:true}).click();
+ await expect(list).toContainText('No currently visible published plans');expect(s.writes).toHaveLength(0);
+});
+
+test('a published version can be stopped without starting or resuming a draft',async({page})=>{
+ const {s}=await setup(page,{openDraft:false});
+ const source={...draft(),state:'published'};
+ s.catalog={catalog_revision:'2',offers:[{name:'Synthetic plan',offer_version_id:O,version:'1'}]};
+ s.offer={snapshot:{contract_version:'catalog.v1',registry_version:'catalog.features.v1',plan:source.plan,offer_version_id:O,version:'1',terms:source.terms},current:{offer_version_id:O,revision:'2',state:'visible',valid_from:'2026-01-01T00:00:00Z',valid_until:null,retired_at:null},publication:{fingerprint:'b'.repeat(64)},source,catalog_revision:'2',publication_enabled:false,purchasable:false};
+ const list=page.getByRole('region',{name:'Published plans',exact:true});
+ await list.getByRole('button',{name:'Refresh plans',exact:true}).click();
+ await list.getByRole('button',{name:'View Synthetic plan plan',exact:true}).click();
+ await expect(page.getByLabel('Display name',{exact:true})).toHaveCount(0);
+ await page.getByRole('textbox',{name:'Lifecycle reason',exact:true}).fill('Synthetic stop request');
+ await page.getByRole('button',{name:'Stop offering this version',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'Stop offering this version?',exact:true});
+ await expect(dialog).toContainText('Existing subscriber terms are kept');
+ expect(s.writes).toHaveLength(0);
+ await dialog.getByRole('button',{name:'Confirm stop offering',exact:true}).click();
+ await expect(page.getByRole('heading',{name:/Retired offer.*version 1/})).toBeVisible();
+ expect(s.writes).toHaveLength(1);
+});
+
+
+test('commercial review and publication dialogs contain scrolling on a short viewport', async ({page}, info) => {
+  await page.setViewportSize({width:390,height:560});
+  const {s,ui}=await setup(page);
+  await ui.prepare();
+  const dialog=page.getByRole('dialog',{name:'Subscription review',exact:true});
+  await checkDialogScroll(page,dialog,{port:dialog.locator('.ca-subscription-modal-body'),name:'publication-review',requireScroll:true});
+  await dialog.getByRole('button',{name:'Confirm review',exact:true}).click();
+  await dialog.getByRole('button',{name:'Close subscription review',exact:true}).click();
+  await page.getByRole('button',{name:'Publish reviewed offer',exact:true}).click();
+  const confirmation=page.getByRole('dialog',{name:'Publish this offer?',exact:true});
+  await checkDialogScroll(page,confirmation,{port:confirmation.locator('.ca-subscription-modal-body'),name:'publication-confirmation',requireScroll:true});
+  await confirmation.getByRole('button',{name:'Confirm publication',exact:true}).focus();
+  await expect(confirmation.getByRole('button',{name:'Confirm publication',exact:true})).toBeInViewport();
+  await page.screenshot({path:info.outputPath('publication-bottom.png')});
+  await page.keyboard.press('Escape');
+  await expect(confirmation).not.toBeVisible();
+  expect(s.writes).toHaveLength(1);
+  await expect(page.locator('#admin-content')).toHaveCSS('overflow-y','auto');
+});
+
+
+test('commercial Cancel and close controls use shared red dismissal styling', async ({page}) => {
+ const {s,ui}=await setup(page);await ui.prepare();
+ const dialog=page.getByRole('dialog',{name:'Subscription review',exact:true});
+ for(const button of [dialog.getByRole('button',{name:'Cancel',exact:true}),dialog.getByRole('button',{name:'Close subscription review',exact:true})]) {
+  await button.hover();await expect(button).toHaveCSS('background-color','rgb(180, 35, 24)');
+  await button.focus();await expect(button).toHaveCSS('color','rgb(255, 255, 255)');
+ }
+ await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
+ await expect(dialog).not.toBeVisible();expect(s.writes).toHaveLength(0);
 });
