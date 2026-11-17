@@ -11,7 +11,7 @@ declare cutoff timestamptz; begin
  end if;
  -- The first observed population is a baseline, not manufactured historical registrations.
  insert into administration.population(subject,joined_at,baseline)
- select u.id,case when u.created_at<cutoff or u.created_at<clock_timestamp()-interval '90 days' then cutoff else u.email_confirmed_at end,u.created_at<cutoff or u.created_at<clock_timestamp()-interval '90 days'
+ select u.id,case when u.email_confirmed_at<cutoff or u.email_confirmed_at<clock_timestamp()-interval '90 days' then cutoff else u.email_confirmed_at end,u.email_confirmed_at<cutoff or u.email_confirmed_at<clock_timestamp()-interval '90 days'
  from auth.users u where u.email_confirmed_at is not null and u.deleted_at is null
  and not exists(select 1 from administration.memberships where subject=u.id)
  and not exists(select 1 from public.subscription_deletion_jobs where account_id=u.id)

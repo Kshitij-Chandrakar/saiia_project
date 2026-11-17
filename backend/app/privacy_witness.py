@@ -19,6 +19,13 @@ import requests
 from app.privacy_checkpoint import LocalCheckpointStore
 from app.privacy_content import ContentBlocked
 
+ADMIN_FIELDS = {
+    "journal_id": None,
+    "state_hash": None,
+    "database_revision": 0,
+    "source_sealed": False,
+}
+
 
 class HTTPCheckpointStore:
     def __init__(
@@ -112,6 +119,18 @@ class HTTPCheckpointStore:
         )
         slot["record"] = value
 
+    def upgrade_snapshot_schema(self):
+        """Explicit operator-only compatibility step for an older authority."""
+        with self.locked() as slot:
+            current = self.read(slot)
+            missing = ADMIN_FIELDS.keys() - current.keys()
+            if missing:
+                updated = dict(
+                    current, **{name: ADMIN_FIELDS[name] for name in missing}
+                )
+                updated["sequence"] += 1
+                self.write(slot, updated)
+
 
 def local_authority(
     store,
@@ -166,9 +185,23 @@ def local_authority(
                             raise ContentBlocked("witness_invalid")
                         document = json.loads(self.rfile.read(size))
                         record = document["record"]
+                        missing = set(record) - set(current)
+                        upgrade = (
+                            operator
+                            and missing
+                            and missing <= ADMIN_FIELDS.keys()
+                            and all(
+                                record[name] == ADMIN_FIELDS[name] for name in missing
+                            )
+                            and all(
+                                record[name] == value
+                                for name, value in current.items()
+                                if name != "sequence"
+                            )
+                        )
                         if (
                             set(document) != {"expected", "record"}
-                            or set(record) != set(current)
+                            or (set(record) != set(current) and not upgrade)
                             or type(record["ready"]) is not bool
                             or not re.fullmatch(r"[0-9a-f]{64}", record["head"])
                             or (
@@ -179,9 +212,9 @@ def local_authority(
                             )
                         ):
                             raise ContentBlocked("witness_invalid")
-                        for field in ("generation", "snapshot"):
+                        for field in ("generation", "snapshot", "journal_id"):
                             if (
-                                record[field] is not None
+                                record.get(field) is not None
                                 and str(UUID(record[field])) != record[field]
                             ):
                                 raise ContentBlocked("witness_invalid")

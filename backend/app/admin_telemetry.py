@@ -5,12 +5,14 @@ import contextvars
 import logging
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from uuid import uuid4
 
 context: contextvars.ContextVar[
     tuple[str, str, Callable[[dict[str, object]], None]] | None
 ] = contextvars.ContextVar("admin_telemetry", default=None)
+_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="admin-telemetry")
 
 
 def numeric(value):
@@ -87,7 +89,15 @@ class Attempt:
         return self.__enter__()
 
     async def __aexit__(self, kind, value, traceback):
-        await asyncio.to_thread(self.__exit__, kind, value, traceback)
+        if context.get() is not None:
+            await asyncio.get_running_loop().run_in_executor(
+                _executor,
+                contextvars.copy_context().run,
+                self.__exit__,
+                kind,
+                value,
+                traceback,
+            )
 
     def __exit__(self, kind, value, traceback):
         current = context.get()

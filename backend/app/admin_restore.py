@@ -46,11 +46,34 @@ class AdministrationRestore:
         # Explicit isolated/operator setup only; normal startup never initializes evidence.
         head = self.journal.initialize()
         self.store.initialize(head)
-        with self.store.locked() as local, self.serialized() as database:
+        with self.serialized() as database, self.store.locked() as local:
             record = self.store.read(local)
             state = self.capture(database)
             self._publish(local, record, state, ready=True)
+        self.prune_acknowledged()
         self.boot_verified = True
+
+    def prune_acknowledged(self):
+        # Only a witnessed predecessor may be removed. Never glob away another
+        # publisher's unacknowledged candidate before its CAS completes.
+        with self.store.locked() as local:
+            current = self.store.read(local)
+            if not current.get("journal_id"):
+                return
+            events = self._journal(current).read(current["head"])
+            previous = events[1].get("previous_journal_id")
+            expected = events[1]["previous_head"]
+            while previous is not None:
+                predecessor = dict(current, journal_id=str(UUID(previous)))
+                path = self._journal(predecessor).path
+                if path.is_symlink() or not path.is_file():
+                    return
+                if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+                    raise ContentBlocked("checkpoint_coverage")
+                ancestor = self._journal(predecessor).read(expected)
+                previous = ancestor[1].get("previous_journal_id")
+                expected = ancestor[1]["previous_head"]
+                path.unlink()
 
     def _journal(self, record):
         if not record.get("journal_id"):
@@ -131,16 +154,6 @@ class AdministrationRestore:
             for _, pending in self._pending(record)
         ):
             raise ContentBlocked("administration_restore_rollback")
-        prefix = self.journal.path.name + "."
-        active = self._journal(record).path
-        for path in self.journal.path.parent.glob(prefix + "*.snapshot"):
-            identity = path.name[len(prefix) : -len(".snapshot")]
-            try:
-                UUID(identity)
-            except ValueError:
-                continue
-            if path != active and not path.is_symlink():
-                path.unlink()
         updated = dict(record, journal_id=str(uuid4()))
         journal = self._journal(updated)
         head = journal.initialize()
@@ -154,6 +167,7 @@ class AdministrationRestore:
                 "generation": self.generation,
                 "snapshot": self.snapshot,
                 "previous_head": record["head"],
+                "previous_journal_id": record.get("journal_id"),
                 "scalars": {
                     name: value for name, value in state.items() if name not in fields
                 },
@@ -278,7 +292,7 @@ class AdministrationRestore:
         return True
 
     def start(self):
-        with self.store.locked() as local, self.serialized() as database:
+        with self.serialized() as database, self.store.locked() as local:
             record = self.store.read(local)
             if (
                 not record["ready"]
@@ -295,16 +309,23 @@ class AdministrationRestore:
     def publish(self):
         if not self.boot_verified:
             raise ContentBlocked("administration_source_unverified")
-        with self.store.locked() as local, self.serialized() as database:
+        with self.serialized() as database, self.store.locked() as local:
             record = self.store.read(local)
             if (
                 record["generation"] != self.generation
                 or record["snapshot"] != self.snapshot
+                or record["ready"] is not True
             ):
                 raise ContentBlocked("checkpoint_superseded")
             state = self.capture(database)
             if int(state["revision"]) < record["database_revision"]:
                 raise ContentBlocked("administration_restore_rollback")
+            if int(state["revision"]) == record["database_revision"] and record.get(
+                "state_hash"
+            ) not in (None, digest(state)):
+                raise ContentBlocked("administration_restore_rollback")
+            if record.get("journal_id"):
+                self.acknowledge_tail(local, record, state)
             actual = (
                 record["head"]
                 if record.get("journal_id")
@@ -335,10 +356,11 @@ class AdministrationRestore:
                 self._publish(local, record, state, ready=True)
             else:
                 self.store.write(local, record)
+        self.prune_acknowledged()
 
     def seal_source(self):
         self.publish()
-        with self.store.locked() as local, self.serialized() as database:
+        with self.serialized() as database, self.store.locked() as local:
             record = self.store.read(local)
             if record.get("state_hash") != digest(self.capture(database)):
                 raise ContentBlocked("administration_source_unsealed")
@@ -348,7 +370,7 @@ class AdministrationRestore:
 
     def reconcile(self):
         self.boot_verified = False
-        with self.store.locked() as local, self.serialized() as database:
+        with self.serialized() as database, self.store.locked() as local:
             record = self.store.read(local)
             if (
                 record["generation"] != self.generation
@@ -371,13 +393,14 @@ class AdministrationRestore:
             state = self.capture(database)
             database.commit()
             self._publish(local, record, state, ready=True)
+        self.prune_acknowledged()
         self.boot_verified = True
 
     def ready(self):
         if not self.boot_verified:
             return False
         try:
-            with self.store.locked() as local, self.serialized() as database:
+            with self.serialized() as database, self.store.locked() as local:
                 record = self.store.read(local)
                 state = self.capture(database)
                 self._state(record)
