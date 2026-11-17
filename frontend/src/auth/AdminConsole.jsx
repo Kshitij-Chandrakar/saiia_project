@@ -127,11 +127,14 @@ export default function AdminConsole({ backendUrl, client = supabase }) {
     revalidateSession.current = revalidate;
     async function load(next) {
       const current = ++ticket.current;
+      const changedAccount = Boolean(session.current?.user?.id && session.current.user.id !== next?.user?.id);
+      const loadQuery = changedAccount ? '' : query, loadAfter = changedAccount ? '' : after;
       ++authorityVersion; authorityController?.abort();
       lastIdentity.current = null; accessReady.current = false;
       active.current?.abort();
       const controller = new AbortController(); active.current = controller;
       session.current = next;
+      if (changedAccount) { setSearch(''); setQuery(''); setAfter(''); }
       updateVerification(next);
       setState({ phase: 'loading' }); setDetail(null); setReview(null); setDraft(null); setMemberAccount(null); setCoupon(null); setAccessDraft(null); setAccessReview(null); setLastCommand(null); setCode(''); setTransfer(null); setError('');
       if (!next?.access_token || !client) { setState({ phase: 'denied' }); return; }
@@ -142,9 +145,9 @@ export default function AdminConsole({ backendUrl, client = supabase }) {
           return;
         }
         const filters = new URLSearchParams();
-        if (after) filters.set('after', after);
-        const data = section === 'overview' ? await request(backendUrl,next.access_token,'metrics',controller.signal,{start:new Date(Date.now()-metricDays*86400000).toISOString(),end:new Date().toISOString(),timezone:metricZone}) : query && section === 'users'
-          ? await request(backendUrl, next.access_token, 'users/search', controller.signal, { search: query, ...(after ? { after } : {}) })
+        if (loadAfter) filters.set('after', loadAfter);
+        const data = section === 'overview' ? await request(backendUrl,next.access_token,'metrics',controller.signal,{start:new Date(Date.now()-metricDays*86400000).toISOString(),end:new Date().toISOString(),timezone:metricZone}) : loadQuery && section === 'users'
+          ? await request(backendUrl, next.access_token, 'users/search', controller.signal, { search: loadQuery, ...(loadAfter ? { after: loadAfter } : {}) })
           : await request(backendUrl, next.access_token, section + (filters.size ? '?' + filters : ''), controller.signal);
         if (alive && current === ticket.current) { lastIdentity.current = identity; accessReady.current = true; setState({ phase: 'ready', identity, data, user: next.user, section }); }
       } catch (failure) {

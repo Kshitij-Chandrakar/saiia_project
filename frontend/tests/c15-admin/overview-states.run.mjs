@@ -155,8 +155,11 @@ try {
       const outstanding = page.waitForRequest(request => request.url().endsWith('/api/admin/metrics'));
       await page.getByRole('button', { name: 'Refresh metrics', exact: true }).click();
       await outstanding;
-      await page.getByRole('navigation',{name:'Administration',exact:true}).getByRole('button',{name:'Customers',exact:true}).click(); releaseLate();
+      await page.getByRole('navigation',{name:'Administration',exact:true}).getByRole('button',{name:'Customers',exact:true}).click();
+      const releasedMetrics = page.waitForResponse(response => response.url().endsWith('/api/admin/metrics'));
+      releaseLate(); await releasedMetrics;
       await expect(page.getByRole('heading', { level: 1, name: 'Customers', exact: true })).toBeVisible();
+      await expect(page.locator('tbody tr').first()).toBeVisible();
       await expect(page.getByRole('heading', { name: 'User growth', exact: true })).toHaveCount(0);
       results.push({ scenario: 'late_metrics_response_cannot_restore_old_section', role, passed: true });
       if (role === 'admin') {

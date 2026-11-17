@@ -5,7 +5,7 @@ import { checkDialogScroll } from './dialogScroll.js';
 async function admin(page, section = 'campaigns') {
   await setup(page);
   const state = { subject: 'synthetic-user', role: 'super_admin', meUnavailable: false, meCalls: 0,
-    campaign: { campaign_id: '11111111-1111-4111-8111-111111111111', revision: '1', name: 'Saved campaign', subject: 'Saved subject', body: 'Saved body', state: 'draft' }, confirms: [], failConfirm: false };
+    campaign: { campaign_id: '11111111-1111-4111-8111-111111111111', revision: '1', name: 'Saved campaign', subject: 'Saved subject', body: 'Saved body', state: 'draft' }, confirms: [], audiences: [], searches: [], failConfirm: false, failSave: false };
   await page.route('**/api/admin/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     if (path.startsWith('/api/admin/catalog/')) return route.fallback();
@@ -21,10 +21,13 @@ async function admin(page, section = 'campaigns') {
     }
     if (path === '/api/admin/campaigns/save') {
       state.campaign = { ...state.campaign, ...request.postDataJSON(), revision: '1' };
+      if (state.failSave) return route.fulfill({ status: 503, json: {} });
       return route.fulfill({ json: state.campaign });
     }
+    if (path === '/api/admin/users/search') { state.searches.push(request.postDataJSON()); return route.fulfill({ json: { items: [], has_more: false } }); }
     if (path === '/api/admin/campaigns/preview') return route.fulfill({ json: state.campaign });
-    if (path === '/api/admin/campaigns/audience') return route.fulfill({ json: { review_id: '33333333-3333-4333-8333-333333333333', recipient_count: 1, revision: '1', count_as_of: 'synthetic', expires_at: 'synthetic' } });
+    if (path === '/api/admin/campaigns/read') return route.fulfill({ json: state.campaign });
+    if (path === '/api/admin/campaigns/audience') { state.audiences.push(request.postDataJSON()); return route.fulfill({ json: { review_id: '33333333-3333-4333-8333-333333333333', recipient_count: 1, revision: '1', count_as_of: 'synthetic', expires_at: 'synthetic' } }); }
     if (path === '/api/admin/campaigns/confirm') {
       state.confirms.push(request.postDataJSON());
       await state.confirmHold;
@@ -82,6 +85,37 @@ test('refresh during uncertain confirmation preserves the exact retry identity',
   await expect.poll(() => state.confirms.length).toBe(2);
   expect(state.confirms[1]).toEqual(state.confirms[0]);
   await expect(dialog).not.toBeVisible();
+});
+
+test('campaign audience is bound to the displayed revision and uncertain first save can be recovered', async ({ page }) => {
+  const state = await admin(page);
+  await page.getByRole('combobox', { name: /^Existing campaign/ }).selectOption(state.campaign.campaign_id);
+  await page.getByRole('button', { name: 'Preview saved revision', exact: true }).click();
+  await page.getByRole('button', { name: 'Review audience and count', exact: true }).click();
+  expect(state.audiences).toEqual([{ campaign_id: state.campaign.campaign_id, revision: '1' }]);
+  await page.getByRole('dialog', { name: 'Confirm promotional campaign', exact: true }).getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'New campaign draft', exact: true }).click();
+  await page.getByLabel('Campaign name', { exact: true }).fill('Committed without response');
+  await page.getByLabel('Email subject', { exact: true }).fill('Synthetic subject');
+  await page.getByLabel('Plain-text message', { exact: true }).fill('Synthetic body');
+  state.failSave = true;
+  await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Refresh campaign results', exact: true })).toBeEnabled();
+  state.failSave = false;
+  await page.getByRole('button', { name: 'Refresh campaign results', exact: true }).click();
+  await expect(page.getByText('Campaign state: draft.', { exact: false })).toBeVisible();
+});
+
+test('account switch clears customer search before the replacement account loads', async ({ page }) => {
+  const state = await admin(page, 'users');
+  await page.getByLabel('Exact customer email or account ID', { exact: true }).fill('private-old-account@example.test');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await expect.poll(() => state.searches.length).toBe(1);
+  await page.evaluate(() => window.__emit('SIGNED_OUT', null));
+  state.subject = 'replacement-operator';
+  await page.evaluate(() => window.__emit('SIGNED_IN', { access_token: 'replacement', user: { id: 'replacement-operator' } }));
+  await expect(page.getByLabel('Exact customer email or account ID', { exact: true })).toHaveValue('');
+  expect(state.searches).toHaveLength(1);
 });
 
 test('coupon replacement is locked until its save finishes', async ({ page }) => {
