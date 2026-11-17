@@ -124,8 +124,8 @@
 .subscription-admin .ca-subscription-modal[open]{display:flex;flex-direction:column}
 .subscription-admin .ca-subscription-modal::backdrop{background:#0f172a66}
 .subscription-admin .ca-subscription-modal-header{display:flex;justify-content:space-between;align-items:start;gap:20px;flex-shrink:0;padding:22px 24px;border-bottom:1px solid var(--ca-line);background:white}
-.subscription-admin .ca-subscription-modal-header h2{margin:0;font-size:22px}
-.subscription-admin .ca-subscription-modal-header p{margin:6px 0 0;color:var(--ca-muted);font-size:13px;overflow-wrap:anywhere}
+.subscription-admin .ca-subscription-modal-header h2{margin:0;font-size:22px;line-height:28px}
+.subscription-admin .ca-subscription-modal-header p{margin:6px 0 0;line-height:20px;color:var(--ca-muted);font-size:13px;overflow-wrap:anywhere}
 .subscription-admin .ca-subscription-modal-header button{display:grid;place-items:center;min-width:40px;min-height:40px;padding:8px;border:1px solid var(--ca-line);border-radius:10px;background:#fff}
 .subscription-admin .ca-subscription-modal-body{min-height:0;overflow:auto;overscroll-behavior:none;padding:22px 24px;overflow-wrap:anywhere}
 .subscription-admin .ca-subscription-modal .ca-preview{position:static;top:auto;border:0;background:#fff;border-radius:0;padding:0}

@@ -1,14 +1,14 @@
-﻿import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-export default function AdminCampaigns({ items, perform }) {
+export default function AdminCampaigns({ items, perform, suspended = false }) {
   const [draft, setDraft] = useState(null), [preview, setPreview] = useState(null), [review, setReview] = useState(null);
   const [recipient, setRecipient] = useState(''), [status, setStatus] = useState(''), [pending, setPending] = useState(false);
   const opener = useRef(null);
   const dialog = useRef(null), locked = useRef(false), current = useRef(0);
   useEffect(() => () => { ++current.current; }, []);
-  useEffect(() => { if (review) dialog.current?.showModal(); else { dialog.current?.close(); opener.current?.focus(); } }, [review]);
+  useEffect(() => { if (review && !suspended) dialog.current?.showModal(); else { dialog.current?.close(); if (!suspended) opener.current?.focus(); } }, [review, suspended]);
   async function run(action, document) {
-    if (locked.current) return;
+    if (locked.current || suspended) return;
     locked.current = true; setPending(true); setStatus(''); const generation = current.current;
     try {
       const result = await perform(action, document);

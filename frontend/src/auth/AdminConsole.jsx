@@ -72,6 +72,7 @@ export default function AdminConsole({ backendUrl, client = supabase }) {
   const ticket = useRef(0);
   const session = useRef(null);
   const active = useRef(null);
+  const lastIdentity = useRef(null), accessReady = useRef(false), revalidateSession = useRef(null);
   const submitting = useRef(false);
   const verificationDialog = useRef(null), verificationTrigger = useRef(null);
   const [verificationUntil, setVerificationUntil] = useState(0);
@@ -94,11 +95,8 @@ export default function AdminConsole({ backendUrl, client = supabase }) {
   useEffect(() => {
     let alive = true;
     const generation = ticket;
-    async function load(next) {
-      const current = ++ticket.current;
-      active.current?.abort();
-      const controller = new AbortController(); active.current = controller;
-      session.current = next;
+    let authorityVersion = 0, authorityController;
+    function updateVerification(next) {
       // Presentation only. Backend authorization and freshness checks remain authoritative.
       try {
         const encoded = next?.access_token?.split('.')[1];
@@ -106,6 +104,35 @@ export default function AdminConsole({ backendUrl, client = supabase }) {
         const totp = Math.max(0, ...(claims.amr || []).filter(item => item.method === 'totp').map(item => Number(item.timestamp)));
         setVerificationUntil(claims.aal === 'aal2' && claims.c15_auth_method === 'totp' && totp * 1000 <= Date.now() ? Math.min(Number(claims.exp) * 1000, (totp + 300) * 1000) : 0);
       } catch { setVerificationUntil(0); }
+    }
+    async function revalidate(next) {
+      if (!next?.user?.id || next.user.id !== session.current?.user?.id || !lastIdentity.current) return load(next);
+      const version = ++authorityVersion;
+      authorityController?.abort();
+      const controller = new AbortController(); authorityController = controller;
+      session.current = next; accessReady.current = false; updateVerification(next);
+      setState(previous => ({ ...previous, revalidating: true }));
+      try {
+        const identity = await request(backendUrl, next.access_token, 'me', controller.signal);
+        if (!alive || version !== authorityVersion) return;
+        if (!labels[section] || (!['users','campaigns','overview'].includes(section) && identity.role !== 'super_admin')) return load(null);
+        lastIdentity.current = identity; accessReady.current = true;
+        setState(previous => ({ ...previous, phase: 'ready', identity, user: next.user, revalidating: false }));
+      } catch (failure) {
+        if (!alive || version !== authorityVersion || controller.signal.aborted) return;
+        if ([401,403,404].includes(failure.status)) return load(null);
+        setState(previous => ({ ...previous, phase: 'suspended', revalidating: false }));
+      }
+    }
+    revalidateSession.current = revalidate;
+    async function load(next) {
+      const current = ++ticket.current;
+      ++authorityVersion; authorityController?.abort();
+      lastIdentity.current = null; accessReady.current = false;
+      active.current?.abort();
+      const controller = new AbortController(); active.current = controller;
+      session.current = next;
+      updateVerification(next);
       setState({ phase: 'loading' }); setDetail(null); setReview(null); setDraft(null); setMemberAccount(null); setCoupon(null); setAccessDraft(null); setAccessReview(null); setLastCommand(null); setCode(''); setTransfer(null); setError('');
       if (!next?.access_token || !client) { setState({ phase: 'denied' }); return; }
       try {
@@ -119,7 +146,7 @@ export default function AdminConsole({ backendUrl, client = supabase }) {
         const data = section === 'overview' ? await request(backendUrl,next.access_token,'metrics',controller.signal,{start:new Date(Date.now()-metricDays*86400000).toISOString(),end:new Date().toISOString(),timezone:metricZone}) : query && section === 'users'
           ? await request(backendUrl, next.access_token, 'users/search', controller.signal, { search: query, ...(after ? { after } : {}) })
           : await request(backendUrl, next.access_token, section + (filters.size ? '?' + filters : ''), controller.signal);
-        if (alive && current === ticket.current) setState({ phase: 'ready', identity, data, user: next.user, section });
+        if (alive && current === ticket.current) { lastIdentity.current = identity; accessReady.current = true; setState({ phase: 'ready', identity, data, user: next.user, section }); }
       } catch (failure) {
         if (alive && current === ticket.current && !controller.signal.aborted)
           setState({ phase: [401, 404].includes(failure.status) ? 'denied' : 'unavailable' });
@@ -127,24 +154,25 @@ export default function AdminConsole({ backendUrl, client = supabase }) {
     }
     if (!client) { setState({ phase: 'unavailable' }); return; }
     const subscription = client.auth.onAuthStateChange((event, next) => {
-      if (event !== 'INITIAL_SESSION') void load(next);
+      if (event !== 'INITIAL_SESSION') void revalidate(next);
     }).data.subscription;
     const initial = ticket.current;
     client.auth.getSession().then(({ data, error: failure }) => {
       if (alive && initial === ticket.current) void load(failure ? null : data.session);
     });
-    return () => { alive = false; ++generation.current; active.current?.abort(); subscription.unsubscribe(); };
+    return () => { alive = false; ++generation.current; ++authorityVersion; accessReady.current = false; authorityController?.abort(); active.current?.abort(); revalidateSession.current = null; subscription.unsubscribe(); };
   }, [backendUrl, client, section, after, query, reload, metricDays, metricZone, request]);
 
+  const authorized = state.phase === 'ready' && !state.revalidating;
   useEffect(() => {
-    if (draft) dialog.current?.showModal();
+    if (draft && authorized) dialog.current?.showModal();
     else dialog.current?.close();
-  }, [draft]);
+  }, [draft, authorized]);
 
   useEffect(() => {
-    if (accessDraft) accessDialog.current?.showModal();
+    if (accessDraft && authorized) accessDialog.current?.showModal();
     else accessDialog.current?.close();
-  }, [accessDraft]);
+  }, [accessDraft, authorized]);
 
   async function changeAccess(event) {
     event.preventDefault();
@@ -188,8 +216,9 @@ export default function AdminConsole({ backendUrl, client = supabase }) {
       const result = await client.auth.mfa.challengeAndVerify({ factorId: factor.id, code });
       if (result.error) throw new Error();
       setCode(''); verificationDialog.current?.close();
-      // Auth change clears old reviews and reloads authority before any mutation.
-      setReload(value => value + 1);
+      // Recheck authority without discarding operation identities.
+      const next = await client.auth.getSession();
+      await revalidateSession.current?.(next.error ? null : next.data.session);
     } catch { setError('Authenticator verification failed or no verified authenticator is configured.'); }
     finally { submitting.current = false; setPending(false); }
   }
@@ -242,7 +271,7 @@ export default function AdminConsole({ backendUrl, client = supabase }) {
   }
 
   if (state.phase === 'denied') return <WebsiteNotFound />;
-  const identity = state.phase === 'ready' ? state.identity : null;
+  const identity = authorized ? state.identity : null;
   const busy = state.phase === 'loading';
   return <AdminShell identity={identity} user={state.user} section={section} navigate={navigateSection} title={labels[section] || 'Administration'} subtitle={section === 'overview' ? 'Understand your users and AI usage.' : section === 'memberships' ? 'Choose who can help manage Intervucopilot, and what they can do.' : 'Manage your approved administration workspace.'} controls={<>
 {section === 'overview' && <><label className="ac-filter"><span className="ac-sr-only">Rolling window</span><CalendarDays size={17} aria-hidden="true" /><select aria-label="Rolling window" value={metricDays} onChange={event => setMetricDays(Number(event.target.value))}>{[7,30,90].map(days => <option key={days} value={days}>Last {days} days</option>)}</select></label><label className="ac-filter"><span className="ac-sr-only">Chart timezone</span><Globe2 size={17} aria-hidden="true" /><select aria-label="Chart timezone" value={metricZone} onChange={event => setMetricZone(event.target.value)}><option value="Asia/Calcutta">Asia/Kolkata</option><option>UTC</option></select></label><button className="ac-icon-button" aria-label={busy ? 'Refreshing metrics' : 'Refresh metrics'} title="Refresh metrics" disabled={busy} onClick={() => setReload(value => value + 1)}><RefreshCw size={19} aria-hidden="true" /></button></>}
@@ -251,15 +280,16 @@ export default function AdminConsole({ backendUrl, client = supabase }) {
     <main id="admin-content" tabIndex={-1}>
       {section === 'overview' && (state.phase === 'loading' || state.phase === 'unavailable') && <AdminOverview status={state.phase} />}
       {section !== 'overview' && busy && <p role="status" aria-busy="true">Checking live administration access...</p>}
-      {state.phase === 'unavailable' && <section className="ac-error-state">{section !== 'overview' && <h2>Administration unavailable</h2>}<p>No account data is shown while authority or storage cannot be verified.</p><button onClick={() => setReload(value => value + 1)}>Retry access check</button></section>}
-      {state.phase === 'ready' && state.section === section && <>
+      {['unavailable','suspended'].includes(state.phase) && <section className="ac-error-state">{section !== 'overview' && <h2>Administration unavailable</h2>}<p>No account data is shown while authority or storage cannot be verified.</p><button onClick={() => state.phase === 'suspended' ? revalidateSession.current?.(session.current) : setReload(value => value + 1)}>Retry access check</button></section>}
+      {state.revalidating && <p role="status">Checking current administration access...</p>}
+      {['ready','suspended'].includes(state.phase) && state.section === section && <div hidden={!authorized} inert={!authorized}>
         {section !== 'overview' && <p>Metadata only. Private customer content is unavailable to both administration roles.</p>}
-        {section === 'campaigns' && <AdminCampaigns key={state.identity.subject_id} items={state.data.items} perform={(action, document) => request(backendUrl, session.current.access_token, 'campaigns/' + action, active.current.signal, document)} />}
+        {section === 'campaigns' && <AdminCampaigns suspended={!authorized} key={state.identity.subject_id} items={state.data.items} perform={(action, document) => { if (!accessReady.current) return Promise.reject(new Error('Access unverified')); return request(backendUrl, session.current.access_token, 'campaigns/' + action, active.current.signal, document); }} />}
         {section === 'users' && <form onSubmit={event => { event.preventDefault(); setAfter(''); setQuery(search.trim()); }}><label>Exact customer email or account ID<input value={search} maxLength={320} onChange={event => setSearch(event.target.value)} /></label><button>Search</button></form>}
         {section === 'memberships' && <AdminMemberships rows={state.data.items} onAdd={event => openMembership(null, event.currentTarget)} onChange={row => openMembership(row, document.activeElement)}><section aria-label="Advisory successor transfer"><h3>Hand over responsibility safely</h3><p>1. Choose an existing account. 2. Send the offer. 3. Ask the successor to accept and verify their access.</p><p>Your access is not automatically removed. An unfinished transfer does not block your own account deletion.</p><form onSubmit={async event => { event.preventDefault(); if (submitting.current) return; submitting.current = true; setPending(true); const current = ticket.current; try { const result = await request(backendUrl, session.current.access_token, 'successor/offer', active.current.signal, { target: successorTarget, confirm: true }); if (current === ticket.current) setTransfer(result); } catch { if (current === ticket.current) setError('Successor offer was not confirmed. Check verified identity and authenticator.'); } finally { submitting.current = false; setPending(false); } }}><label>Successor Account ID<input required pattern="[0-9a-fA-F-]{36}" value={successorTarget} onChange={e => setSuccessorTarget(e.target.value)} /></label><button disabled={pending}>Send successor offer</button></form>{transfer && <><p>Transfer reference: {transfer.transfer_id}. State: {transfer.state}. Expires: {transfer.expires_at}.</p><p>The successor can accept at /auth/admin/successor using this reference.</p><button onClick={async () => { const current = ticket.current; try { const result = await request(backendUrl, session.current.access_token, 'successor/status', active.current.signal, { transfer_id: transfer.transfer_id }); if (current === ticket.current) setTransfer(result); } catch { if (current === ticket.current) setError('Successor status is unavailable.'); } }}>Verify successor access status</button></>}</section></AdminMemberships>}
-        {section === 'coupons' && <section><p>Configuration only. Redemption, checkout/provider application and pricing-card exposure are disabled. Eligibility, stacking, limits, timing/duration and quote/provider terms are unset.</p><p>Use Verify access to verify your existing authenticator before saving.</p><button onClick={() => setCoupon({ id: crypto.randomUUID(), operation_id: crypto.randomUUID(), expected: '0', code: '', source_discount_id: '' })}>Create inert coupon draft</button>{coupon && <form onSubmit={saveCoupon}><label>Inert coupon code (uppercase)<input required pattern="[A-Z0-9_-]{1,64}" maxLength={64} value={coupon.code} onChange={event => setCoupon({ ...coupon, code: event.target.value })} /></label><label>Existing Discount ID (optional)<input value={coupon.source_discount_id} onChange={event => setCoupon({ ...coupon, source_discount_id: event.target.value })} /></label><button disabled={pending}>Save inert draft</button><button className="ac-dismiss" type="button" disabled={pending} onClick={() => setCoupon(null)}>Cancel draft</button></form>}</section>}
+        {section === 'coupons' && <section><p>Configuration only. Redemption, checkout/provider application and pricing-card exposure are disabled. Eligibility, stacking, limits, timing/duration and quote/provider terms are unset.</p><p>Use Verify access to verify your existing authenticator before saving.</p><button disabled={pending} onClick={() => setCoupon({ id: crypto.randomUUID(), operation_id: crypto.randomUUID(), expected: '0', code: '', source_discount_id: '' })}>Create inert coupon draft</button>{coupon && <form onSubmit={saveCoupon}><label>Inert coupon code (uppercase)<input disabled={pending} required pattern="[A-Z0-9_-]{1,64}" maxLength={64} value={coupon.code} onChange={event => setCoupon({ ...coupon, code: event.target.value })} /></label><label>Existing Discount ID (optional)<input disabled={pending} value={coupon.source_discount_id} onChange={event => setCoupon({ ...coupon, source_discount_id: event.target.value })} /></label><button disabled={pending}>Save inert draft</button><button className="ac-dismiss" type="button" disabled={pending} onClick={() => setCoupon(null)}>Cancel draft</button></form>}</section>}
         {error && <p role="alert">{error}</p>}
-        {section === 'memberships' ? null : section === 'overview' ? <AdminOverview data={state.data} /> : state.data.items.length === 0 ? <p>No matching records.</p> : section === 'audit' ? <AdminAuditTable rows={state.data.items} /> : <div className="ac-table" role="region" aria-label={labels[section] + ' records'} tabIndex={0}><table><thead><tr>{fields[section].map(field => <th key={field} scope="col">{fieldLabels[field]}</th>)}{section === 'users' && <th scope="col">Details</th>}{section === 'coupons' && <th scope="col">Edit draft</th>}</tr></thead><tbody>{state.data.items.map(row => <tr key={row.user_id || row.subject_id || row.event_id || row.campaign_id || row.id}>{fields[section].map(field => <td key={field}>{section === 'users' && field === 'email' ? <div className="ac-audit-actor"><strong>{display(row.email)}</strong><span>Account ID: {row.user_id || 'Unavailable'}</span></div> : display(row[field])}</td>)}{section === 'users' && <td><button onClick={() => inspect(row.user_id)}>Inspect metadata</button></td>}{section === 'coupons' && <td><button onClick={() => setCoupon({ id: row.id, expected: row.revision, operation_id: crypto.randomUUID(), code: row.code, source_discount_id: row.source_discount_id || '' })}>Edit inert draft</button></td>}</tr>)}</tbody></table></div>}
+        {section === 'memberships' ? null : section === 'overview' ? <AdminOverview data={state.data} /> : state.data.items.length === 0 ? <p>No matching records.</p> : section === 'audit' ? <AdminAuditTable rows={state.data.items} /> : <div className="ac-table" role="region" aria-label={labels[section] + ' records'} tabIndex={0}><table><thead><tr>{fields[section].map(field => <th key={field} scope="col">{fieldLabels[field]}</th>)}{section === 'users' && <th scope="col">Details</th>}{section === 'coupons' && <th scope="col">Edit draft</th>}</tr></thead><tbody>{state.data.items.map(row => <tr key={row.user_id || row.subject_id || row.event_id || row.campaign_id || row.id}>{fields[section].map(field => <td key={field}>{section === 'users' && field === 'email' ? <div className="ac-audit-actor"><strong>{display(row.email)}</strong><span>Account ID: {row.user_id || 'Unavailable'}</span></div> : display(row[field])}</td>)}{section === 'users' && <td><button onClick={() => inspect(row.user_id)}>Inspect metadata</button></td>}{section === 'coupons' && <td><button disabled={pending} onClick={() => setCoupon({ id: row.id, expected: row.revision, operation_id: crypto.randomUUID(), code: row.code, source_discount_id: row.source_discount_id || '' })}>Edit inert draft</button></td>}</tr>)}</tbody></table></div>}
         {state.data.has_more && <button onClick={() => setAfter(state.data.next_cursor)}>Next page</button>}
         {after && <button onClick={() => setAfter('')}>First page</button>}
         {detail && <AdminCustomerMetadata key={detail.user_id} detail={detail} role={state.identity.role}
@@ -269,7 +299,7 @@ export default function AdminConsole({ backendUrl, client = supabase }) {
           onRetry={task => { setSupportKind('privacy'); setAccessReview(null); setAccessDraft({ task_id: task.task_id, revision: task.revision, operation_id: crypto.randomUUID(), reason: 'support' }); }}
           lastCommand={lastCommand} onRefreshCancellation={async () => { const current = ticket.current; const selected = inspection.current; try { const result = await request(backendUrl, session.current.access_token, 'cancellations/' + lastCommand.operation_id, active.current.signal); if (current === ticket.current && selected === inspection.current) setLastCommand(result); } catch { if (current === ticket.current && selected === inspection.current) setError('Cancellation status is unavailable; do not assume cancellation succeeded.'); } }} />}
 
-      </>}
+      </div>}
     </main>
     <dialog ref={verificationDialog} className="ac-auth-dialog" aria-labelledby="ac-auth-title" onKeyDown={containDialogFocus} onCancel={event => { if (pending) event.preventDefault(); }} onClose={() => verificationTrigger.current?.focus()}><div className="ac-auth-heading"><h2 id="ac-auth-title">Verify sensitive access</h2><button className="ac-icon-button" disabled={pending} aria-label="Close verification" onClick={() => verificationDialog.current?.close()}><X size={20} aria-hidden="true" /></button></div><p>Use your existing authenticator for sensitive actions. The server checks your current role and proof for every operation.</p><form onSubmit={verifyAuthenticator}><label>Authenticator code<input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" value={code} onChange={event => setCode(event.target.value)} required /></label><button disabled={pending}>{pending ? 'Verifying...' : 'Verify authenticator'}</button></form>{error && <p role="alert">{error}</p>}</dialog>
     <dialog ref={accessDialog} aria-labelledby="access-title" onCancel={event => { if (pending) event.preventDefault(); else { setAccessDraft(null); setAccessReview(null); } }}>

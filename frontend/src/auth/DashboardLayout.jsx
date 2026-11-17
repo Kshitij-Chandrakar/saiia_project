@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, LogOut, Settings, Shield } from 'lucide-react'
+import { LayoutDashboard, LogOut, Settings, Shield, FileText } from 'lucide-react'
 import { supabase } from './supabaseClient'
 import { signOutWebsite } from './websiteSessionLoss'
 import logo from '../assets/dashboard/logo.svg'

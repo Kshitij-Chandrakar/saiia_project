@@ -106,9 +106,23 @@ try {
     await page.getByLabel('Exact customer email or account ID', { exact: true }).fill('');
     await page.getByRole('button', { name:'Search', exact:true }).click();
     await expect(page.getByRole('tooltip')).toHaveCount(0);
-    const firstRow = page.getByRole('cell', { name:accounts.users.customer.email, exact:true }).locator('..');
-    const nextRow = page.getByRole('cell', { name:accounts.users.delete_customer.email, exact:true }).locator('..');
+    const firstRow = page.getByRole('row').filter({has:page.getByText(accounts.users.customer.email,{exact:true})});
+    const nextRow = page.getByRole('row').filter({has:page.getByText(accounts.users.delete_customer.email,{exact:true})});
     await expect(nextRow).toBeVisible();
+    await page.evaluate(id => {
+      const original = window.fetch;
+      const paths = new Set(['','/privacy','/subscription','/allowances'].map(suffix=>'/api/admin/users/'+id+suffix));
+      window.__olderInspectionReads = 0;
+      window.__restoreInspectionFetch = () => { window.fetch = original; };
+      window.fetch = async (...args) => {
+        const response = await original(...args);
+        if (paths.has(new URL(typeof args[0] === 'string' ? args[0] : args[0].url, location.href).pathname)) {
+          const parse = response.json.bind(response);
+          response.json = async () => { try { return await parse(); } finally { window.__olderInspectionReads++; } };
+        }
+        return response;
+      };
+    }, id);
     delay = true;
     const waiting = page.waitForRequest(request=>request.url().endsWith('/api/admin/users/'+id));
     await firstRow.getByRole('button',{name:'Inspect metadata',exact:true}).click(); await waiting;
@@ -117,6 +131,9 @@ try {
     const finished = page.waitForResponse(response=>response.url().endsWith('/api/admin/users/'+id));
     release();
     await finished;
+    await expect.poll(()=>page.evaluate(()=>window.__olderInspectionReads)).toBe(4);
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    await page.evaluate(()=>window.__restoreInspectionFetch());
     await expect(detail.getByText('fixture-first@example.invalid',{exact:true})).toHaveCount(0);
     await expect(detail.getByText(accounts.users.delete_customer.email,{exact:true})).toBeVisible();
     expect(errors).toEqual([]);
