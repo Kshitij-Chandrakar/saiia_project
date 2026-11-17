@@ -1,11 +1,26 @@
-from dataclasses import dataclass, field
-import re
 import os
-from typing import Mapping
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 
 
 class EmailConfigurationError(RuntimeError):
     """Raised when a requested email delivery mode is not available safely."""
+
+
+@dataclass(frozen=True, slots=True)
+class EmailBrandSettings:
+    """Presentation-only, server-owned references. Empty means not published."""
+
+    asset_base_url: str = ""
+    website_origin: str = ""
+
+
+def load_email_brand_settings() -> EmailBrandSettings:
+    return EmailBrandSettings(
+        asset_base_url=os.environ.get("EMAIL_ASSET_BASE_URL", "").strip(),
+        website_origin=os.environ.get("EMAIL_WEBSITE_ORIGIN", "").strip(),
+    )
 
 
 def _env_bool(environment: Mapping[str, str], name: str, default: bool) -> bool:

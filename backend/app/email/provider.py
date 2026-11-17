@@ -11,6 +11,10 @@ BACKEND_TRANSACTIONAL_EMAIL_TYPES = frozenset(
         "ai_notes_ready",
         "session_summary",
         "transcript_export",
+        "billing_payment",
+        "billing_renewal",
+        "billing_cancellation",
+        "billing_access_end",
     }
 )
 SUPABASE_AUTH_EMAIL_TYPES = frozenset(
@@ -96,6 +100,8 @@ class EmailSendRequest:
     email_type: str
     safe_metadata: Mapping[str, object] = field(default_factory=dict)
     text_body: str = ""
+    html_body: str = ""
+    idempotency_key: str | None = None
 
     def __post_init__(self) -> None:
         recipient = self.recipient_email.strip()
@@ -123,6 +129,10 @@ class EmailSendRequest:
         object.__setattr__(self, "subject", subject)
         object.__setattr__(self, "text_body", text_body)
         object.__setattr__(self, "safe_metadata", normalize_safe_metadata(self.safe_metadata))
+        if not isinstance(self.html_body, str) or len(self.html_body) > 16000:
+            raise EmailValidationError("Email HTML is invalid.")
+        if self.idempotency_key is not None and not re.fullmatch(r"[A-Za-z0-9._~:-]{1,128}", self.idempotency_key):
+            raise EmailValidationError("Email idempotency identity is invalid.")
 
 
 @dataclass(frozen=True, slots=True)
