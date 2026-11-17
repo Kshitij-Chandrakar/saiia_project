@@ -14,6 +14,7 @@ def hosted_commercial_mode():
 
 
 class Settings:
+    C15_REVOCATION_ENABLED = os.getenv('C15_REVOCATION_ENABLED','false').strip().lower()
     BILLING_ENABLED = os.getenv('BILLING_ENABLED','false').strip().lower()
     BILLING_NOTIFICATIONS_ENABLED = os.getenv('BILLING_NOTIFICATIONS_ENABLED','false').strip().lower()
     BILLING_ADMIN_ENABLED = os.getenv('BILLING_ADMIN_ENABLED','false').strip().lower()
@@ -258,5 +259,16 @@ class Settings:
     DB_PATH = os.getenv("DB_PATH", "data/user_profiles.db")
     PROFILE_PATH = Path(__file__).parent.parent / "candidate_profile.json"
 
+
+    # Stage 1 is local/synthetic only until cleanup and Auth enforcement acceptance.
+    C15_RUNTIME_ENABLED = os.getenv("C15_RUNTIME_ENABLED","false")
+    C15_RUNTIME_LOCAL_REHEARSAL = os.getenv("C15_RUNTIME_LOCAL_REHEARSAL","false")
+    C15_RUNTIME_DSNS = os.getenv("C15_RUNTIME_DSNS","")
+    C15_RUNTIME_ENDPOINTS = os.getenv("C15_RUNTIME_ENDPOINTS","")
+    C15_RUNTIME_CHECKPOINT = os.getenv("C15_RUNTIME_CHECKPOINT","")
+    C15_ENABLED = os.getenv("C15_ENABLED", "false")
+    C15_RESTORE_BOOT_REQUIRED = os.getenv('C15_RESTORE_BOOT_REQUIRED','false')
+    # Once requests are accepted, keep this on even when disabling new requests.
+    C15_RESTRICTIONS_REQUIRED = os.getenv("C15_RESTRICTIONS_REQUIRED", "false")
 
 settings = Settings()

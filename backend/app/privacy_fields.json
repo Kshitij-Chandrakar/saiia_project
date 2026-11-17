@@ -1,0 +1,3810 @@
+{
+  "version": "c15.fields.v1",
+  "tables": {
+    "account_plan_bindings": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "binding_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "offer_version_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "price_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "signup_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "valid_from": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "valid_until": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "source_ref": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "policy_version": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "active": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "billing_admin_commands": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "actor": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "action": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "target": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "expected": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "state": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "started_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "billing_admin_reviews": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "actor": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "operation_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "action": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "target": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "revision": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "expires_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "billing_email_delivery_events": {
+      "fields": {
+        "event_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "recorded_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "scope": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "delivery_id": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "raw_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "message_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "event_type": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "event_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "failure_detail": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "source_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "processing_state": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "attempts": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "next_attempt_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "processed_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "billing_evidence": {
+      "fields": {
+        "payment_id": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "operation_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "evidence_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "event_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "invoice_id": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "paid_until": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "applied": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "recorded_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "billing_notification_sources": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "business_key": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "operation_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "kind": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "payload": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "event_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "attempts": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "delivery_state": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "next_attempt_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "delivery_scope": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "resend_message_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "billing_operations": {
+      "fields": {
+        "operation_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "offer_version_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "price_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "mode": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "merchant": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "provider_plan": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "total_count": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "consent_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "cancel_requested": {
+          "type": "boolean:bool",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "provider_state": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "snapshot": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "fingerprint": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "amount": {
+          "type": "bigint:int8",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "currency": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "interval_unit": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "state": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "provider_id": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "last_checked_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "result": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "billing_payable_quotes": {
+      "fields": {
+        "operation_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "document": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "quote_id": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "catalog_draft_requests": {
+      "fields": {
+        "actor_subject": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "request_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "operation": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "draft_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "expected_revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "resulting_revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "semantic_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "recorded_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "catalog_lifecycle_requests": {
+      "fields": {
+        "actor_subject": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "request_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "operation": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "draft_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "semantic_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "review_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "action_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "offer_version_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "result": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "catalog_publication_reviews": {
+      "fields": {
+        "review_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "draft_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "source_revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "plan_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "reviewer_subject": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "permission_revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "recorded_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "metadata": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "metadata_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "catalog_publications": {
+      "fields": {
+        "offer_version_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "review_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "draft_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "source_revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "terminal_revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "plan_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "fingerprint": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "actor_subject": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "permission_revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "catalog_revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "recorded_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "interview_answer_diagrams": {
+      "fields": {
+        "transcript_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "user_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "session_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "source_revision": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "graph_schema": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "prompt_schema": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "configured_model": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "actual_model": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "state": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "attempt": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "operation_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "token": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "lease_until": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "graph": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "failure_code": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "updated_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "interview_answer_sources": {
+      "fields": {
+        "transcript_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "user_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "session_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "source_revision": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "answer_type": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "provenance": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "interview_session_ai_notes": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "user_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "session_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "status": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "notes_markdown": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "summary": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "strengths": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "improvement_areas": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "technical_topics": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "key_questions": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "suggested_followups": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "provider": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "model": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "generation_ms": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "transcript_entry_count": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "generated_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "updated_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "interview_session_ask_ai_messages": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "user_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "session_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "role": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "message_text": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "turn_index": {
+          "type": "integer:int4",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "provider": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "model": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "generation_ms": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "metadata": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "interview_session_ask_ai_request_keys": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "user_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "session_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "request_id": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "status": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "user_message_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "assistant_message_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "payload_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "error_code": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "updated_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "claim_token": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "interview_session_idempotency_keys": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "user_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "idempotency_key": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "request_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "status": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "interview_session_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "expires_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "updated_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "interview_session_my_answers": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "user_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "session_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "body": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "position": {
+          "type": "integer:int4",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "interview_session_transcript_entries": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "user_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "session_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "request_id": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "turn_index": {
+          "type": "integer:int4",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "source": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "question_text": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "answer_text": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "category": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "provider": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "model": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "generation_ms": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "metadata": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "interview_sessions": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "user_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "selected_resume_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "job_context_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "title": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "target_role": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "company_name": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "job_description_preview": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "status": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "started_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "ended_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "updated_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "selected_model_key": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "selected_model_binding": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "job_context_idempotency_keys": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "user_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "idempotency_key": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "request_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "status": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "job_context_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "activated": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "expires_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "updated_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "job_contexts": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "user_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "company": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "position": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "job_description": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "required_skills": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "responsibilities": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "seniority": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "domain_keywords": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "is_active": {
+          "type": "boolean:bool",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "updated_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "location": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "employment_type": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "source_file_metadata": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "marketing_unsubscribe_tokens": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "user_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "recipient_email": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "token_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "email_category": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "expires_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "used_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "revoked_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "outbound_email_events": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "user_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "session_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "email_type": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "recipient_email": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "provider": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "provider_message_id": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "idempotency_key": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "claim_token": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "reconciliation_token": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "row_version": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "sending_started_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "lease_expires_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "pending_expires_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "status": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "error_code": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "metadata_json": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "updated_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "privacy_auto_reply_payloads": {
+      "fields": {
+        "run_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "sequence": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "format_version": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "state": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "response": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "private_checksum": {
+          "type": "bytea:bytea",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "erasure_job": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_configuration": {
+      "fields": {
+        "singleton": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "enabled": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "policy_version": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_content_jobs": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "kind": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "resource_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "registry_version": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "state": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "cutoff_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "ready_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "expires_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "lease_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "lease_until": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "attempts": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "retry_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "artifact_key": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "capability_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "capability_expires_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "progress": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "blockers": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_content_objects": {
+      "fields": {
+        "job_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "bucket": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "object_key": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "source_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "original_name": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "version": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "state": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_deletion_requests": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "request_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "session_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "reauthenticated_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "policy_version": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "scope": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "confirmation_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "status_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "email_key_version": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "email_digest": {
+          "type": "bytea:bytea",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "state": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "expires_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "status_expires_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "accepted_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "primary_cleanup_target_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "usage_retention_until": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "security_retention_until": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_email_otp": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "request_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "session_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "code_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "email_fingerprint": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "key_version": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "expires_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "sent_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "attempts": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "verified_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "consumed_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_email_otp_limits": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "hour_start": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "hour_count": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "day_start": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "day_count": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_email_suppression": {
+      "fields": {
+        "key_version": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "digest": {
+          "type": "bytea:bytea",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_erased_session_keys": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "key_version": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "digest": {
+          "type": "bytea:bytea",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "job_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_erased_sessions": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "session_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "job_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_export_otp_sends": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "sent_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_export_proofs": {
+      "fields": {
+        "request_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "session_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "started_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "expires_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "otp_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "otp_version": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "email_fingerprint": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "sent_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "attempts": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "verified_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "consumed_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "operation_scope": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "resource_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_export_rows": {
+      "fields": {
+        "job_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "ordinal": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "category": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "document": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_followup_tasks": {
+      "fields": {
+        "request_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "kind": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "state": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "due_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "attempts": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "lease_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "lease_until": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "safe_error": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_lifecycle_audit": {
+      "fields": {
+        "id": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "request_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "action": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "recorded_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_matching_keys": {
+      "fields": {
+        "version": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "secret": {
+          "type": "bytea:bytea",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "current_key": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_minimized_records": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "source_kind": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "source_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "category": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "event_kind": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "outcome": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "quantity": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "occurred_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "confirmation_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "eligible_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "lease_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "lease_until": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "attempts": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "state": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_reauth_intents": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "request_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "original_session": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "confirmation_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "status_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "policy_version": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "started_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "expires_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "proof_session": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "proof_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_restore_outbox": {
+      "fields": {
+        "request_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "checkpoint": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_restore_state": {
+      "fields": {
+        "singleton": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "required": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "ready": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "checkpoint": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_restored_replays": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "key_version": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "digest": {
+          "type": "bytea:bytea",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_restored_sessions": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "session_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_restored_subjects": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "request_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_retention_attestations": {
+      "fields": {
+        "day": {
+          "type": "date:date",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "category": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "removed_count": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_retirement_configuration": {
+      "fields": {
+        "singleton": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "enabled": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_retirement_holds": {
+      "fields": {
+        "unit_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "reason": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "review_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "active": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_retirement_members": {
+      "fields": {
+        "unit_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "member_key": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "kind": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "run_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "sequence": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "record_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "expected_fence": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_retirement_preparation_events": {
+      "fields": {
+        "unit_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "event": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "recorded_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_retirement_units": {
+      "fields": {
+        "unit_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "request_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "category": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "classifier_version": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "confirmation_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "eligible_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "state": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "privacy_revocation_credentials": {
+      "fields": {
+        "request_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "key_version": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "expires_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        },
+        "ciphertext": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "private lifecycle/control evidence; explicit secret expiry or separate restore/suppression horizon"
+        }
+      }
+    },
+    "profiles": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "user_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "full_name": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "headline": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "summary": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "skills": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "technical_skills": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "soft_skills": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "education": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "experience": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "projects": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "achievements": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "certifications": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "tools_frameworks": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "profile_completion": {
+          "type": "integer:int4",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "updated_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "resume_chunks": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "user_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "resume_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "section": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "chunk_text": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "embedding": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "metadata": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "generation_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "resumes": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "user_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "storage_path": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "original_filename": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "mime_type": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "file_size": {
+          "type": "bigint:int8",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "parser_provider": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "parser_status": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "extraction_status": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "index_status": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "review_required": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "updated_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "status": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "is_active": {
+          "type": "boolean:bool",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "confirmed_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "extraction_attempt": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "confirmed_profile": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "active_chunk_generation": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "failure_code": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "failure_message": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "failed_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "last_error_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "session_generation_turns": {
+      "fields": {
+        "session_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "user_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "request_id": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "payload_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "attempt": {
+          "type": "integer:int4",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "token": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "state": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "lease_until": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "payload": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "transcript_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "subscription_admin_permissions": {
+      "fields": {
+        "subject_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "permission": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "active": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "approved_by": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "reason": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "subscription_auth_handoffs": {
+      "fields": {
+        "code_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "state_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "ciphertext": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "expires_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "subscription_auto_replies": {
+      "fields": {
+        "run_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "sequence": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "action": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "request_fence": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "document": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "subscription_auto_runs": {
+      "fields": {
+        "run_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "request_id": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "semantic_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "owner_token": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "legacy mutable credential; new writes store NULL; accepted-account cleanup clears after run settlement without rewriting immutable replies"
+        },
+        "fence": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "sequence": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "active": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "slice_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "started_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "owner_verifier": {
+          "type": "bytea:bytea",
+          "export": "exclude_export",
+          "deletion": "non-replayable credential verifier; accepted-account durable cleanup clears only after authoritative run settlement; immutable legacy reply copies remain blocked"
+        }
+      }
+    },
+    "subscription_binding_history": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "document": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "recorded_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "subscription_deletion_jobs": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "request_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "phase": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "subscription_handoff_limits": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "last_created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "subscription_notes_versions": {
+      "fields": {
+        "operation_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "result": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "subscription_payment_receipts": {
+      "fields": {
+        "event_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "semantic_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "result": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "recorded_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "subscription_relay_connections": {
+      "fields": {
+        "run_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "session_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "subscription_relay_frames": {
+      "fields": {
+        "run_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "session_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "source": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "last_sequence": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "last_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "bytes_received": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "subscription_resume_active_sets": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "binding_revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "resume_ids": {
+          "type": "ARRAY:_uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "subscription_resume_history": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "first_ready_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "subscription_resume_jobs": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "resume_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "semantic_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "replacement_of": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "usage_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "subscription_scheduled_changes": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "event_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "binding_revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "effective_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "target_offer_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "target_fingerprint": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "target_price_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "target_paid_until": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "kind": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "subscription_screen_results": {
+      "fields": {
+        "result_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "session_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "thread_key": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "request_key": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "request_aliases": {
+          "type": "jsonb:jsonb",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "semantic_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "turn_key": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "kind": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "state": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "token": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "lease_until": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "usage_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "response": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "subscription_screen_threads": {
+      "fields": {
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "session_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "thread_key": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "revision": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "busy": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    },
+    "usage_events": {
+      "fields": {
+        "event_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "operation_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "event": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "fence": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "actor_principal": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "used_delta": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "reserved_delta": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "recorded_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "usage_operations": {
+      "fields": {
+        "operation_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "binding_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "period_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "operation": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "resource_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "request_id": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "semantic_hash": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "policy_version": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "requested": {
+          "type": "bigint:int8",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "charged": {
+          "type": "bigint:int8",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "state": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "fence": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "claim_token": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "lease_until": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "result_ref": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "recovery_evidence": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "capacity_released": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "authorized_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "accepted_offer_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "unit_scale": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "usage_periods": {
+      "fields": {
+        "period_id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "account_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "meter": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "starts_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "ends_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "mode": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "capacity": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "allowance": {
+          "type": "bigint:int8",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "used": {
+          "type": "bigint:int8",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "reserved": {
+          "type": "bigint:int8",
+          "export": "export_owned",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        },
+        "unit_scale": {
+          "type": "bigint:int8",
+          "export": "exclude_export",
+          "deletion": "retained envelope; legacy minimization/retirement blocked unless an explicit narrow worker handles this field"
+        }
+      }
+    },
+    "user_settings": {
+      "fields": {
+        "id": {
+          "type": "uuid:uuid",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "user_id": {
+          "type": "uuid:uuid",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "preferred_answer_length": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "preferred_answer_style": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "default_audio_source": {
+          "type": "text:text",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "overlay_settings": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "notification_preferences": {
+          "type": "jsonb:jsonb",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "marketing_consent": {
+          "type": "boolean:bool",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "created_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "updated_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "terms_accepted": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "terms_accepted_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "privacy_accepted": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "privacy_accepted_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "marketing_email_opt_in": {
+          "type": "boolean:bool",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "marketing_email_opt_in_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "marketing_email_opt_out_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "consent_source": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "consent_version": {
+          "type": "text:text",
+          "export": "exclude_export",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "onboarding_current_step": {
+          "type": "smallint:int2",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        },
+        "onboarding_completed_at": {
+          "type": "timestamp with time zone:timestamptz",
+          "export": "export_owned",
+          "deletion": "account_cleanup; scoped cleanup only through registered owner/session joins"
+        }
+      }
+    }
+  }
+}

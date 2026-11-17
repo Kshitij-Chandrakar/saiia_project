@@ -29,6 +29,11 @@ class ErrorCode(str, Enum):
     REVIEW_STALE = "catalog_review_stale"
     NOT_PUBLISHABLE = "catalog_not_publishable"
     EXHAUSTED = "usage_allowance_exhausted"
+    AUTO_REPLY_ERASED = "auto_reply_erased"
+    AUTO_REPLY_EXPIRED = "auto_reply_expired"
+    AUTO_REPLY_CORRUPT = "auto_reply_corrupt"
+    AUTO_REPLY_VERSION = "auto_reply_version_unsupported"
+    AUTO_REPLY_UNAVAILABLE = "auto_reply_unavailable"
 
 
 class CatalogStoreError(RuntimeError):
@@ -65,6 +70,15 @@ def _input(adapter: TypeAdapter[Any], value: object) -> Any:
 
 def _error(failure: RpcFailure, write: bool) -> ErrorCode:
     code = failure.sqlstate
+    auto_reply = {
+        "P1001": ErrorCode.AUTO_REPLY_ERASED,
+        "P1002": ErrorCode.AUTO_REPLY_EXPIRED,
+        "P1003": ErrorCode.AUTO_REPLY_CORRUPT,
+        "P1004": ErrorCode.AUTO_REPLY_VERSION,
+        "P1005": ErrorCode.AUTO_REPLY_UNAVAILABLE,
+    }
+    if code in auto_reply:
+        return auto_reply[code]
     if code == "P0003":
         return ErrorCode.IDENTITY_CONFLICT
     if code == "P0004":

@@ -1,0 +1,9 @@
+# Documentation/local configuration candidate only. Merge with existing hooks;
+# do not replace other project settings. No activation is authorized.
+[auth.hook.before_user_created]
+enabled = false
+uri = "pg-functions://postgres/public/privacy_auth_before_create"
+
+[auth.hook.custom_access_token]
+enabled = false
+uri = "pg-functions://postgres/public/privacy_auth_token"

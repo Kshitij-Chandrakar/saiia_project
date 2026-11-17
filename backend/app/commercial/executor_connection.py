@@ -12,6 +12,15 @@ EXECUTORS = frozenset(
         "catalog_public_reader",
         "usage_binding_executor",
         "usage_reconciler",
+        "privacy_cleanup_executor",
+        "privacy_preparation_executor",
+        "privacy_retirement_executor",
+        "privacy_revocation_observer",
+        "privacy_provisioning_executor",
+        "privacy_content_executor",
+        "privacy_restore_executor",
+        "privacy_identity_executor",
+        "privacy_retention_executor",
     }
 )
 _KEYS = {"host", "port", "dbname", "user", "password", "sslmode", "sslrootcert"}

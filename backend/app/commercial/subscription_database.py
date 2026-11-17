@@ -9,8 +9,10 @@ from app.commercial.subscription_service import SubscriptionService
 
 
 class SubscriptionDatabase:
-    def __init__(self, enabled: str = "false", dsn: str = "", *, session_pooler=None) -> None:
+    def __init__(self, enabled: str = "false", dsn: str = "", *, session_pooler=None, privacy_observer_connect=None, privacy_auth_recovery=None) -> None:
         self._session_pooler = session_pooler
+        self._privacy_observer_connect = privacy_observer_connect
+        self._privacy_auth_recovery = privacy_auth_recovery
         self._enabled, self._dsn = enabled, dsn
         self._pool: Any = None
         self._service: SubscriptionService | None = None
@@ -198,11 +200,22 @@ class SubscriptionDatabase:
         return self._service
 
     def _sweep(self) -> None:
+        from app.config import settings
+        from app.privacy_revocation import RevocationWorker, configured_worker
+
+        try:
+            privacy_worker = None if getattr(settings, 'C15_RUNTIME_ENABLED', 'false') == 'true' else configured_worker(self.connect, observer_connect=self._privacy_observer_connect, recover=self._privacy_auth_recovery)
+        except Exception:  # noqa: BLE001 -- never format key/configuration failures
+            privacy_worker = None  # missing key/config: requests stay restricted
         while not self._stop.wait(5):
             service = self._service
             if service is None:
                 return
             try:
+                if getattr(settings, "C15_RESTRICTIONS_REQUIRED", "false") == "true":
+                    RevocationWorker(self.connect).call("expire", {})
+                if privacy_worker is not None:
+                    privacy_worker.run_one()
                 service._channel._transaction(
                     True,
                     lambda query: query(
