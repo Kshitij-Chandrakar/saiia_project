@@ -1,3 +1,4 @@
+import { watchAccountRestrictions, clearAccountOwnedState } from './accountOwnedCleanup'
 import WebsiteProgress from './WebsiteProgress'
 import { resumeConfirmationIsCurrent } from './resumeConfirmation'
 import { WebsiteLogout, WebsiteUnsubscribe } from './WebsiteAccountActions'
@@ -38,6 +39,7 @@ import { supabase } from './supabaseClient'
 import './auth.css'
 import './account-setup-recovery.css'
 import DashboardLayout from './DashboardLayout'
+import WebsiteSettings from './WebsiteSettings'
 import DashboardLoading from './DashboardLoading'
 import ResumeAccessSelection from './ResumeAccessSelection'
 import WebsiteResumes, { ResumeConfirmation } from './WebsiteResumes'
@@ -1566,6 +1568,14 @@ function RequireAuth({ backendUrl, children }) {
     let hadSession = false
     let checkingSession = false
     let signedOutWhileChecking = false
+    const stopRestrictionWatch = watchAccountRestrictions(subject => {
+      if (subject !== accountId) return
+      operation += 1; requestController?.abort()
+      clearAccountOwnedState(subject, null, supabase?.auth.storageKey)
+      supabase?.auth.stopAutoRefresh?.()
+      setUser(null); setLoading(false); setSignedOut(true)
+      window.location.replace('/auth/privacy-status')
+    })
     const stopLogoutWatch = watchWebsiteLogoutIntent()
 
     function loseSession(sessionError = null) {
@@ -1682,6 +1692,7 @@ function RequireAuth({ backendUrl, children }) {
       operation += 1
       subscription?.data.subscription.unsubscribe()
       stopLogoutWatch()
+      stopRestrictionWatch()
     }
   }, [backendUrl, attempt, location.state?.retrySignupBootstrap])
 
@@ -1728,6 +1739,10 @@ function RequireAuth({ backendUrl, children }) {
   return children(user)
 }
 
+
+export function AuthSettingsPage({ backendUrl }) {
+  return <RequireAuth backendUrl={backendUrl}>{user => <WebsiteSettings user={user} backendUrl={backendUrl} />}</RequireAuth>
+}
 
 export function AuthDashboardPage({ backendUrl, page = 'dashboard' }) {
   return <RequireAuth backendUrl={backendUrl}>{(user) => <DashboardOnboardingGate key={user.user_id} backendUrl={backendUrl} user={user}><WebsiteDashboardContent key={user.user_id + page} user={user} backendUrl={backendUrl} page={page} /></DashboardOnboardingGate>}</RequireAuth>
@@ -2326,7 +2341,7 @@ function WebsiteDashboardContent({ backendUrl, user, page }) {
   }
 
   return (
-        <DashboardLayout user={user} title={page === 'sessions' ? 'Call Sessions' : 'Dashboard'} onLogout={handleLogout} logoutPending={logoutPending}>
+        <DashboardLayout user={user} backendUrl={backendUrl} title={page === 'sessions' ? 'Call Sessions' : 'Dashboard'} onLogout={handleLogout} logoutPending={logoutPending}>
           <AuthMessage message={logoutError || error} tone="error" />
           {bootstrapResult && (
             <div className="auth-user-summary">
@@ -3007,7 +3022,7 @@ function WebsiteResumeContent({ backendUrl, user }) {
     setStatusAttempt(value => value + 1)
   }
 
-  return <DashboardLayout user={user} title="Resumes">
+  return <DashboardLayout user={user} backendUrl={backendUrl} title="Resumes">
     {resumeConfirmation && <ResumeConfirmation request={resumeConfirmation} onCancel={() => finishResumeConfirmation(false)} onConfirm={() => finishResumeConfirmation(true)} returnFocusRef={confirmationFocus} />}
     <ResumeAccessSelection user={user} backendUrl={backendUrl} refreshKey={statusAttempt + ':' + phase} onChanged={() => setStatusAttempt(value => value + 1)} />
     <WebsiteResumes currentResume={currentResume} candidate={reviewCandidate || resumeRecord}

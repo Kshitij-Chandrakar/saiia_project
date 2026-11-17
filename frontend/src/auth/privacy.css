@@ -1,0 +1,47 @@
+.website-dashboard .privacy-danger { border:1px solid #e4a6a6; border-radius:12px; padding:28px; max-width:920px; }
+.privacy-danger h2 { color:#a91d2a; font-size:20px; }
+.privacy-danger p { max-width:70ch; margin:12px 0 20px; color:#4b5563; }
+.website-dashboard .privacy-delete { color:#fff; background:#b42332; border-color:#b42332; }
+.website-dashboard .privacy-delete:hover:not(:disabled) { background:#921b27; border-color:#921b27; }
+.privacy-dialog { width:min(580px,calc(100vw - 32px)); max-height:calc(100svh - 40px); overflow-y:auto; border:0; border-radius:16px; padding:28px; color:#111827; background:#fff; font-family:'Dashboard Inter',sans-serif; }
+.privacy-dialog::backdrop { background:rgb(17 24 39 / 58%); }
+.privacy-heading { display:flex; align-items:center; gap:14px; margin-bottom:20px; }
+.privacy-heading h2 { font-size:22px; font-weight:650; text-wrap:balance; }
+.privacy-warning { width:44px; height:44px; display:grid; place-items:center; color:#a91d2a; background:#fce8eb; border-radius:50%; flex-shrink:0; }
+.privacy-dialog .privacy-consequences p { margin-bottom:12px; color:#374151; line-height:1.55; }
+.privacy-dialog label { display:block; font-weight:600; margin:18px 0 8px; }
+.privacy-dialog input { width:100%; border:1px solid #9ca3af; border-radius:8px; padding:11px 12px; color:#111827; background:white; min-height:44px; }
+.privacy-dialog input::placeholder { color:#4b5563; }
+.privacy-dialog .privacy-reauth p { font-size:13px; color:#4b5563; margin:8px 0 12px; }
+.privacy-dialog footer { display:flex; gap:12px; margin-top:22px; }
+.privacy-dialog footer button { flex:1; min-height:44px; }
+.privacy-dialog .privacy-error { color:#a91d2a; margin-top:12px; }
+.privacy-dialog button:disabled { opacity:1; background:#f3f4f6; color:#666; border-color:#d1d5db; }
+.privacy-status { font:400 16px/1.6 'Dashboard Inter',sans-serif; color:#111827; max-width:720px; padding:32px 24px; margin:auto; }
+.privacy-status h1 { font-size:28px; }.privacy-status h2 { font-size:20px; }.privacy-status button { padding:12px; border-radius:8px; border:1px solid #9ca3af; background:white; color:#111827; }
+.privacy-status :focus-visible { outline:3px solid #2978cb; outline-offset:3px; }
+@media(max-width:600px) { .privacy-dialog { padding:22px; } .privacy-dialog footer { flex-direction:column-reverse; } .website-dashboard .privacy-danger { padding:20px; } }
+@media(prefers-reduced-motion:reduce) { .privacy-dialog button { transition:none; } }
+.privacy-export { max-width: 760px; margin-bottom: 24px; padding: 24px; border: 1px solid var(--border-color, #d8e0e8); border-radius: 12px; background: var(--surface, #fff); }
+.privacy-export p { line-height: 1.6; color: #344256; }
+.privacy-export button { margin: 6px 8px 6px 0; }
+.privacy-export label, .privacy-export input { display: block; width: 100%; margin: 10px 0; }
+.privacy-export button:focus-visible, .privacy-export input:focus-visible { outline: 3px solid #2978cb; outline-offset: 3px; }
+.privacy-export, .privacy-export * { box-sizing: border-box; }
+.privacy-export { font: 400 16px/1.6 'Dashboard Inter', sans-serif; color: #111827; }
+.privacy-export h2 { font-size: 22px; line-height: 1.3; }
+.privacy-center { max-width: 920px; }
+.privacy-center-intro p { margin: 6px 0 0; color: #526173; }
+.privacy-choice-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:20px 0; }
+.privacy-choice-grid > div { display:flex; flex-direction:column; gap:4px; padding:16px; border:1px solid #d8e0e8; border-radius:10px; background:#fbfcfe; }
+.privacy-choice-grid strong { color:#172b4d; }
+.privacy-choice-grid span { color:#526173; font-size:14px; line-height:1.45; }
+.privacy-details { border-top:1px solid #e2e8f0; padding:12px 0; }
+.privacy-details summary { cursor:pointer; color:#1d5d9f; font-weight:600; }
+.privacy-details p { margin:10px 0 0; font-size:14px; }
+.privacy-verification-note { margin:18px 0 0; padding:12px 14px; border-radius:8px; background:#f4f7fa; font-size:14px; }
+.privacy-export button { font: inherit; min-height: 44px; padding: 10px 16px; border: 1px solid #2978cb; border-radius: 8px; background: #fff; color: #1d5d9f; cursor: pointer; }
+.privacy-export button:disabled { cursor: default; color: #555; background: #f3f4f6; border-color: #d1d5db; }
+.privacy-export .privacy-dialog { margin: auto; }
+.privacy-export .privacy-dialog footer button:last-child:not(:disabled) { color: #fff; background: #1d64b0; }
+@media(max-width:700px) { .privacy-choice-grid { grid-template-columns:1fr; } }

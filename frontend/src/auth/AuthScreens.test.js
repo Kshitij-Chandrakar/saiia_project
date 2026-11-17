@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
+import { SAFE_AUTH_NEXT_ROUTES, verifyAuthEmailAction } from './authApi.js'
 
 
 const source = readFileSync(new URL('./AuthScreens.jsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
@@ -155,8 +156,16 @@ test('protected dashboard redirect returns to dashboard after login', () => {
 })
 
 
-test('unsafe external auth next URLs are ignored by allowlist', () => {
-  assert.match(readFileSync(new URL('./authApi.js', import.meta.url), 'utf8'), /const SAFE_AUTH_NEXT_ROUTES = new Set\(\['\/auth\/dashboard', '\/auth\/status', '\/auth\/sessions', '\/auth\/resume'\]\)/)
+test('unsafe external auth next URLs are ignored by allowlist', async () => {
+  assert.deepEqual([...SAFE_AUTH_NEXT_ROUTES], ['/auth/dashboard', '/auth/status', '/auth/sessions', '/auth/resume', '/auth/settings'])
+  for (const next of ['/auth/settings', 'https://evil.example', '//evil.example', '/auth/settings?next=https://evil.example']) {
+    let calls = 0
+    const result = await verifyAuthEmailAction(`?type=email&token_hash=synthetic&next=${encodeURIComponent(next)}`, {
+      auth: { verifyOtp: async () => { calls++; return { data: { session: { access_token: 'synthetic' } } } } },
+    })
+    assert.equal(calls, next === '/auth/settings' ? 1 : 0)
+    assert.equal(result.href, next === '/auth/settings' ? next : '/auth/login')
+  }
   assert.match(source, /return SAFE_AUTH_NEXT_ROUTES\.has\(route\) \? route : fallback/)
   assert.match(openDesktopHandoffSource, /window\.location\.href = callbackUrl\.toString\(\)/)
   assert.doesNotMatch(sourceWithoutDesktopHandoff, /window\.location\s*=|window\.location\.href\s*=|location\.href\s*=|new URL\(.*next/)
