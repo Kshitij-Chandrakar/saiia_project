@@ -939,6 +939,8 @@ def verify_admin_restore(r, actor, results):
         finally:
             store.write = original_write
         assert not source.ready()
+        source.publish()
+        assert source.ready()
         source.start()
         assert source.ready()
         import threading
@@ -956,9 +958,53 @@ def verify_admin_restore(r, actor, results):
         operator_store = HTTPCheckpointStore(
             url, operator, key, store.environment, store.dataset, local_rehearsal=True
         )
+        with store.locked() as local:
+            prior = store.read(local)
+            assert prior["journal_id"] is not None
+            prior.pop("source_sealed")
+            store.write(local, prior)
+        try:
+            remote_store.upgrade_snapshot_schema()
+        except ContentBlocked:
+            pass
+        else:
+            raise AssertionError("ordinary witness writer upgraded the schema")
+        operator_store.upgrade_snapshot_schema()
+        with remote_store.locked() as checkpoint:
+            assert remote_store.read(checkpoint)["source_sealed"] is False
         source.store = remote_store
         try:
             source.start()
+            second_store = HTTPCheckpointStore(
+                url, writer, key, store.environment, store.dataset, local_rehearsal=True
+            )
+            second_source = AdministrationRestore(
+                lambda: r.connect("admin_restore_executor"),
+                journal,
+                second_store,
+                source.generation,
+                source.snapshot,
+            )
+            second_source.start()
+            with r.connect() as c:
+                c.execute(
+                    "insert into administration.campaign_fences values(%s,1,'expired')",
+                    (uuid4(),),
+                )
+            try:
+                with ThreadPoolExecutor(2) as pool:
+                    list(
+                        pool.map(
+                            lambda coordinator: coordinator.publish(),
+                            (source, second_source),
+                        )
+                    )
+                assert source.ready() and second_source.ready()
+                with remote_store.locked() as checkpoint:
+                    selected = source._journal(remote_store.read(checkpoint)).path
+                assert selected.is_file()
+            finally:
+                second_store.http.close()
             with r.connect("admin_restore_executor") as c:
                 old = source.capture(c)
             with r.connect("admin_executor") as c:
@@ -1268,6 +1314,21 @@ def verify_population(r, actor, results):
             "select population_started_at from administration.telemetry_coverage"
         ).fetchone()[0]
     baseline = metrics(cutoff, datetime.now(timezone.utc) + timedelta(seconds=1))
+    recently_verified = r.user()["id"]
+    with r.connect() as c:
+        c.execute(
+            "update auth.users set created_at=clock_timestamp()-interval '120 days' where id=%s",
+            (recently_verified,),
+        )
+    recent = metrics(cutoff, datetime.now(timezone.utc) + timedelta(seconds=1))
+    assert recent["new_users"] == baseline["new_users"] + 1, recent
+    with r.connect() as c:
+        joined, historical = c.execute(
+            "select joined_at,baseline from administration.population where subject=%s",
+            (recently_verified,),
+        ).fetchone()
+        assert joined >= cutoff and historical is False
+    baseline = recent
     new = r.user()["id"]
     observed = metrics(cutoff, datetime.now(timezone.utc) + timedelta(seconds=1))
     assert observed["new_users"] == baseline["new_users"] + 1, observed

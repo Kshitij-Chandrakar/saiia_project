@@ -73,6 +73,10 @@ class LocalCheckpointStore:
                     "snapshot": None,
                     "ready": False,
                     "sealed_head": None,
+                    "journal_id": None,
+                    "state_hash": None,
+                    "database_revision": 0,
+                    "source_sealed": False,
                 },
             )
 

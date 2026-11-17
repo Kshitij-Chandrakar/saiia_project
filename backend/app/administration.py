@@ -102,9 +102,9 @@ class Administration:
             while not self.stop.is_set():
                 try:
                     if self.restore is not None:
+                        self.restore.publish()
                         if not self.restore.ready():
                             raise RuntimeError("administration restore unavailable")
-                        self.restore.publish()
                     if time.monotonic() >= retention_at:
                         retention_at = time.monotonic() + 60
                         self.retire()
@@ -180,9 +180,7 @@ class Administration:
             raise HTTPException(
                 404
                 if result["error"] == "not_found"
-                else 403
-                if result["error"] == "reauthentication_required"
-                else 409
+                else 403 if result["error"] == "reauthentication_required" else 409
             )
         return result
 
@@ -239,11 +237,11 @@ class Administration:
             raise HTTPException(503) from None
         if result.get("error"):
             raise HTTPException(
-                404
-                if result["error"] == "not_found"
-                else 403
-                if result["error"] == "reauthentication_required"
-                else 409,
+                (
+                    404
+                    if result["error"] == "not_found"
+                    else 403 if result["error"] == "reauthentication_required" else 409
+                ),
                 detail={"code": result["error"]},
             )
         return result
@@ -723,11 +721,15 @@ async def customer_access(request: Request, action: str):
             user,
             action,
             document,
-            "privacy"
-            if request.url.path.startswith("/api/admin/privacy-retries/")
-            else "cancel"
-            if request.url.path.startswith("/api/admin/cancellations/")
-            else "access",
+            (
+                "privacy"
+                if request.url.path.startswith("/api/admin/privacy-retries/")
+                else (
+                    "cancel"
+                    if request.url.path.startswith("/api/admin/cancellations/")
+                    else "access"
+                )
+            ),
         ),
         headers=HEADERS,
     )

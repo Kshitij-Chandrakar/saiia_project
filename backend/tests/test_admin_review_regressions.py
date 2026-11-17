@@ -4,6 +4,7 @@ import asyncio
 import json
 import secrets
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -74,6 +75,50 @@ def test_async_attempt_failure_preserves_original_exception():
     asyncio.run(scenario())
 
 
+def test_async_telemetry_does_not_wait_for_default_executor():
+    async def scenario():
+        started, release = threading.Event(), threading.Event()
+        loop = asyncio.get_running_loop()
+        old = loop._default_executor
+        pool = ThreadPoolExecutor(max_workers=1)
+        loop.set_default_executor(pool)
+        try:
+            blocked = loop.run_in_executor(
+                pool, lambda: (started.set(), release.wait(5))
+            )
+            assert started.wait(2)
+            rows = []
+            token = context.set(("subject", "request", rows.append))
+            try:
+                await asyncio.wait_for(
+                    measured_async_call(
+                        lambda: asyncio.sleep(0), telemetry_provider="ollama"
+                    ),
+                    2,
+                )
+            finally:
+                context.reset(token)
+            assert len(rows) == 1
+        finally:
+            release.set()
+            await blocked
+            loop.set_default_executor(old or ThreadPoolExecutor(max_workers=1))
+            pool.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_async_attempt_without_owner_skips_executor(monkeypatch):
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        monkeypatch.setattr(
+            loop, "run_in_executor", lambda *_: pytest.fail("unowned telemetry queued")
+        )
+        await measured_async_call(lambda: asyncio.sleep(0), telemetry_provider="ollama")
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("dispatch", [None, {}, {"allowed": False}])
 def test_disabled_cancellation_dispatch_never_calls_provider(dispatch):
     worker = CancellationDispatcher(None, SimpleNamespace(enabled=True))
@@ -122,6 +167,12 @@ def snapshot_fixture(tmp_path):
     )
     journal = RestoreJournal(tmp_path / "journal", {"v1": key}, "v1")
     store.initialize(journal.initialize())
+    with store.locked() as local:
+        record = store.read(local)
+        assert record["journal_id"] is None
+        assert record["state_hash"] is None
+        assert record["database_revision"] == 0
+        assert record["source_sealed"] is False
     restore = AdministrationRestore(None, journal, store, str(uuid4()), str(uuid4()))
     return store, restore
 
@@ -150,6 +201,7 @@ def test_large_snapshots_rotate_without_event_or_lifetime_exhaustion(tmp_path):
             record = store.read(local)
             restore._publish(local, record, state, ready=True)
             assert restore._state(record) == state
+        restore.prune_acknowledged()
         assert len(list(tmp_path.glob("journal.*.snapshot"))) <= 2
 
 
@@ -174,6 +226,25 @@ def test_snapshot_ack_loss_restart_and_tamper_fail_closed(tmp_path):
         path.write_bytes(path.read_bytes()[:-1])
         with pytest.raises(ContentBlocked):
             restore._state(record)
+
+
+def test_acknowledged_snapshot_pruning_recovers_after_interrupted_housekeeping(
+    tmp_path,
+):
+    store, restore = snapshot_fixture(tmp_path)
+    for revision in range(1, 4):
+        with store.locked() as local:
+            restore._publish(
+                local,
+                store.read(local),
+                {"revision": revision, "restrictions": []},
+                ready=True,
+            )
+    assert len(list(tmp_path.glob("journal.*.snapshot"))) == 3
+    restore.prune_acknowledged()
+    assert len(list(tmp_path.glob("journal.*.snapshot"))) == 1
+    with store.locked() as local:
+        assert restore._state(store.read(local))["revision"] == 3
 
 
 def test_billing_authorization_uses_worker_thread(monkeypatch):
