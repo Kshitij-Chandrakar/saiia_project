@@ -201,3 +201,13 @@ function getCloudReadinessDetail(cloud, status) {
     ? `Cloud connected. Missing ${missing.join(' and ')} for future startup setup.`
     : 'Cloud connected.'
 }
+
+const LOGIN_VISIBLE_STATUSES = new Set([
+  DESKTOP_AUTH_STATUSES.SIGNED_OUT,
+  DESKTOP_AUTH_STATUSES.SIGNING_IN,
+  DESKTOP_AUTH_STATUSES.TOKEN_EXPIRED,
+])
+
+export function shouldShowStartupLogin(authState) {
+  return LOGIN_VISIBLE_STATUSES.has(getDesktopAuthViewModel(authState).status)
+}

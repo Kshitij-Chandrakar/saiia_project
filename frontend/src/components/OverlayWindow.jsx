@@ -1,3 +1,4 @@
+import { useScreenContextStatus } from './useScreenContextStatus'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown,
@@ -28,7 +29,7 @@ import {
   snapshotOverlayState,
 } from '../overlay_mode_state'
 import { createOverlayAuthStateTracker } from '../overlay_auth_state_tracker'
-import { ScreenContextChooser, useScreenContextStatus } from './ScreenContextControls'
+import { ScreenContextChooser } from './ScreenContextControls'
 import { screenContextCommandFence } from '../screen_context_events'
 
 function formatElapsedTime(startedAt) {

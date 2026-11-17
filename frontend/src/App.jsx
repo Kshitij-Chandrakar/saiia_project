@@ -1,6 +1,4 @@
 import SubscriptionAdmin from './auth/SubscriptionAdmin'
-import BillingAdmin from './auth/BillingAdmin'
-import BillingCheckout from './auth/BillingCheckout'
 import { completedDiagramSource } from './diagram_source_revision.js'
 import { mergeOverlaySnapshot } from './overlay_snapshot.js'
 import { isCurrentScreenDelivery, screenContextCommandFence, screenContextDisplayPayload } from './screen_context_events'
@@ -8,7 +6,7 @@ import WebsiteNotFound, { WebsiteRouteHistory } from './WebsiteNotFound'
 import { createGrpcAutoSession, getGrpcAutoBlockReason } from './grpc_auto_session.js'
 import { selectRealtimeRoute, realtimeRouteDiagnostics, AUTH_BLOCKS } from './realtime_router.js'
 import { canUseGrpcManual, createGrpcManualSession, getGrpcManualBlockReason } from './grpc_manual_session.js'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import {
   AuthCallbackPage,
@@ -1318,6 +1316,7 @@ function MainWindow() {
   const activeAudioPipelineRequestIdRef = useRef('')
   const activeScreenOperationRef = useRef(null)
   const committedScreenOperationIdsRef = useRef(new Set())
+  const toolbarHandlerRef = useRef(null)
   const sourceWarningTimeoutRef = useRef(null)
   const answerReadyResetTimeoutRef = useRef(null)
   const generatingWatchdogTimeoutRef = useRef(null)
@@ -6465,12 +6464,8 @@ function MainWindow() {
     }
   }
 
-  useEffect(() => {
-    if (!window.electronAPI?.onToolbarAction) {
-      return undefined
-    }
-
-    const unsubscribe = window.electronAPI.onToolbarAction(async (payload) => {
+  useLayoutEffect(() => {
+    toolbarHandlerRef.current = async (payload) => {
       const action = payload?.action
       const nextValue = payload?.payload?.value
 
@@ -6724,26 +6719,13 @@ function MainWindow() {
         setStatus('Request failed.')
         scheduleAudioPipelineIdleReset()
       }
-    })
-
-    return () => {
-      if (unsubscribe) {
-        unsubscribe()
-      }
     }
-  }, [
-    startupSessionConfig,
-    autoMode,
-    autoProcessing,
-    audioPipelineStatus,
-    audioSources,
-    isManualGenerating,
-    manualProcessing,
-    ocrProcessing,
-    ocrText,
-    recording,
-    transcript,
-  ])
+  })
+
+  useEffect(() => {
+    if (!window.electronAPI?.onToolbarAction) return undefined
+    return window.electronAPI.onToolbarAction(payload => toolbarHandlerRef.current?.(payload))
+  }, [])
 
   return (
     <MainDiagnosticsWindow
@@ -7054,8 +7036,6 @@ export default function App() {
       <Route path="/auth/sessions" element={<AuthDashboardPage backendUrl={BACKEND_URL} page="sessions" />} />
       <Route path="/auth/resume" element={<AuthResumePage backendUrl={BACKEND_URL} />} />
       {!window.electronAPI && <Route path="/auth/admin/subscriptions" element={<SubscriptionAdmin backendUrl={BACKEND_URL} />} />}
-      {!window.electronAPI && <Route path="/auth/admin/billing" element={<BillingAdmin backendUrl={BACKEND_URL} />} />}
-      {!window.electronAPI && <Route path="/auth/checkout" element={<BillingCheckout backendUrl={BACKEND_URL} />} />}
       <Route path="/auth/logout" element={<AuthLogoutPage />} />
       <Route path="/" element={<LandingPage />} />
       <Route path="/landing" element={<LandingPage />} />

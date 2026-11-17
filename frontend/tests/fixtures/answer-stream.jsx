@@ -12,7 +12,7 @@ const mark = stage => { if (stages.length < 128) stages.push({ stage, localMs: p
 window.phase1Stages = stages
 let listener
 window.phase1Snapshot = snapshot => { mark('renderer_consumption'); listener?.(snapshot) }
-function Harness() {
+export default function Harness() {
   const [entry, setEntry] = useState({ answer: '', status: 'generating' })
   const [overlay, setOverlay] = useState({ answer: '', answerDisplayMode: 'answer', visible: true })
   window.phase3OverlaySnapshot = next => setOverlay(current => mergeOverlaySnapshot(current, next))

@@ -130,7 +130,7 @@ function recoveryHarness() {
     } },
   }
   const start = source.indexOf('  const refreshGenerationCloud =')
-  const handlers = vm.runInNewContext(`${source.slice(start, source.indexOf('  useEffect(', start))}; ({ recoverManualGeneration, refreshGenerationCloud })`, context)
+  const handlers = vm.runInNewContext(`${source.slice(start, source.indexOf('  useLayoutEffect(', start))}; ({ recoverManualGeneration, refreshGenerationCloud })`, context)
   return { context, ...handlers }
 }
 

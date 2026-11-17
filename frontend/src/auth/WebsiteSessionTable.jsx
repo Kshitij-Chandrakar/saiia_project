@@ -6,7 +6,7 @@ import moreIcon from '../assets/dashboard/more.svg'
 import searchIcon from '../assets/dashboard/search.svg'
 import { SkeletonRows } from './WebsiteSkeleton'
 
-export function sessionDuration(session) {
+function sessionDuration(session) {
   if (!session.started_at || !session.ended_at) return 'Unavailable'
   const milliseconds = Date.parse(session.ended_at) - Date.parse(session.started_at)
   if (!Number.isFinite(milliseconds) || milliseconds < 0) return 'Unavailable'

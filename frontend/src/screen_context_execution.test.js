@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
-import { isCurrentScreenContextEvent, screenContextCommandFence, isCurrentScreenDelivery, screenContextDisplayPayload } from './screen_context_events.js'
+import { isCurrentScreenContextEvent, screenContextCommandFence, screenContextDisplayPayload } from './screen_context_events.js'
 import { normalizeScreenResponse } from './screen_intelligence_contract.js'
 const require = createRequire(import.meta.url)
 const { createScreenContextController } = require('../electron/screen_context_controller.cjs')

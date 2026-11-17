@@ -22,29 +22,8 @@ import workflowImgContainer4 from '../assets/landing/figma-workflow-container4.s
 import workflowImgContainer5 from '../assets/landing/figma-workflow-container5.svg'
 import workflowImgContainer6 from '../assets/landing/figma-workflow-container6.svg'
 import featuresImgContainer from '../assets/landing/figma-feature-container.svg'
-import featuresImgBackgroundComplete from '../assets/landing/figma-feature-background-complete.svg'
-import featuresImgBackgroundSimple from '../assets/landing/figma-feature-background-simple.svg'
-import featuresImgShadow from '../assets/landing/figma-feature-shadow.svg'
-import featuresImgFloor from '../assets/landing/figma-feature-floor.svg'
-import featuresImgDevice from '../assets/landing/figma-feature-device.svg'
-import featuresImgFiles from '../assets/landing/figma-feature-files.svg'
-import featuresImgCharacter from '../assets/landing/figma-feature-character.svg'
-import featuresImgPlant from '../assets/landing/figma-feature-plant.svg'
 import featuresImgContainer1 from '../assets/landing/figma-feature-container1.svg'
-import featuresImgFloor1 from '../assets/landing/figma-feature-floor1.svg'
-import featuresImgFilingCabinets from '../assets/landing/figma-feature-filing-cabinets.svg'
-import featuresImgPlants from '../assets/landing/figma-feature-plants.svg'
-import featuresImgFolder2 from '../assets/landing/figma-feature-folder2.svg'
-import featuresImgFolder1 from '../assets/landing/figma-feature-folder1.svg'
-import featuresImgDocuments from '../assets/landing/figma-feature-documents.svg'
 import featuresImgContainer2 from '../assets/landing/figma-feature-container2.svg'
-import featuresImgFloor2 from '../assets/landing/figma-feature-floor2.svg'
-import featuresImgShadow1 from '../assets/landing/figma-feature-shadow1.svg'
-import featuresImgPlants1 from '../assets/landing/figma-feature-plants1.svg'
-import featuresImgGear from '../assets/landing/figma-feature-gear.svg'
-import featuresImgDevice1 from '../assets/landing/figma-feature-device1.svg'
-import featuresImgCharacter1 from '../assets/landing/figma-feature-character1.svg'
-import featuresImgCloud from '../assets/landing/figma-feature-cloud.svg'
 import platformsImgCibHackerrank from '../assets/landing/figma-platform-cib-hackerrank.svg'
 import platformsImgLogosMicrosoftTeams from '../assets/landing/figma-platform-logos-microsoft-teams.svg'
 import platformsImgSelfhstGoogleMeet from '../assets/landing/figma-platform-selfhst-google-meet.svg'
@@ -1942,7 +1921,7 @@ const preparationFrames = [
         "width": 688,
         "height": 325,
         "copy": {
-          "x": 30.778701782226562,
+          "x": 30.778701782226563,
           "y": 51.5,
           "width": 307,
           "height": 222
@@ -2007,7 +1986,7 @@ const preparationFrames = [
           "id": "225:13628",
           "name": "devices/rafiki",
           "x": 355.7216796875,
-          "y": 26.444778442382812,
+          "y": 26.444778442382813,
           "width": 307.556640625,
           "height": 272.1104431152344,
           "asset": "prep-03-right-2.svg"
@@ -2131,7 +2110,7 @@ const preparationFrames = [
           "id": "235:1049",
           "name": "devices/rafiki",
           "x": 355.7216796875,
-          "y": 26.444778442382812,
+          "y": 26.444778442382813,
           "width": 307.556640625,
           "height": 272.1104431152344,
           "asset": "prep-03-left-4.svg"
@@ -2249,7 +2228,7 @@ const preparationFrames = [
           "id": "225:18219",
           "name": "at-work/cuate",
           "x": 371.47894287109375,
-          "y": 24.000076293945312,
+          "y": 24.000076293945313,
           "width": 326.0420837402344,
           "height": 305.9998474121094,
           "asset": "prep-05-active-5.svg"

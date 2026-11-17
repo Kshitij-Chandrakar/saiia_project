@@ -31,11 +31,11 @@ test('Analyze Screen entry points only open the passive chooser', () => {
 test('OCR active path uses one capture and one direct screen-model request', () => {
   const handler = sourceBetween(
     appSource,
-    'const handleScreenCapture = async () => {',
+    'const handleElectronScreenSourceCapture = async (sourceId) => {',
     'const handleManualQuestionSubmit = async (nextText, submitId = null) => {'
   )
 
-  assert.match(handler, /await window\.saiia\.captureActiveWindow\(\)/)
+  assert.match(handler, /payload\?\.imageDataUrl/)
   assert.match(appSource, /\/api\/screen\/analyze-active-window-answer/)
   assert.match(handler, /requestActiveWindowAnswer/)
   assert.match(handler, /commitDirectScreenAnswer/)
@@ -103,7 +103,7 @@ test('active-window resolver fails controlled instead of choosing ambiguous sour
   )
   const handler = sourceBetween(
     appSource,
-    'const handleScreenCapture = async () => {',
+    'const handleElectronScreenSourceCapture = async (sourceId) => {',
     'const handleManualQuestionSubmit = async (nextText, submitId = null) => {'
   )
 
@@ -114,7 +114,7 @@ test('active-window resolver fails controlled instead of choosing ambiguous sour
     mainSource,
     /SAIIA could not identify the active question window\./
   )
-  assert.match(handler, /Could not identify active window\. Waiting for retry\./)
+  assert.match(handler, /failCurrentScreenOperation\(operation, safeMessage\)/)
 })
 
 test('OCR panel no longer exposes preview edit or generate-from-preview controls', () => {

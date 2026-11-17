@@ -52,7 +52,7 @@ export default function WebsiteSessionViewer({ session, section, onSection, sect
   }}>
     <aside className="ws-viewer__sidebar">
       <div className="ws-viewer__identity"><span>SESSION REVIEW</span><h2 id="ws-viewer-title" title={title}>{title}</h2>{[session.target_role, session.company_name].filter(value => value && value !== title).length > 0 && <p>{[session.target_role, session.company_name].filter(value => value && value !== title).join(' · ')}</p>}</div>
-      <nav aria-label="Session sections">{sections.map(([key, label, Icon]) => <button key={key} type="button" disabled={sectionDisabled(key)} aria-current={key === section ? 'page' : undefined} onClick={() => onSection(key)}><Icon size={18} aria-hidden="true" />{label}</button>)}</nav>
+      <nav aria-label="Session sections">{sections.map(([key, label, icon]) => { const SectionIcon = icon; return <button key={key} type="button" disabled={sectionDisabled(key)} aria-current={key === section ? 'page' : undefined} onClick={() => onSection(key)}><SectionIcon size={18} aria-hidden="true" />{label}</button> })}</nav>
       <img className="ws-viewer__mascot" src={sessionReviewMascot} alt="" aria-hidden="true" width="576" height="576" />
     </aside>
     <div className="ws-viewer__main">
