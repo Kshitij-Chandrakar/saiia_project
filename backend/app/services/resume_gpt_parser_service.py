@@ -1,3 +1,4 @@
+from app.admin_telemetry import measured_call
 import json
 import logging
 import re
@@ -109,7 +110,7 @@ class ResumeGptParserService:
             )
 
         try:
-            response = self._openai_client().responses.create(
+            response = measured_call(self._openai_client().responses.create, telemetry_provider="openai",
                 model=settings.RESUME_GPT_MODEL,
                 instructions=self._instructions(),
                 input=self._input_text(bounded_text),

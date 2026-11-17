@@ -1,3 +1,4 @@
+from app.admin_telemetry import measured_call
 import logging
 import time
 
@@ -46,7 +47,7 @@ class AssemblyAISTTService:
             config = aai.TranscriptionConfig(
                 speech_model=getattr(aai.SpeechModel, self.model, aai.SpeechModel.best),
             )
-            transcript = aai.Transcriber().transcribe(audio_path, config=config)
+            transcript = measured_call(aai.Transcriber().transcribe, audio_path, config=config, telemetry_provider="assemblyai", telemetry_model=self.model)
         except Exception as exc:
             message = str(exc).lower()
             if "401" in message or "403" in message or "authentication" in message or "unauthorized" in message:

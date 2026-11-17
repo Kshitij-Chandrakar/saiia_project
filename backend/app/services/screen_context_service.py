@@ -1,4 +1,5 @@
 """Stateless, single-call continuity on the existing direct Screen provider."""
+from app.admin_telemetry import measured_async_call
 import asyncio
 import base64
 import io
@@ -324,7 +325,7 @@ async def answer_context(service, request: ScreenContextRequest, files: dict[str
         async with httpx.AsyncClient(event_hooks={"request": [record_attempt]}, follow_redirects=False) as transport:
             async with AsyncOpenAI(api_key=settings.OPENAI_API_KEY, http_client=transport, max_retries=0, timeout=timeout) as client:
                 with anyio.fail_after(timeout):
-                    response = await client.responses.create(
+                    response = await measured_async_call(client.responses.create, telemetry_provider="openai",
                         model=settings.SCREEN_VISION_MODEL, instructions=instructions,
                         input=[{"role": "user", "content": content}],
                         text={"format": {"type": "json_schema", "name": "screen_context_v1", "strict": True,

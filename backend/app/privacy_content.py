@@ -336,6 +336,11 @@ class ContentEngine:
         if cursor.fetchone() and not restricted:
             raise ContentBlocked("account_restricted")
         if not restricted:
+            cursor.execute("select to_regprocedure('public.administration_content_allowed(uuid)') is not null")
+            if cursor.fetchone()[0]:
+                cursor.execute("select public.administration_content_allowed(%s)", (account,))
+                if cursor.fetchone()[0] is not True:
+                    raise ContentBlocked("account_restricted")
             cursor.execute(
                 "select public.privacy_email_denied(email) from auth.users where id=%s",
                 (account,),
@@ -524,6 +529,11 @@ class ContentEngine:
         from app.privacy_schema import validate_schema
 
         validate_schema(c)
+        if self.credential_connect is not None:
+            with self.credential_connect() as metadata_connection:
+                if metadata_connection.execute("select to_regprocedure('public.administration_schema()') is not null").fetchone()[0]:
+                    from app.admin_registry import validate_admin_schema
+                    validate_admin_schema(metadata_connection.execute("select public.administration_schema()").fetchone()[0])
         columns = self.columns(c)
         unknown = self.coverage(columns)
         # Unknown categories are an explicit blocker, not silently omitted.
@@ -632,6 +642,15 @@ class ContentEngine:
                         "insert into privacy_export_rows(job_id,category,document) values(%s,%s,%s::jsonb)",
                         (job_id, table, document),
                     )
+        c.execute("select to_regprocedure('public.administration_subject_export(uuid)') is not null")
+        if c.fetchone()[0]:
+            c.execute("select public.administration_subject_export(%s)", (job_id,))
+            document = json.dumps(c.fetchone()[0], default=str)
+            size += len(document.encode())
+            count += 1
+            if len(document.encode()) > self.limits.max_row_bytes or size > self.limits.max_bytes or count > self.limits.max_entries:
+                raise ContentBlocked("export_limit_exceeded_no_archive_published")
+            c.execute("insert into privacy_export_rows(job_id,category,document) values(%s,%s,%s::jsonb)", (job_id, "administration_personal", document))
         c.execute(
             "insert into privacy_content_objects(job_id,bucket,object_key,source_id,original_name) select %s,'resumes',storage_path,id,original_filename from resumes where user_id=%s on conflict do nothing",
             (job_id, account),
@@ -1027,10 +1046,15 @@ class ContentEngine:
 
             with self.credential_connect() as connection:
                 check_executor_identity(connection, "privacy_cleanup_executor")
+                if connection.execute("select to_regprocedure('public.administration_schema()') is not null").fetchone()[0]:
+                    from app.admin_registry import validate_admin_schema
+                    validate_admin_schema(connection.execute("select public.administration_schema()").fetchone()[0])
                 connection.execute(
                     "select public.privacy_auto_credentials_erase(%s,%s)",
                     (job["id"], job["lease"]),
                 )
+                if connection.execute("select to_regprocedure('public.administration_subject_cleanup(uuid,uuid)') is not null").fetchone()[0]:
+                    connection.execute("select public.administration_subject_cleanup(%s,%s)", (job["id"], job["lease"]))
                 if redaction_rpc:
                     connection.execute(
                         "select public.privacy_redact_legacy_auto(%s,%s)",

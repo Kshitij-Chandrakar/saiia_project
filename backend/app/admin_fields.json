@@ -1,0 +1,1137 @@
+{
+  "tables": {
+    "access_reviews": {
+      "fields": {
+        "actor": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "actor_revision": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "bigint:int8"
+        },
+        "consumed_at": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "expires_at": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "operation_id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "reason": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "text:text"
+        },
+        "restricted": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "boolean:bool"
+        },
+        "session_id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "target": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "target_revision": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "bigint:int8"
+        }
+      }
+    },
+    "activity": {
+      "fields": {
+        "completed_at": {
+          "cleanup": "90 days from completion; remove during account primary cleanup",
+          "export": "event kind/time only",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "event_id": {
+          "cleanup": "90 days from completion; remove during account primary cleanup",
+          "export": "event kind/time only",
+          "type": "uuid:uuid"
+        },
+        "kind": {
+          "cleanup": "90 days from completion; remove during account primary cleanup",
+          "export": "event kind/time only",
+          "type": "text:text"
+        },
+        "subject": {
+          "cleanup": "90 days from completion; remove during account primary cleanup",
+          "export": "event kind/time only",
+          "type": "uuid:uuid"
+        }
+      }
+    },
+    "audience_members": {
+      "fields": {
+        "account_id": {
+          "cleanup": "7d audience review clock; account primary cleanup earlier",
+          "export": "exclude other recipients",
+          "type": "uuid:uuid"
+        },
+        "review_id": {
+          "cleanup": "7d audience review clock; account primary cleanup earlier",
+          "export": "exclude other recipients",
+          "type": "uuid:uuid"
+        }
+      }
+    },
+    "audience_reviews": {
+      "fields": {
+        "actor": {
+          "cleanup": "references7d; confirmation5m; consumption invalidates proof",
+          "export": "exclude internal reviews and actor/session evidence",
+          "type": "uuid:uuid"
+        },
+        "actor_revision": {
+          "cleanup": "references7d; confirmation5m; consumption invalidates proof",
+          "export": "exclude internal reviews and actor/session evidence",
+          "type": "bigint:int8"
+        },
+        "campaign_id": {
+          "cleanup": "references7d; confirmation5m; consumption invalidates proof",
+          "export": "exclude internal reviews and actor/session evidence",
+          "type": "uuid:uuid"
+        },
+        "consumed_at": {
+          "cleanup": "references7d; confirmation5m; consumption invalidates proof",
+          "export": "exclude internal reviews and actor/session evidence",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "created_at": {
+          "cleanup": "references7d; confirmation5m; consumption invalidates proof",
+          "export": "exclude internal reviews and actor/session evidence",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "expires_at": {
+          "cleanup": "references7d; confirmation5m; consumption invalidates proof",
+          "export": "exclude internal reviews and actor/session evidence",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "id": {
+          "cleanup": "references7d; confirmation5m; consumption invalidates proof",
+          "export": "exclude internal reviews and actor/session evidence",
+          "type": "uuid:uuid"
+        },
+        "recipient_count": {
+          "cleanup": "references7d; confirmation5m; consumption invalidates proof",
+          "export": "exclude internal reviews and actor/session evidence",
+          "type": "bigint:int8"
+        },
+        "references_until": {
+          "cleanup": "references7d; confirmation5m; consumption invalidates proof",
+          "export": "exclude internal reviews and actor/session evidence",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "revision": {
+          "cleanup": "references7d; confirmation5m; consumption invalidates proof",
+          "export": "exclude internal reviews and actor/session evidence",
+          "type": "bigint:int8"
+        },
+        "session_id": {
+          "cleanup": "references7d; confirmation5m; consumption invalidates proof",
+          "export": "exclude internal reviews and actor/session evidence",
+          "type": "uuid:uuid"
+        }
+      }
+    },
+    "audit": {
+      "fields": {
+        "action": {
+          "cleanup": "180d action with explicit holds",
+          "export": "exclude protected history",
+          "type": "text:text"
+        },
+        "correlation": {
+          "cleanup": "180d action with explicit holds",
+          "export": "exclude protected history",
+          "type": "uuid:uuid"
+        },
+        "expires_at": {
+          "cleanup": "180d action with explicit holds",
+          "export": "exclude protected history",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "id": {
+          "cleanup": "180d action with explicit holds",
+          "export": "exclude protected history",
+          "type": "uuid:uuid"
+        },
+        "outcome": {
+          "cleanup": "180d action with explicit holds",
+          "export": "exclude protected history",
+          "type": "text:text"
+        },
+        "reason": {
+          "cleanup": "180d action with explicit holds",
+          "export": "exclude protected history",
+          "type": "text:text"
+        },
+        "recorded_at": {
+          "cleanup": "180d action with explicit holds",
+          "export": "exclude protected history",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "role_at_action": {
+          "cleanup": "180d action with explicit holds",
+          "export": "exclude protected history",
+          "type": "text:text"
+        }
+      }
+    },
+    "audit_references": {
+      "fields": {
+        "actor": {
+          "cleanup": "dependent audit180d with explicit holds",
+          "export": "exclude protected actor/subject mapping",
+          "type": "uuid:uuid"
+        },
+        "event": {
+          "cleanup": "dependent audit180d with explicit holds",
+          "export": "exclude protected actor/subject mapping",
+          "type": "uuid:uuid"
+        },
+        "target": {
+          "cleanup": "dependent audit180d with explicit holds",
+          "export": "exclude protected actor/subject mapping",
+          "type": "uuid:uuid"
+        }
+      }
+    },
+    "campaign_callbacks": {
+      "fields": {
+        "delivery_id": {
+          "cleanup": "dependent delivery90d terminal or earlier account primary cleanup",
+          "export": "exclude provider callback security identifiers",
+          "type": "text:text"
+        },
+        "message_id": {
+          "cleanup": "dependent delivery90d terminal or earlier account primary cleanup",
+          "export": "exclude provider callback security identifiers",
+          "type": "uuid:uuid"
+        },
+        "raw_hash": {
+          "cleanup": "dependent delivery90d terminal or earlier account primary cleanup",
+          "export": "exclude provider callback security identifiers",
+          "type": "text:text"
+        },
+        "recorded_at": {
+          "cleanup": "dependent delivery90d terminal or earlier account primary cleanup",
+          "export": "exclude provider callback security identifiers",
+          "type": "timestamp with time zone:timestamptz"
+        }
+      }
+    },
+    "campaign_deliveries": {
+      "fields": {
+        "account_id": {
+          "cleanup": "terminal90d; account primary cleanup earlier; unfinished dispatch stopped on audience/authority expiry",
+          "export": "own state/created/terminal only",
+          "type": "uuid:uuid"
+        },
+        "attempts": {
+          "cleanup": "terminal90d; account primary cleanup earlier; unfinished dispatch stopped on audience/authority expiry",
+          "export": "own state/created/terminal only",
+          "type": "integer:int4"
+        },
+        "campaign_id": {
+          "cleanup": "terminal90d; account primary cleanup earlier; unfinished dispatch stopped on audience/authority expiry",
+          "export": "own state/created/terminal only",
+          "type": "uuid:uuid"
+        },
+        "created_at": {
+          "cleanup": "terminal90d; account primary cleanup earlier; unfinished dispatch stopped on audience/authority expiry",
+          "export": "own state/created/terminal only",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "event_id": {
+          "cleanup": "terminal90d; account primary cleanup earlier; unfinished dispatch stopped on audience/authority expiry",
+          "export": "own state/created/terminal only",
+          "type": "uuid:uuid"
+        },
+        "id": {
+          "cleanup": "terminal90d; account primary cleanup earlier; unfinished dispatch stopped on audience/authority expiry",
+          "export": "own state/created/terminal only",
+          "type": "uuid:uuid"
+        },
+        "last_callback": {
+          "cleanup": "terminal90d; account primary cleanup earlier; unfinished dispatch stopped on audience/authority expiry",
+          "export": "own state/created/terminal only",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "lease": {
+          "cleanup": "terminal90d; account primary cleanup earlier; unfinished dispatch stopped on audience/authority expiry",
+          "export": "own state/created/terminal only",
+          "type": "uuid:uuid"
+        },
+        "lease_until": {
+          "cleanup": "terminal90d; account primary cleanup earlier; unfinished dispatch stopped on audience/authority expiry",
+          "export": "own state/created/terminal only",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "message_id": {
+          "cleanup": "terminal90d; account primary cleanup earlier; unfinished dispatch stopped on audience/authority expiry",
+          "export": "own state/created/terminal only",
+          "type": "uuid:uuid"
+        },
+        "review_id": {
+          "cleanup": "terminal90d; account primary cleanup earlier; unfinished dispatch stopped on audience/authority expiry",
+          "export": "own state/created/terminal only",
+          "type": "uuid:uuid"
+        },
+        "state": {
+          "cleanup": "terminal90d; account primary cleanup earlier; unfinished dispatch stopped on audience/authority expiry",
+          "export": "own state/created/terminal only",
+          "type": "text:text"
+        },
+        "terminal_at": {
+          "cleanup": "terminal90d; account primary cleanup earlier; unfinished dispatch stopped on audience/authority expiry",
+          "export": "own state/created/terminal only",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "test_revision": {
+          "cleanup": "terminal90d; account primary cleanup earlier; unfinished dispatch stopped on audience/authority expiry",
+          "export": "own state/created/terminal only",
+          "type": "bigint:int8"
+        }
+      }
+    },
+    "campaign_fences": {
+      "fields": {
+        "id": {
+          "cleanup": "separate replay/restore horizon; no invented expiry",
+          "export": "exclude internal nonidentifying campaign-spent control",
+          "type": "uuid:uuid"
+        },
+        "revision": {
+          "cleanup": "separate replay/restore horizon; no invented expiry",
+          "export": "exclude internal nonidentifying campaign-spent control",
+          "type": "bigint:int8"
+        },
+        "state": {
+          "cleanup": "separate replay/restore horizon; no invented expiry",
+          "export": "exclude internal nonidentifying campaign-spent control",
+          "type": "text:text"
+        }
+      }
+    },
+    "campaigns": {
+      "fields": {
+        "author": {
+          "cleanup": "draft90d last edit; author account primary cleanup; sent reusable content lifetime requires separate treatment",
+          "export": "own authored campaign fields only; audience excluded",
+          "type": "uuid:uuid"
+        },
+        "body": {
+          "cleanup": "draft90d last edit; author account primary cleanup; sent reusable content lifetime requires separate treatment",
+          "export": "own authored campaign fields only; audience excluded",
+          "type": "text:text"
+        },
+        "created_at": {
+          "cleanup": "draft90d last edit; author account primary cleanup; sent reusable content lifetime requires separate treatment",
+          "export": "own authored campaign fields only; audience excluded",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "id": {
+          "cleanup": "draft90d last edit; author account primary cleanup; sent reusable content lifetime requires separate treatment",
+          "export": "own authored campaign fields only; audience excluded",
+          "type": "uuid:uuid"
+        },
+        "name": {
+          "cleanup": "draft90d last edit; author account primary cleanup; sent reusable content lifetime requires separate treatment",
+          "export": "own authored campaign fields only; audience excluded",
+          "type": "text:text"
+        },
+        "previewed_revision": {
+          "cleanup": "draft90d last edit; author account primary cleanup; sent reusable content lifetime requires separate treatment",
+          "export": "own authored campaign fields only; audience excluded",
+          "type": "bigint:int8"
+        },
+        "revision": {
+          "cleanup": "draft90d last edit; author account primary cleanup; sent reusable content lifetime requires separate treatment",
+          "export": "own authored campaign fields only; audience excluded",
+          "type": "bigint:int8"
+        },
+        "state": {
+          "cleanup": "draft90d last edit; author account primary cleanup; sent reusable content lifetime requires separate treatment",
+          "export": "own authored campaign fields only; audience excluded",
+          "type": "text:text"
+        },
+        "subject": {
+          "cleanup": "draft90d last edit; author account primary cleanup; sent reusable content lifetime requires separate treatment",
+          "export": "own authored campaign fields only; audience excluded",
+          "type": "text:text"
+        },
+        "updated_at": {
+          "cleanup": "draft90d last edit; author account primary cleanup; sent reusable content lifetime requires separate treatment",
+          "export": "own authored campaign fields only; audience excluded",
+          "type": "timestamp with time zone:timestamptz"
+        }
+      }
+    },
+    "command_reviews": {
+      "fields": {
+        "actor": {
+          "cleanup": "consume/expiry5m; safe command outcome separate180d",
+          "export": "exclude confirmation and snapshot digest",
+          "type": "uuid:uuid"
+        },
+        "actor_revision": {
+          "cleanup": "consume/expiry5m; safe command outcome separate180d",
+          "export": "exclude confirmation and snapshot digest",
+          "type": "bigint:int8"
+        },
+        "billing_id": {
+          "cleanup": "consume/expiry5m; safe command outcome separate180d",
+          "export": "exclude confirmation and snapshot digest",
+          "type": "uuid:uuid"
+        },
+        "consumed_at": {
+          "cleanup": "consume/expiry5m; safe command outcome separate180d",
+          "export": "exclude confirmation and snapshot digest",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "expires_at": {
+          "cleanup": "consume/expiry5m; safe command outcome separate180d",
+          "export": "exclude confirmation and snapshot digest",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "id": {
+          "cleanup": "consume/expiry5m; safe command outcome separate180d",
+          "export": "exclude confirmation and snapshot digest",
+          "type": "uuid:uuid"
+        },
+        "operation_id": {
+          "cleanup": "consume/expiry5m; safe command outcome separate180d",
+          "export": "exclude confirmation and snapshot digest",
+          "type": "uuid:uuid"
+        },
+        "reason": {
+          "cleanup": "consume/expiry5m; safe command outcome separate180d",
+          "export": "exclude confirmation and snapshot digest",
+          "type": "text:text"
+        },
+        "session_id": {
+          "cleanup": "consume/expiry5m; safe command outcome separate180d",
+          "export": "exclude confirmation and snapshot digest",
+          "type": "uuid:uuid"
+        },
+        "snapshot": {
+          "cleanup": "consume/expiry5m; safe command outcome separate180d",
+          "export": "exclude confirmation and snapshot digest",
+          "type": "text:text"
+        },
+        "target": {
+          "cleanup": "consume/expiry5m; safe command outcome separate180d",
+          "export": "exclude confirmation and snapshot digest",
+          "type": "uuid:uuid"
+        }
+      }
+    },
+    "commands": {
+      "fields": {
+        "actor": {
+          "cleanup": "terminal180d action; unresolved billing exception separate",
+          "export": "exclude staff history and billing command recovery",
+          "type": "uuid:uuid"
+        },
+        "actor_revision": {
+          "cleanup": "terminal180d action; unresolved billing exception separate",
+          "export": "exclude staff history and billing command recovery",
+          "type": "bigint:int8"
+        },
+        "attempts": {
+          "cleanup": "terminal180d action; unresolved billing exception separate",
+          "export": "exclude staff history and billing command recovery",
+          "type": "integer:int4"
+        },
+        "billing_id": {
+          "cleanup": "terminal180d action; unresolved billing exception separate",
+          "export": "exclude staff history and billing command recovery",
+          "type": "uuid:uuid"
+        },
+        "created_at": {
+          "cleanup": "terminal180d action; unresolved billing exception separate",
+          "export": "exclude staff history and billing command recovery",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "dispatched": {
+          "cleanup": "terminal180d action; unresolved billing exception separate",
+          "export": "exclude staff history and billing command recovery",
+          "type": "boolean:bool"
+        },
+        "id": {
+          "cleanup": "terminal180d action; unresolved billing exception separate",
+          "export": "exclude staff history and billing command recovery",
+          "type": "uuid:uuid"
+        },
+        "lease": {
+          "cleanup": "terminal180d action; unresolved billing exception separate",
+          "export": "exclude staff history and billing command recovery",
+          "type": "uuid:uuid"
+        },
+        "lease_until": {
+          "cleanup": "terminal180d action; unresolved billing exception separate",
+          "export": "exclude staff history and billing command recovery",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "reason": {
+          "cleanup": "terminal180d action; unresolved billing exception separate",
+          "export": "exclude staff history and billing command recovery",
+          "type": "text:text"
+        },
+        "state": {
+          "cleanup": "terminal180d action; unresolved billing exception separate",
+          "export": "exclude staff history and billing command recovery",
+          "type": "text:text"
+        },
+        "target": {
+          "cleanup": "terminal180d action; unresolved billing exception separate",
+          "export": "exclude staff history and billing command recovery",
+          "type": "uuid:uuid"
+        },
+        "updated_at": {
+          "cleanup": "terminal180d action; unresolved billing exception separate",
+          "export": "exclude staff history and billing command recovery",
+          "type": "timestamp with time zone:timestamptz"
+        }
+      }
+    },
+    "configuration": {
+      "fields": {
+        "bootstrap_consumed": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "boolean:bool"
+        },
+        "bootstrap_subject": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "cutover": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "boolean:bool"
+        },
+        "enabled": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "boolean:bool"
+        },
+        "revision": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "bigint:int8"
+        },
+        "singleton": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "boolean:bool"
+        }
+      }
+    },
+    "coupon_drafts": {
+      "fields": {
+        "code": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "text:text"
+        },
+        "id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "revision": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "bigint:int8"
+        },
+        "source_discount_id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "updated_at": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "timestamp with time zone:timestamptz"
+        }
+      }
+    },
+    "coupon_requests": {
+      "fields": {
+        "actor": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "code": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "text:text"
+        },
+        "coupon_id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "expected": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "bigint:int8"
+        },
+        "id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "recorded_at": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "resulting_revision": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "bigint:int8"
+        },
+        "source_discount_id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        }
+      }
+    },
+    "customer_access": {
+      "fields": {
+        "changed_at": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "restricted": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "boolean:bool"
+        },
+        "revision": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "bigint:int8"
+        },
+        "subject": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        }
+      }
+    },
+    "memberships": {
+      "fields": {
+        "created_at": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "revision": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "bigint:int8"
+        },
+        "role": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "text:text"
+        },
+        "status": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "text:text"
+        },
+        "subject": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "updated_at": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "timestamp with time zone:timestamptz"
+        }
+      }
+    },
+    "model_rates": {
+      "fields": {
+        "currency": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "text:text"
+        },
+        "input_per_million": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "numeric:numeric"
+        },
+        "model": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "text:text"
+        },
+        "output_per_million": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "numeric:numeric"
+        },
+        "provider": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "text:text"
+        },
+        "valid_from": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "valid_until": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "version": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "text:text"
+        }
+      }
+    },
+    "population": {
+      "fields": {
+        "baseline": {
+          "cleanup": "active identity deduplication; minimized removed events90d removal/accepted deletion, not financial/suppression/restore",
+          "export": "owned registration observation only; other subjects excluded",
+          "type": "boolean:bool"
+        },
+        "joined_at": {
+          "cleanup": "active identity deduplication; minimized removed events90d removal/accepted deletion, not financial/suppression/restore",
+          "export": "owned registration observation only; other subjects excluded",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "removed_at": {
+          "cleanup": "active identity deduplication; minimized removed events90d removal/accepted deletion, not financial/suppression/restore",
+          "export": "owned registration observation only; other subjects excluded",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "subject": {
+          "cleanup": "active identity deduplication; minimized removed events90d removal/accepted deletion, not financial/suppression/restore",
+          "export": "owned registration observation only; other subjects excluded",
+          "type": "uuid:uuid"
+        }
+      }
+    },
+    "privacy_reviews": {
+      "fields": {
+        "account_id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "actor": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "actor_revision": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "bigint:int8"
+        },
+        "consumed_at": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "expires_at": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "operation_id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "reason": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "text:text"
+        },
+        "session_id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "task_id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "task_revision": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "bigint:int8"
+        }
+      }
+    },
+    "provider_attempts": {
+      "fields": {
+        "completed_at": {
+          "cleanup": "90 days from completion; remove during account primary cleanup",
+          "export": "approved metadata only; tokens/content excluded",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "duration_ms": {
+          "cleanup": "90 days from completion; remove during account primary cleanup",
+          "export": "approved metadata only; tokens/content excluded",
+          "type": "bigint:int8"
+        },
+        "id": {
+          "cleanup": "90 days from completion; remove during account primary cleanup",
+          "export": "approved metadata only; tokens/content excluded",
+          "type": "uuid:uuid"
+        },
+        "input_tokens": {
+          "cleanup": "90 days from completion; remove during account primary cleanup",
+          "export": "approved metadata only; tokens/content excluded",
+          "type": "bigint:int8"
+        },
+        "model": {
+          "cleanup": "90 days from completion; remove during account primary cleanup",
+          "export": "approved metadata only; tokens/content excluded",
+          "type": "text:text"
+        },
+        "outcome": {
+          "cleanup": "90 days from completion; remove during account primary cleanup",
+          "export": "approved metadata only; tokens/content excluded",
+          "type": "text:text"
+        },
+        "output_tokens": {
+          "cleanup": "90 days from completion; remove during account primary cleanup",
+          "export": "approved metadata only; tokens/content excluded",
+          "type": "bigint:int8"
+        },
+        "provider": {
+          "cleanup": "90 days from completion; remove during account primary cleanup",
+          "export": "approved metadata only; tokens/content excluded",
+          "type": "text:text"
+        },
+        "reported_model": {
+          "cleanup": "90 days from completion; remove during account primary cleanup",
+          "export": "approved metadata only; tokens/content excluded",
+          "type": "text:text"
+        },
+        "request_id": {
+          "cleanup": "90 days from completion; remove during account primary cleanup",
+          "export": "approved metadata only; tokens/content excluded",
+          "type": "uuid:uuid"
+        },
+        "subject": {
+          "cleanup": "90 days from completion; remove during account primary cleanup",
+          "export": "approved metadata only; tokens/content excluded",
+          "type": "uuid:uuid"
+        }
+      }
+    },
+    "receipts": {
+      "fields": {
+        "action": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "text:text"
+        },
+        "actor": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "created_at": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "review_id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "revision": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "bigint:int8"
+        },
+        "state": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "text:text"
+        },
+        "target": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        }
+      }
+    },
+    "restore_revision": {
+      "fields": {
+        "revision": {
+          "cleanup": "monotonic restored dataset revision; no expiry inferred",
+          "export": "exclude restore control",
+          "type": "bigint:int8"
+        },
+        "singleton": {
+          "cleanup": "separate independent restore/replay horizon; no expiry inferred",
+          "export": "exclude restore control",
+          "type": "boolean:bool"
+        }
+      }
+    },
+    "retention_holds": {
+      "fields": {
+        "active": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "boolean:bool"
+        },
+        "kind": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "text:text"
+        },
+        "reason": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "text:text"
+        },
+        "record_id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "review_at": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "timestamp with time zone:timestamptz"
+        }
+      }
+    },
+    "retention_runs": {
+      "fields": {
+        "audit_count": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "integer:int4"
+        },
+        "completed_at": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "coupon_count": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "integer:int4"
+        },
+        "id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "receipt_count": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "integer:int4"
+        },
+        "review_count": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "integer:int4"
+        }
+      }
+    },
+    "reviews": {
+      "fields": {
+        "action": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "text:text"
+        },
+        "actor": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "actor_revision": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "bigint:int8"
+        },
+        "consumed_at": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "desired_role": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "text:text"
+        },
+        "desired_status": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "text:text"
+        },
+        "expires_at": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "operation_id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "reason": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "text:text"
+        },
+        "session_id": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "target": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "uuid:uuid"
+        },
+        "target_revision": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "bigint:int8"
+        }
+      }
+    },
+    "successor_transfers": {
+      "fields": {
+        "accepted_at": {
+          "cleanup": "offered5m expiry; session removed consume/expiry; verified outcome180d; accepted awaiting verification remains security obligation",
+          "export": "exclude protected staff membership evidence",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "actor": {
+          "cleanup": "offered5m expiry; session removed consume/expiry; verified outcome180d; accepted awaiting verification remains security obligation",
+          "export": "exclude protected staff membership evidence",
+          "type": "uuid:uuid"
+        },
+        "actor_revision": {
+          "cleanup": "offered5m expiry; session removed consume/expiry; verified outcome180d; accepted awaiting verification remains security obligation",
+          "export": "exclude protected staff membership evidence",
+          "type": "bigint:int8"
+        },
+        "expires_at": {
+          "cleanup": "offered5m expiry; session removed consume/expiry; verified outcome180d; accepted awaiting verification remains security obligation",
+          "export": "exclude protected staff membership evidence",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "id": {
+          "cleanup": "offered5m expiry; session removed consume/expiry; verified outcome180d; accepted awaiting verification remains security obligation",
+          "export": "exclude protected staff membership evidence",
+          "type": "uuid:uuid"
+        },
+        "session_id": {
+          "cleanup": "offered5m expiry; session removed consume/expiry; verified outcome180d; accepted awaiting verification remains security obligation",
+          "export": "exclude protected staff membership evidence",
+          "type": "uuid:uuid"
+        },
+        "state": {
+          "cleanup": "offered5m expiry; session removed consume/expiry; verified outcome180d; accepted awaiting verification remains security obligation",
+          "export": "exclude protected staff membership evidence",
+          "type": "text:text"
+        },
+        "target": {
+          "cleanup": "offered5m expiry; session removed consume/expiry; verified outcome180d; accepted awaiting verification remains security obligation",
+          "export": "exclude protected staff membership evidence",
+          "type": "uuid:uuid"
+        },
+        "target_revision": {
+          "cleanup": "offered5m expiry; session removed consume/expiry; verified outcome180d; accepted awaiting verification remains security obligation",
+          "export": "exclude protected staff membership evidence",
+          "type": "bigint:int8"
+        },
+        "verified_at": {
+          "cleanup": "offered5m expiry; session removed consume/expiry; verified outcome180d; accepted awaiting verification remains security obligation",
+          "export": "exclude protected staff membership evidence",
+          "type": "timestamp with time zone:timestamptz"
+        }
+      }
+    },
+    "telemetry_coverage": {
+      "fields": {
+        "population_started_at": {
+          "cleanup": "nonidentifying deployment coverage; no subject data",
+          "export": "exclude global coverage control",
+          "type": "timestamp with time zone:timestamptz"
+        },
+        "singleton": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "boolean:bool"
+        },
+        "started_at": {
+          "cleanup": "fixed authority lifecycle or approved180d action outcome; no blanket90d/180d for configuration/holds/restore evidence",
+          "export": "exclude private administration authority/control; no customer payload",
+          "type": "timestamp with time zone:timestamptz"
+        }
+      }
+    }
+  },
+  "version": "c15.admin.fields.v1"
+}

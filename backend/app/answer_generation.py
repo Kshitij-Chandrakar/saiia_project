@@ -15,6 +15,7 @@ import httpx
 
 from app.answer_models import MODEL_CATALOG, FALLBACK_MODEL_KEY, AnswerModel, DISABLED_MODELS
 from app.config import settings
+from app.admin_telemetry import Attempt
 
 
 class FeatureDisabled(RuntimeError):
@@ -210,32 +211,36 @@ async def provider_stream(client: httpx.AsyncClient, model: AnswerModel,
     if not key:
         raise AttemptFailure("missing_credentials")
     url, headers, body = _request(model, prepared, key)
-    try:
-        async with client.stream("POST", url, headers=headers, json=body, timeout=None) as response:
-            if response.status_code >= 400:
-                # User authorization is checked by the caller; this is upstream auth only.
-                code = {401: "provider_auth", 403: "provider_auth", 429: "rate_limit"}.get(
-                    response.status_code, "provider_unavailable")
-                raise AttemptFailure(code)
-            async for data in _sse(response):
-                if data == "[DONE]":
-                    break
-                item = json.loads(data)
-                if not isinstance(item, dict):
-                    raise AttemptFailure("invalid_response")
-                text, reported, complete = _normalize(model.provider, item)
-                if not isinstance(text, str) or (reported is not None and not isinstance(reported, str)):
-                    raise AttemptFailure("invalid_response")
-                yield text, reported, complete
-                if complete:
-                    return
-            raise AttemptFailure("incomplete_response")
-    except httpx.TimeoutException:
-        raise AttemptFailure("provider_timeout") from None
-    except httpx.HTTPError:
-        raise AttemptFailure("provider_unavailable") from None
-    except (ValueError, TypeError, KeyError, AttributeError, IndexError):
-        raise AttemptFailure("invalid_response") from None
+    with Attempt(model.provider, model.api_model) as observation:
+        try:
+            async with client.stream("POST", url, headers=headers, json=body, timeout=None) as response:
+                if response.status_code >= 400:
+                    # User authorization is checked by the caller; this is upstream auth only.
+                    code = {401: "provider_auth", 403: "provider_auth", 429: "rate_limit"}.get(
+                        response.status_code, "provider_unavailable")
+                    raise AttemptFailure(code)
+                async for data in _sse(response):
+                    if data == "[DONE]":
+                        break
+                    item = json.loads(data)
+                    if not isinstance(item, dict):
+                        raise AttemptFailure("invalid_response")
+                    observation.usage(item)
+                    text, reported, complete = _normalize(model.provider, item)
+                    if not isinstance(text, str) or (reported is not None and not isinstance(reported, str)):
+                        raise AttemptFailure("invalid_response")
+                    if complete:
+                        observation.outcome = "completed"
+                    yield text, reported, complete
+                    if complete:
+                        return
+                raise AttemptFailure("incomplete_response")
+        except httpx.TimeoutException:
+            raise AttemptFailure("provider_timeout") from None
+        except httpx.HTTPError:
+            raise AttemptFailure("provider_unavailable") from None
+        except (ValueError, TypeError, KeyError, AttributeError, IndexError):
+            raise AttemptFailure("invalid_response") from None
 
 
 async def stream_answer(model_key: str, prepared: PreparedAnswer, *, client=None,

@@ -1,3 +1,4 @@
+from app.admin_telemetry import measured_async_call
 import json
 import logging
 from dataclasses import dataclass
@@ -70,8 +71,7 @@ class AssemblyAIStreamingBridge:
             self.config.sample_rate,
         )
         try:
-            return await websockets.connect(
-                url,
+            return await measured_async_call(websockets.connect, url, telemetry_provider="assemblyai", telemetry_model=self.config.speech_model,
                 additional_headers={"Authorization": self.config.api_key},
                 max_size=None,
                 ping_interval=20,

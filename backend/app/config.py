@@ -261,6 +261,14 @@ class Settings:
 
 
     # Stage 1 is local/synthetic only until cleanup and Auth enforcement acceptance.
+    ADMIN_CONSOLE_ENABLED = os.getenv("ADMIN_CONSOLE_ENABLED", "false")
+    ADMIN_CONSOLE_DSN = os.getenv("ADMIN_CONSOLE_DSN", "")
+    ADMIN_RETENTION_DSN = os.getenv("ADMIN_RETENTION_DSN", "")
+    ADMIN_DISPATCH_DSN = os.getenv("ADMIN_DISPATCH_DSN", "")
+    ADMIN_RESTORE_DSN = os.getenv("ADMIN_RESTORE_DSN", "")
+    ADMIN_RESTORE_CHECKPOINT = os.getenv("ADMIN_RESTORE_CHECKPOINT", "")
+    ADMIN_LOCAL_SMTP_PORT = int(os.getenv("ADMIN_LOCAL_SMTP_PORT", "0"))
+    ADMIN_CAMPAIGN_WEBHOOK_SECRET = os.getenv("ADMIN_CAMPAIGN_WEBHOOK_SECRET", "")
     C15_RUNTIME_ENABLED = os.getenv("C15_RUNTIME_ENABLED","false")
     C15_RUNTIME_LOCAL_REHEARSAL = os.getenv("C15_RUNTIME_LOCAL_REHEARSAL","false")
     C15_RUNTIME_DSNS = os.getenv("C15_RUNTIME_DSNS","")

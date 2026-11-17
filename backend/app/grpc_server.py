@@ -88,10 +88,11 @@ def system_capture_available():
 
 
 class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
-    def __init__(self, subscriptions=None, *, client_relay=None, readiness=None):
+    def __init__(self, subscriptions=None, *, client_relay=None, readiness=None, administration=None):
         self._system_owner = asyncio.Lock()
         self._system_cleanup_failed = False
         self._subscriptions = subscriptions
+        self._administration = administration
         self._readiness = readiness
         # Internal ASGI adapter only; standalone gRPC never sets this capability.
         self._client_relay = client_relay
@@ -117,7 +118,6 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             return bool(await asyncio.to_thread(self._readiness))
         except Exception:  # noqa: BLE001 -- loss of trusted readiness always denies the stream
             return False
-
 
     async def StreamInterview(self, request_iterator, context):
         if not await self.privacy_ready():
@@ -260,71 +260,73 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                         seen_turns.append(turn)
                 async def generate():
                     nonlocal auto_cooldown_until
-                    answer = ""
-                    category = provider = ""
-                    question_seen = completed = False
-                    if account_lease:
-                        await account_lease.authorize()
-                    pipeline_call = (stream_question_answer(text, cloud_context=cloud_context, logical_turn_id=logical_turn_id, incremental=True)
-                        if answer_version else stream_question_answer(text, cloud_context=cloud_context, logical_turn_id=logical_turn_id)
-                        if cloud_context and settings.ENABLE_SESSION_ANSWER_MODELS else
-                        stream_question_answer(text, cloud_context=cloud_context) if cloud_context else stream_question_answer(text))
-                    async with aclosing(pipeline_call) as pipeline:
-                        async for item in pipeline:
-                            kind = item.get("type")
-                            if completed:
-                                continue
-                            if answer_version:
-                                attempt = item.get('attempt', answer_identity['provider_attempt'])
-                                revision = item.get('revision', answer_identity['display_revision'])
-                                retry = item.get('retry_attempt', answer_identity['retry_attempt'])
-                                if (retry != answer_identity['retry_attempt'] or
-                                    attempt < answer_identity['provider_attempt'] or revision < answer_identity['display_revision']):
+                    from app.admin_telemetry import owner_scope
+                    with owner_scope(cloud_context.user_id if cloud_context and self._administration is not None else None, self._administration.record_attempt if self._administration is not None else None):
+                        answer = ""
+                        category = provider = ""
+                        question_seen = completed = False
+                        if account_lease:
+                            await account_lease.authorize()
+                        pipeline_call = (stream_question_answer(text, cloud_context=cloud_context, logical_turn_id=logical_turn_id, incremental=True)
+                            if answer_version else stream_question_answer(text, cloud_context=cloud_context, logical_turn_id=logical_turn_id)
+                            if cloud_context and settings.ENABLE_SESSION_ANSWER_MODELS else
+                            stream_question_answer(text, cloud_context=cloud_context) if cloud_context else stream_question_answer(text))
+                        async with aclosing(pipeline_call) as pipeline:
+                            async for item in pipeline:
+                                kind = item.get("type")
+                                if completed:
                                     continue
-                                if kind == 'delta' and (attempt, revision) != (answer_identity['provider_attempt'], answer_identity['display_revision']):
-                                    continue  # only replacement opens another display revision
-                                if kind == 'replacement' and revision <= answer_identity['display_revision']:
-                                    continue
-                                answer_identity.update(provider_attempt=attempt, display_revision=revision)
-                            category = item.get("category") or category
-                            provider = item.get("provider") or provider
-                            if kind == "rejected":
-                                intake['detection_rejections'] += 1
-                                await ignored(text, item.get('reason') or 'not_question', is_final)
-                            elif kind == "save_status":
-                                await emit(request_id, "status", pb.Status(code=item["code"]))
-                            elif kind == "question":
-                                if question_seen:
-                                    continue
-                                question_seen = True
-                                await emit(request_id, "question_detected", pb.TextEvent(text=item["text"], category=category))
-                            elif kind == "started":
-                                await emit(request_id, "answer_started", pb.TextEvent(category=category, provider=provider))
-                            elif kind == "delta":
-                                delta = str(item.get("text") or "")
-                                answer += delta
-                                if len(answer) > 262144:
-                                    raise RuntimeError("Answer limit exceeded.")
-                                await emit(request_id, "answer_delta", pb.TextEvent(text=delta, category=category, provider=provider))
-                            elif kind in ("replacement", "result") and (answer_version or item.get("text")):
-                                answer = str(item.get("text") or '')
-                                if len(answer) > 262144:
-                                    raise RuntimeError("Answer limit exceeded.")
-                                if answer_version and kind == 'replacement':
-                                    await emit(request_id, 'answer_replaced', pb.TextEvent(text=answer, category=category, provider=provider))
-                            elif kind == "completed":
-                                if not answer.strip():
-                                    raise RuntimeError("Empty answer.")
-                                completed = True
-                                await emit(request_id, "answer_completed", pb.TextEvent(text=answer, category=category, provider=provider))
-                                if auto_mode:
-                                    auto_cooldown_until = time.monotonic() + AUTO_COOLDOWN_SECONDS
-                                    await emit(request_id, "status", pb.Status(code="auto_cooldown"))
-                    if question_seen and not completed:
-                        raise RuntimeError("Answer stream ended prematurely.")
-                    if manual_mode and not question_seen:
-                        await emit(request_id, "status", pb.Status(code="manual_no_question", message="No clear question detected."))
-                    # A non-question legitimately emits no events; never invent an answer.
+                                if answer_version:
+                                    attempt = item.get('attempt', answer_identity['provider_attempt'])
+                                    revision = item.get('revision', answer_identity['display_revision'])
+                                    retry = item.get('retry_attempt', answer_identity['retry_attempt'])
+                                    if (retry != answer_identity['retry_attempt'] or
+                                        attempt < answer_identity['provider_attempt'] or revision < answer_identity['display_revision']):
+                                        continue
+                                    if kind == 'delta' and (attempt, revision) != (answer_identity['provider_attempt'], answer_identity['display_revision']):
+                                        continue  # only replacement opens another display revision
+                                    if kind == 'replacement' and revision <= answer_identity['display_revision']:
+                                        continue
+                                    answer_identity.update(provider_attempt=attempt, display_revision=revision)
+                                category = item.get("category") or category
+                                provider = item.get("provider") or provider
+                                if kind == "rejected":
+                                    intake['detection_rejections'] += 1
+                                    await ignored(text, item.get('reason') or 'not_question', is_final)
+                                elif kind == "save_status":
+                                    await emit(request_id, "status", pb.Status(code=item["code"]))
+                                elif kind == "question":
+                                    if question_seen:
+                                        continue
+                                    question_seen = True
+                                    await emit(request_id, "question_detected", pb.TextEvent(text=item["text"], category=category))
+                                elif kind == "started":
+                                    await emit(request_id, "answer_started", pb.TextEvent(category=category, provider=provider))
+                                elif kind == "delta":
+                                    delta = str(item.get("text") or "")
+                                    answer += delta
+                                    if len(answer) > 262144:
+                                        raise RuntimeError("Answer limit exceeded.")
+                                    await emit(request_id, "answer_delta", pb.TextEvent(text=delta, category=category, provider=provider))
+                                elif kind in ("replacement", "result") and (answer_version or item.get("text")):
+                                    answer = str(item.get("text") or '')
+                                    if len(answer) > 262144:
+                                        raise RuntimeError("Answer limit exceeded.")
+                                    if answer_version and kind == 'replacement':
+                                        await emit(request_id, 'answer_replaced', pb.TextEvent(text=answer, category=category, provider=provider))
+                                elif kind == "completed":
+                                    if not answer.strip():
+                                        raise RuntimeError("Empty answer.")
+                                    completed = True
+                                    await emit(request_id, "answer_completed", pb.TextEvent(text=answer, category=category, provider=provider))
+                                    if auto_mode:
+                                        auto_cooldown_until = time.monotonic() + AUTO_COOLDOWN_SECONDS
+                                        await emit(request_id, "status", pb.Status(code="auto_cooldown"))
+                        if question_seen and not completed:
+                            raise RuntimeError("Answer stream ended prematurely.")
+                        if manual_mode and not question_seen:
+                            await emit(request_id, "status", pb.Status(code="manual_no_question", message="No clear question detected."))
+                        # A non-question legitimately emits no events; never invent an answer.
                 try:
                     await asyncio.wait_for(generate(), timeout=90)
                 except GenerationStopped:
@@ -666,7 +668,9 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
             provider_epoch += 1
             # G3 PCM is always 16 kHz regardless of the production WS configuration.
             bridge.config.sample_rate = 16000
-            socket = await asyncio.wait_for(bridge.connect(), timeout=5)
+            from app.admin_telemetry import owner_scope
+            with owner_scope(cloud_context.user_id if cloud_context and self._administration is not None else None, self._administration.record_attempt if self._administration is not None else None):
+                socket = await asyncio.wait_for(bridge.connect(), timeout=5)
             provider_started.clear()
             final_received.clear()
             transcript_received = False
@@ -744,6 +748,9 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                                 code="invalid_session", message="A single valid session is required."))
                             return
                         auto_mode = request.start_session.mode == "auto_pipeline"
+                        if self._administration is not None and not request.start_session.cloud_context_requested:
+                            await emit(request.request_id, "error", pb.ErrorEvent(code="auth_required", message="Authenticated cloud context is required."))
+                            return
                         if auto_mode and not (settings.USE_GRPC_AUTO_PIPELINE and answer_enabled and stt_enabled):
                             await emit(request.request_id, "error", pb.ErrorEvent(code="auto_unavailable", message="Auto gRPC pipeline is unavailable."))
                             return
@@ -769,6 +776,8 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                             await emit(request.request_id, "status", pb.Status(code="auth_verifying"))
                             try:
                                 args = (start,context.invocation_metadata(),self._subscriptions) if settings.SUBSCRIPTIONS_ENABLED=='true' else (start,context.invocation_metadata())
+                                if self._administration is not None:
+                                    args = (start, context.invocation_metadata(), self._subscriptions, self._administration)
                                 cloud_context = await asyncio.wait_for(run_in_threadpool(
                                     GrpcCloudContext.authorize, *args), timeout=15)
                             except Exception as exc:
@@ -925,6 +934,12 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 if not await self.privacy_ready():
                     await context.abort(grpc.StatusCode.UNAVAILABLE, "Privacy restore evidence is unavailable.")
                     return
+                if self._administration is not None and cloud_context is not None:
+                    try:
+                        await run_in_threadpool(self._administration.product_access, cloud_context.user_id)
+                    except Exception:
+                        await context.abort(grpc.StatusCode.PERMISSION_DENIED, "Product access unavailable.")
+                        return
                 yield value
         finally:
             resources = start_resource_cleanup()
@@ -939,7 +954,7 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 raise asyncio.CancelledError()
 
 
-async def start_server(host="127.0.0.1", port=50051, max_message_mb=4, subscriptions=None, readiness=None):
+async def start_server(host="127.0.0.1", port=50051, max_message_mb=4, subscriptions=None, readiness=None, administration=None):
     # There is no authentication/TLS integration in G1. Never bind externally.
     if host != "localhost" and not ipaddress.ip_address(host).is_loopback:
         raise ValueError("G1 gRPC is restricted to loopback hosts.")
@@ -948,7 +963,7 @@ async def start_server(host="127.0.0.1", port=50051, max_message_mb=4, subscript
     limit = max_message_mb * 1024 * 1024
     server = grpc.aio.server(options=[("grpc.max_receive_message_length", limit),
                                       ("grpc.max_send_message_length", limit)])
-    rpc.add_InterviewRealtimeServiceServicer_to_server(InterviewRealtimeService(subscriptions, readiness=readiness), server)
+    rpc.add_InterviewRealtimeServiceServicer_to_server(InterviewRealtimeService(subscriptions, readiness=readiness, administration=administration), server)
     address = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
     bound_port = server.add_insecure_port(address)
     if not bound_port:

@@ -50,6 +50,19 @@ def handoff_ingress(method, path):
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 
 
+def administration_ingress(method, path):
+    if getattr(settings, 'ADMIN_CONSOLE_ENABLED', 'false') != 'true':
+        return False
+    return bool(
+        method == 'GET' and (path in {'/api/admin/me', '/api/admin/users', '/api/admin/memberships', '/api/admin/audit', '/api/admin/coupons', '/api/admin/campaigns'}
+                            or re.fullmatch('/api/admin/cancellations/' + _UUID, path)
+                            or re.fullmatch('/api/admin/users/' + _UUID + r'(?:/(?:subscription|allowances|privacy))?', path))
+        or method == 'POST' and path in {'/api/admin/memberships/review', '/api/admin/memberships/confirm', '/api/admin/users/search', '/api/admin/access/review', '/api/admin/access/confirm', '/api/admin/privacy-retries/review', '/api/admin/privacy-retries/confirm', '/api/admin/cancellations/review', '/api/admin/cancellations/confirm', '/api/admin/campaign-events', '/api/admin/successor/offer', '/api/admin/successor/accept', '/api/admin/successor/status'}
+        or method == 'POST' and re.fullmatch('/api/admin/coupons/' + _UUID, path)
+        or method == 'POST' and path in {'/api/admin/metrics','/api/admin/campaigns/save','/api/admin/campaigns/read','/api/admin/campaigns/preview','/api/admin/campaigns/audience','/api/admin/campaigns/confirm','/api/admin/campaigns/test'}
+    )
+
+
 def billing_admin_ingress(method, path):
     return (
         settings.BILLING_ADMIN_ENABLED == 'true'
@@ -136,6 +149,12 @@ class CommercialBoundaryMiddleware:
 
     async def __call__(self, scope, receive, send):
         original_send = send
+        if getattr(settings, 'ADMIN_CONSOLE_ENABLED', 'false') == 'true' and scope['type'] == 'http' and scope['path'].lower().startswith('/api/admin/') and not scope['path'].startswith(('/api/admin/catalog', '/api/admin/billing')):
+            raw = scope.get('raw_path', scope['path'].encode()).split(b'?', 1)[0]
+            if raw != scope['path'].encode() or not administration_ingress(scope['method'], scope['path']):
+                await JSONResponse({'detail': {'code': 'not_found'}}, status_code=404,
+                                   headers={'Cache-Control': 'no-store'})(scope, receive, send)
+                return
         if scope['type'] == 'http' and (scope['path'].lower().startswith('/api/admin/billing') or scope['path'].lower().startswith('/api/billing/email/')):
             raw = scope.get('raw_path', scope['path'].encode()).split(b'?', 1)[0]
             if raw != scope['path'].encode() or scope.get('query_string') or not billing_admin_ingress(scope['method'],scope['path']):
@@ -224,7 +243,7 @@ class CommercialBoundaryMiddleware:
                 await JSONResponse({"detail":{"code":"commercial_path_unreviewed"}}, status_code=404,headers={"Cache-Control":"no-store"})(scope,receive,send)
                 return
         if scope["type"] == "http" and scope["path"].lower().startswith(
-            ("/api/commercial/", "/api/admin/catalog", "/api/admin/billing", "/api/interview-sessions", "/api/auth/", '/api/screen/', '/api/resumes', '/api/job-contexts')
+            ("/api/commercial/", "/api/admin/", "/api/interview-sessions", "/api/auth/", '/api/screen/', '/api/resumes', '/api/job-contexts')
         ):
 
             async def private_send(message):
@@ -276,6 +295,7 @@ class CommercialBoundaryMiddleware:
                 and not draft_ingress(scope["method"], scope["path"])
                 and not subscription_ingress(scope["method"], scope["path"])
                 and not billing_admin_ingress(scope["method"], scope["path"])
+                and not administration_ingress(scope["method"], scope["path"])
             ):
                 await JSONResponse(
                     {"detail": {"code": "commercial_path_unreviewed"}}, status_code=503
