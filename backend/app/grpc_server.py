@@ -937,8 +937,9 @@ class InterviewRealtimeService(rpc.InterviewRealtimeServiceServicer):
                 if self._administration is not None and cloud_context is not None:
                     try:
                         await run_in_threadpool(self._administration.product_access, cloud_context.user_id)
-                    except Exception:
-                        await context.abort(grpc.StatusCode.PERMISSION_DENIED, "Product access unavailable.")
+                    except Exception as error:
+                        code = grpc.StatusCode.PERMISSION_DENIED if getattr(error, "status_code", None) == 403 else grpc.StatusCode.UNAVAILABLE
+                        await context.abort(code, "Product access unavailable.")
                         return
                 yield value
         finally:

@@ -73,7 +73,7 @@ async def legacy_provider_stream(provider, kwargs, client, cancellation, on_retr
     provider.last_retry_used = False
     retries = 2 if kwargs.get('retry_on_rate_limit') else 1
     for retry in range(retries):
-        with Attempt(name, provider.model) as observation:
+        async with Attempt(name, provider.model) as observation:
             try:
                 async with client.stream('POST', url, headers=headers, json=body, timeout=provider.timeout) as response:
                     if response.status_code >= 400:

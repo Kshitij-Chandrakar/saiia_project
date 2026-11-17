@@ -38,7 +38,7 @@ declare actor administration.memberships; target administration.memberships; tra
   select * into target from administration.memberships where subject=p_subject for update;
   if coalesce(target.revision,0)<>transfer.target_revision then return jsonb_build_object('error','conflict'); end if;
   insert into administration.memberships(subject,role,status,revision) values(p_subject,'super_admin','active',1) on conflict(subject) do update set role='super_admin',status='active',revision=administration.memberships.revision+1,updated_at=clock_timestamp();
-  update administration.successor_transfers set state='accepted',accepted_at=clock_timestamp() where id=transfer.id;
+  update administration.successor_transfers set state='accepted',accepted_at=clock_timestamp(),target_revision=(select revision from administration.memberships where subject=p_subject) where id=transfer.id;
   perform administration.audit_action(p_subject,'super_admin',transfer.actor,'successor.accept','confirmed','membership',transfer.id);
   return jsonb_build_object('state','accepted','transfer_id',transfer.id,'access_verification_required',true);
  end if;
@@ -50,6 +50,6 @@ do $$ declare definition text; marker text; begin
  definition:=pg_get_functiondef('public.administration_call(uuid,uuid,timestamptz,text,jsonb)'::regprocedure);
  marker:='if p_action=''me'' then return';
  if position(marker in definition)=0 then raise exception 'admission verification mismatch'; end if;
- execute replace(definition,marker,'if p_action=''me'' then update administration.successor_transfers verified_successor_record set state=''verified'',verified_at=clock_timestamp() where verified_successor_record.target=p_actor and verified_successor_record.state=''accepted''; return');
+ execute replace(definition,marker,'if p_action=''me'' then update administration.successor_transfers verified_successor_record set state=''verified'',verified_at=clock_timestamp() where verified_successor_record.target=p_actor and verified_successor_record.state=''accepted'' and m.role=''super_admin'' and m.revision=verified_successor_record.target_revision; return');
 end$$;
 commit;

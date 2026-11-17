@@ -23,21 +23,20 @@ class CancellationDispatcher:
         if not command:
             return False
         identity = {"id": command["id"], "lease": command["lease"]}
-        if not self.call("dispatch", identity)["allowed"]:
+        dispatch = self.call("dispatch", identity)
+        if not (dispatch and dispatch.get("allowed")):
             return True
         outcome = "unknown"
         try:
-            if command["reconcile_only"]:
-                result = self.billing.view(
-                    self.billing.reconcile(command["account_id"], command["billing_id"])
-                )
-            else:
-                result = self.billing._cancel_account(
-                    command["account_id"], command["billing_id"]
-                )
+            # cancel_claim is idempotent and durably records intent before reconciliation.
+            result = self.billing._cancel_account(
+                command["account_id"], command["billing_id"]
+            )
             if result.get("provider_state") in {"cancelled", "completed", "expired"}:
                 outcome = "confirmed"
-        except Exception:  # noqa: BLE001 -- provider/driver errors must not expose payloads
+        except (
+            Exception
+        ):  # noqa: BLE001 -- provider/driver errors must not expose payloads
             logging.getLogger(__name__).warning("Cancellation outcome unknown")
         self.call("finish", {**identity, "outcome": outcome})
         return True

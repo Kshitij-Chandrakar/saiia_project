@@ -270,9 +270,9 @@ def normal_application(r):
             {
                 "subscriptions_composed": app.state.subscriptions._service is not None,
                 "billing_composed": app.state.billing is not None,
-                "billing_enabled": app.state.billing.enabled
-                if app.state.billing
-                else False,
+                "billing_enabled": (
+                    app.state.billing.enabled if app.state.billing else False
+                ),
                 "dispatcher_billing_composed": app.state.administration.dispatcher.billing
                 is not None,
                 "admin_worker_alive": app.state.administration.thread.is_alive(),
@@ -1212,6 +1212,9 @@ def inside(evidence, phase):
         verify_successor,
     )
 
+    from c15_admin_review_acceptance import verify_review_fixes
+
+    verify_review_fixes(r, last, results)
     verify_metrics(r, last, results)
     verify_successor(r, last, results)
     verify_campaign(r, last, results)
@@ -1235,6 +1238,11 @@ def inside(evidence, phase):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--inside", action="store_true")
+    p.add_argument(
+        "--backend-only",
+        action="store_true",
+        help="Run engine/native scenarios without the dependent UI slice",
+    )
     p.add_argument("--phase", choices=("install", "tests"), default="tests")
     p.add_argument("--evidence-dir", type=Path, required=True)
     args = p.parse_args()
@@ -1312,6 +1320,7 @@ def main():
         "backend/app/admin_telemetry.py",
         "backend/tests/test_admin_telemetry.py",
         "scripts/c15_admin_business_acceptance.py",
+        "scripts/c15_admin_review_acceptance.py",
         "scripts/c15_admin_rehearsal.Dockerfile",
         "backend/app/answer_generation.py",
         "backend/app/answer_streaming.py",
@@ -1334,6 +1343,20 @@ def main():
         "frontend/src/auth/AdminSuccessor.jsx",
         "frontend/src/auth/authApi.js",
     ]
+    frontend_missing = [
+        name
+        for name in source_paths
+        if name.startswith("frontend/") and not (ROOT / name).is_file()
+    ]
+    backend_only = args.backend_only or bool(frontend_missing)
+    if backend_only:
+        r.save(
+            "browser-skipped.json",
+            {"reason": "backend_only_review_slice", "missing_inputs": frontend_missing},
+        )
+        source_paths = [
+            name for name in source_paths if not name.startswith("frontend/")
+        ]
     r.save(
         "source-inputs.json",
         {
@@ -1405,7 +1428,8 @@ def main():
                     .replace(r.secret, "[REDACTED]")
                 )
                 raise RuntimeError("isolated_acceptance_failed")
-        normal_application(r)
+        if not backend_only:
+            normal_application(r)
     finally:
         r.cleanup()
 
