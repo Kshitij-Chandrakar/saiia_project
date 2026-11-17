@@ -102,8 +102,12 @@ test('campaign audience is bound to the displayed revision and uncertain first s
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Refresh campaign results', exact: true })).toBeEnabled();
   state.failSave = false;
+  const read = page.waitForRequest(request => request.url().endsWith('/api/admin/campaigns/read'));
   await page.getByRole('button', { name: 'Refresh campaign results', exact: true }).click();
-  await expect(page.getByText('Campaign state: draft.', { exact: false })).toBeVisible();
+  await read;
+  await expect(page.getByLabel('Campaign name', { exact: true })).toHaveValue('Committed without response');
+  await page.getByRole('button', { name: 'Preview saved revision', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Campaign preview', exact: true })).toContainText('Revision 1.');
 });
 
 test('account switch clears customer search before the replacement account loads', async ({ page }) => {

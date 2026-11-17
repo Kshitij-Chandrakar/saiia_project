@@ -11,7 +11,7 @@ try{
  for(const role of ['super_admin','admin','customer']){
   const context=await browser.newContext({viewport:{width:1440,height:900}});const page=await context.newPage();page.setDefaultTimeout(15000);
   await page.goto('http://127.0.0.1:5400/auth/login?next=/auth/admin');await page.getByLabel('Email Address',{exact:true}).fill(accounts.users[role].email);await page.getByLabel('Password',{exact:true}).fill(accounts.password);await page.getByRole('button',{name:'Sign In',exact:true}).click();
-  await expect(page.locator(role === 'customer' ? '.wd-account-email strong' : '.ac-account strong')).toHaveAttribute('title',accounts.users[role].email);
+  await expect(page.locator(role === 'customer' ? '.wd-account-email strong' : '.ac-desktop-sidebar .ac-account strong')).toHaveAttribute('title',accounts.users[role].email);
   if(role==='super_admin'){
    await expect(page.getByRole('heading',{name:'Customers',exact:true,level:1})).toBeVisible();
    await page.getByRole('link',{name:'Commercial configuration',exact:true}).first().click();
