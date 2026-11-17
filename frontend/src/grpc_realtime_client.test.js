@@ -500,8 +500,14 @@ test('trusted G8 authorization refuses signing-in and preserves current-account 
   const { DesktopAuthSessionManager } = require('../electron/desktop_auth_session.cjs')
   const method = DesktopAuthSessionManager.prototype.getGrpcCloudAuthorization
   await assert.rejects(method.call({ status: 'signing-in', session: { access_token: 'private' } }), /auth_unavailable/)
-  const account = { status: 'connected', session: { access_token: 'private' }, user: { user_id: 'owner' },
-    _hasFreshVerification: () => true }
+  const account = Object.assign(Object.create(DesktopAuthSessionManager.prototype), {
+    status: 'connected', session: { access_token: 'private' }, user: { user_id: 'owner' },
+    _hasFreshVerification: () => true,
+    _backendJson: async (route, method, token) => {
+      assert.equal(route, '/api/auth/me'); assert.equal(method, 'GET'); assert.equal(token, 'private')
+      return { ok: true, status: 200, payload: { user_id: 'owner' } }
+    },
+  })
   const auth = await method.call(account)
   assert.equal(auth.isCurrent(), true)
   account.user.user_id = 'changed-owner'
@@ -539,6 +545,10 @@ test('routine reverification retains main-only cloud authorization until token, 
   manager.status = AUTH_STATUSES.CONNECTED
   manager.session = { access_token: 'mock-private' }; manager.user = { user_id: 'owner' }
   manager._hasFreshVerification = () => true
+  manager._backendJson = async (route, method, token) => {
+    assert.equal(route, '/api/auth/me'); assert.equal(method, 'GET'); assert.equal(token, 'mock-private')
+    return { ok: true, status: 200, payload: { user_id: 'owner' } }
+  }
   const auth = await manager.getGrpcCloudAuthorization()
   manager.session_generation = 999
   assert.equal(auth.isCurrent(), true)

@@ -472,6 +472,7 @@ test('handoff callback exchanges one-time code through backend and verifies boot
       callbackUrlFor(ctx.manager, { handoff_code: 'handoff-code-1234567890', state: pendingState }),
     )
 
+    assert.equal(ctx.manager._readStoredSession().account_owner, 'user-1')
     assert.equal(result.status, AUTH_STATUSES.CONNECTED)
     assert.equal(ctx.manager.session.access_token, 'handoff-access-token')
     assert.equal(ctx.manager.session.refresh_token, 'handoff-refresh-token')
@@ -489,6 +490,8 @@ test('handoff callback exchanges one-time code through backend and verifies boot
     const bootstrap = ctx.calls.find((call) => call.url.endsWith('/api/auth/profile/bootstrap'))
     assert.equal(me.init.headers.Authorization, 'Bearer handoff-access-token')
     assert.equal(bootstrap.init.headers.Authorization, 'Bearer handoff-access-token')
+    await ctx.manager.logout()
+    assert.equal(existsSync(ctx.manager.sessionPath), false)
   } finally {
     ctx.cleanup()
   }
@@ -2343,6 +2346,7 @@ test('stream handoff detaches request timeout but keeps caller cancellation', as
     ctx.manager._hasFreshVerification = () => true
     let streamSignal
     ctx.manager.fetchImpl = async (_url, init) => {
+      if (_url.endsWith('/api/auth/me')) return jsonResponse(200, { user_id: 'user-1' })
       streamSignal = init.signal
       return { ok: true, status: 200, body: new ReadableStream() }
     }
@@ -2469,6 +2473,7 @@ test('manual transcription retains bearer in main, validates input and isolates 
   const calls = []
   let finish
   const ctx = createManager({ fetchImpl: async (url, init) => {
+    if (url.endsWith('/api/auth/me')) return jsonResponse(200, { user_id: 'synthetic-owner' })
     calls.push({ url, init })
     if (finish) return new Promise(resolve => { finish = resolve })
     return jsonResponse(200, { text: 'Synthetic transcript', transcription_provider: 'synthetic', access_token: 'PRIVATE' })
@@ -2486,9 +2491,124 @@ test('manual transcription retains bearer in main, validates input and isolates 
     assert.doesNotMatch(JSON.stringify(result), /PRIVATE|synthetic-bearer|access_token/)
     finish = true
     const pending = ctx.manager.transcribeAudio(recording)
+    await new Promise(resolve => setImmediate(resolve))
     ctx.manager.sessionGeneration++
     ctx.manager.user = { user_id: 'different-owner' }
     finish(jsonResponse(200, { text: 'Private previous account' }))
     assert.deepEqual(await pending, { ok: false, status: 409 })
+  } finally { ctx.cleanup() }
+})
+
+test('restriction probe discards queued private work before any POST and clears owned session', async () => {
+  const requests = []
+  const ctx = createManager({ fetchImpl: async (url, init) => { requests.push({ url, method: init.method }); return jsonResponse(403) } })
+  try {
+    ctx.manager.session = { access_token: 'synthetic', user: { id: 'user-1' } }
+    ctx.manager.user = { user_id: 'user-1' }; ctx.manager.status = AUTH_STATUSES.CONNECTED
+    ctx.manager._writeStoredSession(ctx.manager.session)
+    ctx.manager.pendingClipboardSave = { identity: 'private pending answer' }
+    ctx.manager.cloudCache.profile = { full_name: 'Synthetic private profile' }
+    const result = await ctx.manager._backendJson('/generate/', 'POST', 'synthetic', { question: 'private' })
+    assert.equal(result.ok, false)
+    assert.deepEqual(requests.map(row => row.method), ['GET'])
+    assert.equal(ctx.manager.pendingClipboardSave, null)
+    assert.equal(ctx.manager.cloudCache.profile, null)
+    assert.equal(existsSync(ctx.manager.sessionPath), false)
+  } finally { ctx.cleanup() }
+})
+
+test('offline reconnect verifies eligibility and never releases prohibited queued writes', async () => {
+  const ctx = createManager({ fetchImpl: async () => { throw Error('offline') } })
+  try {
+    ctx.manager.session = { access_token: 'synthetic' }; ctx.manager.user = { user_id: 'user-1' }; ctx.manager.status = AUTH_STATUSES.CONNECTED
+    ctx.manager.pendingClipboardSave = { identity: 'pending' }
+    assert.equal((await ctx.manager._checkAccountEligibility('synthetic')).ok, false)
+    assert.notEqual(ctx.manager.pendingClipboardSave, null)
+    ctx.manager.fetchImpl = async () => jsonResponse(403)
+    assert.equal((await ctx.manager._checkAccountEligibility('synthetic')).ok, false)
+    assert.equal(ctx.manager.pendingClipboardSave, null)
+  } finally { ctx.cleanup() }
+})
+
+test('late restriction for an old account cannot clear a new account', async () => {
+  let finish
+  const ctx = createManager({ fetchImpl: async () => new Promise(resolve => { finish = resolve }) })
+  try {
+    ctx.manager.session = { access_token: 'A' }; ctx.manager.user = { user_id: 'A' }; ctx.manager.status = AUTH_STATUSES.CONNECTED
+    const pending = ctx.manager._checkAccountEligibility('A')
+    ctx.manager.sessionGeneration++; ctx.manager.session = { access_token: 'B' }; ctx.manager.user = { user_id: 'B' }
+    ctx.manager.cloudCache.profile = { full_name: 'B' }
+    finish(jsonResponse(403)); assert.equal((await pending).ok, false)
+    assert.equal(ctx.manager.user.user_id, 'B'); assert.equal(ctx.manager.cloudCache.profile.full_name, 'B')
+  } finally { ctx.cleanup() }
+})
+
+test('cleanup preserves an encrypted session attributed to another account', () => {
+  const ctx = createManager()
+  try {
+    ctx.manager._writeStoredSession({ access_token: 'B', user: { id: 'B' } })
+    ctx.manager.session = { access_token: 'A' }; ctx.manager.user = { user_id: 'A' }
+    ctx.manager._clearLocalSession(AUTH_STATUSES.SIGNED_OUT)
+    assert.equal(existsSync(ctx.manager.sessionPath), true)
+    assert.equal(ctx.manager._readStoredSession().account_owner, 'B')
+  } finally { ctx.cleanup() }
+})
+
+
+for (const status of [0, 503]) {
+  test(`eligibility failure ${status} preserves encrypted session and uncertain Clipboard save`, async () => {
+    const calls = []
+    const ctx = createManager({ fetchImpl: async (url, init) => {
+      calls.push({ url, init })
+      if (status === 0) throw Error('offline')
+      return jsonResponse(status)
+    } })
+    try {
+      ctx.manager.session = { access_token: 'synthetic', user: { id: 'user-1' } }
+      ctx.manager.user = { user_id: 'user-1' }; ctx.manager.status = AUTH_STATUSES.CONNECTED
+      ctx.manager._hasFreshVerification = () => true
+      ctx.manager._writeStoredSession(ctx.manager.session)
+      const body = 'Synthetic saved answer'
+      const crypto = require('node:crypto')
+      const session = '11111111-1111-4111-8111-111111111111'
+      const pending = { identity: crypto.createHash('sha256').update(JSON.stringify(['user-1', session, body])).digest('hex'), key: 'synthetic-operation' }
+      ctx.manager.pendingClipboardSave = pending
+      const result = await ctx.manager.saveMyAnswer(session, body)
+      assert.match(result.error, /temporarily unavailable/)
+      assert.equal(ctx.manager.pendingClipboardSave, pending)
+      assert.equal(ctx.manager.session.access_token, 'synthetic')
+      assert.equal(existsSync(ctx.manager.sessionPath), true)
+      assert.equal(calls.length, 1); assert.equal(calls[0].init.method, 'GET')
+    } finally { ctx.cleanup() }
+  })
+}
+
+
+for (const status of [401, 503, 0]) {
+  test(`startup token-only session uses persisted owner on refresh ${status}`, async () => {
+    const ctx = createManager({ fetchImpl: async () => {
+      if (status === 0) throw Error('offline')
+      return jsonResponse(status)
+    } })
+    try {
+      ctx.manager.session = { access_token: 'synthetic-access', refresh_token: 'synthetic-refresh' }
+      ctx.manager.user = { user_id: 'owner-A' }
+      ctx.manager._writeStoredSession(ctx.manager.session)
+      assert.equal(ctx.manager._readStoredSession().account_owner, 'owner-A')
+      ctx.manager.session = null; ctx.manager.user = null
+      const result = await ctx.manager.initialize()
+      assert.equal(result.status, status === 401 ? AUTH_STATUSES.TOKEN_EXPIRED : status === 503 ? AUTH_STATUSES.BACKEND_UNAVAILABLE : AUTH_STATUSES.OFFLINE)
+      assert.equal(existsSync(ctx.manager.sessionPath), status !== 401)
+    } finally { ctx.cleanup() }
+  })
+}
+
+test('persisted owner fallback cannot remove another account session', () => {
+  const ctx = createManager()
+  try {
+    ctx.manager._writeStoredSession({ access_token: 'B', refresh_token: 'B-refresh', user: { id: 'B' } })
+    ctx.manager.session = { access_token: 'A', account_owner: 'A' }; ctx.manager.user = null
+    ctx.manager._clearLocalSession(AUTH_STATUSES.TOKEN_EXPIRED)
+    assert.equal(ctx.manager._readStoredSession().account_owner, 'B')
   } finally { ctx.cleanup() }
 })
