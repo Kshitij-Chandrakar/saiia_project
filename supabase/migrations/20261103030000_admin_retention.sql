@@ -46,6 +46,7 @@ declare item record; audits integer:=0; reviews integer:=0; receipts integer:=0;
  order by created_at limit p_limit for update skip locked);
  get diagnostics receipts=row_count;
  delete from administration.coupon_requests where id in(select id from administration.coupon_requests where recorded_at<=clock_timestamp()-interval '180 days' order by recorded_at limit p_limit for update skip locked);
+ get diagnostics coupons=row_count;
  delete from administration.retention_runs where completed_at<=clock_timestamp()-interval '180 days';
  if audits+reviews+receipts+coupons>0 then
   insert into administration.retention_runs(audit_count,review_count,receipt_count,coupon_count) values(audits,reviews,receipts,coupons);

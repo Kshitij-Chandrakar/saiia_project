@@ -43,7 +43,7 @@ declare result jsonb; item jsonb; begin
   end loop;
   for item in select * from jsonb_array_elements(p_doc->'restrictions') loop
    insert into administration.customer_access(subject,restricted,revision,changed_at) values((item->>'subject')::uuid,(item->>'restricted')::boolean,(item->>'revision')::bigint,(item->>'changed_at')::timestamptz)
-   on conflict(subject) do update set restricted=excluded.restricted,revision=excluded.revision,changed_at=excluded.changed_at;
+   on conflict(subject) do update set restricted=administration.customer_access.restricted or excluded.restricted,revision=greatest(administration.customer_access.revision,excluded.revision),changed_at=greatest(administration.customer_access.changed_at,excluded.changed_at);
   end loop;
   for item in select * from jsonb_array_elements(p_doc->'spent_campaigns') loop
    insert into administration.campaign_fences values((item->>'id')::uuid,(item->>'revision')::bigint,'restored_blocked') on conflict(id) do update set state='restored_blocked',revision=greatest(administration.campaign_fences.revision,excluded.revision);

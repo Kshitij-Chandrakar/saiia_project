@@ -12,7 +12,10 @@ from app.grpc_generated import interview_realtime_pb2_grpc as rpc
 from fastapi import HTTPException
 
 
-def test_staff_restriction_denies_active_stream_and_contextless_reconnect(monkeypatch):
+@pytest.mark.parametrize("access_status", [403, 503])
+def test_staff_restriction_denies_active_stream_and_contextless_reconnect(
+    monkeypatch, access_status
+):
     for flag in (
         "GRPC_STT_ENABLED",
         "GRPC_ANSWER_STREAM_ENABLED",
@@ -57,13 +60,13 @@ def test_staff_restriction_denies_active_stream_and_contextless_reconnect(monkey
         checks = 0
 
         def record_attempt(self, document):
-            assert document['account_id'] == 'synthetic'
+            assert document["account_id"] == "synthetic"
 
         def product_access(self, subject):
             assert subject == "synthetic"
             self.checks += 1
             if self.restricted:
-                raise HTTPException(403)
+                raise HTTPException(access_status)
 
     authority = Authority()
 
@@ -110,7 +113,11 @@ def test_staff_restriction_denies_active_stream_and_contextless_reconnect(monkey
                 await call.write(pb.InterviewClientEvent(ping=pb.Empty()))
                 with pytest.raises(grpc.aio.AioRpcError) as error:
                     await call.read()
-                assert error.value.code() == grpc.StatusCode.PERMISSION_DENIED
+                assert error.value.code() == (
+                    grpc.StatusCode.PERMISSION_DENIED
+                    if access_status == 403
+                    else grpc.StatusCode.UNAVAILABLE
+                )
                 assert authority.checks > 0
         finally:
             await server.stop(0)

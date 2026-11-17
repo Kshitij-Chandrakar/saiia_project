@@ -1,5 +1,6 @@
 """Content-free provider attempt observations; callers supply only verified ownership."""
 
+import asyncio
 import contextvars
 import logging
 import time
@@ -50,8 +51,16 @@ class Attempt:
         )
         usage = (
             response.get("usage")
-            or (response.get("response") or {}).get("usage")
-            or (response.get("x_groq") or {}).get("usage")
+            or (
+                response["response"].get("usage")
+                if isinstance(response.get("response"), dict)
+                else None
+            )
+            or (
+                response["x_groq"].get("usage")
+                if isinstance(response.get("x_groq"), dict)
+                else None
+            )
             or response.get("usageMetadata")
             or {}
         )
@@ -74,6 +83,12 @@ class Attempt:
         if outgoing is not None:
             self.output = outgoing
 
+    async def __aenter__(self):
+        return self.__enter__()
+
+    async def __aexit__(self, kind, value, traceback):
+        await asyncio.to_thread(self.__exit__, kind, value, traceback)
+
     def __exit__(self, kind, value, traceback):
         current = context.get()
         if current is None:
@@ -86,16 +101,18 @@ class Attempt:
             "provider": self.provider,
             "model": self.model,
             "reported_model": self.reported,
-            "outcome": "failed"
-            if kind and issubclass(kind, Exception)
-            else self.outcome,
+            "outcome": (
+                "failed" if kind and issubclass(kind, Exception) else self.outcome
+            ),
             "input_tokens": self.input,
             "output_tokens": self.output,
             "duration_ms": round((time.monotonic() - self.started) * 1000),
         }
         try:
             record(document)
-        except Exception:  # noqa: BLE001 -- telemetry cannot turn a completed provider call into a duplicate retry
+        except (
+            Exception
+        ):  # noqa: BLE001 -- telemetry cannot turn a completed provider call into a duplicate retry
             logging.getLogger(__name__).warning("Provider telemetry unavailable")
 
 
@@ -110,7 +127,9 @@ def measured_call(function, *args, telemetry_provider, telemetry_model=None, **k
 async def measured_async_call(
     function, *args, telemetry_provider, telemetry_model=None, **kwargs
 ):
-    with Attempt(telemetry_provider, kwargs.get("model") or telemetry_model) as attempt:
+    async with Attempt(
+        telemetry_provider, kwargs.get("model") or telemetry_model
+    ) as attempt:
         result = await function(*args, **kwargs)
         attempt.usage(result)
         attempt.outcome = "completed"

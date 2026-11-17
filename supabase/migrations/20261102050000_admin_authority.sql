@@ -143,6 +143,7 @@ begin
   if found then
    if v.target<>target or v.desired_role<>p_doc->>'role' or v.desired_status<>p_doc->>'status' or v.session_id<>p_session or v.reason<>p_doc->>'reason' then return jsonb_build_object('error','conflict'); end if;
   else
+  if exists(select 1 from administration.receipts where id=correlation) then return jsonb_build_object('error','conflict'); end if;
    insert into administration.reviews(id,actor,session_id,actor_revision,action,target,target_revision,desired_role,desired_status,reason,operation_id)
     values(gen_random_uuid(),p_actor,p_session,m.revision,'membership',target,revision,p_doc->>'role',p_doc->>'status',p_doc->>'reason',correlation) returning * into v;
   end if;
@@ -151,7 +152,9 @@ begin
  select * into v from administration.reviews where id=(p_doc->>'review_id')::uuid and actor=p_actor and session_id=p_session for update;
  if not found or p_doc->>'confirm' is distinct from 'true' then return jsonb_build_object('error','conflict'); end if;
  select * into receipt from administration.receipts where id=v.operation_id;
- if found then return jsonb_build_object('operation_id',receipt.id,'state',receipt.state,'revision',receipt.revision::text); end if;
+ if found then
+  if receipt.actor<>p_actor or receipt.review_id<>v.id or receipt.action<>'membership' then return jsonb_build_object('error','conflict'); end if;
+  return jsonb_build_object('operation_id',receipt.id,'state',receipt.state,'revision',receipt.revision::text); end if;
  if v.expires_at<=clock_timestamp() or v.actor_revision<>m.revision or v.consumed_at is not null then return jsonb_build_object('error','conflict'); end if;
  select * into t from administration.memberships where subject=v.target for update;
  if coalesce(t.revision,0)<>v.target_revision or (v.desired_status='active' and not administration.eligible(v.target)) then return jsonb_build_object('error','conflict'); end if;

@@ -41,6 +41,7 @@ begin
   if found then
    if v.task_id<>target or v.task_revision<>j.revision or v.session_id<>p_session or v.reason<>p_doc->>'reason' then return jsonb_build_object('error','conflict'); end if;
   else
+  if exists(select 1 from administration.receipts where id=(p_doc->>'operation_id')::uuid) then return jsonb_build_object('error','conflict'); end if;
    insert into administration.privacy_reviews(actor,session_id,actor_revision,task_id,account_id,task_revision,operation_id,reason)
    values(p_actor,p_session,m.revision,j.id,j.account_id,j.revision,operation,p_doc->>'reason') returning * into v;
   end if;
@@ -49,8 +50,10 @@ begin
  if not p_doc ?& array['review_id','confirm'] or p_doc-array['review_id','confirm']<>'{}'::jsonb or p_doc->'confirm'<>'true'::jsonb then return jsonb_build_object('error','invalid'); end if;
  select * into v from administration.privacy_reviews where id=(p_doc->>'review_id')::uuid and actor=p_actor and session_id=p_session for update;
  if not found then return jsonb_build_object('error','not_found'); end if;
- select * into receipt from administration.receipts where id=v.operation_id and actor=p_actor;
- if found then return jsonb_build_object('state',receipt.state,'operation_id',receipt.id,'revision',receipt.revision::text); end if;
+ select * into receipt from administration.receipts where id=v.operation_id;
+ if found then
+  if receipt.actor<>p_actor or receipt.review_id<>v.id or receipt.action<>('privacy.retry') then return jsonb_build_object('error','conflict'); end if;
+  return jsonb_build_object('state',receipt.state,'operation_id',receipt.id,'revision',receipt.revision::text); end if;
  if v.actor_revision<>m.revision or v.expires_at<=clock_timestamp() or v.consumed_at is not null then return jsonb_build_object('error','conflict'); end if;
  -- Preserve worker lock order: authority -> account -> task. No active lease is reset.
  perform 1 from auth.users where id=v.account_id for no key update;
@@ -69,6 +72,9 @@ do $$ declare definition text; old text; new text; begin
  old:='''as_of'',statement_timestamp()) into result from public.privacy_deletion_requests where account_id=p_target;';
  new:='''as_of'',statement_timestamp(),''tasks'',(select coalesce(jsonb_agg(jsonb_build_object(''task_id'',q.id,''kind'',q.kind,''state'',q.state,''revision'',q.revision::text,''attempts'',q.attempts,''retry_available'',administration.retry_eligible(q.id))),''[]'') from (select id,kind,state,revision,attempts from public.privacy_content_jobs where account_id=p_target and kind<>''export'' order by created_at desc limit 100) q)) into result from public.privacy_deletion_requests where account_id=p_target;';
  if position(old in definition)=0 then raise exception 'privacy projection mismatch'; end if;
- execute replace(definition,old,new);
+ definition:=replace(definition,old,new);
+ definition:=replace(definition,'into result from public.privacy_deletion_requests where account_id=p_target;', 'into result from (select r.* from (values(1)) seed(n) left join public.privacy_deletion_requests r on r.account_id=p_target) request;');
+ definition:=replace(definition,'order by created_at),''[]'')','order by created_at) filter(where request_id is not null),''[]'')');
+ execute definition;
 end$$;
 commit;

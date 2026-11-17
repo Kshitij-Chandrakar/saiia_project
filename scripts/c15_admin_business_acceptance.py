@@ -230,6 +230,19 @@ def verify_cancellation(r, super_admin, results):
     accepted = call("confirm", doc)
     assert accepted["state"] == "queued", accepted
     assert call("confirm", doc) == accepted
+    with r.connect() as fixture:
+        # Crash window: command dispatch committed before billing cancel_claim.
+        fixture.execute(
+            "update administration.commands set dispatched=true where id=%s",
+            (accepted["operation_id"],),
+        )
+        assert (
+            fixture.execute(
+                "select cancel_requested from billing_operations where operation_id=%s",
+                (operation,),
+            ).fetchone()[0]
+            is False
+        )
     worker = CancellationDispatcher(
         lambda: r.connect("admin_dispatch_executor"), billing
     )
@@ -242,7 +255,16 @@ def verify_cancellation(r, super_admin, results):
         ).fetchone()[0]
         if state != "confirmed":
             try:
-                billing.reconcile(customer, operation)
+                c.execute(
+                    "update administration.commands set lease_until=clock_timestamp()-interval '1 second' where id=%s",
+                    (accepted["operation_id"],),
+                )
+                c.commit()
+                assert worker.run_one()
+                state = c.execute(
+                    "select state from administration.commands where id=%s",
+                    (accepted["operation_id"],),
+                ).fetchone()[0]
             except (
                 DatabaseError,
                 RuntimeError,
@@ -786,6 +808,11 @@ def verify_export_registry(r, results):
         local_rehearsal=True,
         credential_connect=lambda: r.connect("privacy_cleanup_executor"),
     )
+    with r.connect() as fixture:
+        fixture.execute(
+            "insert into administration.provider_attempts(id,request_id,subject,provider,model,outcome,duration_ms) select gen_random_uuid(),gen_random_uuid(),%s,'ollama','synthetic-model','completed',1 from generate_series(1,6000)",
+            (account,),
+        )
     engine.request(account, job)
     with r.connect() as c:
         record = c.execute(
@@ -793,6 +820,14 @@ def verify_export_registry(r, results):
             (job,),
         ).fetchone()[0]
         assert record["executed_attempts"] == []
+        documents = c.execute(
+            "select document from privacy_export_rows where job_id=%s and category='administration_personal'",
+            (job,),
+        ).fetchall()
+        assert (
+            sum(len(row[0].get("executed_attempts", [])) for row in documents) == 6000
+        )
+        assert all(len(json.dumps(row[0]).encode()) < 1024 * 1024 for row in documents)
         assert "protected audit history" in record["exclusions"]
         assert other not in json.dumps(record)
     assert engine.run_one()
@@ -1065,7 +1100,9 @@ def verify_admin_restore(r, actor, results):
                 with r.connect("admin_restore_executor") as c:
                     assert recovering.capture(c)["revision"] == revision
                 restored = recovering
-            journal.path.write_bytes(journal.path.read_bytes()[:-1])
+            with remote_store.locked() as checkpoint:
+                selected = restored._journal(remote_store.read(checkpoint)).path
+            selected.write_bytes(selected.read_bytes()[:-1])
             assert not restored.ready()
         finally:
             remote_store.http.close()
@@ -1264,9 +1301,9 @@ def verify_population(r, actor, results):
             (new,),
         ).fetchone()[0]
     historic = metrics(cutoff - timedelta(days=2), cutoff - timedelta(days=1))
-    assert historic["total_users"] is None and historic["daily_registrations"] == [], (
-        historic
-    )
+    assert (
+        historic["total_users"] is None and historic["daily_registrations"] == []
+    ), historic
     results.append(
         {
             "scenario": "population_baseline_no_fabricated_history_verified_uuid_registration_email_reverification_dedup_deletion_removal_and_unknown_coverage",

@@ -54,6 +54,7 @@ begin
   if found then
    if v.target<>target or v.session_id<>p_session or v.restricted<>wanted or v.reason<>p_doc->>'reason' then return jsonb_build_object('error','conflict'); end if;
   else
+  if exists(select 1 from administration.receipts where id=operation) then return jsonb_build_object('error','conflict'); end if;
    insert into administration.access_reviews(actor,session_id,actor_revision,target,target_revision,restricted,reason,operation_id)
    values(p_actor,p_session,m.revision,target,coalesce(current_revision,0),wanted,p_doc->>'reason',operation) returning * into v;
   end if;
@@ -63,8 +64,10 @@ begin
  select * into v from administration.access_reviews where id=(p_doc->>'review_id')::uuid and actor=p_actor and session_id=p_session for update;
  if not found then return jsonb_build_object('error','conflict'); end if;
  if not v.restricted and m.role<>'super_admin' then return jsonb_build_object('error','not_found'); end if;
- select * into result from administration.receipts where id=v.operation_id and actor=p_actor;
- if found then return jsonb_build_object('operation_id',result.id,'state',result.state,'revision',result.revision::text,'restricted',v.restricted,'billing_changed',false); end if;
+ select * into result from administration.receipts where id=v.operation_id;
+ if found then
+  if result.actor<>p_actor or result.review_id<>v.id or result.action<>(case when v.restricted then 'access.restrict' else 'access.restore' end) then return jsonb_build_object('error','conflict'); end if;
+  return jsonb_build_object('operation_id',result.id,'state',result.state,'revision',result.revision::text,'restricted',v.restricted,'billing_changed',false); end if;
  if v.actor_revision<>m.revision or v.expires_at<=clock_timestamp() or v.consumed_at is not null then return jsonb_build_object('error','conflict'); end if;
  perform 1 from auth.users where id=v.target for no key update;
  if not found or exists(select 1 from administration.memberships where subject=v.target) then return jsonb_build_object('error','not_found'); end if;
@@ -100,6 +103,7 @@ do $$ declare signature text; definition text; begin
  execute definition;
  definition:=pg_get_functiondef('administration.eligible(uuid)'::regprocedure);
  definition:=replace(definition,'select exists(', 'select not administration.restricted(p_subject) and exists(');
+ if position('administration.restricted(p_subject)' in definition)=0 then raise exception 'eligible restriction patch mismatch'; end if;
  execute definition;
 end$$;
 create function public.administration_content_allowed(p_subject uuid) returns boolean

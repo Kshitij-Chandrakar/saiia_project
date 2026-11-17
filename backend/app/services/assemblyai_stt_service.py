@@ -1,4 +1,4 @@
-from app.admin_telemetry import measured_call
+from app.admin_telemetry import Attempt
 import logging
 import time
 
@@ -47,7 +47,9 @@ class AssemblyAISTTService:
             config = aai.TranscriptionConfig(
                 speech_model=getattr(aai.SpeechModel, self.model, aai.SpeechModel.best),
             )
-            transcript = measured_call(aai.Transcriber().transcribe, audio_path, config=config, telemetry_provider="assemblyai", telemetry_model=self.model)
+            with Attempt("assemblyai", self.model) as attempt:
+                transcript = aai.Transcriber().transcribe(audio_path, config=config)
+                attempt.outcome = "failed" if getattr(transcript, "status", None) == aai.TranscriptStatus.error else "completed"
         except Exception as exc:
             message = str(exc).lower()
             if "401" in message or "403" in message or "authentication" in message or "unauthorized" in message:

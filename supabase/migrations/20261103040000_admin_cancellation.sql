@@ -68,8 +68,10 @@ grant execute on function public.administration_cancel(uuid,uuid,timestamptz,tex
 create function public.administration_command(p_action text,p_doc jsonb) returns jsonb language plpgsql security definer set search_path=pg_catalog as $$
 declare command administration.commands; member administration.memberships; begin
  if session_user<>'admin_dispatch_executor' or current_setting('role',true)<>'none' or jsonb_typeof(p_doc)<>'object' then raise exception 'denied' using errcode='42501'; end if;
- perform 1 from administration.configuration where singleton and enabled for update; if not found then return null; end if;
+ perform 1 from administration.configuration where singleton and (enabled or p_action='finish') for update; if not found then return null; end if;
  if p_action='claim' then
+  update administration.commands set state=case when dispatched then 'unknown' else 'failed' end,lease=null,lease_until=null,updated_at=clock_timestamp()
+  where attempts>=5 and state in ('running','pending') and (lease_until is null or lease_until<=clock_timestamp());
   select * into command from administration.commands where (state='pending' or state in ('running','unknown') and lease_until<=clock_timestamp()) and attempts<5 order by created_at for update skip locked limit 1;
   if not found then return null; end if;
   member:=administration.member(command.actor);
@@ -83,7 +85,7 @@ declare command administration.commands; member administration.memberships; begi
  select * into command from administration.commands where id=(p_doc->>'id')::uuid and lease=(p_doc->>'lease')::uuid and state='running' and lease_until>clock_timestamp() for update;
  if not found then raise exception 'stale command' using errcode='40001'; end if;
  member:=administration.member(command.actor);
- if member.subject is null or member.revision<>command.actor_revision or exists(select 1 from administration.memberships where subject=command.target) then
+ if p_action<>'finish' and (member.subject is null or member.revision<>command.actor_revision or exists(select 1 from administration.memberships where subject=command.target)) then
   update administration.commands set state='blocked',lease=null,lease_until=null,updated_at=clock_timestamp() where id=command.id; return jsonb_build_object('allowed',false);
  end if;
  if p_action='dispatch' then

@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from psycopg import Error as DatabaseError
 from starlette.concurrency import run_in_threadpool
 
+from app.privacy_content import ContentBlocked
 from app.auth.supabase_auth import get_current_user, verify_supabase_token
 from app.commercial.admin_access import VerifiedActor
 from app.commercial.billing_api import body
@@ -111,7 +112,7 @@ class Administration:
                         self.dispatcher.run_one()
                     if self.campaign_dispatcher is not None:
                         self.campaign_dispatcher.run_one()
-                except (DatabaseError, RuntimeError, OSError):
+                except (DatabaseError, RuntimeError, OSError, ContentBlocked):
                     logging.getLogger(__name__).warning(
                         "Administration retention deferred"
                     )

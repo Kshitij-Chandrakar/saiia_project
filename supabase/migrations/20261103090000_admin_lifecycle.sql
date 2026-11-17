@@ -7,10 +7,10 @@ declare item record; removed integer:=0; n integer; begin
  perform 1 from administration.configuration where singleton and enabled for update; if not found then raise exception 'unavailable' using errcode='P0005'; end if;
  delete from administration.provider_attempts where id in(select id from administration.provider_attempts where completed_at<=clock_timestamp()-interval '90 days' order by completed_at limit p_limit for update skip locked);get diagnostics n=row_count;removed:=removed+n;
  delete from administration.activity where (subject,kind,event_id) in(select subject,kind,event_id from administration.activity where completed_at<=clock_timestamp()-interval '90 days' order by completed_at limit p_limit for update skip locked);get diagnostics n=row_count;removed:=removed+n;
- for item in select id,campaign_id from administration.audience_reviews where references_until<=clock_timestamp() order by references_until limit p_limit for update skip locked loop
-  insert into administration.campaign_fences(id,revision,state) select id,revision,'expired' from administration.campaigns where id=item.campaign_id on conflict(id) do nothing;
+ for item in select id,campaign_id,revision from administration.audience_reviews where references_until<=clock_timestamp() order by references_until limit p_limit for update skip locked loop
+  insert into administration.campaign_fences(id,revision,state) select id,revision,'expired' from administration.campaigns where id=item.campaign_id and revision=item.revision on conflict(id) do nothing;
   update administration.campaign_deliveries set state=case when state='sending' then 'unknown' else 'skipped' end,terminal_at=case when state='sending' then null else coalesce(terminal_at,clock_timestamp()) end,lease=null,lease_until=null where review_id=item.id and state in ('pending','running','sending');
-  update administration.campaigns set state='expired' where id=item.campaign_id and state in ('draft','queued');
+  update administration.campaigns set state='expired' where id=item.campaign_id and revision=item.revision and state in ('draft','queued');
   delete from administration.audience_members where review_id=item.id;
   delete from administration.audience_reviews where id=item.id;removed:=removed+1;
  end loop;
@@ -27,7 +27,7 @@ declare item record; removed integer:=0; n integer; begin
  delete from administration.command_reviews where id in(select id from administration.command_reviews where consumed_at is not null or expires_at<=clock_timestamp() order by expires_at limit p_limit for update skip locked);
  update administration.successor_transfers set session_id=null where state in ('accepted','verified') or expires_at<=clock_timestamp();
  delete from administration.successor_transfers where id in(select id from administration.successor_transfers where state='offered' and expires_at<=clock_timestamp() or verified_at<=clock_timestamp()-interval '180 days' order by expires_at limit p_limit for update skip locked);
- delete from administration.commands where id in(select id from administration.commands where state in ('confirmed','failed','blocked') and created_at<=clock_timestamp()-interval '180 days' order by created_at limit p_limit for update skip locked);
+ delete from administration.commands where id in(select id from administration.commands where state in ('confirmed','failed','blocked') and updated_at<=clock_timestamp()-interval '180 days' order by updated_at limit p_limit for update skip locked);
  return jsonb_build_object('records_removed',removed,'unresolved_financial_commands',(select count(*) from administration.commands where state in ('pending','running','unknown')));
 end$$;
 revoke all on function public.administration_lifecycle(integer) from public,anon,authenticated,service_role,admin_executor,admin_bootstrap_executor,admin_dispatch_executor;

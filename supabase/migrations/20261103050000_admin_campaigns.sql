@@ -112,9 +112,11 @@ grant execute on function public.administration_campaign(uuid,uuid,timestamptz,t
 create function public.administration_campaign_work(p_action text,p_doc jsonb) returns jsonb language plpgsql security definer set search_path=pg_catalog as $$
 declare d administration.campaign_deliveries; v administration.audience_reviews; member administration.memberships; c administration.campaigns; begin
  if session_user<>'admin_dispatch_executor' or current_setting('role',true)<>'none' then raise exception 'denied' using errcode='42501'; end if;
- perform 1 from administration.configuration where singleton and enabled for update; if not found then return null; end if;
+ perform 1 from administration.configuration where singleton and (enabled or p_action='finish') for update; if not found then return null; end if;
  if p_action='claim' then
   update administration.campaign_deliveries set state='unknown',terminal_at=null,lease=null where state='sending' and lease_until<=clock_timestamp();
+  update administration.campaign_deliveries set state='failed',terminal_at=clock_timestamp(),lease=null,lease_until=null where state='running' and attempts>=5 and lease_until<=clock_timestamp();
+  update administration.campaigns campaign_row set state='complete' where campaign_row.state='queued' and not exists(select 1 from administration.campaign_deliveries delivery_row where delivery_row.campaign_id=campaign_row.id and delivery_row.test_revision=0 and delivery_row.state in ('pending','running','sending'));
   select * into d from administration.campaign_deliveries where (state='pending' or state='running' and lease_until<=clock_timestamp()) and attempts<5 order by created_at,id limit 1 for update skip locked;
   if not found then return null; end if;
  else
@@ -124,7 +126,7 @@ declare d administration.campaign_deliveries; v administration.audience_reviews;
  select * into v from administration.audience_reviews where id=d.review_id;
  select * into c from administration.campaigns where id=d.campaign_id;
  member:=administration.member(v.actor);
- if v.id is null or v.references_until<=clock_timestamp() or not ((d.test_revision=0 and c.state='queued') or (d.test_revision=c.revision and c.state='draft' and c.previewed_revision=c.revision)) or member.subject is null or member.revision<>v.actor_revision or not administration.marketing_allowed(d.account_id) then
+ if p_action in ('claim','eligible') and (v.id is null or v.references_until<=clock_timestamp() or not ((d.test_revision=0 and c.state='queued') or (d.test_revision=c.revision and c.state='draft' and c.previewed_revision=c.revision)) or member.subject is null or member.revision<>v.actor_revision or not administration.marketing_allowed(d.account_id)) then
   update administration.campaign_deliveries set state='skipped',terminal_at=clock_timestamp(),lease=null where id=d.id;
   if c.state='queued' and not exists(select 1 from administration.campaign_deliveries where campaign_id=c.id and test_revision=0 and state in ('pending','running','sending')) then update administration.campaigns set state='complete' where id=c.id; end if;
   return jsonb_build_object('skipped',true,'id',d.id);
@@ -135,7 +137,7 @@ declare d administration.campaign_deliveries; v administration.audience_reviews;
  elsif p_action='eligible' then return jsonb_build_object('allowed',true);
  elsif p_action='finish' then
   if coalesce(p_doc->>'state','') not in ('accepted','failed','unknown','skipped') then raise exception 'invalid state' using errcode='22023'; end if;
-  update administration.campaign_deliveries set state=p_doc->>'state',event_id=(p_doc->>'event_id')::uuid,message_id=(p_doc->>'message_id')::uuid,terminal_at=case when p_doc->>'state'='unknown' then null else clock_timestamp() end,lease=null where id=d.id;
+  update administration.campaign_deliveries set state=p_doc->>'state',event_id=coalesce((p_doc->>'event_id')::uuid,event_id),message_id=coalesce((p_doc->>'message_id')::uuid,message_id),terminal_at=case when p_doc->>'state'='unknown' then null else clock_timestamp() end,lease=null where id=d.id;
   if c.state='queued' and not exists(select 1 from administration.campaign_deliveries where campaign_id=c.id and test_revision=0 and state in ('pending','running','sending')) then update administration.campaigns set state='complete' where id=c.id; end if;
   return jsonb_build_object('state',p_doc->>'state');
  end if;
