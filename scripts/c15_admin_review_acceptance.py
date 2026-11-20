@@ -9,6 +9,16 @@ from app.privacy_registry import VERSION
 def verify_review_fixes(r, actor, results):
     subject = r.user()["id"]
     now = datetime.now(timezone.utc)
+    with r.connect() as c:
+        for role in ('privacy_runtime_owner', 'privacy_identity_owner', 'privacy_revocation_observer_owner'):
+            assert not c.execute("select has_schema_privilege(%s,'auth','usage')", (role,)).fetchone()[0]
+        for role in ('anon', 'authenticated', 'service_role', 'admin_executor', 'privacy_content_executor'):
+            assert not c.execute("select has_function_privilege(%s,'c15_auth.user_fields(uuid)','execute')", (role,)).fetchone()[0]
+        assert c.execute("select count(*) from pg_policies where schemaname='auth' and policyname like 'c15_%'").fetchone()[0] == 0
+        c.execute('set local role privacy_runtime_owner')
+        assert str(c.execute('select id from c15_auth.user_fields(%s)', (subject,)).fetchone()[0]) == str(subject)
+        assert str(c.execute('select id from c15_auth.lock_user(%s)', (subject,)).fetchone()[0]) == str(subject)
+    results.append('private_auth_bridge_permissions_and_fixed_reads')
 
     def rpc(role, function, args):
         with r.connect(role) as c:

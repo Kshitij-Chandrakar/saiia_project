@@ -266,6 +266,12 @@ for key, spec in sorted(operations.items()):
         "method": spec["method"],
     }
     quote = lambda s: "'" + s.replace("'", "''") + "'"
+    # Keep caller operation identities stable while lowering Auth access to fixed bridges.
+    statement = statement.replace("select 'auth.users'::regclass::oid", "select c15_auth.users_oid()")
+    statement = statement.replace("from auth.users where id=($1->>0)::uuid for no key update", "from c15_auth.lock_user(($1->>0)::uuid)")
+    statement = statement.replace("from auth.users where id=($1->>0)::uuid", "from c15_auth.user_fields(($1->>0)::uuid)")
+    statement = statement.replace("from auth.users where id=($1->>1)::uuid", "from c15_auth.user_fields(($1->>1)::uuid)")
+    statement = statement.replace("join auth.users u on u.id=r.account_id", "join lateral c15_auth.user_fields(r.account_id) u on true")
     statements.append(
         "insert into public.privacy_runtime_operations values("
         + ",".join(
@@ -313,11 +319,11 @@ revoke all on function public.privacy_runtime_columns() from public,anon,authent
 grant execute on function public.privacy_runtime_columns() to privacy_runtime_owner;
 """
 head += """create function public.privacy_runtime_contact_available(p_account uuid) returns boolean language sql security definer set search_path=pg_catalog as $$ select exists(select 1 from auth.users u where u.id=p_account and u.deleted_at is null) $$;
-alter function public.privacy_runtime_contact_available(uuid) owner to privacy_runtime_owner;
+alter function public.privacy_runtime_contact_available(uuid) owner to postgres;
 revoke all on function public.privacy_runtime_contact_available(uuid) from public,anon,authenticated,service_role;
 grant execute on function public.privacy_runtime_contact_available(uuid) to privacy_runtime_owner;
 """
-head += "grant usage on schema public,auth to privacy_runtime_owner;\ngrant select(id,email,email_confirmed_at,deleted_at),update(id) on auth.users to privacy_runtime_owner;\n"
+head += "grant usage on schema public to privacy_runtime_owner;\ngrant select(id,email,email_confirmed_at,deleted_at),update(id) on auth.users to privacy_runtime_owner;\n"
 import sys
 
 sys.path.insert(0, str(root / "backend"))

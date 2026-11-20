@@ -32,7 +32,7 @@ grant execute on function public.resolve_outbound_email_event_reconciliation(uui
 create function public.privacy_pending_notices() returns jsonb language sql security definer set search_path=pg_catalog as $$
  select coalesce(jsonb_agg(to_jsonb(candidate)),'[]') from (
  select r.account_id, stage.name as stage
- from public.privacy_deletion_requests r join auth.users u on u.id=r.account_id
+ from public.privacy_deletion_requests r join lateral c15_auth.user_fields(r.account_id) u on true
  left join public.privacy_content_jobs j on j.id=r.request_id
  cross join lateral (
   select 'accepted'::text name where
