@@ -46,8 +46,11 @@ export default function AdminConsole({ backendUrl, client = supabase }) {
   const section = params.get('view') || 'users';
   const [state, setState] = useState({ phase: 'loading' });
   const [search, setSearch] = useState('');
-  const [query, setQuery] = useState('');
-  const [after, setAfter] = useState('');
+  const [pager, setPager] = useState({ section, query: '', after: '' });
+  const query = pager.section === section ? pager.query : '';
+  const after = pager.section === section ? pager.after : '';
+  const setQuery = query => setPager(previous => ({ section, after: previous.section === section ? previous.after : '', query }));
+  const setAfter = after => setPager(previous => ({ section, query: previous.section === section ? previous.query : '', after }));
   const [reload, setReload] = useState(0);
   const [metricDays,setMetricDays] = useState(30);
   const [metricZone,setMetricZone] = useState('Asia/Calcutta');
@@ -134,7 +137,7 @@ export default function AdminConsole({ backendUrl, client = supabase }) {
       active.current?.abort();
       const controller = new AbortController(); active.current = controller;
       session.current = next;
-      if (changedAccount) { setSearch(''); setQuery(''); setAfter(''); }
+      if (changedAccount) { setSearch(''); setPager(previous => ({ ...previous, query: '', after: '' })); }
       updateVerification(next);
       setState({ phase: 'loading' }); setDetail(null); setReview(null); setDraft(null); setMemberAccount(null); setCoupon(null); setAccessDraft(null); setAccessReview(null); setLastCommand(null); setCode(''); setTransfer(null); setError('');
       if (!next?.access_token || !client) { setState({ phase: 'denied' }); return; }
@@ -314,7 +317,7 @@ export default function AdminConsole({ backendUrl, client = supabase }) {
       <h2 id="membership-title">{review ? 'Review access change' : state.data?.items?.some(row => row.subject_id === draft?.target) ? 'Change admin access' : 'Add administrator'}</h2>
       <p>{review ? 'Check the account and access below. Nothing changes until you confirm.' : 'Choose an existing account and the access they need. You will review the change before confirming.'}</p>
       <ol className="am-steps" aria-label="Access change steps"><li aria-current={!review ? 'step' : undefined}>1. Choose access</li><li aria-current={review ? 'step' : undefined}>2. Review and confirm</li></ol>
-      {draft && <form onSubmit={membership}>
+      {draft && <form onSubmit={membership}><fieldset disabled={pending || !!error} style={{ border: 0, padding: 0, minWidth: 0 }}>
         {!draft.target && <MembershipAccountPicker find={findMember} selected={draft.target} disabled={pending} onSelect={user => { setMemberAccount(user); setDraft({ ...draft, target: user?.user_id || '' }); }} />}
         {draft.target && <div className="am-selected"><strong>{memberAccount?.email || 'Selected account'}</strong><span>Account ID: {draft.target}</span>{!review && <button type="button" disabled={pending} onClick={() => { setMemberAccount(null); setDraft({ ...draft, target: '' }); }}>Choose a different user</button>}</div>}
         {review ? <dl className="am-review"><div><dt>Access level</dt><dd>{draft.role === 'super_admin' ? 'Super admin' : 'Admin'}</dd></div><div><dt>Status</dt><dd>{draft.status === 'active' ? 'Active' : draft.status === 'suspended' ? 'Suspended' : 'Revoked'}</dd></div><div><dt>Reason</dt><dd>{draft.reason === 'membership' ? 'Team access change' : draft.reason === 'security' ? 'Security' : 'Support'}</dd></div></dl> : <>
@@ -325,7 +328,7 @@ export default function AdminConsole({ backendUrl, client = supabase }) {
         {review && <p className="am-hint">This review expires {new Date(review.expires_at).toLocaleString()}. An expired or changed request must be reviewed again.</p>}
         <p className="am-hint">Staff actions cannot remove, suspend or demote the last active Super admin.</p>
         {error && <p role="alert">{error}</p>}
-        <div className="ac-actions"><button className="ac-dismiss" type="button" disabled={pending} onClick={() => { setDraft(null); setReview(null); }}>Cancel</button><button type="submit" className="am-primary" disabled={pending || !draft.target}>{pending ? 'Checking outcome?' : review ? 'Confirm access change' : 'Review change'}</button></div>
+        </fieldset><div className="ac-actions"><button className="ac-dismiss" type="button" disabled={pending} onClick={() => { setDraft(null); setReview(null); }}>Cancel</button><button type="submit" className="am-primary" disabled={pending || !draft.target}>{pending ? 'Checking outcome?' : review ? 'Confirm access change' : 'Review change'}</button></div>
       </form>}
     </dialog>
   </AdminShell>;

@@ -118,6 +118,11 @@ function Costs({ costs, unknown }) {
   </article>;
 }
 export default function AdminOverview({ data, status = 'ready' }) {
+  const [, updateAge] = useState(0);
+  useEffect(() => {
+    const remaining = Date.parse(data?.as_of) + 300001 - Date.now();
+    if (remaining > 0) { const timer = setTimeout(() => updateAge(value => value + 1), remaining); return () => clearTimeout(timer); }
+  }, [data?.as_of]);
   if (status !== 'ready' || !data) return <section className="admin-overview" aria-label="Operational overview" aria-busy={status === 'loading'}><div className="ao-state" role={status === 'loading' ? 'status' : 'alert'}>{status === 'loading' ? 'Loading authorized metrics...' : 'Metrics are unavailable. No missing values are shown as zero.'}</div><div className="ao-metrics">{['Verified users', 'New verified users', 'Active users', 'Estimated API cost'].map(label => <article className="ao-metric" key={label}><h2>{label}</h2><>{status === 'loading' ? <span className="ao-skeleton" /> : <p className="ao-metric-value" aria-label="Unavailable">{'\u2014'}</p>}<p>{status === 'loading' ? 'Awaiting authorized data' : 'No authorized snapshot'}</p></></article>)}</div><div className="ao-primary-grid"><article className="ao-panel"><h2>User growth</h2><Empty>{status === 'loading' ? 'Loading observations' : 'Observations unavailable'}</Empty></article><article className="ao-panel"><h2>Most used models</h2><Empty>{status === 'loading' ? 'Loading observed usage' : 'Usage unavailable'}</Empty></article></div><div className="ao-secondary-grid">{['Activity','API cost breakdown'].map(title => <article className="ao-panel" key={title}><h2>{title}</h2><Empty>{status === 'loading' ? 'Loading authorized data' : 'Data unavailable'}</Empty></article>)}</div></section>;
   const days = data.daily_registrations || [], models = data.models || [], costs = data.costs || [];
   const covered = costs.reduce((sum, row) => sum + (numeric(row.covered_attempts) ?? 0), 0);

@@ -53,7 +53,7 @@ try {
  let reviews=0,confirms=0,failReview=true,failConfirm=true,operation=null;
  await page.route('**/api/admin/memberships/review',async route=>{
   reviews++;const data=route.request().postDataJSON();expect(data.target).toBe(accounts.users.customer.id);
-  if(operation) expect(data.operation_id).toBe(operation);operation=data.operation_id;
+  expect(data.operation_id).toBeTruthy(); if(operation !== null) expect(data.operation_id).toBe(operation);operation=data.operation_id;
   if(failReview){failReview=false;await route.fulfill({status:503,json:{}});return;}
   await route.fulfill({json:{review_id:'11111111-1111-4111-8111-111111111111',expires_at:new Date(Date.now()+240000).toISOString()}});
  });

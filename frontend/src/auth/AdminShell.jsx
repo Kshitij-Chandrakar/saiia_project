@@ -1,10 +1,11 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Menu } from 'lucide-react';
 import AdminSidebar from './AdminSidebar';
 import { containDialogFocus } from './adminFocus';
 import './admin-console.css';
 
 export default function AdminShell({ identity, user, section, navigate, title, subtitle, controls, children }) {
+  useEffect(() => { document.title = `${title} | Intervucopilot`; }, [title]);
   const dialog = useRef(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   function close() { dialog.current?.close(); }

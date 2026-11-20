@@ -7,10 +7,10 @@ export default function AdminSuccessor({ backendUrl, client = supabase }) {
   const [session, setSession] = useState(null), [reference, setReference] = useState(''), [code, setCode] = useState(''), [status, setStatus] = useState(''), [busy, setBusy] = useState(false), [accepted, setAccepted] = useState(false);
   const locked = useRef(false), generation = useRef(0), active = useRef(null);
   useEffect(() => {
-    let mounted = true; const generationRef = generation;
+    let mounted = true, subject; const generationRef = generation;
     if (!client) return;
-    client.auth.getSession().then(({ data }) => { if (mounted) setSession(data.session); });
-    const subscription = client.auth.onAuthStateChange((_event, next) => { ++generation.current; active.current?.abort(); if (mounted) { setSession(next); setCode(''); setStatus(''); setAccepted(false); } }).data.subscription;
+    client.auth.getSession().then(({ data }) => { if (mounted && subject === undefined) { subject = data.session?.user?.id; setSession(data.session); } });
+    const subscription = client.auth.onAuthStateChange((_event, next) => { if (!mounted) return; if (subject !== next?.user?.id) { ++generation.current; active.current?.abort(); setCode(''); setStatus(''); setAccepted(false); } subject = next?.user?.id; setSession(next); }).data.subscription;
     return () => { mounted = false; ++generationRef.current; active.current?.abort(); subscription.unsubscribe(); };
   }, [client]);
   async function run(kind) {

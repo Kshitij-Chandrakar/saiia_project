@@ -9,7 +9,8 @@ import '../../src/index.css';
 export default function Login() {
   const [email, setEmail] = useState(''), [password, setPassword] = useState(''), [error, setError] = useState(false);
   const navigate = useNavigate();
-  return <form onSubmit={async event => { event.preventDefault(); const result = await supabase.auth.signInWithPassword({ email, password }); if (result.error) setError(true); else navigate('/auth/admin'); }}>
+  const destination = new URLSearchParams(location.search).get('next') === '/auth/admin/successor' ? '/auth/admin/successor' : '/auth/admin';
+  return <form onSubmit={async event => { event.preventDefault(); const result = await supabase.auth.signInWithPassword({ email, password }); if (result.error) setError(true); else navigate(destination); }}>
     <h1>Isolated synthetic identity login</h1><label>Synthetic email<input type="email" value={email} onChange={event => setEmail(event.target.value)} /></label><label>Synthetic password<input type="password" value={password} onChange={event => setPassword(event.target.value)} /></label><button>Sign in</button>{error && <p role="alert">Synthetic login failed</p>}
   </form>;
 }

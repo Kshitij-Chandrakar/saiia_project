@@ -1,5 +1,5 @@
 import { chromium, expect } from '@playwright/test';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const config = JSON.parse(await readFile(path.join(process.env.LOCALAPPDATA, 'IntervucopilotC15Local/logins.json'), 'utf8'));
@@ -61,6 +61,7 @@ try {
   }));
 } finally {
   await browser.close();
+  await mkdir(output, { recursive: true });
   await writeFile(path.join(output, 'safety-results.json'), JSON.stringify({ results, boundary: 'Actual local SDK/Auth/application endpoints; no interception; access review denied before any mutation or confirmation' }, null, 2));
 }
 console.log('PASS', results.length, 'actual authorization/verification shell checks');

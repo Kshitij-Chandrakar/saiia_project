@@ -36,7 +36,8 @@ try{
     await page.getByRole('link',{name:'Commercial configuration',exact:true}).first().click();
    }else{
     expect(saveResult.ok()).toBeTruthy();await expect(page.getByRole('status')).toContainText('Draft saved.',{timeout:20000});
-   const id=await page.locator('.ca-muted code').first().innerText();results.push({role,actual_draft_saved:id,stay_preserves_edits:true});
+   await page.getByText('Troubleshooting: draft details', { exact: true }).click();
+   const id=await page.locator('.ca-ids code').first().innerText();results.push({role,actual_draft_saved:id,stay_preserves_edits:true});
    await page.getByRole('button',{name:'Preview saved draft',exact:true}).click();await expect(page.getByRole('dialog',{name:'Subscription review',exact:true})).toBeVisible();await page.getByRole('button',{name:'Close subscription review',exact:true}).click();
    await page.getByLabel('Display name',{exact:true}).fill('Unsaved draft change');await page.locator('.ac-desktop-sidebar').getByRole('button',{name:'Customers',exact:true}).click();await expect(blocker).toBeVisible();await blocker.getByRole('button',{name:'Discard and leave',exact:true}).click();await expect(page.getByRole('heading',{name:'Customers',exact:true,level:1})).toBeVisible();
    await page.getByRole('link',{name:'Commercial configuration',exact:true}).first().click();await resumeDraft(page);await page.getByLabel('Open a draft by ID',{exact:true}).fill(id);await page.getByRole('button',{name:'Open draft',exact:true}).click();await expect(page.getByLabel('Display name',{exact:true})).toHaveValue('Local admin shell check');

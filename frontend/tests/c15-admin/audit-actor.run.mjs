@@ -25,7 +25,9 @@ try {
     } else {
       const data=await (await response).json(); expect(data.items.length).toBeGreaterThan(0);
       const known=new Map(Object.values(accounts.users).map(user=>[user.id,user.email]));
-      for(const row of data.items){if(known.has(row.actor_ref))expect(row.actor_email).toBe(known.get(row.actor_ref));}
+      let matched=0;
+      for(const row of data.items){if(known.has(row.actor_ref)){matched++;expect(row.actor_email).toBe(known.get(row.actor_ref));}}
+      expect(matched).toBeGreaterThan(0);
       for(const [width,height] of [[1440,900],[1366,768],[390,844]]){
         await page.setViewportSize({width,height});
         const table=page.getByRole('region',{name:'Audit history records',exact:true}); await expect(table).toBeVisible();

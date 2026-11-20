@@ -26,7 +26,7 @@ export default function DashboardLayout({ user, title, children, onLogout, logou
     if (!accountId && loading && !window.electronAPI) {
       const cachedSubject = cachedAdminIdentity?.subjectId
       if (!cachedSubject) return
-      let authChanged = false
+      let authChanged = false, alive = true
       const confirm = session => {
         if (session?.user?.id === cachedSubject && session.access_token) return
         cachedAdminIdentity = null
@@ -37,8 +37,8 @@ export default function DashboardLayout({ user, title, children, onLogout, logou
         authChanged = true
         confirm(session)
       }).data.subscription
-      void supabase?.auth.getSession().then(({ data }) => { if (!authChanged) confirm(data.session) })
-      return () => subscription?.unsubscribe()
+      void supabase?.auth.getSession().then(({ data }) => { if (alive && !authChanged) confirm(data.session) })
+      return () => { alive = false; subscription?.unsubscribe() }
     }
     if (accountId && cachedAdminIdentity?.subjectId !== accountId) cachedAdminIdentity = null
     if (window.electronAPI || !accountId) { setAdminIdentity(null); return }
@@ -46,6 +46,7 @@ export default function DashboardLayout({ user, title, children, onLogout, logou
     let active
     let authChanged = false
     async function check(session) {
+      if (!alive) return
       active?.abort()
       const controller = new AbortController()
       active = controller
@@ -65,14 +66,13 @@ export default function DashboardLayout({ user, title, children, onLogout, logou
         const next = identity?.subject_id === accountId && ['admin', 'super_admin'].includes(identity.role)
           ? { subjectId: accountId, role: identity.role }
           : null
-        cachedAdminIdentity = next
-        if (alive && !controller.signal.aborted) setAdminIdentity(next)
+        if (alive && !controller.signal.aborted) { cachedAdminIdentity = next; setAdminIdentity(next) }
       } catch {
         // Keep the last verified role during a transient outage; backend routes still authorize every action.
       }
     }
     const subscription = supabase?.auth.onAuthStateChange((_event, session) => { authChanged = true; void check(session) }).data.subscription
-    void supabase?.auth.getSession().then(({ data }) => { if (!authChanged) void check(data.session) })
+    void supabase?.auth.getSession().then(({ data }) => { if (alive && !authChanged) void check(data.session) })
     return () => { alive = false; active?.abort(); subscription?.unsubscribe() }
   }, [backendUrl, accountId, loading])
   useEffect(() => {

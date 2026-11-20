@@ -43,7 +43,7 @@ export default function AdminHelp({ label, children }) {
   useEffect(() => () => clearTimeout(timer.current), []);
   return <span className="ac-help">
     <button ref={button} type="button" className="ac-help-button" aria-label={`About ${label}`} aria-expanded={open} aria-describedby={open ? id : undefined}
-      onMouseEnter={show} onMouseLeave={leave} onFocus={show} onBlur={() => { if (!pinned.current) close(); }}
+      onMouseEnter={show} onMouseLeave={leave} onFocus={show} onBlur={event => { if (!pinned.current || (event.relatedTarget && !surface.current?.contains(event.relatedTarget))) close(); }}
       onClick={() => { if (pinned.current) close(); else { pinned.current = true; show(); } }}><Info size={15} aria-hidden="true" /></button>
     {open && <span ref={surface} id={id} role="tooltip" popover="manual" className="ac-help-surface" onMouseEnter={() => clearTimeout(timer.current)} onMouseLeave={leave}>{children}</span>}
   </span>;
