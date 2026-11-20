@@ -75,7 +75,7 @@ declare access jsonb; member administration.memberships; c administration.campai
  end if;
  if p_session is null or p_presence is null or p_presence>clock_timestamp() or p_presence<clock_timestamp()-interval '5 minutes' or not administration.authenticator_ready(p_actor) then return jsonb_build_object('error','reauthentication_required'); end if;
  if p_action='test' then
-  if not p_doc ?& array['campaign_id','target','operation_id'] or p_doc-array['campaign_id','target','operation_id']<>'{}'::jsonb or c.state<>'draft' or c.previewed_revision is distinct from c.revision or not administration.marketing_allowed((p_doc->>'target')::uuid) then return jsonb_build_object('error','test_recipient_unavailable'); end if;
+  if not p_doc ?& array['campaign_id','revision','target','operation_id'] or p_doc-array['campaign_id','revision','target','operation_id']<>'{}'::jsonb or p_doc->>'revision' is distinct from c.revision::text or c.state<>'draft' or c.previewed_revision is distinct from c.revision or not administration.marketing_allowed((p_doc->>'target')::uuid) then return jsonb_build_object('error','test_recipient_unavailable'); end if;
   if exists(select 1 from administration.campaign_deliveries where campaign_id=c.id and account_id=(p_doc->>'target')::uuid and test_revision=c.revision) then
    return jsonb_build_object('state','already_requested'); end if;
   insert into administration.audience_reviews(id,campaign_id,revision,actor,actor_revision,session_id,recipient_count,consumed_at) values((p_doc->>'operation_id')::uuid,c.id,c.revision,p_actor,member.revision,p_session,1,clock_timestamp()) returning * into v;
@@ -83,7 +83,7 @@ declare access jsonb; member administration.memberships; c administration.campai
   perform administration.audit_action(p_actor,member.role,null,'campaign.test','queued','campaign',v.id);
   return jsonb_build_object('state','queued');
  elsif p_action='audience' then
-  if c.state<>'draft' or c.previewed_revision is distinct from c.revision or c.updated_at<=clock_timestamp()-interval '90 days' then return jsonb_build_object('error','conflict'); end if;
+  if not p_doc ?& array['campaign_id','revision'] or p_doc-array['campaign_id','revision']<>'{}'::jsonb or p_doc->>'revision' is distinct from c.revision::text or c.state<>'draft' or c.previewed_revision is distinct from c.revision or c.updated_at<=clock_timestamp()-interval '90 days' then return jsonb_build_object('error','conflict'); end if;
   select count(*) into n from(select id from auth.users where administration.marketing_allowed(id) limit 10001) q;
   if n>10000 then return jsonb_build_object('error','audience_limit'); end if;
   insert into administration.audience_reviews(campaign_id,revision,actor,actor_revision,session_id,recipient_count) values(c.id,c.revision,p_actor,member.revision,p_session,n) returning * into v;

@@ -32,14 +32,14 @@ export default function PublishedOffers({perform,busy,disabled,refreshKey,onOpen
     });
     return ()=>{cancelled=true;};
   },[requested,busy,disabled,perform]);
-  return <section className="ca-published-offers" aria-label="Published offers">
-    <div className="ca-published-heading"><div><h3>Published offers</h3><p>Currently visible offers from this environment. Open one or create an editable draft version without copying its ID.</p></div><button type="button" disabled={busy || disabled || requested} onClick={()=>setRequested(true)}>Refresh offers</button></div>
+  return <section className="ca-published-offers" aria-label="Published plans">
+    <div className="ca-published-heading"><div><h3>Published plans</h3><p>View a currently offered plan or start an updated version.</p></div><button type="button" disabled={busy || disabled || requested} onClick={()=>setRequested(true)}>Refresh plans</button></div>
     <div aria-live="polite">
-      {state.status==='loading' && <p>Loading published offers...</p>}
-      {state.status==='unavailable' && <p>Published offers are unavailable. This environment's public catalog must be configured. You can still open a known offer by ID below.</p>}
-      {state.status==='ready' && !state.offers.length && <p>No currently visible published offers in this environment.</p>}
-      {state.status==='ready' && state.offers.length>0 && <ul>{state.offers.map(o=><li key={o.id}><div><strong>{o.name}</strong><span>Version {o.version} · Published</span><code>{o.id}</code></div><div className="ca-actions"><button type="button" disabled={busy || disabled} aria-label={`Open ${o.name} offer`} onClick={()=>onOpen(o.id,false)}>Open offer</button><button type="button" disabled={busy || disabled} aria-label={`Create draft version for ${o.name}`} onClick={()=>onOpen(o.id,true)}>Create draft version</button></div></li>)}</ul>}
+      {state.status==='loading' && <p>Loading published plans...</p>}
+      {state.status==='unavailable' && <p>Published plans are unavailable. Try refreshing, or open a known plan version under Troubleshooting.</p>}
+      {state.status==='ready' && !state.offers.length && <p>No currently visible published plans in this environment.</p>}
+      {state.status==='ready' && state.offers.length>0 && <ul>{state.offers.map(o=><li key={o.id}><div><strong>{o.name}</strong><span>Version {o.version} · Published</span><details><summary>Plan reference</summary><code>{o.id}</code></details></div><div className="ca-actions"><button type="button" disabled={busy || disabled} aria-label={`View ${o.name} plan`} onClick={()=>onOpen(o.id,false)}>View plan</button><button type="button" disabled={busy || disabled} aria-label={`Create updated version for ${o.name}`} onClick={()=>onOpen(o.id,true)}>Create updated version</button></div></li>)}</ul>}
     </div>
-    <small>Scheduled, expired and retired versions are excluded here. Use Open an offer by ID for those versions. Import creates a separate plan candidate.</small>
+    <details className="ca-list-help"><summary>Which plans appear here?</summary><p>Only currently visible versions are listed. Scheduled, expired and stopped versions can be opened by ID under Troubleshooting.</p></details>
   </section>;
 }

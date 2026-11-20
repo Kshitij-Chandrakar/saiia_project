@@ -157,7 +157,7 @@ test('protected dashboard redirect returns to dashboard after login', () => {
 
 
 test('unsafe external auth next URLs are ignored by allowlist', async () => {
-  assert.deepEqual([...SAFE_AUTH_NEXT_ROUTES], ['/auth/dashboard', '/auth/status', '/auth/sessions', '/auth/resume', '/auth/settings'])
+  assert.deepEqual([...SAFE_AUTH_NEXT_ROUTES], ['/auth/dashboard', '/auth/status', '/auth/sessions', '/auth/resume', '/auth/settings', '/auth/admin', '/auth/admin/successor'])
   for (const next of ['/auth/settings', 'https://evil.example', '//evil.example', '/auth/settings?next=https://evil.example']) {
     let calls = 0
     const result = await verifyAuthEmailAction(`?type=email&token_hash=synthetic&next=${encodeURIComponent(next)}`, {

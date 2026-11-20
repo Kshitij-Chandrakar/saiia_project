@@ -1,4 +1,6 @@
 const titles = {
+  '/auth/admin': 'Administration', '/auth/admin/subscriptions': 'Commercial configuration',
+  '/auth/admin/successor': 'Successor transfer', '/auth/admin/billing': 'Billing administration',
   '/': 'Intervucopilot', '/landing': 'Intervucopilot',
   '/auth/login': 'Sign in', '/auth/signup': 'Create account',
   '/auth/desktop-login': 'Desktop sign in', '/auth/forgot-password': 'Reset password',

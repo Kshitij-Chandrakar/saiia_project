@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, LogOut, FileText, Settings } from 'lucide-react'
+import { LayoutDashboard, LogOut, Settings, Shield, FileText } from 'lucide-react'
 import { supabase } from './supabaseClient'
 import { signOutWebsite } from './websiteSessionLoss'
 import logo from '../assets/dashboard/logo.svg'
@@ -11,13 +11,70 @@ import resumes from '../assets/dashboard/resumes.svg'
 import './dashboard.css'
 import { Skeleton } from './WebsiteSkeleton'
 
-export default function DashboardLayout({ user, title, children, onLogout, logoutPending = false, loading = false, description, subscriptionAdmin = false }) {
+let cachedAdminIdentity = null
+
+export default function DashboardLayout({ user, title, children, onLogout, logoutPending = false, loading = false, description, backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000' }) {
   const [collapsed, setCollapsed] = useState(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
+  const accountId = user?.user_id || user?.id
+  const [adminIdentity, setAdminIdentity] = useState(() => cachedAdminIdentity?.subjectId === accountId || loading && !accountId ? cachedAdminIdentity : null)
   const [tooltipDismissed, setTooltipDismissed] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
+  useEffect(() => {
+    if (!accountId && loading && !window.electronAPI) {
+      const cachedSubject = cachedAdminIdentity?.subjectId
+      if (!cachedSubject) return
+      let authChanged = false, alive = true
+      const confirm = session => {
+        if (session?.user?.id === cachedSubject && session.access_token) return
+        cachedAdminIdentity = null
+        setAdminIdentity(null)
+      }
+      const subscription = supabase?.auth.onAuthStateChange((event, session) => {
+        if (event === 'INITIAL_SESSION' && !session) return
+        authChanged = true
+        confirm(session)
+      }).data.subscription
+      void supabase?.auth.getSession().then(({ data }) => { if (alive && !authChanged) confirm(data.session) })
+      return () => { alive = false; subscription?.unsubscribe() }
+    }
+    if (accountId && cachedAdminIdentity?.subjectId !== accountId) cachedAdminIdentity = null
+    if (window.electronAPI || !accountId) { setAdminIdentity(null); return }
+    let alive = true
+    let active
+    let authChanged = false
+    async function check(session) {
+      if (!alive) return
+      active?.abort()
+      const controller = new AbortController()
+      active = controller
+      if (session?.user?.id !== accountId || !session.access_token) {
+        if (cachedAdminIdentity?.subjectId === accountId) cachedAdminIdentity = null
+        if (alive) setAdminIdentity(null)
+        return
+      }
+      try {
+        const response = await fetch(`${backendUrl.replace(/\/$/, '')}/api/admin/me`, { cache: 'no-store', credentials: 'omit', redirect: 'error', signal: controller.signal, headers: { Authorization: `Bearer ${session.access_token}` } })
+        if (!response.ok) {
+          if (response.status < 500 && cachedAdminIdentity?.subjectId === accountId) cachedAdminIdentity = null
+          if (alive && !controller.signal.aborted && response.status < 500) setAdminIdentity(null)
+          return
+        }
+        const identity = await response.json()
+        const next = identity?.subject_id === accountId && ['admin', 'super_admin'].includes(identity.role)
+          ? { subjectId: accountId, role: identity.role }
+          : null
+        if (alive && !controller.signal.aborted) { cachedAdminIdentity = next; setAdminIdentity(next) }
+      } catch {
+        // Keep the last verified role during a transient outage; backend routes still authorize every action.
+      }
+    }
+    const subscription = supabase?.auth.onAuthStateChange((_event, session) => { authChanged = true; void check(session) }).data.subscription
+    void supabase?.auth.getSession().then(({ data }) => { if (alive && !authChanged) void check(data.session) })
+    return () => { alive = false; active?.abort(); subscription?.unsubscribe() }
+  }, [backendUrl, accountId, loading])
   useEffect(() => {
     if (window.electronAPI || !location.pathname.toLowerCase().startsWith('/auth/admin/')) return
     const previousTitle = document.title
@@ -52,7 +109,7 @@ export default function DashboardLayout({ user, title, children, onLogout, logou
         <NavLink to="/auth/dashboard" end aria-label="Dashboard" className="wd-tooltip-trigger"><LayoutDashboard size={16} aria-hidden="true" /><span className="wd-nav-label">Dashboard</span><span className="wd-nav-tooltip" role="tooltip">Dashboard</span></NavLink>
         <NavLink to="/auth/sessions" aria-label="Call Sessions" className="wd-tooltip-trigger"><img src={sessions} alt="" /><span className="wd-nav-label">Call Sessions</span><span className="wd-nav-tooltip" role="tooltip">Call Sessions</span></NavLink>
         <NavLink to="/auth/resume" aria-label="Resumes" className="wd-tooltip-trigger"><img src={resumes} alt="" /><span className="wd-nav-label">Resumes</span><span className="wd-nav-tooltip" role="tooltip">Resumes</span></NavLink>
-        {subscriptionAdmin && <NavLink to="/auth/admin/subscriptions" aria-label="Subscription drafts"><FileText size={16} aria-hidden="true" /><span className="wd-nav-label">Subscription drafts</span></NavLink>}
+        {adminIdentity?.role && (adminIdentity.subjectId === accountId || loading && !accountId) && !window.electronAPI && <NavLink to="/auth/admin?view=overview" aria-label="Admin panel" className="wd-tooltip-trigger"><Shield size={16} aria-hidden="true" /><span className="wd-nav-label">Admin panel</span><span className="wd-nav-tooltip" role="tooltip">Admin panel</span></NavLink>}
       </nav>
       {loading ? <div className="wd-account"><span className="wd-avatar"><Skeleton width="100%" height="100%" shape="avatar" /></span><div><Skeleton width="85%" height={20} /></div><Skeleton width={36} height={36} shape="icon" /></div> : <div className="wd-account"><span className="wd-avatar"><img src={userIcon} alt="" /></span><div className="wd-account-email"><strong tabIndex={0} title={user.email || 'Your account'}>{user.email || 'Your account'}</strong><span className="wd-email-full" role="tooltip">{user.email || 'Your account'}</span></div>{!window.electronAPI && <><button type="button" popoverTarget="wd-profile-menu" aria-label="Profile menu"><Settings size={18} aria-hidden="true" /></button><div id="wd-profile-menu" popover="auto" className="wd-profile-menu"><NavLink to="/auth/settings" onClick={event => event.currentTarget.parentElement.hidePopover()}>Settings</NavLink></div></>}<button type="button" className="wd-tooltip-trigger" onClick={logout} disabled={pending || logoutPending} aria-label={pending || logoutPending ? 'Signing out...' : 'Logout'}><LogOut size={18} aria-hidden="true" /><span className="wd-nav-tooltip" role="tooltip">Logout</span></button></div>}
     </aside>
