@@ -1,3 +1,4 @@
+from app.admin_telemetry import measured_call
 import logging
 import time
 from pathlib import Path
@@ -72,7 +73,7 @@ class GroqSTTService:
 
         try:
             with open(audio_path, "rb") as audio_file:
-                response = client.audio.transcriptions.create(
+                response = measured_call(client.audio.transcriptions.create, telemetry_provider="groq",
                     model=self.model,
                     file=(Path(original_filename).name, audio_file.read()),
                     response_format="verbose_json",

@@ -46,7 +46,11 @@ class MarketingUnsubscribeResponse(BaseModel):
     message: str
 
 
-def get_marketing_unsubscribe_service() -> MarketingUnsubscribeService:
+def get_marketing_unsubscribe_service(request: Request) -> MarketingUnsubscribeService:
+    administration = getattr(request.app.state, 'administration', None)
+    if administration is not None:
+        from app.admin_campaigns import CampaignUnsubscribe
+        return build_marketing_unsubscribe_service(CampaignUnsubscribe(administration.dispatch_connect))
     return build_marketing_unsubscribe_service()
 
 

@@ -209,6 +209,8 @@ def validate_bounded_draft(
 
 def http_error(error: CatalogStoreError) -> HTTPException:
     """Only stable catalog codes, never original exceptions/SQL/payloads."""
+    from app.config import settings
+
     status = {
         ErrorCode.DENIED: 403,
         ErrorCode.INVALID: 400,
@@ -218,4 +220,6 @@ def http_error(error: CatalogStoreError) -> HTTPException:
         ErrorCode.REVIEW_STALE: 409,
         ErrorCode.NOT_PUBLISHABLE: 409,
     }.get(error.code, 503)
+    if error.code == ErrorCode.DENIED and getattr(settings, "ADMIN_CONSOLE_ENABLED", "false") == "true":
+        status = 404
     return HTTPException(status, detail={"code": error.code.value})

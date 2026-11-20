@@ -1,3 +1,4 @@
+from app.admin_telemetry import measured_call, measured_http
 import base64
 import io
 import json
@@ -624,7 +625,7 @@ class ScreenVisionService:
         started = time.perf_counter()
         screen_model_started = time.perf_counter()
         try:
-            response = client.responses.create(
+            response = measured_call(client.responses.create, telemetry_provider="openai",
                 model=settings.SCREEN_VISION_MODEL,
                 input=[
                     {
@@ -1322,7 +1323,7 @@ class ScreenVisionService:
         client = self._get_openai_client()
         started = time.perf_counter()
         try:
-            response = client.responses.create(
+            response = measured_call(client.responses.create, telemetry_provider="openai",
                 model=model,
                 input=[
                     {
@@ -1460,8 +1461,8 @@ class ScreenVisionService:
         started = time.perf_counter()
         response: httpx.Response | None = None
         try:
-            response = httpx.post(
-                self._openrouter_url,
+            response = measured_http(httpx.post, telemetry_provider="openrouter", telemetry_model=settings.SCREEN_VISION_MODEL,
+                url=self._openrouter_url,
                 headers=headers,
                 json=request_payload,
                 timeout=max(1.0, float(settings.SCREEN_VISION_TIMEOUT_SECONDS)),
@@ -1622,8 +1623,8 @@ class ScreenVisionService:
 
         started = time.perf_counter()
         try:
-            response = requests.post(
-                self._groq_url,
+            response = measured_http(requests.post, telemetry_provider="groq", telemetry_model=settings.SCREEN_VISION_MODEL,
+                url=self._groq_url,
                 headers={
                     "Authorization": f"Bearer {settings.GROQ_API_KEY}",
                     "Content-Type": "application/json",

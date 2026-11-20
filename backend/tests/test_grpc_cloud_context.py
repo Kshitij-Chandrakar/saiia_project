@@ -27,6 +27,24 @@ def services(monkeypatch):
 def start(**kwargs):
     return pb.StartSession(active_session_id=SID, selected_resume_id=RID, selected_job_context_id=JID, **kwargs)
 
+
+def test_admin_authority_reaches_revalidation(monkeypatch, services):
+    from fastapi import HTTPException
+    authority = NS(restricted=False)
+    calls=[]
+    def current(request):
+        assert request.app.state.administration is authority
+        calls.append('check')
+        if authority.restricted:
+            raise HTTPException(403)
+        return NS(user_id='owner')
+    monkeypatch.setattr(cloud,'get_current_user',current)
+    context=cloud.GrpcCloudContext.authorize(start(), [('authorization','Bearer synthetic')], administration=authority)
+    authority.restricted=True
+    with pytest.raises(cloud.CloudContextRejected):
+        context.load()
+    assert calls==['check','check']
+
 def test_missing_invalid_auth_and_session(monkeypatch,services):
     with pytest.raises(cloud.CloudContextRejected,match='auth_unavailable'): cloud.GrpcCloudContext.authorize(start(), [])
     def invalid(request): raise RuntimeError('private token')

@@ -12,6 +12,8 @@ from app.api import onboarding, auth, auto_stt, classify, email_unsubscribe, gen
 from app.api.debug import router as debug_router
 from app.api import answer_diagrams
 from app.privacy import router as privacy_router
+from app.administration import router as administration_router
+from app.admin_telemetry import TelemetryMiddleware
 from app.privacy_content_api import router as privacy_content_router
 from app.privacy_checkpoint import RestoreReadinessMiddleware
 from app.commercial.admin import router as commercial_router
@@ -59,6 +61,8 @@ async def lifespan(app):
             return
     from app.cloud.interview_sessions import validate_session_model_dev_activation
     validate_session_model_dev_activation()
+    from app.administration import configured as configure_administration
+    app.state.administration = await run_in_threadpool(configure_administration, settings)
     server = None
     catalog_database = CatalogDatabase(settings.CATALOG_DRAFTS_ENABLED, settings.CATALOG_DRAFTS_DSN,
                                        lifecycle_enabled=settings.CATALOG_LIFECYCLE_ENABLED)
@@ -71,12 +75,17 @@ async def lifespan(app):
     if subscriptions._service is not None:
         await run_in_threadpool(billing_database.start)
     app.state.billing = billing_database.billing
+    if app.state.administration is not None:
+        app.state.administration.bind_billing(billing_database.billing)
+        app.state.administration.bind_campaigns(settings)
     app.state.billing_admin = billing_database.admin
     app.state.billing_notifications = billing_database.notifications
     if settings.GRPC_REALTIME_ENABLED:
         try:
             from app.grpc_server import start_server
             kwargs = {'subscriptions':subscriptions} if settings.SUBSCRIPTIONS_ENABLED=='true' else {}
+            if app.state.administration is not None:
+                kwargs['administration'] = app.state.administration
             if privacy_runtime is not None:
                 kwargs['readiness'] = privacy_runtime.coordinator.ready
             elif settings.C15_RESTORE_BOOT_REQUIRED == 'true':
@@ -90,10 +99,14 @@ async def lifespan(app):
     await run_in_threadpool(catalog_public.start)
     try:
         app.state.restore_startup_ready = True
+        if app.state.administration is not None:
+            app.state.administration.start()
         if privacy_runtime is not None:
             privacy_runtime.start()
         yield
     finally:
+        if app.state.administration is not None:
+            await run_in_threadpool(app.state.administration.close)
         if privacy_runtime is not None:
             await run_in_threadpool(privacy_runtime.close)
         from app.services.answer_diagram_service import shutdown_diagrams
@@ -132,7 +145,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(TelemetryMiddleware)
 app.include_router(commercial_router, prefix="/api/commercial", tags=["Commercial Foundation"])
+app.include_router(administration_router)
 app.include_router(public_catalog_router)
 app.include_router(privacy_router)
 app.include_router(privacy_content_router)

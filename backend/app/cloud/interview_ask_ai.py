@@ -1,3 +1,4 @@
+from app.admin_telemetry import measured_call
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -627,7 +628,7 @@ class OpenAIInterviewAskAIGenerator:
             )
         started = time.perf_counter()
         try:
-            response = self._openai_client().responses.create(
+            response = measured_call(self._openai_client().responses.create, telemetry_provider="openai",
                 model=settings.ASK_AI_MODEL,
                 instructions=self._instructions(question),
                 input=f"{context}\n\nUser question:\n{question}",

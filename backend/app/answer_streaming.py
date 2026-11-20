@@ -7,6 +7,7 @@ from contextvars import ContextVar
 
 import httpx
 
+from app.admin_telemetry import Attempt
 from app.answer_generation import AttemptFailure, GenerationStopped, _sse, _normalize
 from app.nlp.internal_marker_sanitizer import InternalMarkerStreamSanitizer
 
@@ -72,48 +73,51 @@ async def legacy_provider_stream(provider, kwargs, client, cancellation, on_retr
     provider.last_retry_used = False
     retries = 2 if kwargs.get('retry_on_rate_limit') else 1
     for retry in range(retries):
-        try:
-            async with client.stream('POST', url, headers=headers, json=body, timeout=provider.timeout) as response:
-                if response.status_code >= 400:
-                    await response.aread()
-                    _, _, delay = provider._parse_error_payload(response) if not ollama else (None, None, None)
-                    if response.status_code == 429 and retry == 0 and retries == 2 and delay is not None and delay <= 15:
-                        provider.last_retry_used = True
-                        await on_retry()
-                        await asyncio.sleep(max(0, delay))
-                        continue
-                    raise ProviderError('Provider request failed.', provider=name, model=provider.model,
-                                        status_code=response.status_code, retry_after=delay,
-                                        error_type='rate_limit' if response.status_code == 429 else 'provider_error')
-                completed = False
-                source = response.aiter_lines() if ollama else _sse(response)
-                async for raw in source:
-                    if not raw:
-                        continue
-                    if len(raw) > 1024 * 1024:
-                        raise AttemptFailure('invalid_response')
-                    if raw == '[DONE]':
-                        break
-                    item = json.loads(raw)
-                    if ollama:
-                        if item.get('error'):
-                            raise AttemptFailure('provider_error')
-                        text, complete = item.get('response', ''), item.get('done', False)
-                    else:
-                        text, _, complete = _normalize('groq', item)
-                    if not isinstance(text, str):
-                        raise AttemptFailure('invalid_response')
-                    if text:
-                        yield text
-                    if complete:
-                        completed = True
-                        break
-                if not completed:
-                    raise AttemptFailure('incomplete_response')
-                return
-        except (httpx.HTTPError, ValueError, TypeError, AttributeError, AttemptFailure) as exc:
-            raise ProviderError('Provider stream unavailable.', provider=name, model=provider.model,
-                                error_type=getattr(exc, 'code', 'provider_error')) from None
+        async with Attempt(name, provider.model) as observation:
+            try:
+                async with client.stream('POST', url, headers=headers, json=body, timeout=provider.timeout) as response:
+                    if response.status_code >= 400:
+                        await response.aread()
+                        _, _, delay = provider._parse_error_payload(response) if not ollama else (None, None, None)
+                        if response.status_code == 429 and retry == 0 and retries == 2 and delay is not None and delay <= 15:
+                            provider.last_retry_used = True
+                            await on_retry()
+                            await asyncio.sleep(max(0, delay))
+                            continue
+                        raise ProviderError('Provider request failed.', provider=name, model=provider.model,
+                                            status_code=response.status_code, retry_after=delay,
+                                            error_type='rate_limit' if response.status_code == 429 else 'provider_error')
+                    completed = False
+                    source = response.aiter_lines() if ollama else _sse(response)
+                    async for raw in source:
+                        if not raw:
+                            continue
+                        if len(raw) > 1024 * 1024:
+                            raise AttemptFailure('invalid_response')
+                        if raw == '[DONE]':
+                            break
+                        item = json.loads(raw)
+                        observation.usage(item)
+                        if ollama:
+                            if item.get('error'):
+                                raise AttemptFailure('provider_error')
+                            text, complete = item.get('response', ''), item.get('done', False)
+                        else:
+                            text, _, complete = _normalize('groq', item)
+                        if not isinstance(text, str):
+                            raise AttemptFailure('invalid_response')
+                        if text:
+                            yield text
+                        if complete:
+                            completed = True
+                            observation.outcome = "completed"
+                            break
+                    if not completed:
+                        raise AttemptFailure('incomplete_response')
+                    return
+            except (httpx.HTTPError, ValueError, TypeError, AttributeError, AttemptFailure) as exc:
+                raise ProviderError('Provider stream unavailable.', provider=name, model=provider.model,
+                                    error_type=getattr(exc, 'code', 'provider_error')) from None
 
 
 class LegacyProvider:

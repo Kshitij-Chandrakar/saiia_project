@@ -1,3 +1,4 @@
+from app.admin_telemetry import measured_call
 from dataclasses import dataclass
 import json
 import logging
@@ -284,7 +285,7 @@ class OpenAIInterviewNotesGenerator:
         started = time.perf_counter()
         reasoning_effort = self._normalize_reasoning_effort(settings.AI_NOTES_REASONING_EFFORT)
         try:
-            response = self._openai_client().responses.create(
+            response = measured_call(self._openai_client().responses.create, telemetry_provider="openai",
                 model=settings.AI_NOTES_MODEL,
                 instructions=self._instructions(),
                 input=prompt,

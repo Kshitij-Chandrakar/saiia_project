@@ -34,15 +34,15 @@ class GrpcCloudContext:
     user_id: str = ''
 
     @classmethod
-    def authorize(cls, start, metadata, subscriptions=None):
+    def authorize(cls, start, metadata, subscriptions=None, administration=None):
         headers = [(str(key).lower().encode(), str(value).encode()) for key, value in metadata
                    if str(key).lower() == 'authorization']
         if len(headers) != 1:
             raise CloudContextRejected('auth_unavailable')
         scope={'type': 'http', 'headers': headers}
-        if subscriptions is not None:
+        if subscriptions is not None or administration is not None:
             from types import SimpleNamespace
-            scope['app']=SimpleNamespace(state=SimpleNamespace(subscriptions=subscriptions))
+            scope['app']=SimpleNamespace(state=SimpleNamespace(subscriptions=subscriptions, administration=administration))
         request = Request(scope)
         result = cls(request, _id(start.active_session_id), _id(start.selected_resume_id), _id(start.selected_job_context_id))
         if not result.session_id:

@@ -219,6 +219,12 @@ def get_current_user(request: Request) -> CurrentUser:
         ) from exc
 
     from app.config import settings
+    if getattr(settings, 'ADMIN_CONSOLE_ENABLED', 'false') == 'true':
+        app = request.scope.get('app')
+        authority = getattr(app.state, 'administration', None) if app is not None else None
+        if authority is None:
+            raise HTTPException(503, detail={'code': 'access_unavailable'})
+        authority.product_access(user.user_id)
     if settings.SUBSCRIPTIONS_ENABLED == 'true' or getattr(settings, 'C15_RESTRICTIONS_REQUIRED', 'false') == 'true':
         from app.commercial.admin_access import VerifiedActor
         from app.commercial.catalog_store import CatalogStoreError, ErrorCode

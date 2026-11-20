@@ -1,3 +1,4 @@
+from app.admin_telemetry import Attempt, measured_call, measured_http
 import json
 import logging
 import re
@@ -208,8 +209,8 @@ class OpenAICompatibleProvider:
         max_attempts = 2 if retry_on_rate_limit else 1
         while True:
             try:
-                response = requests.post(
-                    self.url,
+                response = measured_http(requests.post, telemetry_provider=getattr(self,"name","ollama"), telemetry_model=self.model,
+                    url=self.url,
                     headers={
                         "Authorization": f"Bearer {self.api_key}",
                         "Content-Type": "application/json",
@@ -309,8 +310,8 @@ class OpenAICompatibleProvider:
     def connectivity_test(self, *, timeout: float) -> Dict[str, Any]:
         status_code = None
         try:
-            response = requests.post(
-                self.url,
+            response = measured_http(requests.post, telemetry_provider=getattr(self,"name","ollama"), telemetry_model=self.model,
+                url=self.url,
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
@@ -479,7 +480,7 @@ class OpenAIResponsesProvider:
             effort = "low"
         reasoning = None if effort == "none" else {"effort": effort}
         try:
-            response = self.client.responses.create(
+            response = measured_call(self.client.responses.create, telemetry_provider="openai",
                 model=self.model,
                 instructions=instructions,
                 input=input_text,
@@ -535,54 +536,57 @@ class OpenAIResponsesProvider:
         if effort not in {"none", "low", "medium"}:
             effort = "low"
         reasoning = None if effort == "none" else {"effort": effort}
-        stream = None
-        completed = False
-        try:
-            stream = self.client.responses.create(
-                model=self.model,
-                instructions=instructions,
-                input=input_text,
-                reasoning=reasoning,
-                max_output_tokens=max_output_tokens,
-                timeout=timeout,
-                stream=True,
-            )
-            if cancellation:
-                cancellation.attach(stream)
-            for event in stream:
-                if cancellation and cancellation.stopped.is_set():
-                    return
-                event_type = str(getattr(event, "type", "") or "")
-                if event_type == "response.completed":
-                    completed = True
-                elif event_type in {"response.failed", "response.incomplete", "error"}:
-                    raise ProviderError("Answer stream interrupted.", provider=self.name,
+        with Attempt(self.name, self.model) as observation:
+            stream = None
+            completed = False
+            try:
+                stream = self.client.responses.create(
+                    model=self.model,
+                    instructions=instructions,
+                    input=input_text,
+                    reasoning=reasoning,
+                    max_output_tokens=max_output_tokens,
+                    timeout=timeout,
+                    stream=True,
+                )
+                if cancellation:
+                    cancellation.attach(stream)
+                for event in stream:
+                    observation.usage(getattr(event, "response", None))
+                    if cancellation and cancellation.stopped.is_set():
+                        return
+                    event_type = str(getattr(event, "type", "") or "")
+                    if event_type == "response.completed":
+                        completed = True
+                        observation.outcome = "completed"
+                    elif event_type in {"response.failed", "response.incomplete", "error"}:
+                        raise ProviderError("Answer stream interrupted.", provider=self.name,
+                                            model=self.model, phase=phase, error_type="stream_incomplete")
+                    if event_type == "response.output_text.delta":
+                        delta = str(getattr(event, "delta", "") or "")
+                        if delta:
+                            yield delta
+                if not completed:
+                    raise ProviderError("Answer stream ended without completion.", provider=self.name,
                                         model=self.model, phase=phase, error_type="stream_incomplete")
-                if event_type == "response.output_text.delta":
-                    delta = str(getattr(event, "delta", "") or "")
-                    if delta:
-                        yield delta
-            if not completed:
-                raise ProviderError("Answer stream ended without completion.", provider=self.name,
-                                    model=self.model, phase=phase, error_type="stream_incomplete")
-        except ProviderError:
-            raise
-        except (
-            APIConnectionError,
-            APIError,
-            APIStatusError,
-            APITimeoutError,
-            AuthenticationError,
-            BadRequestError,
-            PermissionDeniedError,
-        ) as exc:
-            self._raise_provider_error(exc, phase=phase)
-        except Exception as exc:
-            self._raise_provider_error(exc, phase=phase)
-        finally:
-            close = getattr(stream, "close", None)
-            if callable(close):
-                close()
+            except ProviderError:
+                raise
+            except (
+                APIConnectionError,
+                APIError,
+                APIStatusError,
+                APITimeoutError,
+                AuthenticationError,
+                BadRequestError,
+                PermissionDeniedError,
+            ) as exc:
+                self._raise_provider_error(exc, phase=phase)
+            except Exception as exc:
+                self._raise_provider_error(exc, phase=phase)
+            finally:
+                close = getattr(stream, "close", None)
+                if callable(close):
+                    close()
 
 
 class GroqProvider(OpenAICompatibleProvider):
@@ -643,8 +647,8 @@ class OllamaProvider:
 
     def generate(self, *, prompt: str) -> str:
         try:
-            response = requests.post(
-                f"{self.base_url}/api/generate",
+            response = measured_http(requests.post, telemetry_provider=getattr(self,"name","ollama"), telemetry_model=self.model,
+                url=f"{self.base_url}/api/generate",
                 json={
                     "model": self.model,
                     "prompt": prompt,
