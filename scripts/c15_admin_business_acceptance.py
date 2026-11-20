@@ -349,13 +349,14 @@ def verify_campaign(r, actor, results):
         },
     )
     assert saved["revision"] == "1", saved
-    assert call("audience", {"campaign_id": campaign})["error"] == "conflict"
+    assert call("audience", {"campaign_id": campaign, "revision": "1"})["error"] == "conflict"
     assert (
         call("preview", {"campaign_id": campaign})["template_version"]
         == "admin_campaign.v1"
     )
     test_document = {
         "campaign_id": campaign,
+        "revision": "1",
         "target": first["id"],
         "operation_id": str(uuid4()),
     }
@@ -371,7 +372,7 @@ def verify_campaign(r, actor, results):
             == 1
         )
     assert "error" in call(
-        "test", {"campaign_id": campaign, "target": actor, "operation_id": str(uuid4())}
+        "test", {"campaign_id": campaign, "revision": "1", "target": actor, "operation_id": str(uuid4())}
     )
     worker = CampaignDispatcher(
         lambda: r.connect("admin_dispatch_executor"),
@@ -391,7 +392,8 @@ def verify_campaign(r, actor, results):
             ).fetchone()[0]
             == "accepted"
         )
-    audience = call("audience", {"campaign_id": campaign})
+    assert call("audience", {"campaign_id": campaign, "revision": "0"})["error"] == "conflict"
+    audience = call("audience", {"campaign_id": campaign, "revision": "1"})
     assert audience["recipient_count"] == 2, audience
     with r.connect() as c:
         c.execute(
@@ -477,7 +479,7 @@ def verify_campaign(r, actor, results):
         )
     assert "error" in call(
         "test",
-        {"campaign_id": campaign, "target": first["id"], "operation_id": str(uuid4())},
+        {"campaign_id": campaign, "revision": "1", "target": first["id"], "operation_id": str(uuid4())},
     )
     changed = call(
         "save",

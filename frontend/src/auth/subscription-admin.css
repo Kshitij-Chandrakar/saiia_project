@@ -124,10 +124,10 @@
 .subscription-admin .ca-subscription-modal[open]{display:flex;flex-direction:column}
 .subscription-admin .ca-subscription-modal::backdrop{background:#0f172a66}
 .subscription-admin .ca-subscription-modal-header{display:flex;justify-content:space-between;align-items:start;gap:20px;flex-shrink:0;padding:22px 24px;border-bottom:1px solid var(--ca-line);background:white}
-.subscription-admin .ca-subscription-modal-header h2{margin:0;font-size:22px}
-.subscription-admin .ca-subscription-modal-header p{margin:6px 0 0;color:var(--ca-muted);font-size:13px;overflow-wrap:anywhere}
+.subscription-admin .ca-subscription-modal-header h2{margin:0;font-size:22px;line-height:28px}
+.subscription-admin .ca-subscription-modal-header p{margin:6px 0 0;line-height:20px;color:var(--ca-muted);font-size:13px;overflow-wrap:anywhere}
 .subscription-admin .ca-subscription-modal-header button{display:grid;place-items:center;min-width:40px;min-height:40px;padding:8px;border:1px solid var(--ca-line);border-radius:10px;background:#fff}
-.subscription-admin .ca-subscription-modal-body{min-height:0;overflow:auto;overscroll-behavior:contain;padding:22px 24px;overflow-wrap:anywhere}
+.subscription-admin .ca-subscription-modal-body{min-height:0;overflow:auto;overscroll-behavior:none;padding:22px 24px;overflow-wrap:anywhere}
 .subscription-admin .ca-subscription-modal .ca-preview{position:static;top:auto;border:0;background:#fff;border-radius:0;padding:0}
 .subscription-admin .ca-subscription-modal .ca-preview-empty{padding:16px 0}
 @media(max-width:600px){.subscription-admin .ca-subscription-modal{width:calc(100vw - 24px);max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);border-radius:16px}.subscription-admin .ca-subscription-modal-header{padding:18px 16px}.subscription-admin .ca-subscription-modal-body{padding:18px 16px}}
@@ -142,3 +142,59 @@
 .subscription-admin .ca-published-offers li span,.subscription-admin .ca-published-offers li code{display:block;margin-top:4px;font-size:12px;color:var(--ca-muted);overflow-wrap:anywhere}
 .subscription-admin .ca-published-offers li code{user-select:text}
 @media(max-width:600px){.subscription-admin .ca-published-heading,.subscription-admin .ca-published-offers li{align-items:stretch;flex-direction:column;gap:12px}.subscription-admin .ca-published-offers .ca-actions{margin:0}}
+
+/* The commercial workspace shares the admin shell, without changing editor behavior. */
+.admin-console .subscription-admin{--ca-ink:var(--ac-ink);--ca-muted:var(--ac-muted);--ca-accent:var(--ac-blue);--ca-line:var(--ac-border);min-width:0}
+.admin-console .subscription-admin :is(.ca-draft-start,.ca-editor,.ca-published-offers,.ca-welcome){padding:24px;border:1px solid var(--ca-line);border-radius:12px;background:var(--ac-card);min-width:0;margin-bottom:24px}
+.admin-console .subscription-admin .ca-intro{padding:0 0 20px;align-items:flex-start}
+.admin-console .subscription-admin .ca-intro h2{font-size:22px;margin:10px 0 8px}
+.admin-console .subscription-admin .ca-intro p{margin:0}
+.admin-console .subscription-admin .ca-import{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+.admin-console .subscription-admin .ca-import p{flex-basis:100%;max-width:80ch;font-size:12px;margin:0}
+.admin-console .subscription-admin .ca-open{display:flex;flex-wrap:wrap;align-items:end;gap:12px;margin:0;padding:0;border:0}
+.admin-console .subscription-admin form:not(.ca-open){display:block;max-width:none;margin:0}
+.admin-console .subscription-admin label input{min-width:0}
+.admin-console .subscription-admin .wd-primary{background:var(--ca-accent);border-color:var(--ca-accent);color:white}
+.admin-console .subscription-admin .ca-tabs{padding:0 0 14px;border:0;border-bottom:1px solid var(--ca-line);background:transparent;white-space:normal;overflow:visible;flex-wrap:wrap}
+.admin-console .subscription-admin dl{padding:0;border:0;background:transparent}
+.admin-console .subscription-admin :is(code,pre){overflow-wrap:anywhere;white-space:pre-wrap;max-width:100%}
+.admin-console .subscription-admin .ca-lifecycle{border-radius:12px;background:var(--ac-card);margin:0 0 24px}
+.admin-console .subscription-admin .ca-lifecycle .ca-published-offers{padding:0;margin:0;border:0;border-radius:0;background:transparent}
+.admin-console .subscription-admin .ca-welcome{gap:12px;padding:32px 24px}
+.admin-console .subscription-admin .ca-draft-art{width:96px;height:96px}
+.admin-console .subscription-admin .ca-draft-art img{width:96px;height:96px}
+.admin-console .subscription-admin .ca-welcome h2{font-size:22px;margin:0}
+.admin-console .subscription-admin .ca-access{padding:24px;background:var(--ac-card);border:1px solid var(--ca-line);border-radius:12px}
+@media(max-width:600px){.admin-console .subscription-admin :is(.ca-draft-start,.ca-editor,.ca-published-offers,.ca-welcome){padding:18px 16px}.admin-console .subscription-admin .ca-import button{max-width:100%}.admin-console .subscription-admin .ca-checkpoint strong{white-space:normal}}
+
+/* Three visible stages; save and publication remain separate operations. */
+.admin-console .subscription-admin .ca-progress{display:flex;gap:24px;list-style:none;padding:0 0 22px;margin:0;flex-wrap:wrap}
+.admin-console .subscription-admin .ca-progress li{display:flex;align-items:center;gap:9px;color:var(--ca-muted);font-size:13px}
+.admin-console .subscription-admin .ca-progress li>span{display:grid;place-items:center;width:28px;height:28px;border:1px solid var(--ca-line);border-radius:50%;font-size:12px;background:var(--ac-card)}
+.admin-console .subscription-admin .ca-progress strong{font-weight:500}
+.admin-console .subscription-admin .ca-progress [aria-current=step]{color:var(--ca-ink)}
+.admin-console .subscription-admin .ca-progress [aria-current=step]>span{background:var(--ca-accent);border-color:var(--ca-accent);color:white}
+.admin-console .subscription-admin .ca-progress [aria-current=step] strong{font-weight:650}
+.admin-console .subscription-admin .ca-progress [data-complete] >span{color:#236149;background:#edf5ee;border-color:#c7d9c7}
+.admin-console .subscription-admin .ca-intro{padding:0;align-items:center}
+.admin-console .subscription-admin .ca-intro h2{margin:0 0 6px;font-size:20px}
+.admin-console .subscription-admin .ca-intro .ca-actions{margin:0;align-items:center}
+.admin-console .subscription-admin .ca-intro button{display:inline-flex;align-items:center;gap:7px;justify-content:center}
+.admin-console .subscription-admin .ca-plan-chooser{margin-top:22px;padding-top:18px;border-top:1px solid var(--ca-line)}
+.admin-console .subscription-admin .ca-plan-chooser>p{font-size:13px;color:var(--ca-muted);margin:0 0 14px}
+.admin-console .subscription-admin .ca-template-options{display:flex;flex-wrap:wrap;gap:10px}
+.admin-console .subscription-admin .ca-open{margin-top:22px;padding-top:18px;border-top:1px solid var(--ca-line)}
+.admin-console .subscription-admin .ca-advanced,.admin-console .subscription-admin .ca-policy-note{border-top:1px solid var(--ca-line);padding-top:14px;margin-top:18px;font-size:13px;color:var(--ca-muted)}
+.admin-console .subscription-admin .ca-advanced>summary,.admin-console .subscription-admin .ca-policy-note>summary{color:var(--ca-ink)}
+.admin-console .subscription-admin .ca-review-stage[hidden]{display:none}
+.admin-console .subscription-admin .ca-review-stage{padding:0;margin:0}
+.admin-console .subscription-admin .ca-review-stage:not([hidden])~.ca-published-offers{border-top:1px solid var(--ca-line);padding-top:24px;margin-top:24px}
+.admin-console .subscription-admin .ca-list-help{font-size:12px;color:var(--ca-muted);margin-top:16px}
+.admin-console .subscription-admin .ca-preview-summary{padding:16px 0;border-bottom:1px solid var(--ca-line);font-size:13px}
+.admin-console .subscription-admin .ca-preview-summary h3{margin:0 0 8px}
+.admin-console .subscription-admin .ca-preview-summary button{display:block;margin-top:8px;max-width:100%;font-size:13px}
+.admin-console .subscription-admin .ca-troubleshooting{border-top:1px solid var(--ca-line);margin-top:22px;padding-top:14px;color:var(--ca-muted);font-size:13px}
+.admin-console .subscription-admin .ca-operation{padding:14px;margin-top:16px;background:#f6f0e3;border:1px solid #e2d3b7;border-radius:8px}
+.admin-console .subscription-admin .ca-operation>summary{color:var(--ca-ink)}
+.admin-console .subscription-admin .ca-published-heading h3{font-size:20px}
+@media(max-width:600px){.admin-console .subscription-admin .ca-progress{gap:10px;display:grid;grid-template-columns:minmax(0,1fr)}.admin-console .subscription-admin .ca-progress li{font-size:12px}.admin-console .subscription-admin .ca-progress li>span{width:24px;height:24px}.admin-console .subscription-admin .ca-intro{align-items:stretch;gap:14px}.admin-console .subscription-admin .ca-intro .ca-actions{gap:8px}.admin-console .subscription-admin .ca-template-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.admin-console .subscription-admin .ca-template-options button{width:100%;min-width:0}.admin-console .subscription-admin .ca-review-stage{padding-top:18px}}

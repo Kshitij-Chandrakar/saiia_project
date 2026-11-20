@@ -1,7 +1,7 @@
 const DEFAULT_BACKEND_URL = 'http://localhost:8000'
 const SAFE_UNSUBSCRIBE_ERROR = 'Unable to update your promotional email preference right now.'
 
-export const SAFE_AUTH_NEXT_ROUTES = new Set(['/auth/dashboard', '/auth/status', '/auth/sessions', '/auth/resume', '/auth/settings'])
+export const SAFE_AUTH_NEXT_ROUTES = new Set(['/auth/dashboard', '/auth/status', '/auth/sessions', '/auth/resume', '/auth/settings', '/auth/admin', '/auth/admin/successor'])
 
 export async function verifyAuthEmailAction(search, client, onEmailVerified = async () => {}) {
   const params = new URLSearchParams(search)
