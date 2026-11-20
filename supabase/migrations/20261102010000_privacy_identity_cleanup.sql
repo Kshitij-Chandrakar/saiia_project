@@ -4,12 +4,12 @@ create role privacy_identity_executor nologin noinherit nosuperuser nocreatedb n
 create role privacy_identity_owner nologin noinherit nosuperuser nocreatedb nocreaterole nobypassrls;
 alter table public.privacy_followup_tasks drop constraint privacy_followup_tasks_kind_check;
 alter table public.privacy_followup_tasks add constraint privacy_followup_tasks_kind_check check(kind in ('revoke_sessions','personal_cleanup','billing_review','identity_cleanup'));
-grant usage on schema public,auth to privacy_identity_owner;
+grant usage on schema public to privacy_identity_owner;
 grant select on public.privacy_deletion_requests,public.privacy_followup_tasks,public.billing_operations,public.subscription_payment_receipts,public.outbound_email_events,public.privacy_minimized_records to privacy_identity_owner;
 grant insert,update on public.privacy_followup_tasks to privacy_identity_owner;
-grant select(id,email,deleted_at,raw_user_meta_data,raw_app_meta_data,encrypted_password),update(id) on auth.users to privacy_identity_owner;
-grant select(user_id) on auth.sessions,auth.mfa_factors to privacy_identity_owner;
-grant select(user_id,identity_data,provider_id) on auth.identities to privacy_identity_owner;
+
+
+
 create policy identity_request_read on public.privacy_deletion_requests for select to privacy_identity_owner using(true);
 create policy identity_task_control on public.privacy_followup_tasks to privacy_identity_owner using(true) with check(true);
 create policy identity_billing_read on public.billing_operations for select to privacy_identity_owner using(true);
@@ -31,7 +31,8 @@ grant execute on function public.privacy_email_denied(text) to privacy_identity_
 create function public.privacy_identity_absent(p_account uuid) returns boolean language sql security definer set search_path=pg_catalog as $$
  select exists(select 1 from auth.users where id=p_account and deleted_at is not null and raw_user_meta_data='{}' and raw_app_meta_data='{}' and encrypted_password is null and (case when email is null or position('@' in email)=0 then true else not public.privacy_email_denied(email) end)) and not exists(select 1 from auth.sessions where user_id=p_account) and not exists(select 1 from auth.identities where user_id=p_account and (identity_data is distinct from '{}'::jsonb or provider_id !~ '^[A-Za-z0-9_-]{43}$')) and not exists(select 1 from auth.mfa_factors where user_id=p_account)
 $$;
-alter function public.privacy_identity_absent(uuid) owner to privacy_identity_owner;
+alter function public.privacy_identity_absent(uuid) owner to postgres;
+grant execute on function public.privacy_identity_absent(uuid) to privacy_identity_owner;
 revoke all on function public.privacy_identity_absent(uuid) from public,anon,authenticated,service_role,usage_executor,privacy_identity_executor;
 create function public.privacy_identity_call(p_action text,p_doc jsonb) returns jsonb language plpgsql security definer set search_path=pg_catalog as $$
 declare t public.privacy_followup_tasks; account uuid; reason text; verified boolean; begin
@@ -50,7 +51,7 @@ declare t public.privacy_followup_tasks; account uuid; reason text; verified boo
  end if;
  select account_id into account from public.privacy_deletion_requests where request_id=(p_doc->>'request_id')::uuid and state='accepted_restricted' and accepted_at is not null;
  if account is null or account is distinct from (p_doc->>'account_id')::uuid then raise exception 'identity scope denied' using errcode='42501'; end if;
- perform 1 from auth.users where id=account for no key update;
+ perform 1 from c15_auth.lock_user(account);
  select * into t from public.privacy_followup_tasks where request_id=(p_doc->>'request_id')::uuid and kind='identity_cleanup' for update;
  if t.state<>'running' or t.lease_id is distinct from (p_doc->>'lease_id')::uuid or t.lease_until<=clock_timestamp() then raise exception 'identity lease denied' using errcode='42501'; end if;
  verified:=public.privacy_identity_absent(account);
