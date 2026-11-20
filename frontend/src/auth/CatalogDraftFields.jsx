@@ -44,12 +44,8 @@ export default function CatalogDraftFields({
   };
   const remove = (list, i) => update(`terms.${list}`, form.terms[list].filter((_, n) => n !== i));
   const add = (list, value) => update(`terms.${list}`, [...form.terms[list], value]);
-  const policies = (path, fields) => <details className="ca-details"><summary>Policy references</summary><div className="ca-grid">{fields.map(([k, label]) => f(`${path}.${k}`, label))}</div><p>References record a decision; they do not approve a policy.</p></details>;
-  if (section === 'Identity') return <section aria-labelledby="ca-identity"><h2 id="ca-identity">Plan identity</h2><p className="ca-muted">A stable code identifies the plan. Customer-facing wording can change in a draft.</p><div className="ca-grid">
-    {f('plan.code', 'Plan code', {
-        disabled: Boolean(baseRevision),
-        help: baseRevision ? 'Plan identity is fixed after the first save.' : 'Lowercase, for example your own internal identifier. No offer is created automatically.'
-      })}
+  const policies = (path, fields) => <details className="ca-details"><summary>Advanced settings</summary><div className="ca-grid">{fields.map(([k, label]) => f(`${path}.${k}`, label))}</div><p>References record a decision; they do not approve a policy.</p></details>;
+  if (section === 'Identity') return <section aria-labelledby="ca-identity"><h2 id="ca-identity">Plan details</h2><p className="ca-muted">Choose the name and description customers will see.</p><div className="ca-grid">
     {f('terms.name', 'Display name', {
         maxLength: 2000
       })}
@@ -57,11 +53,16 @@ export default function CatalogDraftFields({
           multiline: true,
           maxLength: 2000
         })}</div>
+  </div><details className="ca-advanced"><summary>Advanced settings</summary><div className="ca-grid">
+    {f('plan.code', 'Plan code', {
+        disabled: Boolean(baseRevision),
+        help: baseRevision ? 'Plan identity is fixed after the first save.' : 'Lowercase, for example your own internal identifier. No offer is created automatically.'
+      })}
     <div className="ca-wide">{f('internal_notes', 'Internal notes', {
           multiline: true,
           help: 'Visible only in this protected admin workspace. Excluded from the customer preview.'
         })}</div>
-  </div>{policies('terms', [['subscription_policy_ref', 'Subscription policy'], ['migration_policy_ref', 'Subscriber migration policy']])}</section>;
+{f('terms.subscription_policy_ref', 'Subscription policy')}{f('terms.migration_policy_ref', 'Subscriber migration policy')}</div><p className="ca-muted">Policy references record existing decisions; they do not approve new terms.</p></details></section>;
   if (section === 'Prices') return <section aria-labelledby="ca-prices"><h2 id="ca-prices">Prices & billing</h2><p className="ca-muted">Billing frequency is separate from allowance resets. Blank amounts remain unresolved.</p>
     {!form.terms.prices.length && <p className="ca-empty">No prices configured. You can save the draft and decide these later.</p>}
     {form.terms.prices.map((p, i) => <fieldset className="ca-row" key={p.price_id}><legend>Price {i + 1}</legend><div className="ca-grid">

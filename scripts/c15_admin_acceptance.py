@@ -368,7 +368,7 @@ def normal_application(r):
         audience = client.post(
             "/api/admin/campaigns/audience",
             headers=proof_headers,
-            json={"campaign_id": campaign},
+            json={"campaign_id": campaign, "revision": "1"},
         )
         assert audience.status_code == 200, audience.status_code
         queued = client.post(

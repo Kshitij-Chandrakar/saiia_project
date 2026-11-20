@@ -1,142 +1,12 @@
+import { checkDialogScroll } from '../c15-admin/dialogScroll.js';
 import { test, expect } from '@playwright/test';
-async function setup(page, {
-  permissions = ['subscriptions.manage'],
-  status = 200,
-  signed = true
-} = {}) {
-  const s = {
-    permissions,
-    status,
-    draft: null,
-    writes: 0,
-    keys: [],
-    uncertain: false,
-    conflict: false,
-    unavailable: false,
-    hold: null,
-    meHold: null,
-    meStarted: null
-  };
-  await page.addInitScript(signed => {
-    window.__session = signed ? {
-      access_token: 'synthetic',
-      user: {
-        id: 'synthetic-user'
-      }
-    } : null;
-    window.__listeners = [];
-  }, signed);
-  await page.route('**/src/auth/supabaseClient.js*', r => r.fulfill({
-    contentType: 'application/javascript',
-    body: `window.__emit=(event,session)=>{window.__session=session;window.__listeners.forEach(fn=>fn(event,session))};export const supabase={auth:{getSession:async()=>({data:{session:window.__session}}),onAuthStateChange:fn=>{window.__listeners.push(fn);return {data:{subscription:{unsubscribe(){}}}}},signOut:async()=>{window.__emit('SIGNED_OUT',null);return {error:null}}}};export function getSupabaseAuthConfig(){return {}};`
-  }));
-  await page.route('**/api/**', async r => {
-    const q = r.request(),
-      p = new URL(q.url()).pathname;
-    if (p === '/api/commercial/admin/me') {
-      s.meStarted?.();
-      if (s.meHold) await s.meHold;
-      return r.fulfill({
-      status: s.status,
-      json: {
-        permissions: s.permissions
-      }
-      });
-    }
-    if (!p.startsWith('/api/admin/catalog/')) return r.fulfill({
-      status: 404,
-      json: {}
-    });
-    if (p.endsWith('/preview')) {
-      s.previewRequests=(s.previewRequests || 0)+1;
-      if(s.previewHold)await s.previewHold;
-      if(s.previewError)return r.fulfill({status:503,json:{detail:{code:'catalog_database_unavailable'}}});
-      return r.fulfill({
-      json: {
-        draft_id: s.draft.draft_id,
-        revision: s.draft.revision,
-        validation_scope: 'structural_only',
-        publication_enabled: false,
-        errors: [],
-        pending: [{
-          path: ['terms', 'subscription_policy_ref'],
-          code: 'policy_unresolved'
-        }]
-      }
-    });
-    }
-    if (q.method() === 'GET') return r.fulfill({
-      json: s.draft
-    });
-    if (s.hold) {
-      s.heldRequests = (s.heldRequests || 0) + 1;
-      await s.hold;
-    }
-    if (s.unavailable) return r.fulfill({
-      status: 503,
-      json: {
-        detail: {
-          code: 'catalog_database_unavailable'
-        }
-      }
-    });
-    const b = q.postDataJSON(),
-      k = q.headers()['idempotency-key'];
-    s.keys.push(k);
-    if (s.conflict) return r.fulfill({
-      status: 409,
-      json: {
-        detail: {
-          code: 'catalog_revision_conflict'
-        }
-      }
-    });
-    if (!s.keys.slice(0, -1).includes(k)) {
-      s.writes++;
-      s.draft = b.document;
-    }
-    if (s.uncertain) {
-      s.uncertain = false;
-      return r.abort('failed');
-    }
-    return r.fulfill({
-      json: s.draft
-    });
-  });
-  await page.goto('/auth/admin/subscriptions');
-  return s;
+import { setup, Workspace, startPlan, resumeDraft } from './fixtures/workspace.js';
+async function leaveForCustomers(page) {
+  const menu = page.getByRole('button', { name: 'Open navigation', exact: true });
+  if (await menu.isVisible()) await menu.click();
+  await page.getByRole('navigation', { name: 'Administration', exact: true }).getByRole('button', { name: 'Customers', exact: true }).click();
 }
-class Workspace {
-  constructor(page) {
-    this.page = page;
-  }
-  async create() {
-    await this.page.getByRole('button', {
-      name: 'Create a blank draft',
-      exact: true
-    }).click();
-    await this.page.getByLabel('Plan code', {
-      exact: true
-    }).fill('synthetic-plan');
-    await this.page.getByLabel('Display name', {
-      exact: true
-    }).fill('Synthetic draft');
-  }
-  async save() {
-    await this.page.getByLabel('Change reason', {
-      exact: true
-    }).fill('Synthetic test');
-    await this.page.getByRole('button', {
-      name: /^Save (draft|changes)$/
-    }).click();
-  }
-  async tab(name) {
-    await this.page.getByRole('button', {
-      name,
-      exact: true
-    }).click();
-  }
-}
+
 for (const [name, options, heading] of [['signed out', {
   signed: false
 }, 'Page not found'], ['ordinary', {
@@ -213,6 +83,7 @@ test('create save edit preview open and responsive', async ({
     path: info.outputPath('narrow.png'),
     fullPage: true
   });
+  await resumeDraft(page);
   await page.getByLabel('Open a draft by ID', {
     exact: true
   }).fill(s.draft.draft_id);
@@ -317,7 +188,7 @@ test('revocation account switch and logout clear private data', async ({
     }
   }));
   await expect(page.getByRole('button', {
-    name: 'Create a blank draft',
+    name: 'New plan',
     exact: true
   })).toBeVisible();
   await page.evaluate(() => window.__emit('SIGNED_OUT', null));
@@ -407,7 +278,7 @@ test('double submission and stale account response are isolated', async ({
     }
   }));
   await expect(page.getByRole('button', {
-    name: 'Create a blank draft',
+    name: 'New plan',
     exact: true
   })).toBeVisible();
   release();
@@ -421,7 +292,7 @@ test('empty state illustration, keyboard entry and storage privacy', async ({
 }, info) => {
   await setup(page);
   await expect(page.getByRole('heading', {
-    name: 'A workspace for unfinished plans',
+    name: 'Start a plan',
     exact: true
   })).toBeVisible();
   await page.screenshot({
@@ -429,10 +300,11 @@ test('empty state illustration, keyboard entry and storage privacy', async ({
     fullPage: true
   });
   await page.getByRole('button', {
-    name: 'Create a blank draft',
+    name: 'New plan',
     exact: true
   }).focus();
   await page.keyboard.press('Enter');
+  await startPlan(page);
   await expect(page.getByLabel('Plan code', {
     exact: true
   })).toBeVisible();
@@ -473,10 +345,7 @@ test('SPA Stay preserves edits and revision; Discard navigates with zero additio
   await page.getByLabel('Display name', {
     exact: true
   }).fill('Unsaved revision one');
-  await page.getByRole('link', {
-    name: 'Resumes',
-    exact: true
-  }).click();
+  await leaveForCustomers(page);
   const dialog = page.getByRole('dialog', {
     name: 'Leave this draft?',
     exact: true
@@ -509,15 +378,12 @@ test('SPA Stay preserves edits and revision; Discard navigates with zero additio
   await page.getByLabel('Display name', {
     exact: true
   }).fill('Discard this');
-  await page.getByRole('link', {
-    name: 'Resumes',
-    exact: true
-  }).click();
+  await leaveForCustomers(page);
   await dialog.getByRole('button', {
     name: 'Discard and leave',
     exact: true
   }).click();
-  await expect(page).toHaveURL(/\/auth\/resume$/);
+  await expect(page).toHaveURL(/\/auth\/admin\?view=users$/);
   expect(s.writes).toBe(2);
 });
 for (const state of ['empty', 'blank', 'saved', 'reverted']) test(`clean ${state} navigation does not warn`, async ({
@@ -525,10 +391,7 @@ for (const state of ['empty', 'blank', 'saved', 'reverted']) test(`clean ${state
 }) => {
   await setup(page);
   const ui = new Workspace(page);
-  if (state === 'blank') await page.getByRole('button', {
-    name: 'Create a blank draft',
-    exact: true
-  }).click();
+  if (state === 'blank') await startPlan(page);
   if (['saved', 'reverted'].includes(state)) {
     await ui.create();
     await ui.save();
@@ -542,11 +405,8 @@ for (const state of ['empty', 'blank', 'saved', 'reverted']) test(`clean ${state
       exact: true
     }).fill('Synthetic draft');
   }
-  await page.getByRole('link', {
-    name: 'Resumes',
-    exact: true
-  }).click();
-  await expect(page).toHaveURL(/\/auth\/resume$/);
+  await leaveForCustomers(page);
+  await expect(page).toHaveURL(/\/auth\/admin\?view=users$/);
   await expect(page.getByRole('dialog', {
     name: 'Leave this draft?',
     exact: true
@@ -561,10 +421,7 @@ for (const state of ['failed', 'uncertain']) test(`${state} save remains guarded
   if (state === 'failed') s.unavailable = true;else s.uncertain = true;
   await ui.save();
   await expect(page.getByRole('alert')).toBeVisible();
-  await page.getByRole('link', {
-    name: 'Resumes',
-    exact: true
-  }).click();
+  await leaveForCustomers(page);
   const d = page.getByRole('dialog', {
     name: 'Leave this draft?',
     exact: true
@@ -583,11 +440,8 @@ for (const state of ['failed', 'uncertain']) test(`${state} save remains guarded
   await expect(page.getByRole('status')).toContainText('Revision 1');
   expect(s.writes).toBe(1);
   if (state === 'uncertain') expect(s.keys[0]).toBe(s.keys[1]);
-  await page.getByRole('link', {
-    name: 'Resumes',
-    exact: true
-  }).click();
-  await expect(page).toHaveURL(/\/auth\/resume$/);
+  await leaveForCustomers(page);
+  await expect(page).toHaveURL(/\/auth\/admin\?view=users$/);
 });
 test('native beforeunload warning can be dismissed; saved reload does not warn', async ({
   page
@@ -613,7 +467,7 @@ test('native beforeunload warning can be dismissed; saved reload does not warn',
   });
   await page.reload();
   await expect(page.getByRole('button', {
-    name: 'Create a blank draft',
+    name: 'New plan',
     exact: true
   })).toBeVisible();
   expect(warnings).toBe(0);
@@ -624,16 +478,13 @@ for (const action of ['logout', 'switch', 'revocation']) test(`${action} clears 
   const s = await setup(page),
     ui = new Workspace(page);
   await ui.create();
-  await page.getByRole('link', {
-    name: 'Resumes',
-    exact: true
-  }).click();
+  await leaveForCustomers(page);
   await expect(page.getByRole('dialog', {
     name: 'Leave this draft?',
     exact: true
   })).toBeVisible();
   // An auth event can arrive while the native modal makes the rest of the page inert.
-  if (action === 'logout') await page.evaluate(() => document.querySelector('button[aria-label="Logout"]').click());
+  if (action === 'logout') await page.evaluate(() => window.__emit('SIGNED_OUT', null));
   if (action === 'switch') await page.evaluate(() => window.__emit('SIGNED_IN', {
     access_token: 'other',
     user: {
@@ -651,9 +502,9 @@ for (const action of ['logout', 'switch', 'revocation']) test(`${action} clears 
   await expect(page.getByLabel('Display name', {
     exact: true
   })).toHaveCount(0);
-  if (action === 'logout') await expect(page).toHaveURL(/\/auth\/login$/);
+  if (action === 'logout') await expect(page.getByRole('heading', { name: 'Page not found', exact: true })).toBeVisible();
   if (action === 'switch') await expect(page.getByRole('button', {
-    name: 'Create a blank draft',
+    name: 'New plan',
     exact: true
   })).toBeVisible();
   if (action === 'revocation') await expect(page.getByRole('heading', {
@@ -671,10 +522,7 @@ test('Discard after uncertain save leaves without another mutation', async ({
   s.uncertain = true;
   await ui.save();
   await expect(page.getByRole('alert')).toContainText('not confirmed');
-  await page.getByRole('link', {
-    name: 'Resumes',
-    exact: true
-  }).click();
+  await leaveForCustomers(page);
   await page.getByRole('dialog', {
     name: 'Leave this draft?',
     exact: true
@@ -682,7 +530,7 @@ test('Discard after uncertain save leaves without another mutation', async ({
     name: 'Discard and leave',
     exact: true
   }).click();
-  await expect(page).toHaveURL(/\/auth\/resume$/);
+  await expect(page).toHaveURL(/\/auth\/admin\?view=users$/);
   expect(s.writes).toBe(1);
   expect(s.keys).toHaveLength(1);
 });
@@ -690,11 +538,8 @@ test('history forward is guarded and Escape stays', async ({
   page
 }) => {
   await setup(page);
-  await page.getByRole('link', {
-    name: 'Resumes',
-    exact: true
-  }).click();
-  await expect(page).toHaveURL(/\/auth\/resume$/);
+  await leaveForCustomers(page);
+  await expect(page).toHaveURL(/\/auth\/admin\?view=users$/);
   await page.goBack();
   const ui = new Workspace(page);
   await ui.create();
@@ -725,10 +570,7 @@ test('confirmed save while navigation is blocked clears the obsolete warning wit
     name: 'Checking save...',
     exact: true
   })).toBeDisabled();
-  await page.getByRole('link', {
-    name: 'Resumes',
-    exact: true
-  }).click();
+  await leaveForCustomers(page);
   const d = page.getByRole('dialog', {
     name: 'Leave this draft?',
     exact: true
@@ -739,20 +581,17 @@ test('confirmed save while navigation is blocked clears the obsolete warning wit
   await expect(page.getByRole('status')).toContainText('Revision 1');
   await expect(page).toHaveURL(/\/auth\/admin\/subscriptions$/);
   expect(s.writes).toBe(1);
-  await page.getByRole('link', {
-    name: 'Resumes',
-    exact: true
-  }).click();
-  await expect(page).toHaveURL(/\/auth\/resume$/);
+  await leaveForCustomers(page);
+  await expect(page).toHaveURL(/\/auth\/admin\?view=users$/);
 });
 
 
 test('close imported plans discards local state and restores import focus without writes',async({page},info)=>{
- const state=await setup(page);const imports=page.getByRole('region',{name:'Approved plan imports'});
+ const state=await setup(page);const imports=page.getByRole('region',{name:'Choose a starting point'});
  for(const name of ['Free','Plus','Pro']) {
-  await imports.getByRole('button',{name:`Import approved ${name} draft`,exact:true}).click();
+  await startPlan(page, name);
   await expect(page.getByLabel('Display name',{exact:true})).toHaveValue(name);
-  for(const plan of ['Free','Plus','Pro'])await expect(imports.getByRole('button',{name:`Import approved ${plan} draft`,exact:true})).toBeDisabled();
+  await expect(imports).not.toBeVisible();await expect(page.getByRole('button',{name:'New plan',exact:true})).toBeEnabled();
   await page.getByLabel('Display name',{exact:true}).fill('Unsaved local change');
   if(name==='Free'){await page.getByRole('button',{name:'Save draft',exact:true}).click();await expect(page.getByRole('alert')).toBeVisible();}
   const close=page.getByRole('button',{name:'Close draft',exact:true});
@@ -761,13 +600,13 @@ test('close imported plans discards local state and restores import focus withou
   await page.keyboard.press('Enter');
   await expect(page.getByLabel('Display name',{exact:true})).toHaveCount(0);
   await expect(page.getByRole('region',{name:'Draft preview'})).toHaveCount(0);
-  await expect(imports).toBeFocused();
+  await expect(page.getByRole('button',{name:'New plan',exact:true})).toBeFocused();
   await expect(page.getByRole('alert')).toHaveCount(0);
-  for(const plan of ['Free','Plus','Pro'])await expect(imports.getByRole('button',{name:`Import approved ${plan} draft`,exact:true})).toBeEnabled();
+  await page.getByRole('button',{name:'New plan',exact:true}).click();for(const plan of ['Free','Plus','Pro'])await expect(imports.getByRole('button',{name:`Start from ${plan}`,exact:true})).toBeEnabled();
   expect(state.writes).toBe(0);
  }
- await page.setViewportSize({width:390,height:844});await imports.getByRole('button',{name:'Import approved Plus draft',exact:true}).click();
- await page.getByRole('button',{name:'Prices',exact:true}).click();await expect(page.getByLabel('Price amount',{exact:true}).first()).toHaveValue('399.00');
+ await page.setViewportSize({width:390,height:844});await startPlan(page,'Plus');
+ await page.getByRole('button',{name:'Pricing',exact:true}).click();await expect(page.getByLabel('Price amount',{exact:true}).first()).toHaveValue('399.00');
  const close=page.getByRole('button',{name:'Close draft',exact:true});await close.scrollIntoViewIfNeeded();
  const bounds=await close.boundingBox();expect(bounds.x+bounds.width).toBeLessThanOrEqual(390);
  await page.screenshot({path:info.outputPath('close-mobile.png')});await close.click();expect(state.writes).toBe(0);
@@ -779,11 +618,12 @@ test('close keeps saved data and clears preview, local discard prompt and unsave
  await expect(page.getByRole('region',{name:'Draft preview'})).toContainText('Synthetic draft');
  await page.getByRole('button',{name:'Close subscription review',exact:true}).click();
  await page.getByLabel('Display name',{exact:true}).fill('Discard me');
- await page.getByRole('button',{name:'New draft',exact:true}).click();await expect(page.getByText('Discard unsaved local edits and continue?',{exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'New plan',exact:true}).click();await page.getByRole('button',{name:'Start from scratch',exact:true}).click();await expect(page.getByText('Discard unsaved local edits and continue?',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Close draft',exact:true}).click();
  await expect(page.getByText('Discard unsaved local edits and continue?',{exact:true})).toHaveCount(0);
  expect(state.writes).toBe(1);expect(state.draft).toEqual(saved);
- await page.getByLabel('Open a draft by ID',{exact:true}).fill(saved.draft_id);await page.getByRole('button',{name:'Open draft',exact:true}).click();
+ await resumeDraft(page);
+  await page.getByLabel('Open a draft by ID',{exact:true}).fill(saved.draft_id);await page.getByRole('button',{name:'Open draft',exact:true}).click();
  await expect(page.getByLabel('Display name',{exact:true})).toHaveValue('Synthetic draft');
  await page.getByRole('button',{name:'Close draft',exact:true}).click();expect(state.writes).toBe(1);
 });
@@ -796,18 +636,18 @@ test('close is locked during active and uncertain saves and preserves retry iden
  await expect(close).toBeDisabled();await close.hover();await expect(page.getByRole('tooltip')).toContainText('Resolve the unconfirmed operation');
  await page.getByRole('button',{name:'Retry same save',exact:true}).click();await expect(close).toBeEnabled();
  expect(state.keys).toHaveLength(2);expect(state.keys[0]).toBe(state.keys[1]);expect(state.writes).toBe(1);
- await close.click();await page.getByRole('button',{name:'Import approved Pro draft',exact:true}).click();await expect(page.getByLabel('Display name',{exact:true})).toHaveValue('Pro');
+ await close.click();await startPlan(page,'Pro');await expect(page.getByLabel('Display name',{exact:true})).toHaveValue('Pro');
 });
 
 test('late read is serialized before close and cannot overwrite a different imported session',async({page})=>{
  const state=await setup(page),workspace=new Workspace(page);await workspace.create();await workspace.save();
  let release,entered;const barrier=new Promise(resolve=>release=resolve),started=new Promise(resolve=>entered=resolve);
  await page.route('**/api/admin/catalog/drafts/*',async route=>{if(route.request().method()==='GET'){entered();await barrier;await route.fulfill({json:state.draft});}else await route.fallback();});
- await page.getByRole('button',{name:'Open draft',exact:true}).click();await started;
+ await resumeDraft(page);await page.getByRole('button',{name:'Open draft',exact:true}).click();await started;
  await expect(page.getByRole('button',{name:'Close draft',exact:true})).toBeDisabled();release();
  await expect(page.getByRole('button',{name:'Close draft',exact:true})).toBeEnabled();
  await page.getByRole('button',{name:'Close draft',exact:true}).click();
- await page.getByRole('button',{name:'Import approved Pro draft',exact:true}).click();
+ await startPlan(page,'Pro');
  await expect(page.getByLabel('Display name',{exact:true})).toHaveValue('Pro');expect(state.writes).toBe(1);
 });
 
@@ -850,13 +690,13 @@ test('closing loading preview does not reopen it; unavailable states stay inside
  await page.keyboard.press('Escape');state.previewError=false;await trigger.click();
  await expect(modal).toContainText('Synthetic draft');expect(state.writes).toBe(1);
  await page.keyboard.press('Escape');await page.getByRole('button',{name:'Close draft',exact:true}).click();
- await page.getByRole('button',{name:'Import approved Plus draft',exact:true}).click();
+ await startPlan(page,'Plus');
  await expect(modal).not.toBeVisible();await expect(page.getByLabel('Display name',{exact:true})).toHaveValue('Plus');
 });
 
 
 for(const name of ['Free','Plus','Pro'])test(`duplicate ${name} import explains plan code conflict without implying an unsaved draft changed`,async({page})=>{
- const state=await setup(page);await page.getByRole('button',{name:`Import approved ${name} draft`,exact:true}).click();
+ const state=await setup(page);await startPlan(page,name);
  state.conflict=true;await page.getByLabel('Change reason',{exact:true}).fill('Synthetic duplicate candidate');
  await page.getByRole('button',{name:'Save draft',exact:true}).click();
  await expect(page.getByRole('alert')).toContainText(`The ${name.toLowerCase()} plan code already exists or this candidate is stale`);
@@ -883,7 +723,8 @@ for (const pending of [false, true]) test(`temporary access failure preserves ${
   await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
   await expect(page.getByLabel('Display name', {exact:true})).toHaveCount(1);
   await expect(page.getByLabel('Display name', {exact:true})).not.toBeVisible();
-  await page.getByRole('link', {name:'Dashboard', exact:true}).click();
+  await page.getByRole('button', {name:'Account options', exact:true}).click();
+  await page.getByRole('link', {name:'Home', exact:true}).click();
   await expect(page).toHaveURL(/\/auth\/admin\/subscriptions$/);
   await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
   const leaveWarning = page.getByRole('alert').filter({hasText:pending ? 'This save is not confirmed. Stay to retain its retry identity.' : 'Access is unavailable. Leaving this page will discard unsaved local work in this browser.'});
@@ -918,7 +759,8 @@ test('temporary access failure warning lets the user discard and leave', async (
   state.status = 503;
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
-  await page.getByRole('link', {name:'Dashboard', exact:true}).click();
+  await page.getByRole('button', {name:'Account options', exact:true}).click();
+  await page.getByRole('link', {name:'Home', exact:true}).click();
   const leaveWarning = page.getByRole('alert').filter({hasText:'Access is unavailable. Leaving this page will discard unsaved local work in this browser.'});
   await expect(leaveWarning).toBeVisible();
   await leaveWarning.getByRole('button', {name:'Discard and leave', exact:true}).click();
@@ -932,7 +774,8 @@ test('account switch clears an outage navigation warning tied to the old workspa
   state.status = 503;
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(page.getByRole('heading', {name:'Admin access is unavailable', exact:true})).toBeVisible();
-  await page.getByRole('link', {name:'Dashboard', exact:true}).click();
+  await page.getByRole('button', {name:'Account options', exact:true}).click();
+  await page.getByRole('link', {name:'Home', exact:true}).click();
   const leaveWarning = page.getByRole('alert').filter({hasText:'Leaving this page will discard unsaved local work in this browser.'});
   await expect(leaveWarning).toBeVisible();
   let releaseAccess, accessStarted;
@@ -964,4 +807,98 @@ test('temporary access failure dismisses a private modal without losing the save
   await expect(page.getByLabel('Display name', {exact:true})).toHaveValue('Synthetic draft');
   await expect(page.getByRole('button', {name:'Preview saved draft', exact:true})).toBeEnabled();
   expect(state.writes).toBe(1);
+});
+
+test('saved preview and unsaved-navigation dialogs stop edge scrolling', async ({page},info) => {
+  await page.setViewportSize({width:390,height:560});
+  await setup(page);const ui=new Workspace(page);await ui.create();await ui.save();
+  await page.getByRole('button',{name:'Preview saved draft',exact:true}).click();
+  const preview=page.getByRole('dialog',{name:'Subscription review',exact:true});
+  await checkDialogScroll(page,preview,{port:preview.locator('.ca-subscription-modal-body'),name:'saved-plan-preview'});
+  await page.screenshot({path:info.outputPath('preview-bottom.png')});
+  await page.keyboard.press('Escape');
+  await ui.tab('Identity');await page.getByLabel('Display name',{exact:true}).fill('Unsaved scroll check');
+  await page.getByRole('button',{name:'Open navigation',exact:true}).click();
+  await page.getByRole('dialog',{name:'Administration navigation',exact:true}).getByRole('button',{name:'Customers',exact:true}).click();
+  const navigation=page.getByRole('dialog',{name:'Leave this draft?',exact:true});
+  await checkDialogScroll(page,navigation,{name:'unsaved-navigation'});
+  await navigation.getByRole('button',{name:'Stay',exact:true}).click();
+  await expect(page.getByLabel('Display name',{exact:true})).toHaveValue('Unsaved scroll check');
+});
+
+test('shared admin account options stay compact, keyboard accessible, and above the sidebar footer', async ({page},info) => {
+  await setup(page);
+  await page.route('**/api/admin/**',route=>{
+    const pathname=new URL(route.request().url()).pathname;
+    if(pathname.endsWith('/me'))return route.fulfill({json:{subject_id:'synthetic-user',role:'super_admin',permissions:[]}});
+    if(pathname.endsWith('/metrics'))return route.fulfill({json:{total_users:0,new_users:0,active_7_days:0,daily_registrations:[],models:[],costs:[],cost_unknown_attempts:0}});
+    return route.fallback();
+  });
+  for (const viewport of [{width:1440,height:900},{width:390,height:844}]) {
+    await page.setViewportSize(viewport);
+    if (viewport.width < 1024) await page.getByRole('button',{name:'Open navigation',exact:true}).click();
+    const sidebar=page.getByRole('complementary',{name:'Administration sidebar'});
+    const trigger=sidebar.getByRole('button',{name:'Account options',exact:true});
+    if(viewport.width===1440){
+      await sidebar.getByRole('button',{name:'Overview',exact:true}).click();
+      await expect(page).toHaveURL(/\/auth\/admin\?view=overview$/);
+      await page.getByRole('link',{name:'Commercial configuration',exact:true}).click();
+      await expect(page).toHaveURL(/\/auth\/admin\/subscriptions$/);
+    }
+    await page.screenshot({path:info.outputPath(`account-footer-${viewport.width}-closed.png`)});
+    await trigger.click();
+    const options=sidebar.locator('.ac-account-options');
+    await expect(options.getByRole('link',{name:'Home',exact:true})).toBeVisible();
+    await expect(options.getByRole('button',{name:'Log out',exact:true})).toBeVisible();
+    const triggerBox=await trigger.boundingBox(),menuBox=await options.boundingBox();
+    expect(menuBox.y+menuBox.height).toBeLessThan(triggerBox.y+triggerBox.height);
+    await page.screenshot({path:info.outputPath(`account-footer-${viewport.width}-open.png`)});
+    await page.keyboard.press('Escape');
+    await expect(options).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    if(viewport.width===1440){
+      await trigger.click();
+      await page.getByRole('heading',{name:'Commercial configuration',exact:true}).click();
+      await expect(options).toHaveCount(0);
+    }
+  }
+});
+
+test('account Home honors unsaved-draft guard and Log out uses the signed-out route', async ({page}) => {
+  await setup(page);const ui=new Workspace(page);await ui.create();
+  await page.getByRole('button',{name:'Account options',exact:true}).click();
+  await page.getByRole('link',{name:'Home',exact:true}).click();
+  const guard=page.getByRole('dialog',{name:'Leave this draft?',exact:true});
+  await expect(guard).toBeVisible();
+  await guard.getByRole('button',{name:'Stay',exact:true}).click();
+  await expect(page).toHaveURL(/\/auth\/admin\/subscriptions$/);
+  await page.getByRole('button',{name:'Account options',exact:true}).click();
+  await page.getByRole('link',{name:'Home',exact:true}).click();
+  await guard.getByRole('button',{name:'Discard and leave',exact:true}).click();
+  await expect(page).toHaveURL(/\/auth\/dashboard$/);
+});
+
+test('account Log out ends the session and redirects to sign-in',async({page})=>{
+  await setup(page);
+  await page.getByRole('button',{name:'Account options',exact:true}).click();
+  await page.getByRole('button',{name:'Log out',exact:true}).click();
+  await expect(page).toHaveURL(/\/auth\/login$/);
+  expect(await page.evaluate(()=>window.__session)).toBeNull();
+});
+
+test('shared account options are available to Admin without Super-admin destinations',async({page})=>{
+  await setup(page);
+  await page.route('**/api/admin/**',route=>{
+    const pathname=new URL(route.request().url()).pathname;
+    if(pathname.endsWith('/me'))return route.fulfill({json:{subject_id:'synthetic-user',role:'admin',permissions:[]}});
+    if(pathname.endsWith('/metrics'))return route.fulfill({json:{total_users:0,new_users:0,active_7_days:0,daily_registrations:[],models:[],costs:[],cost_unknown_attempts:0}});
+    return route.fallback();
+  });
+  await page.goto('/auth/admin?view=overview');
+  const sidebar=page.getByRole('complementary',{name:'Administration sidebar'});
+  await expect(sidebar.getByRole('button',{name:'Account options',exact:true})).toBeVisible();
+  await expect(sidebar.locator('.ac-account-details')).toContainText('Admin');
+  await expect(page.getByRole('link',{name:'Commercial configuration',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Administrators',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Audit history',exact:true})).toHaveCount(0);
 });

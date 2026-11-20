@@ -190,8 +190,8 @@ class Administration:
             "read": {"campaign_id"},
             "preview": {"campaign_id"},
             "save": {"campaign_id", "revision", "name", "subject", "body"},
-            "audience": {"campaign_id"},
-            "test": {"campaign_id", "target", "operation_id"},
+            "audience": {"campaign_id", "revision"},
+            "test": {"campaign_id", "revision", "target", "operation_id"},
             "confirm": {"review_id", "operation_id", "confirm"},
         }
         if (
@@ -209,10 +209,13 @@ class Administration:
                 "after",
             } & set(document):
                 UUID(document[key])
-            if action == "save" and (
+            if action in {"save", "audience", "test"} and (
                 not isinstance(document["revision"], str)
                 or not document["revision"].isdigit()
-                or any(
+            ):
+                raise ValueError()
+            if action == "save" and (
+                any(
                     not isinstance(document[k], str)
                     for k in ("name", "subject", "body")
                 )

@@ -4,8 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useBlocker, useBeforeUnload } from 'react-router-dom';
 import { Plus, ArrowRight, Check, LockKeyhole, X } from 'lucide-react';
 import { supabase } from './supabaseClient';
-import { signOutWebsite } from './websiteSessionLoss';
-import DashboardLayout from './DashboardLayout';
+import AdminShell from './AdminShell';
 import WebsiteNotFound from '../WebsiteNotFound';
 import { Skeleton } from './WebsiteSkeleton';
 import CatalogDraftFields, { Field } from './CatalogDraftFields';
@@ -14,7 +13,6 @@ import SubscriptionReviewModal from './SubscriptionReviewModal.jsx';
 import { successor } from './catalogLifecycle.js';
 import { catalogRequest, CatalogError, checkedDraft } from './catalogApi.js';
 import { FieldError, labels, meterLabels, minorToDecimal, newDraft, sectionFor, serialize, toForm, issueLabel } from './catalogDraft.js';
-import draftArt from '../assets/admin/draft-empty.png';
 import './subscription-admin.css';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const messages = {
@@ -71,7 +69,7 @@ export default function SubscriptionAdmin({
       privateAccess.current = allowed;
       setAccess({
         status: allowed ? 'allowed' : 'forbidden',
-        user: allowed ? {id: next.user.id, email: next.user.email} : null
+        user: allowed ? next.user : null
       });
     } catch (error) {
       if (alive.current && ticket === probe.current) {
@@ -149,30 +147,8 @@ export default function SubscriptionAdmin({
       user: null
     });
   }
-  async function logout() {
-    ++probe.current;
-    controller.current?.abort();
-    privateAccess.current = false;
-    session.current = null;
-    setAccess({
-      status: 'unauthenticated',
-      user: null
-    });
-    try {
-      const result = await signOutWebsite(client);
-      if (result.error) throw new Error();
-      navigate('/auth/login', {
-        replace: true
-      });
-    } catch {
-      setAccess({
-        status: 'unavailable',
-        user: null
-      });
-    }
-  }
   if (['unauthenticated', 'forbidden'].includes(access.status)) return <WebsiteNotFound />;
-  return <DashboardLayout user={access.user || {}} title="Subscription drafts" description="Manage private plan drafts and review their requirements." onLogout={logout} loading={access.status === 'loading'} subscriptionAdmin={access.status === 'allowed'}>
+  return <AdminShell user={access.user} identity={access.status === 'allowed' ? { role: 'super_admin' } : null} section="commercial" navigate={key => navigate('/auth/admin?view=' + key)} title="Commercial configuration" subtitle="Create and update subscription plans. Review and confirm changes before customers can see them."><main id="admin-content" tabIndex={-1}>
     {access.user && <div ref={workspace} hidden={access.status !== 'allowed'}><DraftWorkspace key={access.user.id} accountId={access.user.id} backendUrl={backendUrl} token={() => session.current?.access_token} mayBlock={() => (privateAccess.current || access.status === 'unavailable') && session.current?.user?.id === access.user.id} suspended={access.status !== 'allowed'} onDenied={denied} onSuspendedNavigation={setSuspendedNavigation} /></div>}
     {access.status !== 'allowed' && <section className="subscription-admin ca-access" aria-live="polite">
       {access.status === 'loading' ? <><Skeleton width="55%" height={28} /><Skeleton width="80%" height={16} /><p>Checking subscription-admin access...</p></> : <><LockKeyhole size={28} aria-hidden="true" /><h2>{access.status === 'unauthenticated' ? 'Sign in to continue' : access.status === 'forbidden' ? 'Subscription-admin access required' : 'Admin access is unavailable'}</h2><p>{access.status === 'unauthenticated' ? 'Use your website account to check your current permissions.' : access.status === 'forbidden' ? 'Your account does not currently have permission to manage subscription drafts.' : 'Your permissions could not be confirmed. Private drafts are hidden.'}</p>{access.status === 'unavailable' && suspendedNavigation && <div className="ca-feedback ca-error" role="alert"><p>{suspendedNavigation.lifecyclePending ? 'Access is unavailable. Stay until access returns to keep the operation ID needed to check its outcome or retry safely. Leaving this page discards that ID from this browser. Requests already sent are not cancelled.' : suspendedNavigation.savePending ? 'Access is unavailable. This save is not confirmed. Stay to retain its retry identity. Leaving discards that identity, and the save may still commit.' : 'Access is unavailable. Leaving this page will discard unsaved local work in this browser. Requests already sent are not cancelled.'}</p><div className="ca-actions"><button type="button" onClick={suspendedNavigation.stay}>Stay on this page</button><button type="button" onClick={suspendedNavigation.discard}>Discard and leave</button></div></div>}{access.status === 'unauthenticated' ? <Link className="wd-primary" to="/auth/login">Sign in</Link> : <button type="button" onClick={() => client?.auth.getSession().then(r => {
@@ -180,7 +156,7 @@ export default function SubscriptionAdmin({
           else check(r.data?.session, r.data?.session?.user?.id !== session.current?.user?.id);
         }).catch(() => setAccess(previous => ({status: 'unavailable', user: previous.user})))}>Check access again</button>}</>}
     </section>}
-  </DashboardLayout>;
+  </main></AdminShell>;
 }
 function DraftWorkspace({
   accountId,
@@ -194,6 +170,7 @@ function DraftWorkspace({
   const [form, setFormState] = useState(null),
     [saved, setSaved] = useState(null),
     [section, setSection] = useState('Identity');
+  const [chooserOpen, setChooserOpen] = useState(false), [resumeOpen, setResumeOpen] = useState(false);
   const [openId, setOpenId] = useState(''),
     [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false),
@@ -206,7 +183,7 @@ function DraftWorkspace({
     [confirm, setConfirm] = useState(null);
   const [lifecyclePending, setLifecyclePending] = useState(null), [terminal, setTerminal] = useState(false);
   const [closedSessions, setClosedSessions] = useState(0);
-  const importArea = useRef(null);
+  const importArea = useRef(null), returnToStart = useRef(false);
   const epoch = useRef(0),
     mounted = useRef(true),
     inflight = useRef(false),
@@ -274,6 +251,25 @@ function DraftWorkspace({
     if (notice?.kind === 'error') noticeRef.current?.focus();
   }, [notice]);
   useEffect(() => { setPreviewOpen(false); }, [form?.draft_id, saved?.revision, dirty]);
+  useEffect(() => {
+    if (form?.draft_id) {
+      requestAnimationFrame(() => { const heading = document.getElementById('ca-draft-heading'); heading?.focus({ preventScroll: true }); heading?.scrollIntoView({ block: 'start' }); });
+    }
+  }, [form?.draft_id]);
+  useEffect(() => {
+    if (saved?.draft_id) requestAnimationFrame(() => { const heading = document.getElementById('ca-review-stage'); heading?.focus({ preventScroll: true }); heading?.scrollIntoView({ block: 'start' }); });
+  }, [saved?.draft_id, saved?.revision]);
+  useEffect(() => {
+    if (form || busy || !returnToStart.current) return;
+    const frame = requestAnimationFrame(() => {
+      if (importArea.current && !importArea.current.disabled) {
+        returnToStart.current = false;
+        importArea.current.focus();
+        importArea.current.scrollIntoView({ block: 'center' });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [form, busy]);
   function setForm(update) {
     setFormState(update);
     setPreview(null);
@@ -316,6 +312,7 @@ function DraftWorkspace({
     action();
   }
   function adopt(document) {
+    setResumeOpen(false); setChooserOpen(false);
     const next = toForm(document);
     ++epoch.current;
     baseline.current = next;
@@ -335,6 +332,7 @@ function DraftWorkspace({
     choose(() => {
       let draft;
       try { draft = code === 'free' ? approvedFreeDraft() : approvedPaidDraft(code); } catch { setNotice({kind:'error',text:'The approved reference failed validation. Review its registered allowances and plain-text presentation before importing.'}); return; }
+      setChooserOpen(false); setResumeOpen(false);
       ++epoch.current; baseline.current = null;
       setFormState(toForm(draft)); setSaved(null); setTerminal(false); setPending(null);
       setPreview(null); setNotice(null); setErrors({}); setRemote(null); setReason(''); setOpenId(''); setSection('Identity');
@@ -342,7 +340,8 @@ function DraftWorkspace({
   }
   function closeDraft() {
     if (inflight.current || busy || pending || lifecyclePending) return;
-    const closedEpoch = ++epoch.current;
+    ++epoch.current;
+    returnToStart.current = true;
     requests.current.forEach(control => control.abort());
     baseline.current = null;
     setFormState(null); setSaved(null); setPreview(null); setRemote(null);
@@ -351,14 +350,9 @@ function DraftWorkspace({
     setClosedSessions(value => value + 1);
     if (blocker.state === 'blocked') blocker.reset();
     navigationDialog.current?.close();
-    requestAnimationFrame(() => {
-      if (mounted.current && epoch.current === closedEpoch) {
-        importArea.current?.focus();
-        importArea.current?.scrollIntoView({block:'center'});
-      }
-    });
   }
   function start() {
+    setChooserOpen(false); setResumeOpen(false);
     ++epoch.current;
     baseline.current = toForm(newDraft());
     setFormState(baseline.current);
@@ -419,7 +413,7 @@ function DraftWorkspace({
             kind: 'error',
             text: error.message
           });
-          requestAnimationFrame(() => document.getElementById(`catalog-${error.path}`)?.focus());
+          requestAnimationFrame(() => { const target = document.getElementById(`catalog-${error.path}`); let parent = target?.parentElement; while (parent) { if (parent.tagName === 'DETAILS') parent.open = true; parent = parent.parentElement; } target?.focus(); });
         }
         return;
       }
@@ -513,14 +507,14 @@ function DraftWorkspace({
       <p id="ca-navigation-description">{lifecyclePending ? 'This lifecycle action is not confirmed. Keep its operation ID before leaving; leaving does not cancel a request already sent. After reload, explicitly check the operation ID. No write is automatically repeated.' : pending ? 'This save is not confirmed. Leaving discards local edits and the retry identity from this browser tab. It does not cancel a save already sent to the server.' : 'You have unsaved edits. Discarding leaves this page without saving them.'}</p>
       <div className="ca-actions"><button type="button" autoFocus onClick={() => blocker.reset?.()}>Stay</button><button type="button" onClick={() => blocker.proceed?.()}>Discard and leave</button></div>
     </dialog>
-    <div className="ca-intro"><div><span className="ca-tag"><LockKeyhole size={13} aria-hidden="true" />Private administration</span><h2>Build the next offer, in draft.</h2><p>Save unfinished work, review exact terms and confirm versioned catalog actions separately.</p></div><button type="button" disabled={busy || Boolean(pending) || Boolean(lifecyclePending)} onClick={() => choose(start)}><Plus size={16} aria-hidden="true" />New draft</button></div>
-    <div className="ca-import" ref={importArea} role="region" aria-label="Approved plan imports" tabIndex={-1}><button type="button" disabled={busy || Boolean(pending) || Boolean(lifecyclePending) || Boolean(form)} onClick={() => importFree('free')}>Import approved Free draft</button>{['plus','pro'].map(code => <button key={code} type="button" disabled={busy || Boolean(pending) || Boolean(lifecyclePending) || Boolean(form)} onClick={() => importFree(code)}>Import approved {code === 'plus' ? 'Plus' : 'Pro'} draft</button>)}<p>Loads one unsaved draft. Review and save explicitly. Reopen its ID to edit; importing again creates a separate candidate, never an automatic overwrite. Stable plan codes reject duplicate stored plans.</p></div>
-    <div className="ca-checkpoint"><strong>Before real offers</strong><span>Free terms are approved for draft configuration. Plus/Pro prices and allocations are approved. Tax, trials, discounts, review validity and subscriber policies still require explicit decisions before real publication. Publication still requires authoritative policy approval.</span></div>
-    <form autoComplete="off" className="ca-open" onSubmit={e => {
-      e.preventDefault();
-      choose(() => open());
-    }}><Field path="open-id" label="Open a draft by ID" value={openId} onChange={setOpenId} placeholder="Paste a saved draft ID" /><button disabled={busy || Boolean(pending) || Boolean(lifecyclePending)} type="submit">Open draft<ArrowRight size={16} aria-hidden="true" /></button><span>No draft listing is available yet.</span></form>
-    <CatalogLifecycle key={closedSessions} accountId={accountId} saved={saved} dirty={dirty} ready={Boolean(preview?.publishable && !preview.errors.length && !preview.pending.length)} busy={busy} blocked={Boolean(pending)} locked={terminal} perform={perform} onPending={setLifecyclePending} onCommitted={id => { if (id === saved?.draft_id) setTerminal(true); }} onNewVersion={newVersion} />
+    <ol className="ca-progress" aria-label="Plan setup">{['Choose a plan','Edit and save','Review and publish'].map((label,index) => {
+      const step = !form ? 0 : saved && !dirty && !pending ? 2 : 1;
+      return <li key={label} aria-current={index === step ? 'step' : undefined} data-complete={index < step || undefined}><span aria-hidden="true">{index < step ? <Check size={16} /> : index + 1}</span><strong>{label}</strong></li>;
+    })}</ol>
+    <section className="ca-draft-start" aria-label="Choose a plan"><div className="ca-intro"><div><h2>{form ? 'Your plan workspace' : 'Start a plan'}</h2><p>{form ? 'Your changes stay private until publication is confirmed.' : 'Start with a template or continue a saved draft.'}</p></div><div className="ca-actions"><button ref={importArea} type="button" className={!form && !resumeOpen ? 'wd-primary' : undefined} aria-expanded={chooserOpen} aria-controls="ca-plan-chooser" disabled={busy || Boolean(pending) || Boolean(lifecyclePending)} onClick={() => setChooserOpen(value => !value)}><Plus size={16} aria-hidden="true" />New plan</button><button type="button" aria-expanded={resumeOpen} aria-controls="ca-resume" disabled={busy || Boolean(pending) || Boolean(lifecyclePending)} onClick={() => setResumeOpen(value => !value)}>Resume a draft</button></div></div>
+    {chooserOpen && <div id="ca-plan-chooser" className="ca-plan-chooser" role="region" aria-label="Choose a starting point"><p>A template starts a new editable draft. It does not change an existing plan.</p><div className="ca-template-options">{['free','plus','pro'].map(code => <button key={code} type="button" disabled={busy || Boolean(pending) || Boolean(lifecyclePending)} onClick={() => importFree(code)}>Start from {code === 'free' ? 'Free' : code === 'plus' ? 'Plus' : 'Pro'}</button>)}<button type="button" disabled={busy || Boolean(pending) || Boolean(lifecyclePending)} onClick={() => choose(start)}>Start from scratch</button></div></div>}
+    {resumeOpen && <form id="ca-resume" autoComplete="off" className="ca-open" onSubmit={e => { e.preventDefault(); choose(() => open()); }}><Field path="open-id" label="Open a draft by ID" value={openId} onChange={setOpenId} placeholder="Paste a saved draft ID" /><button disabled={busy || Boolean(pending) || Boolean(lifecyclePending)} type="submit">Open draft<ArrowRight size={16} aria-hidden="true" /></button><span>Use the ID from your last successful save.</span></form>}
+    </section>
     {confirm && <div className="ca-feedback" role="alert"><p>Discard unsaved local edits and continue?</p><button type="button" onClick={() => {
         const action = confirm;
         setConfirm(null);
@@ -528,23 +522,24 @@ function DraftWorkspace({
       }}>Discard edits and continue</button><button type="button" onClick={() => setConfirm(null)}>Keep editing</button></div>}
     {notice && !previewOpen && <div className={`ca-feedback ca-${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'} tabIndex={-1} ref={noticeRef}>{notice.kind === 'success' && <Check size={16} aria-hidden="true" />}<p>{notice.text}</p>{notice.code === 'catalog_revision_conflict' && saved && <button type="button" disabled={busy} onClick={() => open(true)}>Review latest revision</button>}</div>}
     {remote && <section className="ca-review" aria-label="Revision review"><h3>Latest revision {remote.revision}</h3><p>Your local edits are still in the editor. Loading this version will replace them only when you choose.</p><dl><dt>Saved name</dt><dd>{remote.terms.name || 'Not set'}</dd><dt>Saved description</dt><dd>{remote.terms.description || 'Not set'}</dd><dt>Prices / limits / discounts</dt><dd>{remote.terms.prices.length} / {remote.terms.limits.length} / {remote.terms.discounts.length}</dd></dl><details><summary>Review all saved authoring fields</summary><pre>{JSON.stringify(remote, null, 2)}</pre></details><button type="button" disabled={busy || Boolean(pending)} onClick={() => adopt(remote)}>Replace local edits with latest</button><button type="button" onClick={() => setRemote(null)}>Keep local edits</button></section>}
-    {!form ? <section className="ca-welcome"><div className="ca-draft-art" aria-hidden="true"><img src={draftArt} alt="" width="160" height="160" /></div><h2>A workspace for unfinished plans</h2><p>Create a blank draft or open one by ID. Draft editing alone never publishes an offer or changes customer access.</p><button className="wd-primary" type="button" disabled={busy || Boolean(pending) || Boolean(lifecyclePending)} onClick={() => choose(start)}>Create a blank draft</button></section> : <div className="ca-workspace"><div className="ca-editor">
-      <div className="ca-document-heading"><div><h2>{form.terms.name || 'Untitled draft'}</h2><p>{saved ? terminal ? `Reviewed revision ${saved.revision}; read only` : `Revision ${saved.revision}` : 'Not saved yet'} <span className="ca-dot">·</span> {dirty ? 'Unsaved changes' : saved ? 'All changes saved' : 'No edits yet'}</p></div><div className="ca-document-controls"><span className="ca-tag">{terminal ? 'Published source; read only' : 'Draft'}</span><span className="ca-close-wrap"><button type="button" className="ca-close-draft" aria-label="Close draft" aria-describedby="ca-close-description" disabled={busy || Boolean(pending) || Boolean(lifecyclePending)} onClick={closeDraft}><X size={17} aria-hidden="true" /></button><span id="ca-close-description" role="tooltip">{pending || lifecyclePending ? 'Resolve the unconfirmed operation before closing. Its recovery identity must be retained.' : busy ? 'Wait for the current operation to finish before closing.' : 'Close this editor and discard unsaved changes. Saved records are retained.'}</span></span></div></div>
-      {saved && <p className="ca-muted">Saved draft ID: <code>{saved.draft_id}</code></p>}<details className="ca-ids"><summary>Draft ID & plan identity</summary><p>Draft ID <code>{form.draft_id}</code></p><p>Plan ID <code>{form.plan.plan_id}</code></p><small>Keep the draft ID to reopen it. Private drafts are not stored in this browser.</small></details>
-      <nav className="ca-tabs" aria-label="Draft sections">{['Identity', 'Prices', 'Features & limits', 'Discounts', ...(['catalog.v2','catalog.v3'].includes(form.contract_version) ? ['Usage & presentation'] : [])].map(name => <button key={name} type="button" aria-current={section === name ? 'page' : undefined} onClick={() => setSection(name)}>{name}</button>)}</nav>
+    {form && <div className="ca-workspace"><div className="ca-editor">
+      <div className="ca-document-heading"><div><h2 id="ca-draft-heading" tabIndex={-1}>{form.terms.name || 'Untitled plan'}</h2><p>{saved ? terminal ? `Reviewed revision ${saved.revision}; read only` : `Revision ${saved.revision}` : 'Not saved yet'} <span className="ca-dot">·</span> {dirty ? 'Unsaved changes' : saved ? 'All changes saved' : 'No edits yet'}</p></div><div className="ca-document-controls"><span className="ca-tag">{terminal ? 'Published source; read only' : 'Private draft'}</span><span className="ca-close-wrap"><button type="button" className="ca-close-draft" aria-label="Close draft" aria-describedby="ca-close-description" disabled={busy || Boolean(pending) || Boolean(lifecyclePending)} onClick={closeDraft}><X size={17} aria-hidden="true" /></button><span id="ca-close-description" role="tooltip">{pending || lifecyclePending ? 'Resolve the unconfirmed operation before closing. Its recovery identity must be retained.' : busy ? 'Wait for the current operation to finish before closing.' : 'Close this editor and discard unsaved changes. Saved records are retained.'}</span></span></div></div>
+      <details className="ca-ids"><summary>Troubleshooting: draft details</summary><p>Draft ID <code>{form.draft_id}</code></p><p>Plan ID <code>{form.plan.plan_id}</code></p><small>Keep the draft ID to reopen it. Private drafts are not stored in this browser.</small></details>
+      <nav className="ca-tabs" aria-label="Draft sections">{['Identity', 'Prices', 'Features & limits', 'Discounts', ...(['catalog.v2','catalog.v3'].includes(form.contract_version) ? ['Usage & presentation'] : [])].map(name => <button key={name} type="button" aria-current={section === name ? 'page' : undefined} onClick={() => setSection(name)}>{({ Identity: 'Plan details', Prices: 'Pricing' })[name] || name}</button>)}</nav>
       <form autoComplete="off" onSubmit={e => {
           e.preventDefault();
           save();
         }}>
         <fieldset className="ca-editable" disabled={busy || Boolean(pending) || Boolean(lifecyclePending) || terminal}><CatalogDraftFields form={form} setForm={setForm} section={section} baseRevision={saved?.revision} errors={errors} /><div className="ca-save-reason"><Field path="reason" label="Change reason" value={reason} onChange={v => {
                 setReason(v);
-              }} error={errors.reason} help="Required for the audit record. Explain this logical save." /></div></fieldset>
+              }} error={errors.reason} help="Briefly explain why you are saving these changes." /></div></fieldset>
         <div className="ca-actions">{pending ? <><button type="button" className="wd-primary" disabled={busy} onClick={() => save(true)}>{busy ? 'Checking save...' : 'Retry same save'}</button>{notice?.code === 'catalog_database_unavailable' && <button type="button" onClick={() => {
                 setPending(null);
                 setNotice(null);
-              }}>Continue editing</button>}</> : <button type="submit" className="wd-primary" disabled={busy || Boolean(lifecyclePending) || terminal || !dirty || notice?.code === 'catalog_revision_conflict'}>{busy ? 'Saving draft...' : saved ? 'Save changes' : 'Save draft'}</button>}<button type="button" disabled={!saved || dirty || busy || Boolean(pending) || Boolean(lifecyclePending) || terminal} onClick={previewSaved}>Preview saved draft</button></div><p className="ca-muted ca-save-help">{dirty ? 'Save changes before previewing.' : 'Preview uses the confirmed saved revision.'}</p>
+              }}>Continue editing</button>}</> : <button type="submit" className="wd-primary" disabled={busy || Boolean(lifecyclePending) || terminal || !dirty || notice?.code === 'catalog_revision_conflict'}>{busy ? 'Saving draft...' : saved ? 'Save changes' : 'Save draft'}</button>}{!saved && <button type="button" disabled>Preview saved draft</button>}</div><p className="ca-muted ca-save-help">{dirty ? 'Save this private draft before reviewing it. Saving does not publish.' : 'Your saved draft is private. Preview it before requesting publication review.'}</p>
       </form>
     </div><SubscriptionReviewModal busy={busy} open={previewOpen} onClose={() => setPreviewOpen(false)} identity={`${saved?.terms.name || 'Unnamed plan'} / saved revision ${saved?.revision || 'not saved'}`}><section className="ca-preview" aria-label="Draft preview"><h3>Customer-facing preview</h3>{busy && <p role="status">Loading saved draft preview...</p>}{notice && <div className="ca-feedback ca-error" role="alert">{notice.text}</div>}{preview ? <><span className="ca-tag">Saved revision {preview.revision}</span><h3>{saved.terms.name || 'Name not configured'}</h3><p>{saved.terms.description || 'Description not configured'}</p>{['catalog.v2','catalog.v3'].includes(saved.contract_version) ? <CatalogPolicyPreview terms={saved.terms} /> : <><div className="ca-preview-prices">{saved.terms.prices.map(p => <p key={p.price_id}><strong>{p.amount_minor === null ? 'Amount not configured' : `${p.currency} ${minorToDecimal(p.amount_minor, Number(p.exponent))}`}</strong><span>{p.billing ? ` every ${p.billing.count} ${p.billing.unit}(s)` : ' · Billing not configured'}</span></p>)}</div><ul>{saved.terms.entitlements.filter(e => e.allowed).map(e => <li key={e.feature}>{labels[e.feature]}</li>)}{saved.terms.limits.map(l => <li key={l.meter}>{meterLabels[l.meter]}: {l.amount === null ? 'not configured' : l.meter === 'auto.authorized_running' ? `${BigInt(l.amount) / 60n} min ${BigInt(l.amount) % 60n} sec` : `${l.amount} ${l.unit}`}{l.reset ? ` / ${l.reset.count} ${l.reset.unit}(s) reset` : l.grant_kind === 'one_time' ? ' / one-time' : ''}</li>)}</ul>
       {saved.terms.discounts.length > 0 && <section><h3>Draft discounts</h3>{saved.terms.discounts.map(d => <p key={d.discount_id}>{d.public_label || 'Discount label not configured'}: {d.kind === 'percentage' ? d.basis_points === null ? 'Value not configured' : `${minorToDecimal(d.basis_points, 2)}%` : d.amount_minor === null ? 'Value not configured' : `${d.currency} ${minorToDecimal(d.amount_minor, Number(d.exponent))}`}. Eligibility and application remain subject to configured policies.</p>)}</section>}</>}<div className="ca-readiness"><h3>{preview.pending.length || preview.errors.length ? 'Requirements to resolve' : 'Structural checks complete'}</h3>{[...preview.errors, ...preview.pending].map((issue, i) => <button type="button" key={i} onClick={() => focusIssue(issue)}>{issueLabel(issue)}</button>)}</div></> : <div className="ca-preview-empty"><p>Review the saved customer-facing wording and remaining requirements here.</p><small>Save a draft, then choose Preview saved draft.</small></div>}<p className="ca-preview-note">Structural preview only. A separate review and confirmation is required for publication. Checkout and customer access remain unavailable.</p></section></SubscriptionReviewModal></div>}
+    <CatalogLifecycle key={closedSessions} accountId={accountId} saved={saved} hasDraft={Boolean(form)} previewControl={<button type="button" className={!preview?.publishable && !dirty ? 'wd-primary' : undefined} disabled={!saved || dirty || busy || Boolean(pending) || Boolean(lifecyclePending) || terminal} onClick={previewSaved}>Preview saved draft</button>} previewSummary={preview && <section className="ca-preview-summary" aria-label="Saved preview result"><h3>{preview.errors.length || preview.pending.length ? 'Before you can publish' : 'Saved preview checked'}</h3><p>{saved?.terms.name} / saved revision {saved?.revision}. Changes are still private.</p>{[...preview.errors,...preview.pending].map((issue,index) => <button key={index} type="button" onClick={() => focusIssue(issue)}>{issueLabel(issue)}</button>)}</section>} dirty={dirty} ready={Boolean(preview?.publishable && !preview.errors.length && !preview.pending.length)} busy={busy} blocked={Boolean(pending)} locked={terminal} perform={perform} onPending={setLifecyclePending} onCommitted={id => { if (id === saved?.draft_id) setTerminal(true); }} onNewVersion={newVersion} />
   </div>;
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decimalToMinor, minorToDecimal, autoSeconds, integer, newDraft, toForm, serialize } from './catalogDraft.js';
+import { decimalToMinor, minorToDecimal, autoSeconds, integer, newDraft, toForm, serialize, issueLabel } from './catalogDraft.js';
 import { catalogRequest } from './catalogApi.js';
 test('currency precision and large values remain exact', () => {
   assert.equal(decimalToMinor('90071992547409.93', 2), '9007199254740993');
@@ -53,4 +53,10 @@ test('HTTP preserves identity and uncertainty without automatic retries', async 
       status: 403
     })
   }), e => e.code === 'catalog_permission_denied');
+});
+
+test('preview blockers use readable labels without inventing unknown field meanings', () => {
+  assert.equal(issueLabel({path:['terms','subscription_policy_ref'],code:'policy_unresolved'}),'Subscription policy: An approved policy or required value is still needed.');
+  assert.equal(issueLabel({path:['terms','prices',0,'amount_minor'],code:'required'}),'Price amount: Complete this field.');
+  assert.equal(issueLabel({path:['constructor'],code:'future_code'}),'Plan setting: Review this setting before publishing.');
 });
