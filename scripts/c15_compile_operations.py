@@ -323,7 +323,7 @@ alter function public.privacy_runtime_contact_available(uuid) owner to postgres;
 revoke all on function public.privacy_runtime_contact_available(uuid) from public,anon,authenticated,service_role;
 grant execute on function public.privacy_runtime_contact_available(uuid) to privacy_runtime_owner;
 """
-head += "grant usage on schema public to privacy_runtime_owner;\ngrant select(id,email,email_confirmed_at,deleted_at),update(id) on auth.users to privacy_runtime_owner;\n"
+head += "grant usage on schema public to privacy_runtime_owner;\n"
 import sys
 
 sys.path.insert(0, str(root / "backend"))

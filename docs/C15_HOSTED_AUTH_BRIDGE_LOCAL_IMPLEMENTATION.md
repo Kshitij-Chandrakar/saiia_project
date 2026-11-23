@@ -54,7 +54,14 @@ Do not copy only the new bridge SQL into a hosted project and push old sources.
 
 Local engines do not reproduce every hosted owner/RLS/platform restriction. Verify the
 actual migration identity can assign postgres function ownership and that postgres reads
-see the intended Auth rows under hosted RLS. Confirm c15_auth is not exposed by the Data
+see the intended Auth rows under hosted RLS. Separately verify `FOR NO KEY UPDATE`
+under the actual hosted function-owner identity and RLS using an explicitly authorized
+synthetic Auth account, with a short lock timeout and transaction rollback. Require
+exactly that account ID from `c15_auth.lock_user`; zero rows, timeout or permission
+denial fails the gate. SELECT success alone is insufficient: the lock also requires
+UPDATE privilege. Execute this gate only after separately authorized bridge installation;
+this document does not authorize a remote lock, role change or migration execution.
+Confirm c15_auth is not exposed by the Data
 API, review default grants, migration history, backups/recovery and export size limits.
 Supabase guidance: https://supabase.com/kb/troubleshooting/permission-errors-when-granting-custom-roles-access-to-the-auth-schema-9e32e7
 
