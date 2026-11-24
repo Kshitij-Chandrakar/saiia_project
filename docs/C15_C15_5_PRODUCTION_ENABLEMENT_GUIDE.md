@@ -125,13 +125,33 @@ For C15.5 normal-operation retention, preserve the approved clocks in the [decis
 
 ### Step 6 — Prepare the first Super admin safely
 
-**Verified-identity operator + Product Owner.** Test synthetic bootstrap only in a fresh disposable acceptance database/project, never in shared Saiia-dev. Execute the exact reviewed `public.administration_bootstrap` migration/function through `admin_bootstrap_executor` with synthetic Auth identity and verified TOTP, as in `scripts/c15_admin_acceptance.py`: check wrong subject/email/proof denial, one successful bootstrap, replay denial and its audit. Use a new disposable database/project for another successful-bootstrap run; discard only that owned environment afterward. Local-engine results prove the SQL/identity contract, not hosted configuration. A hosted-specific bootstrap check requires a separately authorized synthetic-only hosted acceptance project.
+**Verified-identity operator + Product Owner.** Test synthetic bootstrap only in a fresh disposable acceptance database/project, never in shared Saiia-dev. Execute the exact reviewed `public.administration_bootstrap` migration/function through `admin_bootstrap_executor` with synthetic Auth identity and verified TOTP, as in `scripts/c15_admin_acceptance.py`. Check a correctly bound subject without a verified TOTP factor is denied without consuming bootstrap; also check wrong subject/email, missing correlation, successful bootstrap, replay denial and audit. Use a new disposable database/project for another successful-bootstrap run; discard only that owned environment afterward. Local-engine results prove the SQL/identity contract, not hosted configuration. A hosted-specific bootstrap check requires a separately authorized synthetic-only hosted acceptance project.
+
+**What counts as proof:** `administration.authenticator_ready(subject)` checks that the subject has a verified TOTP factor. The `p_confirmation` UUID is only an operator/audit correlation ID; it is not an OTP, session-bound proof or cryptographic receipt, and the SQL function does not verify a fresh TOTP challenge from it. Preserve this distinction: the separately authorized operator procedure must verify the person's identity and fresh authenticator interaction before granting the one-time bootstrap authority. Do not claim an arbitrary UUID proves authentication or that factor enrollment alone proves current user presence.
 
 On shared Saiia-dev, preserve `bootstrap_consumed=false`, the reserved bootstrap subject and the empty initial membership state until the separately approved real bootstrap in Step 8. Do not call bootstrap with a synthetic subject, clear memberships or reset the marker for a rehearsal. If it is consumed accidentally, stop the rollout, preserve the audit and obtain a separately reviewed operator recovery/correction; do not set it back to false as test cleanup. Successor transfer cannot replace or reset bootstrap.
 
 For the real bootstrap package, verify the existing account for the designated email `chandrakarkshitij2208@gmail.com` and its immutable Auth UUID using the approved operator process. An email/profile field alone is not role authority. Do not create a signup privilege rule.
 
 Prepare the reviewed one-time `public.administration_bootstrap` call with its restricted identity, exact subject/confirmation checks and durable audit. This guide does not grant the real account a role. Verify TOTP readiness and recent-proof behavior. Remove/disable one-time bootstrap access after its authorized execution, not by clearing the consumed marker.
+
+**Proposed fixed subject-binding transaction for operator review, executed only under Step 8 authorization:** use a trusted deployment/operator connection, not an application or browser identity. Bind `$1` as the independently verified immutable UUID and `$2` as the designated verified email using driver parameters; these are not SQL Editor substitutions. First lock the singleton configuration row with `SELECT singleton FROM administration.configuration WHERE singleton FOR UPDATE`. Then execute only this fixed update in the same transaction:
+
+```sql
+UPDATE administration.configuration AS c
+SET bootstrap_subject = $1::uuid
+WHERE c.singleton AND NOT c.bootstrap_consumed AND NOT c.enabled
+  AND (c.bootstrap_subject IS NULL OR c.bootstrap_subject = $1::uuid)
+  AND NOT EXISTS (SELECT 1 FROM administration.memberships)
+  AND administration.eligible($1::uuid)
+  AND administration.authenticator_ready($1::uuid)
+  AND EXISTS (SELECT 1 FROM auth.users AS u
+              WHERE u.id = $1::uuid AND u.email = $2
+                AND u.email_confirmed_at IS NOT NULL)
+RETURNING true AS bootstrap_subject_bound, c.bootstrap_consumed;
+```
+
+Require exactly one returned row with `bootstrap_consumed=false` before committing; otherwise roll back and investigate. Refuse a different existing binding, consumed bootstrap, existing membership, enabled panel or ineligible identity. This operation changes **only** `bootstrap_subject`; it never resets `bootstrap_consumed`, grants a membership or provides a public binding endpoint. Record the operator's identity-verification approval separately. The readiness query now exposes `admin_bootstrap_subject_bound` as a boolean without returning the UUID. Before the real call, verify that boolean plus the approved subject match privately; `true` alone does not identify whose account is bound. Keep the bound UUID and the bootstrap call's UUID identical. Successor transfer is not a substitute.
 
 | Power | Admin | Super admin |
 | --- | --- | --- |
@@ -188,7 +208,7 @@ Record source/configuration versions and evidence paths. Run affected native, en
 | `ADMIN_CONSOLE_ENABLED`, the separate `ADMIN_*_DSN` settings and `ADMIN_RESTORE_CHECKPOINT` + `administration.configuration.enabled` | Administration startup/authority. Keep bootstrap, retention, dispatch and restore responsibilities separate. |
 | Provider, campaign dispatch and commercial publication controls | Separate approvals. Admin-panel access does not authorize real email/payment actions, coupon redemption or offer publication. |
 
-On the shared release target, start and verify infrastructure, restricted workers, publication and readiness before accepting irreversible customer requests. Execute Step 6's separately authorized real first-Super-admin bootstrap once and verify its consumed marker/audit; never reuse a synthetic acceptance marker. Then enable the approved database/application gates through the reviewed release procedure and run the authorized first enabled smoke checks at `/auth/settings`, `/auth/admin` and Super-admin-only `/auth/admin/subscriptions`. Keep general access fenced until those target-specific checks pass. Record the first accepted request and publication coverage. Monitor worker age/retries, expired artifacts, blocked obligations and witness health without collecting payloads.
+On the shared release target, start and verify infrastructure, restricted workers, publication and readiness before accepting irreversible customer requests. Execute Step 6's separately authorized subject-binding transaction, verify its readiness boolean and privately matched UUID, then execute the real first-Super-admin bootstrap once and verify its consumed marker/audit; never reuse a synthetic acceptance marker. Then enable the approved database/application gates through the reviewed release procedure and run the authorized first enabled smoke checks at `/auth/settings`, `/auth/admin` and Super-admin-only `/auth/admin/subscriptions`. Keep general access fenced until those target-specific checks pass. Record the first accepted request and publication coverage. Monitor worker age/retries, expired artifacts, blocked obligations and witness health without collecting payloads.
 
 **Done when:** the signed release record and post-activation checks show the intended users can use the approved features, unaffected users remain safe, and operators can detect/recover failures. Only then mark the corresponding production gates passed.
 

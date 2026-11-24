@@ -22,6 +22,7 @@ select jsonb_pretty(jsonb_build_object(
  'privacy_enabled',(select enabled from public.privacy_configuration where singleton),
  'admin_enabled',(select enabled from administration.configuration where singleton),
  'admin_bootstrap_consumed',(select bootstrap_consumed from administration.configuration where singleton),
+ 'admin_bootstrap_subject_bound',(select bootstrap_subject is not null from administration.configuration where singleton),
  'restore_required',(select required from public.privacy_restore_state where singleton),
  'restore_ready',(select ready from public.privacy_restore_state where singleton)
 )) as runtime_readiness_report;

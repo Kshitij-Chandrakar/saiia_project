@@ -624,7 +624,7 @@ def inside(evidence, phase):
     s1, s2, admin, customer, other = [u["id"] for u in people]
     # Owner installs fixtures only. Runtime assertions use independent LOGINs.
     with r.connect() as c:
-        c.execute("update administration.configuration set bootstrap_subject=%s", (s1,))
+        c.execute("update administration.configuration set bootstrap_subject=%s", (admin,))
         for role in (
             "admin_executor",
             "admin_bootstrap_executor",
@@ -645,6 +645,22 @@ def inside(evidence, phase):
                 (actor, session, presence, action, json.dumps(doc or {})),
             ).fetchone()[0]
 
+    # Correct bound identity/email and non-null correlation cannot replace TOTP readiness.
+    with r.connect() as c:
+        assert not c.execute(
+            "select administration.authenticator_ready(%s)", (admin,)
+        ).fetchone()[0]
+    with r.connect("admin_bootstrap_executor") as c:
+        assert c.execute(
+            "select public.administration_bootstrap(%s,%s,%s)",
+            (admin, people[2]["email"], uuid4()),
+        ).fetchone()[0]["error"] == "bootstrap_denied"
+    with r.connect() as c:
+        assert c.execute(
+            "select bootstrap_consumed from administration.configuration where singleton"
+        ).fetchone() == (False,)
+        assert c.execute("select count(*) from administration.memberships").fetchone() == (0,)
+        c.execute("update administration.configuration set bootstrap_subject=%s", (s1,))
     with r.connect("admin_bootstrap_executor") as c:
         assert (
             c.execute(
@@ -676,6 +692,7 @@ def inside(evidence, phase):
     results = [
         {
             "scenario": "actual_password_identities_and_live_two_role_authority",
+            "bootstrap_without_verified_totp_denied": True,
             "passed": True,
         }
     ]
