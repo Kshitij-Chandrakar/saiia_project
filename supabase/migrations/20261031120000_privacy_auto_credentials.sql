@@ -46,6 +46,9 @@ end $$;
 -- Separate NOLOGIN function owner, no role memberships and fixed capabilities.
 create role privacy_payload_owner nologin nosuperuser nocreatedb nocreaterole noinherit;
 create role privacy_cleanup_executor nologin nosuperuser nocreatedb nocreaterole noinherit;
+-- Ownership transfer needs deployment-only authority, removed before commit.
+grant privacy_payload_owner to current_user with inherit true, set true;
+grant create on schema public to privacy_payload_owner;
 grant usage on schema public to privacy_payload_owner,privacy_cleanup_executor;
 grant select on public.privacy_content_jobs,public.privacy_deletion_requests,
  public.subscription_auto_runs,public.privacy_auto_reply_payloads to privacy_payload_owner;
@@ -75,4 +78,6 @@ alter function public.privacy_auto_credentials_erase(uuid,uuid) owner to privacy
 revoke all on function public.privacy_auto_credentials_erase(uuid,uuid),public.privacy_auto_owner(public.subscription_auto_runs,uuid),public.privacy_auto_new_credential() from public,anon,authenticated,service_role,usage_executor,privacy_preparation_executor;
 grant execute on function public.privacy_auto_credentials_erase(uuid,uuid) to privacy_cleanup_executor;
 -- No table grants, role memberships, arbitrary predicates or retirement privilege.
+revoke create on schema public from privacy_payload_owner;
+revoke privacy_payload_owner from current_user;
 commit;

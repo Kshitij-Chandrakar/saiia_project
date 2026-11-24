@@ -1,5 +1,7 @@
 -- Fixed privacy-only adapter over the existing durable email contracts.
 begin;
+grant privacy_runtime_owner to current_user with inherit true, set true;
+grant create on schema public to privacy_runtime_owner;
 create function public.privacy_notice_event(p_action text,p_doc jsonb) returns jsonb language plpgsql security definer set search_path=pg_catalog as $$
 declare result jsonb; begin
  if session_user<>'privacy_content_executor' or current_setting('role',true)<>'none' or octet_length(p_doc::text)>8192 then raise exception 'notice denied' using errcode='42501'; end if;
@@ -50,4 +52,6 @@ $$;
 alter function public.privacy_pending_notices() owner to privacy_runtime_owner;
 revoke all on function public.privacy_pending_notices() from public,anon,authenticated,service_role,usage_executor,privacy_cleanup_executor,privacy_preparation_executor,privacy_restore_executor;
 grant execute on function public.privacy_pending_notices() to privacy_content_executor;
+revoke create on schema public from privacy_runtime_owner;
+revoke privacy_runtime_owner from current_user;
 commit;

@@ -2,6 +2,8 @@
 begin;
 create role privacy_identity_executor nologin noinherit nosuperuser nocreatedb nocreaterole nobypassrls;
 create role privacy_identity_owner nologin noinherit nosuperuser nocreatedb nocreaterole nobypassrls;
+grant privacy_identity_owner to current_user with inherit true, set true;
+grant create on schema public to privacy_identity_owner;
 alter table public.privacy_followup_tasks drop constraint privacy_followup_tasks_kind_check;
 alter table public.privacy_followup_tasks add constraint privacy_followup_tasks_kind_check check(kind in ('revoke_sessions','personal_cleanup','billing_review','identity_cleanup'));
 grant usage on schema public to privacy_identity_owner;
@@ -76,4 +78,6 @@ grant execute on function public.privacy_request_before_identity(uuid,text,jsonb
 alter function public.privacy_request_call(uuid,text,jsonb) owner to privacy_identity_owner;
 revoke all on function public.privacy_request_call(uuid,text,jsonb) from public,anon,authenticated,service_role;
 grant execute on function public.privacy_request_call(uuid,text,jsonb) to usage_executor;
+revoke create on schema public from privacy_identity_owner;
+revoke privacy_identity_owner from current_user;
 commit;
