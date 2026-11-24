@@ -123,11 +123,15 @@ For C15.5 normal-operation retention, preserve the approved clocks in the [decis
 
 **Done when:** crash/retry/stale-lease tests prove verified absence for each approved scope, retained exceptions are explicit, and no applicable private payload remains hidden behind an accounting/retention label.
 
-### Step 6 — Establish the first Super admin safely
+### Step 6 — Prepare the first Super admin safely
 
-**Verified-identity operator + Product Owner.** For the rehearsal, provision synthetic roles only. For a real bootstrap, verify the existing account for the designated email `chandrakarkshitij2208@gmail.com` and its immutable Auth UUID using the approved operator process. An email/profile field alone is not role authority. Do not create a signup privilege rule.
+**Verified-identity operator + Product Owner.** Test synthetic bootstrap only in a fresh disposable acceptance database/project, never in shared Saiia-dev. Execute the exact reviewed `public.administration_bootstrap` migration/function through `admin_bootstrap_executor` with synthetic Auth identity and verified TOTP, as in `scripts/c15_admin_acceptance.py`: check wrong subject/email/proof denial, one successful bootstrap, replay denial and its audit. Use a new disposable database/project for another successful-bootstrap run; discard only that owned environment afterward. Local-engine results prove the SQL/identity contract, not hosted configuration. A hosted-specific bootstrap check requires a separately authorized synthetic-only hosted acceptance project.
 
-Use the reviewed one-time `public.administration_bootstrap` path with the restricted bootstrap identity, subject/confirmation checks and durable audit. Prepare exact arguments and identity evidence for review first; this guide does not grant that real account a role. Verify TOTP readiness and recent-proof behavior. Remove/disable one-time bootstrap access afterward.
+On shared Saiia-dev, preserve `bootstrap_consumed=false`, the reserved bootstrap subject and the empty initial membership state until the separately approved real bootstrap in Step 8. Do not call bootstrap with a synthetic subject, clear memberships or reset the marker for a rehearsal. If it is consumed accidentally, stop the rollout, preserve the audit and obtain a separately reviewed operator recovery/correction; do not set it back to false as test cleanup. Successor transfer cannot replace or reset bootstrap.
+
+For the real bootstrap package, verify the existing account for the designated email `chandrakarkshitij2208@gmail.com` and its immutable Auth UUID using the approved operator process. An email/profile field alone is not role authority. Do not create a signup privilege rule.
+
+Prepare the reviewed one-time `public.administration_bootstrap` call with its restricted identity, exact subject/confirmation checks and durable audit. This guide does not grant the real account a role. Verify TOTP readiness and recent-proof behavior. Remove/disable one-time bootstrap access after its authorized execution, not by clearing the consumed marker.
 
 | Power | Admin | Super admin |
 | --- | --- | --- |
@@ -141,11 +145,18 @@ Admin directory queries exclude staff; own-account/role display remains availabl
 
 Coupons remain configuration-only. Cancellation preserves authoritative paid access until expiry unless separately revoked; revocation does not cancel billing. Restoration cannot undo a C15 restriction or revive expired entitlements. Razorpay remains paused until separately authorized and accepted.
 
-**Done when:** customer, Admin, two-Super-admin and last-Super-admin cases pass via both UI and backend/database checks. A role label or visible sidebar is not sufficient proof.
+**Done when:** the disposable bootstrap contract passes, the shared marker remains untouched, and the real identity/confirmation package is ready for Step 8 authorization. Customer, Admin, two-Super-admin and last-Super-admin journeys are checked in the enabled acceptance deployment in Step 7. A role label or visible sidebar is not sufficient proof.
 
 ### Step 7 — Run the release acceptance checklist
 
 **Developer + independent reviewer.** Use at least two synthetic customers, Admin and Super admin, plus a separately disposable deletion subject. On a shared hosted project, explicitly bind the permitted fixture UUIDs and objects before testing; never run a broad fixture reset or cleanup sweep. Do not delete the only usable administrator to demonstrate deletion.
+
+**Acceptance order and gate state:**
+
+1. With shared Saiia-dev privacy/admin gates still **off**, run only read-only configuration/permission checks and expected-denial checks there. Those denials are not successful export/deletion/Admin journey acceptance.
+2. Obtain separate authorization for a bounded **synthetic-only acceptance deployment** before mutation tests. For hosted-service acceptance, use a separately authorized disposable hosted project containing no existing customers and its own bootstrap marker; provision nothing under this document alone. Apply the reviewed migrations/profile and synthetic bootstrap there. Do not repurpose shared Saiia-dev's first-admin marker. If this hosted target is unavailable, keep hosted journeys blocked and report local-engine evidence separately.
+3. After Step 1's hosted profile and Steps 2–6 safeguards pass, enable the acceptance deployment's `C15_RUNTIME_ENABLED=true`, `C15_ENABLED=true`, `C15_RESTRICTIONS_REQUIRED=true`, `ADMIN_CONSOLE_ENABLED=true` and both database `enabled` gates. Commission the required restore gate and obtain ready state through authenticated reconciliation first. Use that target's restricted credentials, independently bound checkpoint environment/dataset and fixture scopes; keep mail captured and payments fake. The current local-only profile is not sufficient: `C15_RUNTIME_LOCAL_REHEARSAL` does not open hosted routes or substitute for the missing hosted profile.
+4. Run the journeys below through normal application/worker wiring **with those acceptance gates on**. Record the enabled state and target with the results. Afterward stop new acceptance requests and dispose only the separately owned test resources under their cleanup authorization; retain evidence and any required suppression/deletion records. Shared Saiia-dev remains off. Its real bootstrap and first enabled smoke checks occur only under Step 8 release authorization.
 
 | Journey | Required evidence |
 | --- | --- |
@@ -153,18 +164,18 @@ Coupons remain configuration-only. Cancellation preserves authoritative paid acc
 | Proof and export | Wrong/expired/replayed/superseded proof rejected; separate export confirmation; valid isolated ZIP; 24-hour expiry; over-limit failure; deletion racing build/download |
 | Deletion | Final typed confirmation; immediate restriction; durable request; worker restart/retry; verified primary/identity cleanup; unaffected account preserved; retained obligations shown separately |
 | Auth/Storage | Actual configured services, direct REST/Storage boundaries, revoked refresh sessions, already-issued JWT/signed-capability limits, no late resurrection |
-| Admin | Both role boundaries, exact-version confirmations, concurrent last-SA protection, synthetic bootstrap/transfer, safe metadata and protected audit |
+| Admin | Both role boundaries, exact-version confirmations, concurrent last-SA protection, disposable-target synthetic bootstrap/transfer, safe metadata and protected audit; shared bootstrap marker unchanged |
 | Campaign/billing boundaries | Captured messages, suppression/unsubscribe recheck, deduplication and uncertain-outcome recovery; fake payment dispatch; real providers explicitly unverified |
 | Restore and retention | Independent-head/fencing tests, old snapshot replay, stopped stale workers, class-specific clocks, permitted legacy treatment and accounting integrity |
 | Privacy/logging | No OTPs, credentials, private content, object paths or suppression identifiers in diagnostics; safe IDs/categories and truthful unavailable/blocked states |
 
 Record source/configuration versions and evidence paths. Run affected native, engine/browser, lint/type/format/build checks. Reuse unchanged passed evidence, but rerun anything whose deployed wiring changed. Mock boundaries do not count as actual hosted/provider acceptance. Keep an explicit unresolved list for real Google, processor retention/deletion, financial retention, logs/drains, backups/object copies/CDN behavior and real email/payment acceptance.
 
-**Done when:** every required local/runtime behavior passes and every remaining production dependency has an owner and verified disposition. Do not move unfinished code into a “production checklist”.
+**Done when:** the required journeys pass in the enabled, explicitly identified acceptance deployment, the shared project's gates/marker are unchanged, and every production dependency has verified disposition. Read-only/off-state checks or local-only rehearsals do not satisfy hosted journey requirements. Do not sign off while required hosted tests are unavailable or move unfinished code into a “production checklist”.
 
 ### Step 8 — Approve and enable only the verified release
 
-**Product Owner + release operator.** Obtain a concrete sign-off covering the exact commit, project, identities, secret references, worker schedule, recovery set, proof/hook configuration, completed tests and remaining disclosed limitations. The flags below are a map, **not a ready-to-run activation file**.
+**Product Owner + release operator.** After Step 7's enabled acceptance results pass, obtain a separate shared-project release authorization covering the exact commit, project, identities, real-bootstrap package, secret references, worker schedule, recovery set, proof/hook configuration, completed tests and remaining disclosed limitations. Step 7's bounded test authorization is not this release authorization. The flags below are a map, **not a ready-to-run activation file**.
 
 | Control | Purpose / release rule |
 | --- | --- |
@@ -177,7 +188,7 @@ Record source/configuration versions and evidence paths. Run affected native, en
 | `ADMIN_CONSOLE_ENABLED`, the separate `ADMIN_*_DSN` settings and `ADMIN_RESTORE_CHECKPOINT` + `administration.configuration.enabled` | Administration startup/authority. Keep bootstrap, retention, dispatch and restore responsibilities separate. |
 | Provider, campaign dispatch and commercial publication controls | Separate approvals. Admin-panel access does not authorize real email/payment actions, coupon redemption or offer publication. |
 
-Start and verify required infrastructure, restricted workers, publication and readiness before accepting irreversible customer requests. Then enable approved database/application gates through the reviewed release procedure and verify `/auth/settings`, `/auth/admin` and Super-admin-only `/auth/admin/subscriptions`. Record the first accepted request and publication coverage. Monitor worker age/retries, expired artifacts, blocked obligations and witness health without collecting payloads.
+On the shared release target, start and verify infrastructure, restricted workers, publication and readiness before accepting irreversible customer requests. Execute Step 6's separately authorized real first-Super-admin bootstrap once and verify its consumed marker/audit; never reuse a synthetic acceptance marker. Then enable the approved database/application gates through the reviewed release procedure and run the authorized first enabled smoke checks at `/auth/settings`, `/auth/admin` and Super-admin-only `/auth/admin/subscriptions`. Keep general access fenced until those target-specific checks pass. Record the first accepted request and publication coverage. Monitor worker age/retries, expired artifacts, blocked obligations and witness health without collecting payloads.
 
 **Done when:** the signed release record and post-activation checks show the intended users can use the approved features, unaffected users remain safe, and operators can detect/recover failures. Only then mark the corresponding production gates passed.
 
