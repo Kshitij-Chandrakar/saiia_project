@@ -12,13 +12,15 @@ def sql():
     if not container:
         pytest.skip("requires an explicitly owned disposable migration container")
 
-    def query(statement, *, ok=True):
+    def query(statement, *, ok=True, error=None):
         result = subprocess.run(
             ["docker", "exec", container, "psql", "-U", "postgres", "-d",
              "c15_permission_verify", "-At", "-v", "ON_ERROR_STOP=1", "-c", statement],
             capture_output=True, text=True, check=False,
         )
         assert (result.returncode == 0) == ok, result.stderr
+        if not ok:
+            assert error and error in result.stderr, result.stderr
         return result.stdout.strip()
 
     assert query("select rolsuper from pg_roles where rolname=current_user") == "f"
@@ -45,11 +47,20 @@ def test_transfer_preserves_restricted_owner_without_deployment_grants(sql, owne
 
 
 def test_original_ownership_failure_rolls_back(sql):
-    sql("begin; create role c15_transfer_failure nologin; "
+    assert sql("select rolcreaterole from pg_roles where rolname=current_user") == "t"
+    setup = sql("begin; create role c15_transfer_failure nologin; "
         "create function public.c15_transfer_failure() returns int language sql as 'select 1'; "
-        "alter function public.c15_transfer_failure() owner to c15_transfer_failure; commit;", ok=False)
+        "alter function public.c15_transfer_failure() owner to c15_transfer_failure; commit;",
+        ok=False, error='must be able to SET ROLE "c15_transfer_failure"')
+    assert setup.splitlines() == ["BEGIN", "CREATE ROLE", "CREATE FUNCTION"]
     assert sql("select count(*) from pg_roles where rolname='c15_transfer_failure'") == "0"
     assert sql("select to_regprocedure('public.c15_transfer_failure()') is null") == "t"
+
+
+def test_ownership_failure_rejects_setup_error(sql):
+    with pytest.raises(AssertionError, match="c15_missing_setup_function"):
+        sql("select public.c15_missing_setup_function()", ok=False,
+            error='must be able to SET ROLE "c15_transfer_failure"')
 
 
 def test_runtime_members_cannot_assume_private_owner(sql):

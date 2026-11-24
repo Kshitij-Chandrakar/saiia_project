@@ -113,3 +113,12 @@ No hosted writes, commits, pushes, feature activation, provider calls or real
 emails were performed by this correction. Only this run's disposable container
 and its anonymous volume are removed; private backup and historical resources
 remain preserved. See the final cleanup result beside the private test logs.
+
+## PR #78 review follow-up
+
+The rollback regression now checks CREATEROLE, successful BEGIN/CREATE ROLE/
+CREATE FUNCTION command tags and the exact `must be able to SET ROLE` denial.
+An unrelated setup SQL failure is explicitly rejected. Rehearsal container
+`c15-review78-20261124` used the same pinned image, isolated network and schema-only
+restore. All 36 migrations passed again as non-superuser postgres; all eight
+ownership tests passed. No migration logic changed for this review finding.
