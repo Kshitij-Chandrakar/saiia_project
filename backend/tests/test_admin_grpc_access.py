@@ -108,7 +108,14 @@ def test_staff_restriction_denies_active_stream_and_contextless_reconnect(
                     events.append(str(value))
                     if value.WhichOneof("event") == "ready":
                         break
-                await call.read()  # foundation-only status
+                # Drain startup notifications before changing authority. A
+                # queued, already-authorized status is not a restriction leak.
+                await call.write(pb.InterviewClientEvent(ping=pb.Empty()))
+                while True:
+                    value = await call.read()
+                    assert value is not grpc.aio.EOF, events
+                    if value.WhichOneof("event") == "pong":
+                        break
                 authority.restricted = True
                 await call.write(pb.InterviewClientEvent(ping=pb.Empty()))
                 with pytest.raises(grpc.aio.AioRpcError) as error:

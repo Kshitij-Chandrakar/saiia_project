@@ -2,6 +2,8 @@
 begin;
 create role privacy_revocation_observer nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
 create role privacy_revocation_observer_owner nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;
+grant privacy_revocation_observer_owner to current_user with inherit true, set true;
+grant create on schema public to privacy_revocation_observer_owner;
 grant usage on schema public to privacy_revocation_observer_owner;
 grant select(request_id,account_id,state,accepted_at) on public.privacy_deletion_requests to privacy_revocation_observer_owner;
 grant select(request_id,kind,state,lease_id,lease_until) on public.privacy_followup_tasks to privacy_revocation_observer_owner;
@@ -18,4 +20,6 @@ end $$;
 alter function public.privacy_revocation_verified(uuid,uuid,uuid) owner to privacy_revocation_observer_owner;
 revoke all on function public.privacy_revocation_verified(uuid,uuid,uuid) from public,anon,authenticated,service_role,usage_executor,privacy_cleanup_executor,privacy_preparation_executor;
 grant execute on function public.privacy_revocation_verified(uuid,uuid,uuid) to privacy_revocation_observer;
+revoke create on schema public from privacy_revocation_observer_owner;
+revoke privacy_revocation_observer_owner from current_user;
 commit;
