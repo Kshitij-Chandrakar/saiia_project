@@ -45,3 +45,43 @@ def test_provider_error_records_code_and_status_without_description(
     assert state["counts"]["gets"] == 1
     assert state["events"][-1]["http_status"] == 401
     assert "private text" not in json.dumps(state)
+
+
+def test_cleanup_only_recovers_transient_failure_without_reopening_intake(tmp_path, monkeypatch):
+    import razorpay_test_mode_execution as execution
+    budget = SessionBudget(tmp_path)
+    budget.reserve("gets")
+    budget.resource("subscriptions", "sub_synthetic")
+    budget.close_intake()
+    start = budget.load()["start_utc"]
+    class Provider:
+        fails = True
+        def subscription(self, identifier):
+            assert identifier == "sub_synthetic"
+            budget.reserve("gets", cleanup=True)
+            if self.fails:
+                self.fails = False
+                raise RuntimeError("synthetic 503")
+            return {"status": "cancelled"}
+    provider = Provider()
+    monkeypatch.setattr(execution, "BoundedProvider", lambda *_: provider)
+    credentials = {"RAZORPAY_TEST_KEY_ID": "rzp_test_synthetic", "RAZORPAY_TEST_KEY_SECRET": "synthetic"}
+    with pytest.raises(RuntimeError, match="unresolved"):
+        execution.cleanup_only(credentials, tmp_path)
+    assert budget.load()["status"] == "cleanup"
+    with pytest.raises(RuntimeError):
+        budget.reserve("plans")
+    execution.cleanup_only(credentials, tmp_path)
+    assert budget.load()["status"] == "finished" and budget.load()["start_utc"] == start
+    assert budget.load()["counts"]["gets"] == 3
+
+
+def test_pending_lookup_failure_returns_to_remaining_cleanup(tmp_path):
+    from razorpay_test_mode_execution import cleanup_pending
+    class Service:
+        def pending(self):
+            raise RuntimeError("private database diagnostic")
+    budget = SessionBudget(tmp_path)
+    assert cleanup_pending(Service(), budget) is False
+    assert budget.load()["events"][-1]["stage"] == "cleanup_pending_lookup_unresolved"
+    assert "private database diagnostic" not in budget.path.read_text()

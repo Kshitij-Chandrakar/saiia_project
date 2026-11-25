@@ -6,7 +6,8 @@ import json
 import os
 import secrets
 import sys
-from contextlib import contextmanager
+import time
+from contextlib import contextmanager, ExitStack
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -128,6 +129,12 @@ class OwnerConnection(Connection):
     def __repr__(self):
         return "<staging maintenance connection>"
 
+    def execute(self, *args, **kwargs):
+        guard = getattr(self, "_workflow_guard", None)
+        if guard is not None:
+            guard()
+        return super().execute(*args, **kwargs)
+
     def close(self):
         timer = getattr(self, "_deadline_timer", None)
         if timer is not None:
@@ -222,6 +229,27 @@ def is_clean(state):
     )
 
 
+@contextmanager
+def project_ownership(owner_factory):
+    guard = owner_factory()
+    try:
+        require_cleanup_window()
+        acquired = guard.execute(
+            "SELECT pg_try_advisory_lock(hashtextextended(%s,0))",
+            ("intervucopilot:c132:" + STAGING_PROJECT,),
+        ).fetchone()[0]
+        if not acquired:
+            raise RuntimeError("staging project already owned; no state inspected or changed")
+
+        def check():
+            require_cleanup_window()
+            guard.execute("SELECT 1").fetchone()
+
+        yield check
+    finally:
+        guard.close()
+
+
 def cleanup(conn):
     require_cleanup_window()
     conn.rollback()
@@ -234,6 +262,7 @@ def cleanup(conn):
                 ).format(sql.Identifier(role))
             )
     # Wait for termination instead of assuming a delivered signal means gone.
+    require_cleanup_window()
     conn.execute(
         "SELECT pg_terminate_backend(pid,1000) FROM pg_stat_activity WHERE usename=ANY(%s) AND pid<>pg_backend_pid()",
         (list(ROLES),),
@@ -285,15 +314,22 @@ def execute_workflow(
     owner = None
     passwords = {}
     current_stage = "NOT_STARTED"
+    ownership = ExitStack()
+    check_ownership = None
 
     def mark(name):
         nonlocal current_stage
         current_stage = name
+        if check_ownership is not None:
+            check_ownership()
         stage(name)
 
     try:
+        mark("ACQUIRE_PROJECT_OWNERSHIP")
+        check_ownership = ownership.enter_context(project_ownership(owner_factory))
         mark("CONNECT_STAGING_MAINTENANCE")
         owner = owner_factory()
+        owner._workflow_guard = check_ownership
         mark("READ_ONLY_CURRENT_STATE")
         state = read_state(owner)
         print(json.dumps(state), flush=True)  # Boolean status only; no verifier.
@@ -332,17 +368,24 @@ def execute_workflow(
     finally:
         stage("FINAL_CLEANUP")
         try:
+            if check_ownership is None:
+                raise RuntimeError("ownership not acquired; cleanup not dispatched")
+            check_ownership()
             require_cleanup_window()
             if owner is None or owner.closed:
                 owner = (
                     owner_factory()
                 )  # Cleanup-only recovery, never repeat provisioning.
+                owner._workflow_guard = check_ownership
             try:
                 result["final_state"] = cleanup(owner)
             except (Error, OSError):
                 # A lost maintenance connection cannot erase the cleanup obligation.
                 owner.close()
+                check_ownership()
                 owner = owner_factory()
+                owner._workflow_guard = check_ownership
+                check_ownership()
                 result["final_state"] = cleanup(owner)
             result["cleanup_verified"] = True
             stage("CLEANUP_VERIFIED")
@@ -366,6 +409,7 @@ def execute_workflow(
                         "CLEANUP FAILED: maintenance close " + result["cleanup_error"],
                         flush=True,
                     )
+            ownership.close()
     return result
 
 
@@ -375,7 +419,21 @@ def main():
     parser.add_argument("--cleanup-only", action="store_true")
     parser.add_argument("--run-id", type=UUID, default=uuid4())
     parser.add_argument("--application", action="store_true")
+    parser.add_argument("--launcher-gate", type=Path)
     args = parser.parse_args()
+    if args.launcher_gate:
+        expected = ROOT / "tmp" / ("c132-launch-" + str(args.run_id) + ".ready")
+        if args.launcher_gate.resolve() != expected.resolve():
+            raise RuntimeError("Invalid owned launcher gate")
+        if os.name != "nt" and os.getpgrp() != os.getpid():
+            os.setsid()
+        gate_deadline = time.monotonic() + 20
+        while not expected.is_file():
+            require_cleanup_window()
+            if time.monotonic() >= gate_deadline:
+                raise RuntimeError("Owned launcher containment unavailable")
+            time.sleep(.05)
+        expected.unlink()
     if args.application and args.cleanup_only:
         parser.error("application and credential-only cleanup are separate")
     if not sys.stdin.isatty():

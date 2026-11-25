@@ -7,6 +7,53 @@ from c12_email_acceptance import BoundedSession
 from test_billing_email_provider import Session
 
 
+def test_admin_matrix_requires_all_selected_call_reports():
+    from c12_admin_acceptance import RequiredCalls
+    from types import SimpleNamespace
+
+    required = RequiredCalls()
+    assert required.exit_code(0) == 1
+    required.pytest_collection_modifyitems([SimpleNamespace(nodeid="one"), SimpleNamespace(nodeid="two")])
+    required.pytest_runtest_logreport(SimpleNamespace(nodeid="one", when="call", passed=True))
+    assert required.exit_code(0) == 1
+    required.pytest_runtest_logreport(SimpleNamespace(nodeid="two", when="setup", passed=True))
+    assert required.exit_code(0) == 1
+    required.pytest_runtest_logreport(SimpleNamespace(nodeid="two", when="call", passed=True))
+    assert required.exit_code(0) == 0 and required.exit_code(5) == 5
+
+
+@pytest.mark.parametrize("live", [False, True])
+def test_uncertain_callback_send_reserves_one_attempt_without_http_response(tmp_path, live):
+    from c12_resend_callback_acceptance import OneSend, SENDER
+
+    journal = OneSend(tmp_path, Session(error=TimeoutError), live=live)
+    options = arguments()
+    options["json"].update({"from": SENDER, "to": [journal.recipient], "text": "synthetic", "html": "synthetic"})
+    with pytest.raises(TimeoutError):
+        journal.post("https://api.resend.com/emails", **options)
+    assert journal.state["attempts"] == 1
+    assert journal.state["real_send_attempt_reservations"] == int(live)
+    assert journal.state["real_provider_calls"] == 0
+
+
+def test_callback_deadline_does_not_wait_forever_or_claim_cleanup(tmp_path):
+    from c12_resend_callback_acceptance import OneSend, await_provider_disable, forwarding_exhausted, completion_stage
+
+    journal = OneSend(tmp_path, Session())
+    assert not await_provider_disable(journal, tmp_path)
+    assert journal.state["provider_webhook_disable"] == "unconfirmed_cleanup_required"
+    (tmp_path / "webhook-disabled.confirmed").touch()
+    assert await_provider_disable(journal, tmp_path)
+    rows = [{"status": 200}] * 11 + [{"status": "reserved"}]
+    assert not forwarding_exhausted(rows)
+    rows[-1]["status"] = 200
+    assert forwarding_exhausted(rows)
+    state = {"result": "verified", "cleanup": {"tunnel_stopped": True}, "provider_webhook_disable": "owner_confirmed_disabled"}
+    assert completion_stage(state) == "finished"
+    assert completion_stage({**state, "error_type": "TimeoutError"}) == "stopped"
+    assert completion_stage({**state, "cleanup": {"tunnel_stopped": False}}) == "stopped"
+
+
 def arguments():
     return {
         "headers": {

@@ -10,6 +10,7 @@ from pathlib import Path
 parser = argparse.ArgumentParser()
 parser.add_argument("--pg-bin", required=True)
 parser.add_argument("--preflight-only", action="store_true")
+parser.add_argument("--cleanup-only", action="store_true")
 parser.add_argument("--session-dir", type=Path, default=Path("tmp/c12-rzp-test-01"))
 args = parser.parse_args()
 os.environ["BILLING_ENABLED"] = "false"
@@ -31,14 +32,19 @@ assert session_dir.parent == (
 ).resolve() and session_dir.name.startswith("c12-rzp-test-")
 manifest = session_dir / "preflight.json"
 try:
-    with local_runtime(args.pg_bin) as runtime:
-        from razorpay_test_mode_runtime import preflight
+    if args.cleanup_only:
+        from razorpay_test_mode_execution import cleanup_only
 
-        preflight(runtime, session_dir)
-        if not args.preflight_only:
-            from razorpay_test_mode_execution import execute
+        cleanup_only(credentials, session_dir)
+    else:
+        with local_runtime(args.pg_bin) as runtime:
+            from razorpay_test_mode_runtime import preflight
 
-            execute(runtime, credentials, session_dir)
+            preflight(runtime, session_dir)
+            if not args.preflight_only:
+                from razorpay_test_mode_execution import execute
+
+                execute(runtime, credentials, session_dir)
 finally:
     credentials.clear()
     if manifest.exists():

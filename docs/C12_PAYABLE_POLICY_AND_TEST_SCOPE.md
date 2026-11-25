@@ -4,7 +4,7 @@ Secure setup follow-up: [hidden local input, webhook-only HTTPS gateway and one 
 
 25 October 2026. **Prepared for review; not authorization to execute.** No provider API calls, webhook registration, tunnel creation, remote migrations, deployment or live payment is authorized or performed by this document. Razorpay documentation was read, not its authenticated payment API. Refunds, coupons/discount application and paid-plan upgrade/proration charges remain unavailable.
 
-Local implementation evidence updated 26 October 2026: [changes and verification](C12_GST_IMPLEMENTATION_EVIDENCE.md).
+Local implementation evidence updated 26 October 2026: changes and verification (owner-held private record `C12_GST_IMPLEMENTATION_EVIDENCE.md`; excluded from this checkout).
 
 ## Approved current GST-added policy (25 October 2026)
 
@@ -34,7 +34,7 @@ Seller identity, registration status/identifiers, customer-location applicabilit
 These values are **approved**, not proposed: the user explicitly approved them in this conversation, subject to Razorpay validation. The approval is already recorded in:
 
 - [Canonical policy: C12 recurring billing decision, 25 October 2026](SUBSCRIPTION_APPROVED_POLICIES.md#c12-recurring-billing-decision-25-october-2026).
-- [C12 acceptance: Approved product choice](C12_RAZORPAY_LOCAL_ACCEPTANCE.md#approved-product-choice).
+- C12 acceptance: Approved product choice (owner-held private record `C12_RAZORPAY_LOCAL_ACCEPTANCE.md`; excluded from this checkout).
 - The C12 paragraphs of `SAIIA_CLOUD_PRODUCT_IMPLEMENTATION_ROADMAP.md` and `SAIIA_PRODUCTION_PHASES_TRACKER.md`.
 
 The user's instruction was: “Approve configurable maximums of 12 billing cycles for monthly plans and 5 billing cycles for yearly plans, subject to Razorpay validation.” It also required disclosure, fresh consent after the final period, no replacement mandate without consent and paid-period-end preservation. Actual provider validation has not occurred. The monthly/yearly values cap configurable counts; they do not authorize live payments, provider API calls or remote changes.
@@ -50,7 +50,7 @@ Baseline: `docs/C13_2_LINT_ATTRIBUTION.json`, 60 errors / 29 warnings. Compared 
 
 The sole added diagnostic was `no-unused-vars` at `frontend/tests/catalog/fixtures/physical-auto.js:4`: `'synthetic' is assigned a value but never used.` Removed only that unused destructured binding. The Electron acceptance caller's extra option remains harmless; the hosted synthetic stream is supplied by its existing `getUserMedia` substitute, not this unused binding. No capture controls or simulated/physical behavior changed. No ESLint rules or ignores changed.
 
-Validation: targeted ESLint and `node --check` passed. Full ESLint still exits 1 for exactly the 60 recorded baseline errors, with no baseline errors removed or replaced. Attribution: [C12_ESLINT_BASELINE_COMPARISON.json](C12_ESLINT_BASELINE_COMPARISON.json); raw reports: `tmp/c12-policy-eslint-before.json` and `tmp/c12-policy-eslint-after.json`. The previous C12 description treating all 61 errors as baseline was insufficiently attributed and is corrected by this comparison.
+Validation: targeted ESLint and `node --check` passed. Full ESLint still exits 1 for exactly the 60 recorded baseline errors, with no baseline errors removed or replaced. Attribution: C12_ESLINT_BASELINE_COMPARISON.json (owner-held private record `C12_ESLINT_BASELINE_COMPARISON.json`; excluded from this checkout); raw reports: `tmp/c12-policy-eslint-before.json` and `tmp/c12-policy-eslint-after.json`. The previous C12 description treating all 61 errors as baseline was insufficiently attributed and is corrected by this comparison.
 
 Graphify was queried before the change; the post-change scoped graph and query include this fixture. Graph edges remain navigation aids; the diagnostic comparison and syntax/lint runs are the evidence for the fix. This unused-parameter fix does not require repeating microphone/device acceptance and does not claim it passed.
 

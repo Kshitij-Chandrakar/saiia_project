@@ -26,7 +26,7 @@ import uvicorn
 from app.config import settings
 from app.email.billing import BillingNotifications, ResendBillingProvider
 from app.email.config import EmailSettings
-from c12_email_acceptance import BoundedSession, LabelledProvider
+from c12_email_acceptance import BoundedSession, LabelledProvider, approved_recipient
 from razorpay_local_runtime import local_runtime
 from svix.webhooks import Webhook
 from test_billing_email_provider import Session
@@ -47,8 +47,9 @@ ASSETS = (
 
 
 class OneSend(BoundedSession):
-    def __init__(self, directory, transport):
-        super().__init__(directory, SENDER, RECIPIENT, transport)
+    def __init__(self, directory, transport, recipient=RECIPIENT, *, live=False):
+        super().__init__(directory, SENDER, recipient, transport)
+        self.live = live
         self.lock = threading.RLock()
         self.state.update(
             maximum_attempts=1,
@@ -77,7 +78,12 @@ class OneSend(BoundedSession):
             or "/auth/dashboard" in payload["text"]
         ):
             raise ValueError("Single-send/CTA boundary rejected")
-        return super().post(url, **kwargs)
+        try:
+            return super().post(url, **kwargs)
+        finally:
+            self.state["real_send_attempt_reservations"] = self.state["attempts"] if self.live else 0
+            self.state["real_provider_calls"] = sum(row["outcome"] == "response_received" for row in self.state["observations"]) if self.live else 0
+            self.save()
 
     def active(self):
         return self.state["deadline_utc"] and datetime.now(
@@ -94,6 +100,39 @@ def listener(port):
     with socket.socket() as probe:
         probe.settimeout(1)
         return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
+def await_provider_disable(journal, directory):
+    marker = directory / "webhook-disabled.confirmed"
+    while not marker.exists() and journal.active():
+        time.sleep(1)
+    confirmed = marker.exists()
+    journal.state["provider_webhook_disable"] = "owner_confirmed_disabled" if confirmed else "unconfirmed_cleanup_required"
+    if not confirmed:
+        settings.RESEND_BILLING_WEBHOOK_SECRET = ""
+    journal.save()
+    return confirmed
+
+
+def stop_tunnel(tunnel):
+    if tunnel.poll() is None:
+        tunnel.terminate()
+    try:
+        tunnel.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        tunnel.kill()
+        tunnel.wait(timeout=5)
+
+
+def forwarding_exhausted(rows):
+    return len(rows) >= 12 and not any(row["status"] == "reserved" for row in rows)
+
+
+def completion_stage(state):
+    complete = (state.get("result") and not state.get("error_type")
+                and not state.get("cleanup_error_type") and not state.get("cleanup_snapshot_error_type") and all(state["cleanup"].values())
+                and state["provider_webhook_disable"] in {"owner_confirmed_disabled", "substitute_no_endpoint"})
+    return "finished" if complete else "stopped"
 
 
 def server(app, port, stack):
@@ -140,6 +179,7 @@ def snapshot(journal, u):
 
 def execute(args):
     directory = Path(args.evidence)
+    recipient = approved_recipient(getattr(args, "recipient", None)) if args.execute else RECIPIENT
     # Refuse reuse before asking for any secret.
     if (directory / "execution.json").exists():
         raise ValueError("Existing journal: no resume/reset/send retry")
@@ -152,7 +192,7 @@ def execute(args):
         raise ValueError("Missing sending credential")
     transport = requests.Session() if args.execute else Session()
     transport.trust_env = False
-    journal = OneSend(directory, transport)
+    journal = OneSend(directory, transport, recipient, live=args.execute)
     provider = ResendBillingProvider(
         EmailSettings(
             enabled=True, dry_run=False, resend_api_key=key, from_email=SENDER
@@ -194,7 +234,7 @@ def execute(args):
             with u["connect"]("catalog_test_owner") as connection:
                 connection.execute(
                     "update auth.users set email=%s,email_confirmed_at=clock_timestamp() where id=%s",
-                    (RECIPIENT, u["account"]),
+                    (recipient, u["account"]),
                 )
             worker = BillingNotifications(
                 lambda: u["connect"]("usage_binding_executor"),
@@ -278,13 +318,7 @@ def execute(args):
                     provider.settings = EmailSettings()
                     if webhook_may_exist:
                         journal.stage("awaiting_provider_disable")
-                        while not (directory / "webhook-disabled.confirmed").exists():
-                            if not journal.active():
-                                settings.RESEND_BILLING_WEBHOOK_SECRET = ""
-                            time.sleep(1)
-                        journal.state["provider_webhook_disable"] = (
-                            "owner_confirmed_disabled"
-                        )
+                        await_provider_disable(journal, directory)
                     try:
                         snapshot(journal, u)
                     except Exception as error:
@@ -294,8 +328,7 @@ def execute(args):
                         ).__name__
                         journal.save()
                     if tunnel:
-                        tunnel.terminate()
-                        tunnel.wait(timeout=15)
+                        stop_tunnel(tunnel)
                         tunnel = None
 
                 stack.callback(close_external)
@@ -348,7 +381,7 @@ def execute(args):
                 raise RuntimeError("Sending uncertain or rejected; never resend")
             journal.stage(
                 "awaiting_signed_delivery",
-                real_provider_calls=journal.state["attempts"] if args.execute else 0,
+                real_provider_responses=journal.state["real_provider_calls"],
             )
             if not args.execute:
                 message = journal.state["messages"][0]["provider_message_id"]
@@ -368,14 +401,14 @@ def execute(args):
                         settings.RESEND_BILLING_WEBHOOK_SECRET
                     ).sign("msg_local_acceptance", now, raw.decode()),
                 }
-                for _ in range(2):
-                    response = requests.post(
-                        "http://127.0.0.1:8123" + gateway.PATH,
-                        data=raw,
-                        headers=hdrs,
-                        timeout=20,
-                    )
-                    assert response.status_code == 200
+                with requests.Session() as callback_client:
+                    callback_client.trust_env = False
+                    for _ in range(2):
+                        response = callback_client.post(
+                            "http://127.0.0.1:8123" + gateway.PATH,
+                            data=raw, headers=hdrs, timeout=20, allow_redirects=False,
+                        )
+                        assert response.status_code == 200
             poll_at = 0
             while journal.active():
                 if time.monotonic() >= poll_at:
@@ -413,7 +446,7 @@ def execute(args):
                         "awaiting_one_manual_replay",
                         delivery_message_id=event["message_id"],
                     )
-                if len(journal.state["forwarded_callbacks"]) >= 12:
+                if forwarding_exhausted(journal.state["forwarded_callbacks"]):
                     raise RuntimeError("Callback forwarding budget reached")
                 time.sleep(1)
             if not journal.state["replay_verified"]:
@@ -439,16 +472,11 @@ def execute(args):
             # The provider must be disabled before ExitStack stops services/tunnel.
             if args.execute:
                 journal.stage("awaiting_provider_disable")
-                while not (directory / "webhook-disabled.confirmed").exists():
-                    if not journal.active():
-                        settings.RESEND_BILLING_WEBHOOK_SECRET = ""
-                    time.sleep(1)
-                journal.state["provider_webhook_disable"] = "owner_confirmed_disabled"
+                await_provider_disable(journal, directory)
             else:
                 journal.state["provider_webhook_disable"] = "substitute_no_endpoint"
             if tunnel:
-                tunnel.terminate()
-                tunnel.wait(timeout=15)
+                stop_tunnel(tunnel)
                 tunnel = None
             journal.stage("cleanup_in_progress")
     except Exception as error:
@@ -466,8 +494,10 @@ def execute(args):
             journal.state["provider_webhook_disable"] = (
                 "unconfirmed_cleanup_required" if webhook_may_exist else "not_created"
             )
-            tunnel.terminate()
-            tunnel.wait(timeout=15)
+            try:
+                stop_tunnel(tunnel)
+            except Exception as error:
+                journal.state["cleanup_error_type"] = type(error).__name__
         journal.state["cleanup"] = {
             "database_removed": bool(db_directory and not db_directory.exists()),
             "database_port_closed": not listener(db_port) if db_port else True,
@@ -476,7 +506,7 @@ def execute(args):
             "credential_references_cleared": True,
             "tunnel_stopped": tunnel is None or tunnel.poll() is not None,
         }
-        journal.stage("finished" if journal.state.get("result") else "stopped")
+        journal.stage(completion_stage(journal.state))
     return journal.state
 
 
@@ -486,6 +516,7 @@ if __name__ == "__main__":
     parser.add_argument("--evidence", required=True)
     parser.add_argument("--cloudflared")
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--recipient")
     args = parser.parse_args()
     try:
         execute(args)

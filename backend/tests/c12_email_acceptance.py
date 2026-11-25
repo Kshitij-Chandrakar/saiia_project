@@ -17,6 +17,41 @@ from app.email.config import EmailSettings
 from razorpay_local_runtime import local_runtime
 from test_billing_email_provider import Session
 from test_billing_notifications_native import paid, sources
+from app.email.provider import validate_recipient_email
+
+
+def approved_recipient(value):
+    recipient = validate_recipient_email(value)
+    domain = recipient.rsplit("@", 1)[1].lower()
+    if "." not in domain or domain.endswith((".invalid", ".test", ".example", ".localhost")):
+        raise ValueError("Explicit approved deliverable recipient required")
+    return recipient
+
+
+@contextmanager
+def journal_ownership(directory):
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / "execution.lock").open("a+b") as handle:
+        if handle.tell() == 0:
+            handle.write(b"0")
+            handle.flush()
+        handle.seek(0)
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 class BoundedSession:
@@ -78,6 +113,8 @@ class BoundedSession:
         ):
             raise ValueError("Transport/allowlist boundary rejected")
         self.start_window()
+        if json.loads(self.path.read_text(encoding="utf-8"))["attempts"] != self.state["attempts"]:
+            raise ValueError("Journal reservation changed; stop without dispatch")
         if self.state["attempts"] >= 2:
             raise ValueError("Execution limit reached; do not retry")
         self.state["attempts"] += 1
@@ -207,8 +244,8 @@ def execute(args, *, journal=None):
             worker.run()
             assert all(row["delivery_state"] == "accepted" for row in sources(u))
             # A repeated worker pass must not produce a third POST.
-            worker.run()
-            assert journal.state["attempts"] == 2
+            repeated = worker.run()
+            assert repeated["checked"] == 0 and journal.state["attempts"] == 2
             journal.state["result"] = "provider_accepted_not_inbox_confirmed"
             journal.save()
     finally:

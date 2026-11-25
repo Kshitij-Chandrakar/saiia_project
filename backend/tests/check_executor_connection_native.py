@@ -1,17 +1,49 @@
 """Fresh loopback-only PostgreSQL: direct pools, ACLs, identity and session reset."""
 
 import argparse
+import os
+import re
+import time
 from pathlib import Path
 
 from app.commercial.catalog_database import CatalogDatabase
 from app.commercial.executor_connection import EXECUTORS, connect_executor
 from app.commercial.subscription_database import SubscriptionDatabase
 from test_catalog_store_native import Native
+from run_staging_session_workflow import ROLES
 
 ROOT = Path(__file__).resolve().parents[2]
+assert set(ROLES) <= EXECUTORS
+
+
+def prove_scram_rejection(db, dsn, role):
+    import psycopg
+    from psycopg.conninfo import make_conninfo
+    log = db.directory / "server.log"
+    offset = log.stat().st_size
+    try:
+        wrong = psycopg.connect(make_conninfo(dsn, password="incorrect-synthetic-password"))
+    except psycopg.Error as error:
+        if error.sqlstate == "28P01":
+            return
+        # libpq may omit startup SQLSTATE; require the server's own 28P01 log.
+        until = time.monotonic() + 2
+        while time.monotonic() < until:
+            with log.open("rb") as stream:
+                stream.seek(offset)
+                text = stream.read().decode("utf-8", errors="replace")
+            if re.search(r'28P01:.*password authentication failed for user "' + re.escape(role) + '"', text):
+                return
+            time.sleep(.05)
+        raise AssertionError("SCRAM invalid-password SQLSTATE not established") from None
+    else:
+        wrong.close()
+        raise AssertionError("Incorrect password accepted; HBA reload not established")
 
 
 def check(pg_bin):
+    if any(key.upper().startswith("PG") for key in os.environ):
+        raise RuntimeError("Inherited libpq configuration rejected; use a clean local rehearsal process")
     import smoke_staging_session_pooler as smoke
 
     # Local session-semantics reuse does not depend on remote activation dates.
@@ -47,7 +79,7 @@ def check(pg_bin):
             ).read_text()
         )
         prefix = "C11_C13_STAGING_cfmvqbjmnwklxqlpelxe"
-        for role in sorted(EXECUTORS):
+        for role in ROLES:
             db.run(
                 "SET password_encryption='scram-sha-256';ALTER ROLE "
                 + role
@@ -70,7 +102,7 @@ def check(pg_bin):
         print(
             "PASS: native deadline-capped provisioning and read-only credential/session cleanup verification"
         )
-        for role in sorted(EXECUTORS):
+        for role in ROLES:
             db.run("ALTER ROLE " + role + " LOGIN")
             dsn = f"host=127.0.0.1 port={db.port} dbname=postgres user={role} sslmode=disable"
             conn = connect_executor(dsn, role)
@@ -153,11 +185,12 @@ def check(pg_bin):
         from psycopg.conninfo import make_conninfo
 
         # Require real password authentication for the five local executors.
+        db.run("ALTER SYSTEM SET log_error_verbosity='verbose'")
         hba = db.directory / "data/pg_hba.conf"
         original_hba = hba.read_text()
         hba.write_text(
             "host postgres "
-            + ",".join(sorted(EXECUTORS))
+            + ",".join(ROLES)
             + " 127.0.0.1/32 scram-sha-256\n"
             + original_hba
         )
@@ -168,6 +201,7 @@ def check(pg_bin):
         def owner_factory():
             return psycopg.connect(
                 host="127.0.0.1",
+                hostaddr="127.0.0.1",
                 port=db.port,
                 dbname="postgres",
                 user="postgres",
@@ -183,6 +217,7 @@ def check(pg_bin):
                 password=password,
                 sslmode="disable",
             )
+            prove_scram_rejection(db, private_dsn, role)
             conn = connect_executor(private_dsn, role)
             try:
                 smoke.session_checks(conn, role)

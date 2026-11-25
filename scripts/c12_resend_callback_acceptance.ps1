@@ -1,9 +1,12 @@
 param(
     [Parameter(Mandatory=$true)][string]$Python,
     [Parameter(Mandatory=$true)][string]$PgBin,
-    [Parameter(Mandatory=$true)][string]$DriverDirectory
+    [Parameter(Mandatory=$true)][string]$DriverDirectory,
+    [Parameter(Mandatory=$true)][string]$Recipient
 )
 $ErrorActionPreference = 'Stop'
+$priorPythonPath = $env:PYTHONPATH
+$priorDotenvDisabled = $env:PYTHON_DOTENV_DISABLED
 $taskRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $taskRoot
 $mutex = New-Object System.Threading.Mutex($false, 'Local\IntervucopilotC12ResendCallbacks')
@@ -24,7 +27,7 @@ try {
     Write-Host 'Keys are entered in the Python masked prompts here only. Keep this window open through cleanup.'
     try {
         $ErrorActionPreference = 'Continue'
-        & $Python 'backend/tests/c12_resend_callback_acceptance.py' --pg-bin $PgBin --evidence 'tmp/c12-resend-callback-01' --cloudflared (Join-Path $env:LOCALAPPDATA 'C12Tools\cloudflared.exe') --execute
+        & $Python (Join-Path $taskRoot 'backend/tests/c12_resend_callback_acceptance.py') --pg-bin $PgBin --evidence 'tmp/c12-resend-callback-01' --cloudflared (Join-Path $env:LOCALAPPDATA 'C12Tools\cloudflared.exe') --execute --recipient $Recipient
         $nativeExit = $LASTEXITCODE
     } finally { $ErrorActionPreference = 'Stop' }
     if ($nativeExit -ne 0) { throw 'Acceptance stopped; inspect redacted journal. Do not resend or restart.' }
@@ -34,6 +37,8 @@ try {
     $env:EMAIL_ENABLED = 'false'
     $env:EMAIL_DRY_RUN = 'true'
     $env:BILLING_ENABLED = 'false'
+    $env:PYTHONPATH = $priorPythonPath
+    $env:PYTHON_DOTENV_DISABLED = $priorDotenvDisabled
     $mutex.ReleaseMutex()
     $mutex.Dispose()
     Write-Host 'Credential process has ended; verify cleanup in the redacted execution journal.'

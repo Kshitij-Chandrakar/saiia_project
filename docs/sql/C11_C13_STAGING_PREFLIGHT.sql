@@ -67,7 +67,7 @@ select name,to_regclass('public.'||name) as object from unnest(array[
 ]) name;
 select rolname,rolcanlogin,rolsuper,rolbypassrls,rolcreaterole,rolcreatedb,rolreplication,rolinherit
 from pg_roles where rolname in ('catalog_draft_executor','catalog_public_reader','usage_executor','usage_binding_executor','usage_reconciler');
-select parent.rolname as inherited_role,member.rolname as member from pg_auth_members m join pg_roles parent on parent.oid=m.roleid join pg_roles member on member.oid=m.member
+select parent.rolname as parent_role,member.rolname as member,m.inherit_option,m.set_option,m.admin_option from pg_auth_members m join pg_roles parent on parent.oid=m.roleid join pg_roles member on member.oid=m.member
 where member.rolname in ('catalog_draft_executor','catalog_public_reader','usage_executor','usage_binding_executor','usage_reconciler');
 select n.nspname,p.proname,pg_get_function_identity_arguments(p.oid) as arguments,p.prosecdef,p.proconfig,p.proacl::text
 from pg_proc p join pg_namespace n on n.oid=p.pronamespace

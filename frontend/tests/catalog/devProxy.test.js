@@ -1,6 +1,40 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {catalogDevProxy} from '../../vite.config.js';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+
+test('installed-test cleanup attempts every close without replacing the primary failure',async()=>{
+  const source=readFileSync(new URL('./c12-installed.spec.js',import.meta.url),'utf8').replace(/\r\n/g,'\n');
+  const start=source.indexOf('  let cleanupFailure;');
+  const block=source.slice(start,source.indexOf('\n }\n});',start));
+  assert.ok(start>0&&block.includes('if(!primaryFailure&&cleanupFailure)'));
+  for(const primaryFailure of [undefined,new Error('original failure')]){
+    const calls=[],releaseFailure=new Error('release failed');
+    const cleanup=vm.runInNewContext(`async()=>{${block}}`,{
+      primaryFailure,
+      control:async()=>{calls.push('release');throw releaseFailure;},
+      app:{close:async()=>{calls.push('app');}},
+      browser:{close:async()=>{calls.push('browser');throw Error('browser failed');}}
+    });
+    if(primaryFailure)await cleanup();
+    else await assert.rejects(cleanup(),error=>error===releaseFailure);
+    assert.deepEqual(calls,['release','app','browser']);
+  }
+});
+
+test('checkout fixtures preserve explicit offer and price query parameters',()=>{
+  const source=readFileSync(new URL('./fixtures/razorpay.jsx',import.meta.url),'utf8');
+  const block=source.slice(source.indexOf("if(location.pathname"),source.indexOf('createRoot('));
+  for(const search of ['?case=2&offer=selected&price=selected-price&keep=yes','?case=2']){
+    let target;
+    vm.runInNewContext(block,{URLSearchParams,location:{pathname:'/auth/checkout',search},index:'2',data:{offer:'default',price:'default-price'},history:{replaceState:(_a,_b,url)=>target=url}});
+    const params=new URL(target,'http://localhost').searchParams;
+    assert.equal(params.get('offer'),search.includes('offer=')?'selected':'default');
+    assert.equal(params.get('price'),search.includes('price=')?'selected-price':'default-price');
+    assert.equal(params.get('case'),'2');
+  }
+});
 
 test('local preview is explicit, exact GET only, and preserves configured targets',()=>{
   for(const [enabled,method,url,override,target] of [

@@ -12,6 +12,7 @@ foreach ($required in @($previewPython, $previewLauncher, $previewDriver, "$prev
     if (-not (Test-Path -LiteralPath $required)) { throw 'Retained local test runtime missing; see docs/CATALOG_LOCAL_MANUAL.md.' }
 }
 $env:PYTHONUTF8 = '1'
+$env:CATALOG_MANUAL_WORKBENCH = 'true'
 $env:PYTHONPATH = $previewDriver
 New-Item -ItemType Directory -Force tmp | Out-Null
 New-Item -ItemType File -Force tmp/catalog-local-preview.enabled | Out-Null

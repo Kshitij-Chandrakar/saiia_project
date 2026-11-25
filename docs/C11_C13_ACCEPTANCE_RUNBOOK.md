@@ -2,7 +2,7 @@
 
 # C11/C13 acceptance: isolated package and staging
 
-**Latest verified status - 26 October 2026, 17:03 IST:** [Staging application acceptance](C13_2_STAGING_APPLICATION_ACCEPTANCE.md) passed all 11 scenario groups against cfmvqbjmnwklxqlpelxe using two isolated local workers and real staging Auth/JWT/Storage. Repeated audits verified 42 allowance periods; cleanup verified all five roles closed/passwords cleared/zero sessions. No migrations or accepted physical tests were repeated. Public HTTPS/WSS, signed installed Windows, deletion approval and the existing lint gate remain separate; C11/C13 remain open.
+**Latest verified status - 26 October 2026, 17:03 IST:** Staging application acceptance (owner-held private record `C13_2_STAGING_APPLICATION_ACCEPTANCE.md`; excluded from this checkout) passed all 11 scenario groups against cfmvqbjmnwklxqlpelxe using two isolated local workers and real staging Auth/JWT/Storage. Repeated audits verified 42 allowance periods; cleanup verified all five roles closed/passwords cleared/zero sessions. No migrations or accepted physical tests were repeated. Public HTTPS/WSS, signed installed Windows, deletion approval and the existing lint gate remain separate; C11/C13 remain open.
 
 
 Updated 25 October 2026. This runbook reconciles the existing fixed gates; it adds no
@@ -12,7 +12,7 @@ and [evidence](C13_2_IMPLEMENTATION_EVIDENCE.md) remain authoritative.
 ## Current status — 25 October 2026
 
 This is the authoritative current summary. The historical session records below
-and in [physical results](C13_2_PHYSICAL_ACCEPTANCE_RESULTS.md) remain unchanged.
+and in physical results (owner-held private record `C13_2_PHYSICAL_ACCEPTANCE_RESULTS.md`; excluded from this checkout) remain unchanged.
 Do not repeat accepted physical timing/JBL checks unless a subsequent change
 affects them. No new C11 exit criteria are introduced.
 
@@ -26,9 +26,9 @@ affects them. No new C11 exit criteria are introduced.
 | Near-exhaustion residual | Physical 23082us residual with expired Start retained. Native actual relay test preserves unused tail/stopped balance, then holds an explicit synthetic silent authorization until its SQL deadline and verifies genuine exhausted denial with no new STT | Tiny remainder need not support safe capture; it is not forfeited or rounded away | Use current-plan balance; wait for normal period reset if residual cannot authorize capture. Never auto-loop new Starts or force zero |
 | Hosted relay/shared coordination | Default-off Electron main/preload/compiled renderer now uses the authenticated relay for mic/system/Both through the existing PCM/answer client. Two packaged clients/two workers, durable answers, Stop, worker death/capture cleanup and deliberate recovery passed. Backend one-use stream claim rejects duplicate connection replay without stopping the original owner | Unsigned packaged hosted physical mic/system/Both, Stop/track cleanup and final logout 401 are now operator-observed; deployed WSS/TLS and signed installation remain unverified | Retain completed hosted physical and local timing/JBL evidence. Await an approved isolated staging target before remote preflight; then accept deployed WSS/TLS |
 | Account deletion/immutable ledgers | Closed idempotent preparation barrier stops active runs; private API/RLS/storage denial, rollback, uncertain-commit replay and concurrent retries tested. Immutable records/Auth RESTRICT retained | Irreversible content purge and identity unlinking intentionally absent; retention/unlink decisions missing | Review concrete retention proposal below before authorizing purge implementation |
-| Repository lint | 60 errors / 29 warnings; no new error rule/message pairs vs recorded HEAD attribution. Changed-file lint passes | Existing repository lint gate still fails | Owners resolve attributed pre-existing errors in separate scope; do not disable rules |
+| Repository lint | Recorded 27 October follow-up: zero errors / 12 warnings | Older failure counts are historical | Keep rules enabled; rerun affected checks only |
 | Development/package vs signed installation | Unsigned compiled-file Electron physical sessions passed, including latest JBL interactive wrapper 1 pass / 47 deselected, embedded Playwright 2 pass (1206.25s) | Signing credentials/approved signed artifact and isolated Windows installation environment not supplied | Supply those dependencies, then execute existing installed/OS checklist |
-| Isolated staging | 48 prior migration hashes verified; additive relay/privacy candidate makes 50. Read-only object/ACL/history preflight prepared | Owner now designates disposable cfmvqbjmnwklxqlpelxe; owner preflight complete: empty application schema; target-specific guarded 50-source bootstrap prepared for approval | Review the exact target-specific SQL/hash, Storage/ACL/history scope and recovery choice; approve before application |
+| Isolated staging | Recorded schema/postflight and 11 application groups accepted | Deployed HTTPS/WSS and signed installation remain separate | Preserve the private archive; do not reapply the historical bootstrap |
 
 The old 120s phone observation versus 129.233757s ledger and first ambiguous
 Bluetooth indicator observation are historical, superseded only by the controlled
@@ -204,7 +204,7 @@ predicate preserves all 0-31/angle-bracket rejection; a regression covers every
 ASCII control plus Unicode display text. Full source lint still fails with
 **60 errors / 29 warnings**. All remaining error rule/message pairs match linting
 `git show HEAD:frontend/<file>` using the current config. The attribution artifact
-is [C13_2_LINT_ATTRIBUTION.json](C13_2_LINT_ATTRIBUTION.json). This is evidence of
+is C13_2_LINT_ATTRIBUTION.json (owner-held private record `C13_2_LINT_ATTRIBUTION.json`; excluded from this checkout). This is evidence of
 pre-existing errors, not permission to disable rules or claim the lint gate passed.
 
 ## Isolated staging: preflight, approval, application and rollback
@@ -298,9 +298,9 @@ Use the existing runner with `--backend` as documented in the [review packet](C1
 | --- | --- |
 | Physical Windows | Retain accepted mic/system/Both, synchronized timing, sleep/expiry/restart/logout and controlled JBL observations. Do not repeat those checks without an affecting change. USB/other drivers remain unverified, not substituted by JBL evidence. |
 | Signed installed Windows / OS behavior | Supply/build an authorized signed installer in isolated Windows test user/VM; run device, protocol/external browser, sleep and upgrade/uninstall checks. Unsigned portable smoke does not satisfy it. |
-| Repository lint | Owners resolve the 60 proven pre-existing errors (or authorize that separate cleanup); keep current rules and rerun full lint. Subscription regressions identified here are fixed. |
+| Repository lint | Recorded 27 October follow-up: zero errors / 12 warnings; older failure counts are historical. Keep rules enabled and rerun affected checks only. |
 | Historical combined-process isolation | Resolved locally: exact original four-suite process passes 235/235. Historical failed runs remain recorded. |
-| Target database / hosted | Identify an isolated staging target and return read-only preflight results; then approve the exact diff/roles/configuration packet. No shared execution performed. |
+| Target database / hosted | Recorded staging schema/postflight/application acceptance is complete. Preserve its private archive; do not reapply the historical packet. Remaining gates are deployed HTTPS/WSS and signed installation under separate authorization. |
 | Hosted audio relay | Desktop hosted integration and native/packaged execution are tested. Finish newly prepared physical hosted source checks and approved TLS/staged two-worker acceptance; activation stays off. |
 | Account deletion / immutable ledger | Preparation/access barrier is locally tested. Review the explicit proposed durations/identity decisions in SUBSCRIPTION_DELETION_POLICY_PROPOSAL.md before irreversible purge; preserve RESTRICT and immutable events. |
 
@@ -340,7 +340,7 @@ disposable and contains no real customer accounts/data; authorizes **read-only
 preflight only**. This supersedes prior no-target statements, not migration or
 activation approval. No authorized connector/browser session was available; owner
 will run the target-specific SQL Editor preflight. Exact unapplied migrations and
-compatibility remain unknown pending results. See the [target review packet](C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_REVIEW.md).
+compatibility remain unknown pending results. See the target review packet (owner-held private record `C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_REVIEW.md`; excluded from this checkout).
 All 50 candidate hashes were verified locally; none is presumed unapplied.
 Accepted local/hosted capture evidence is preserved. Signed installation and
 irreversible deletion-policy approval remain open; no remote changes occurred.
@@ -382,11 +382,11 @@ no executor roles and all 24 checked application objects absent. The complete
 fresh-schema integration needs the 50 dependency-ordered repository sources;
 this is reconciled with schema evidence, not a blind pending-manifest inference.
 Pgvector is NOT required; base vectors are JSONB. Earlier vector prerequisite is
-superseded. See [review and acceptance packet](C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_REVIEW.md),
-[ordered original hashes](C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_MIGRATIONS.md),
-[guarded approval-only SQL](sql/C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_APPLICATION_PENDING_APPROVAL.sql),
-[exact ACL clauses](sql/C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_ACL_REVIEW.txt) and
-[read-only postflight](sql/C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_POSTFLIGHT.sql).
+superseded. See review and acceptance packet (owner-held private record `C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_REVIEW.md`; excluded from this checkout),
+ordered original hashes (owner-held private record `C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_MIGRATIONS.md`; excluded from this checkout),
+guarded approval-only SQL (owner-held private record `C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_APPLICATION_PENDING_APPROVAL.sql`; excluded from this checkout),
+exact ACL clauses (owner-held private record `C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_ACL_REVIEW.txt`; excluded from this checkout) and
+read-only postflight (owner-held private record `C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_POSTFLIGHT.sql`; excluded from this checkout).
 
 Batch SHA256 `b5a26cf185cb70d66230376176b966edab50883cb66dfc9e8e0ef4c660e0d3fb`.
 Includes explicitly reviewed history initialization, base RLS/Storage buckets,
@@ -428,15 +428,15 @@ healthy full 50-source/postflight/replay checks pass under both superuser and
 NOSUPERUSER migration-owner fixtures. Missing Storage-owner or existing BYPASSRLS
 authority fails closed; no repair/broadening grant. PostgreSQL17 automatic creator
 ADMIN-only metadata is checked explicitly (SET/INHERIT false); executors inherit
-no role. The [read-only owner probe](sql/C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_OWNER_PREFLIGHT.sql)
+no role. The read-only owner probe (owner-held private record `C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_OWNER_PREFLIGHT.sql`; excluded from this checkout)
 is tested locally but still awaits actual target output. No remote SQL performed.
 
 Read-only metadata cannot verify all managed platform hooks or actual policy DDL;
 local fixtures are not target acceptance. Target migration-owner role attributes,
 Storage inherited ownership and existing schema/Auth privileges must be reviewed
 before execution. Do not change owner/BYPASSRLS/memberships to make the batch pass.
-See [current packet](C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_REVIEW.md) and
-[assertion source](sql/C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_PRECOMMIT_ASSERTIONS.sql).
+See current packet (owner-held private record `C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_REVIEW.md`; excluded from this checkout) and
+assertion source (owner-held private record `C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_PRECOMMIT_ASSERTIONS.sql`; excluded from this checkout).
 
 Logs: `tmp/c132-precommit-final-native.log`, `tmp/c132-precommit-black.log`,
 `tmp/c132-precommit-ruff.log`. Initial new-envelope false-positive on the later
@@ -465,8 +465,8 @@ atomic batch, read-only target hook metadata preflight, exact operator procedure
 and optional rollback-only restrictive policy probe requiring separate remote DDL
 approval. No source migration or permission grant was changed; no split needed
 if the documented existing hook is present. Do not change membership/ownership,
-weaken RLS or substitute permissive barriers. See [procedure](C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_STORAGE_POLICY_PROCEDURE.md).
-Final current batch hash is recorded in [packet](C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_REVIEW.md); prior hashes
+weaken RLS or substitute permissive barriers. See procedure (owner-held private record `C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_STORAGE_POLICY_PROCEDURE.md`; excluded from this checkout).
+Final current batch hash is recorded in packet (owner-held private record `C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_REVIEW.md`; excluded from this checkout); prior hashes
 are superseded. Local exact-batch and new guard/probe tests are separate from
 actual Supautils-hook/deployment acceptance. Accepted capture tests retained, no
 repeat; no remote writes or activation occurred. C11/C13 remain open.
@@ -498,7 +498,7 @@ metadata, not a simulated positive Supautils execution. Actual managed behavior
 comes from prior operator evidence. Log `tmp/c132-policy-evidence-guard-final-native.log`.
 Black/Ruff pass. No frontend change/build needed. No accepted capture tests repeated.
 
-Current [packet](C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_REVIEW.md#final-execution-and-one-consolidated-approval)
+Current packet (owner-held private record `C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_REVIEW.md`; excluded from this checkout)
 contains exact execution instructions and ONE consolidated approval covering
 cfmvqbjmnwklxqlpelxe, final hash, all 50 sources/history/Storage/ACL/NOLOGIN schema
 scope, and recovery A (operator-controlled encrypted export/verified restore) or
@@ -513,9 +513,13 @@ further investigation; no additional operator test is being requested now.
 ### Post-schema staging activation packet ? 25 October 2026
 
 The staging schema and postflight are accepted on operator evidence; do not rerun
-the batch. See [C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_ACTIVATION.md](C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_ACTIVATION.md) for the single
+the batch. See C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_ACTIVATION.md (owner-held private record `C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_ACTIVATION.md`; excluded from this checkout) for the single
 separate activation approval, exact temporary roles, synthetic identity/offer
 scope, secure process configuration, test-source matrix and credential cleanup.
 Preparation is not activation or a managed acceptance pass. No accepted physical
 test was repeated. Public HTTPS/WSS, deletion policy and signed Windows remain
 independent pending gates.
+
+## Historical split-core history format
+
+The prepared `docs/sql/SUBSCRIPTION_ADMIN_CORE_PENDING_APPROVAL.sql` packet records version-only history (including `20261022120000` and `20261023140000`). This applies to every version inserted by that packet. Only an exact approved packet digest and independently retained installation record establish this provenance: exempt those inventoried split-packet rows from full-source statement comparison and require exact packet and catalog/ACL readback instead. Unknown provenance blocks acceptance. Never mark them unapplied, repair history or reapply automatically. The ordered-migration manifest requires full canonical-LF statement arrays; do not mix installer paths or accept arbitrary empty history.

@@ -1,6 +1,6 @@
 # C12-RZP-TEST-01 secure setup and single execution scope
 
-Current execution follow-up: the user authorized this bounded session on 26 October 2026. See [actual preflight, credential handoff and execution status](C12_RZP_TEST_01_EXECUTION.md). Historical preparation-only wording below is not a request to repeat that approval.
+Current execution follow-up: the user authorized this bounded session on 26 October 2026. See actual preflight, credential handoff and execution status (owner-held private record `C12_RZP_TEST_01_EXECUTION.md`; excluded from this checkout). Historical preparation-only wording below is not a request to repeat that approval.
 
 26 October 2026. **Prepared, not executed.** No real credentials entered, provider calls, Dashboard changes, tunnel launch, public exposure or remote migrations. Live billing stays disabled. C11/C13 staging authorization remains separate.
 
@@ -46,7 +46,7 @@ Use a fresh task-owned disposable native PostgreSQL 17 cluster and the existing 
 1. `supabase/migrations/20261025020000_razorpay_checkout.sql`
 2. `supabase/migrations/20261025030000_billing_gst_payable.sql`
 
-Hashes and rollback guidance: [GST evidence](C12_GST_IMPLEMENTATION_EVIDENCE.md#prepared-migration-and-rollback). No remote SQL or staging bootstrap is included. Use restricted `usage_executor` and `usage_binding_executor` pools; prepare eight disposable verified identities, immutable synthetic offers and Free bootstrap only in this cluster.
+Hashes and rollback guidance: GST evidence (owner-held private record `C12_GST_IMPLEMENTATION_EVIDENCE.md`; excluded from this checkout). No remote SQL or staging bootstrap is included. Use restricted `usage_executor` and `usage_binding_executor` pools; prepare eight disposable verified identities, immutable synthetic offers and Free bootstrap only in this cluster.
 
 Review a redacted runtime manifest before enabling billing: local DB path/port, synthetic auth issuer, restricted roles, offer/price IDs and API ports. Do not launch the ordinary main app against unreviewed inherited/.env settings or staging auth. This setup task has not verified a separately running real-provider acceptance composition. The existing offline substitute runner stays offline; adding keys does not convert it into provider acceptance.
 
@@ -56,10 +56,10 @@ Website: `127.0.0.1:5173`; backend: `127.0.0.1:8000`. Keep billing false until t
 
 Proposed simplest transport: **Cloudflare Quick Tunnel**, with no domain purchase, DNS change or persistent service. Download its matching Windows portable executable from [official installation/releases](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) to `%LOCALAPPDATA%\C12Tools\cloudflared.exe` after authorization. No download occurred during preparation.
 
-In a clean terminal without payment credentials, from the repository root:
+In a clean terminal without payment credentials, from the repository root, set `$PreparedPython` to the executable in your prepared Python environment:
 
 ```powershell
-E:/deepfake_envs/SaIIA/python.exe -m uvicorn scripts.c12_webhook_gateway:app --host 127.0.0.1 --port 8012 --no-access-log --limit-concurrency 16 --backlog 16 --timeout-keep-alive 2
+& $PreparedPython -m uvicorn scripts.c12_webhook_gateway:app --host 127.0.0.1 --port 8012 --no-access-log --limit-concurrency 16 --backlog 16 --timeout-keep-alive 2
 ```
 
 Confirm locally that `/`, `/docs`, `/api/account/subscription`, GET webhook and trailing-slash variants cannot reach backend routes. Missing signature fails. Keep the main backend on loopback. In another clean terminal, after authorization:
@@ -108,3 +108,9 @@ Offline gateway tests: **8 passed, 0.44 s**. PowerShell parser and synthetic hid
 Graphify queried before/after. Final partial structural graph: 356 nodes / 791 edges, 18 files, no model extraction tokens; 104 dangling endpoints and 16 collapsed directed pairs remain. Query vocabulary: `webhook forward billing`. Report: `graphify-out/c12-secure-setup/GRAPH_REPORT.md`; query: `tmp/c12-setup-after-query.txt`. PowerShell is represented structurally only where supported; its parser/synthetic checks provide execution evidence.
 
 Next action: authorize this single execution scope or specify a scope correction. Enter credentials locally only after authorization.
+
+Set `$PreparedPython` to your prepared Python executable before the Uvicorn example. Source: [checkout migration](../supabase/migrations/20261025020000_razorpay_checkout.sql) and [GST migration](../supabase/migrations/20261025030000_billing_gst_payable.sql). Obtain the private execution record from the owner before operational use. Disabling billing ingress/workers stops new admission, not provider obligations. Never drop ledger/history records as rollback.
+
+- `20261025020000_razorpay_checkout.sql`: canonical-LF SHA-256 `d53c967f0353177105339ddbc06f54f84f53cb39c972800ab91a33425a7a49c1`.
+
+- `20261025030000_billing_gst_payable.sql`: canonical-LF SHA-256 `a726445fc1f9c052ffd6c9c76f663743840a9bb73a4aa94cc024ef06bd59696b`.

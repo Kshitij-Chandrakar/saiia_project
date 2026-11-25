@@ -1,3 +1,5 @@
+> Current preview: public-only `127.0.0.1:5188` via `start_catalog_preview.ps1`; checkout stays disabled. The older 5187 instructions below are historical and must not be used with the current switch. If 5188 stops, pricing is unavailable; there is no fallback to 5187.
+
 # Local catalog diagnosis and manual setup
 
 ## Current localhost pricing: independent public-only service (23 October 2026)

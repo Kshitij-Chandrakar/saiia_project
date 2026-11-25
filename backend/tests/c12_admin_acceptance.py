@@ -15,6 +15,22 @@ SCENARIOS = (
 )
 
 
+class RequiredCalls:
+    def __init__(self):
+        self.selected = set()
+        self.passed = set()
+
+    def pytest_collection_modifyitems(self, items):
+        self.selected = {item.nodeid for item in items}
+
+    def pytest_runtest_logreport(self, report):
+        if report.when == "call" and report.passed:
+            self.passed.add(report.nodeid)
+
+    def exit_code(self, code):
+        return int(code) if code else int(not self.selected or self.selected != self.passed)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pg-bin", required=True)
@@ -24,7 +40,8 @@ if __name__ == "__main__":
         def pytest_addoption(self, parser):
             parser.addoption("--catalog-pg-bin", default=args.pg_bin)
 
-    raise SystemExit(
+    required = RequiredCalls()
+    raise SystemExit(required.exit_code(
         pytest.main(
             [
                 *[
@@ -36,6 +53,6 @@ if __name__ == "__main__":
                 "-p",
                 "no:cacheprovider",
             ],
-            plugins=[Options()],
+            plugins=[Options(), required],
         )
-    )
+    ))

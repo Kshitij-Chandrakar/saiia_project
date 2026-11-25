@@ -1,9 +1,17 @@
 """Failure injection for the single-process credential lifecycle; no network."""
 
 from copy import deepcopy
+from contextlib import nullcontext
 
 import pytest
 import run_staging_session_workflow as workflow
+
+real_project_ownership = workflow.project_ownership
+
+
+@pytest.fixture(autouse=True)
+def isolated_project_ownership(monkeypatch):
+    monkeypatch.setattr(workflow, "project_ownership", lambda _: nullcontext(lambda: None))
 
 
 class Owner:
@@ -163,6 +171,117 @@ def test_staging_scope_does_not_expand_to_privacy_or_admin_executors():
     )
 
 
+@pytest.mark.parametrize("acquired", [False, True])
+def test_project_lock_precedes_inspection_and_survives_owner_reconnect(local, monkeypatch, acquired):
+    owner, events, _ = local
+    class Guard:
+        closed = False
+        def execute(self, query, params=()):
+            assert not self.closed
+            return type("Row", (), {"fetchone": lambda _: (acquired,)})()
+        def close(self):
+            self.closed = True
+    guard = Guard()
+    connections = [guard, owner]
+    monkeypatch.setattr(workflow, "project_ownership", real_project_ownership)
+    monkeypatch.setattr(workflow, "require_cleanup_window", lambda: None)
+    def factory():
+        assert connections
+        return connections.pop(0)
+    result = workflow.execute_workflow(factory, lambda *_: None, cleanup_only=True)
+    assert guard.closed
+    if acquired:
+        assert events == ["cleanup"] and result["cleanup_verified"]
+    else:
+        assert events == [] and not result["provisioned"] and not result["cleanup_verified"]
+        assert connections == [owner]
+
+
+def test_rejected_application_baseline_does_not_run_fixture_cleanup(monkeypatch):
+    from staging_application_acceptance import ApplicationAcceptance, AcceptanceFailure
+    app = object.__new__(ApplicationAcceptance)
+    app.state = {}
+    app.stage = lambda name: app.state.update(stage=name)
+    app.query = lambda *_: type("Row", (), {"fetchone": lambda _: (1, 0, 0, 0)})()
+    app.fixtures = lambda: pytest.fail("baseline rejection must precede fixture writes")
+    app.cleanup = lambda: pytest.fail("baseline rejection must not write cleanup")
+    with pytest.raises(AcceptanceFailure, match="baseline_not_empty"):
+        app(object(), {})
+
+
+def test_launcher_cutoff_stops_owned_grandchild(tmp_path):
+    import json
+    import os
+    import shutil
+    import socket
+    import subprocess
+    import sys
+    from datetime import datetime, timedelta, timezone
+    from pathlib import Path
+
+    powershell = shutil.which("powershell.exe") or shutil.which("pwsh")
+    if not powershell:
+        pytest.skip("PowerShell required for actual process-tree containment")
+    tests = tmp_path / "backend/tests"
+    tests.mkdir(parents=True)
+    (tmp_path / "tmp").mkdir()
+    ca = tmp_path / "ca.crt"
+    ca.touch()
+    source = Path(workflow.__file__).with_name("start_staging_session_smoke.ps1").read_text()
+    until = (datetime.now(timezone.utc) + timedelta(seconds=10)).isoformat()
+    launcher = tests / "start_staging_session_smoke.ps1"
+    launcher.write_text(source.replace("2026-10-26T13:08:53Z", until))
+    info = tmp_path / "child.json"
+    child = ("import socket,time,json;from pathlib import Path;"
+             "s=socket.socket();s.bind(('127.0.0.1',0));s.listen();"
+             f"Path({str(info)!r}).write_text(json.dumps(s.getsockname()[1]));time.sleep(20)")
+    (tests / "run_staging_session_workflow.py").write_text(
+        "import os,sys,time,subprocess;from pathlib import Path\n"
+        "if os.name!='nt' and os.getpgrp()!=os.getpid():os.setsid()\n"
+        "gate=Path(sys.argv[sys.argv.index('--launcher-gate')+1])\n"
+        "while not gate.exists():time.sleep(.01)\n"
+        f"subprocess.Popen([sys.executable,'-c',{child!r}])\n"
+        "time.sleep(30)\n"
+    )
+    result = subprocess.run([powershell, "-NoProfile", "-File", str(launcher), "-Ca", str(ca), "-Python", sys.executable, "-Application"],
+                            capture_output=True, text=True, timeout=25)
+    assert result.returncode != 0 and "OWNED PROCESS TREE STOPPED" in result.stdout
+    assert "Cleanup unverified" in result.stdout + result.stderr
+    assert info.exists(), "fixture must start a real child before cutoff"
+    port = json.loads(info.read_text())
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", port))
+
+
+def test_worker_stop_escalates_and_missing_audit_periods_cannot_pass():
+    import subprocess
+    from staging_application_acceptance import ApplicationAcceptance, AcceptanceFailure
+    events = []
+    class Worker:
+        stdout = None
+        killed = False
+        def poll(self):
+            return 0 if self.killed else None
+        def terminate(self):
+            events.append("terminate")
+        def kill(self):
+            self.killed = True
+            events.append("kill")
+        def wait(self, timeout):
+            events.append(timeout)
+            if not self.killed:
+                raise subprocess.TimeoutExpired("synthetic-worker", timeout)
+    ApplicationAcceptance.stop_worker(Worker())
+    assert events == ["terminate", 8, "kill", 5]
+    app = object.__new__(ApplicationAcceptance)
+    app.state = {"accounts": {"free": "synthetic-account"}}
+    app.stage = lambda _: None
+    app.query = lambda *_: type("Rows", (), {"fetchall": lambda _: []})()
+    app.passed = lambda _: pytest.fail("empty reconciliation cannot establish coverage")
+    with pytest.raises(AcceptanceFailure, match="missing_fixture_usage_periods"):
+        app.audit()
+
+
 def test_expired_window_blocks_intake_and_remote_cleanup(monkeypatch):
     class ExpiredClock:
         @staticmethod
@@ -284,7 +403,10 @@ def test_actual_powershell_launcher_local_orchestration(tmp_path, scenario):
         "error": None if scenario == "success" else "PoolTimeout",
     }
     stub = (
-        "import json,os,sys\nfrom pathlib import Path\n"
+        "import json,os,sys,time\nfrom pathlib import Path\n"
+        "if os.name!='nt' and os.getpgrp()!=os.getpid():os.setsid()\n"
+        "gate=Path(sys.argv[sys.argv.index('--launcher-gate')+1])\n"
+        "while not gate.exists():time.sleep(.01)\n"
         "paths=os.environ['PYTHONPATH'].split(os.pathsep)\n"
         "assert len(paths)==3 and str(Path(__file__).parents[1]) in paths\n"
         "assert str(Path(__file__).parent) in paths\n"

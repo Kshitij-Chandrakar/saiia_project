@@ -219,17 +219,15 @@ def check(pg_bin, owner_mode="superuser"):
         )
         assert [x["version"] for x in versions] == [x["version"] for x in manifest]
         recorded = {
-            row["version"]: row["statements"][0]
+            row["version"]: row["statements"]
             for row in db.rows(
                 "select version,statements from supabase_migrations.schema_migrations"
             )
         }
         for entry in manifest:
-            raw = (ROOT / "supabase/migrations" / entry["file"]).read_bytes()
+            raw = (ROOT / "supabase/migrations" / entry["file"]).read_bytes().replace(b"\r\n", b"\n")
             assert hashlib.sha256(raw).hexdigest() == entry["sha256"]
-            assert recorded[entry["version"]].replace("\r\n", "\n") == raw.decode(
-                "utf-8"
-            ).replace("\r\n", "\n")
+            assert [text.replace("\r\n", "\n") for text in recorded[entry["version"]]] == [raw.decode("utf-8")]
         assert db.rows("select count(*) n from public.account_plan_bindings") == [
             {"n": 0}
         ]

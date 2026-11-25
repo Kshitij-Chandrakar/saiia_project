@@ -50,7 +50,8 @@ try {
         $secretPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secretValue)
         $env:RESEND_API_KEY = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($secretPointer)
         if ($PublishRedesignedAssets) {
-            if ($Sender -ne 'billing@intervucopilot.in' -or $Recipient -ne 'acceptance-recipient@example.invalid') { throw 'Publication scope sender/recipient mismatch.' }
+            if ($Sender -ne 'billing@intervucopilot.in' -or $Recipient -match '@[^@]*\.(invalid|test|example|localhost)$') { throw 'Publication requires the approved sender and a deliverable approved recipient.' }
+            $arguments += @('--recipient', $Recipient)
             Write-Host 'Combined limit: 3 uploads, 12 scripted Storage reads, 2 sends; no retries or overwrites.'
         } else { $arguments += @('--execute', '--sender', $Sender, '--recipient', $Recipient, '--sender-domain-verified') }
     }

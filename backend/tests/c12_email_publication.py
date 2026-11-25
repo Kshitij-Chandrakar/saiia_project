@@ -5,11 +5,12 @@ import hashlib
 import io
 import json
 import os
+from functools import wraps
 from pathlib import Path
 from types import SimpleNamespace
 
 import requests
-from c12_email_acceptance import BoundedSession, execute
+from c12_email_acceptance import BoundedSession, execute, approved_recipient, journal_ownership
 from PIL import Image
 
 ORIGIN = "https://rbmxfazjbldmkomdpyzl.supabase.co"
@@ -38,6 +39,14 @@ ASSETS = (
         "cbec3e0d352464f2d36f6b9244f955897751c39c313d50205a1ee29e12b93427",
     ),
 )
+
+
+def owned_publication(function):
+    @wraps(function)
+    def owned(*args, **kwargs):
+        with journal_ownership(Path("tmp/c12-email-redesign-01")):
+            return function(*args, **kwargs)
+    return owned
 
 
 def storage_credentials():
@@ -171,6 +180,11 @@ class Publication:
                 for asset in self.journal.state["published_assets"]
             ):
                 continue
+            upload_path = "/storage/v1/object/email-assets/" + name
+            if any(row["kind"] == "upload_attempts" and row["path"] == upload_path
+                   for row in self.journal.state["storage_observations"]):
+                self.verify((source, name, mime, dimensions, digest))
+                continue
             data = (Path("frontend/public/email-assets/billing") / source).read_bytes()
             if hashlib.sha256(data).hexdigest() != digest:
                 raise ValueError("Local asset hash changed")
@@ -229,12 +243,16 @@ class Publication:
         self.journal.save()
 
 
-def existing_journal():
+def existing_journal(recipient):
     journal = object.__new__(BoundedSession)
     journal.path = Path("tmp/c12-email-redesign-01/execution.json")
     journal.state = json.loads(journal.path.read_text(encoding="utf-8"))
     journal.sender = "billing@intervucopilot.in"
-    journal.recipient = "acceptance-recipient@example.invalid"
+    journal.recipient = approved_recipient(recipient)
+    if hashlib.sha256(journal.recipient.encode()).hexdigest() != journal.state["recipient_sha256"]:
+        raise ValueError("Recovery recipient does not match original approval")
+    if not journal.state.get("started_utc") or not journal.state.get("deadline_utc"):
+        raise ValueError("Original approved window unavailable; do not start a new clock")
     journal.transport = requests.Session()
     journal.transport.trust_env = False
     journal.start_window()  # Existing clock only; expired windows fail closed.
@@ -247,8 +265,9 @@ def existing_journal():
     return journal
 
 
-def reconcile_publication():
-    journal = existing_journal()
+@owned_publication
+def reconcile_publication(recipient):
+    journal = existing_journal(recipient)
     backup = journal.path.with_name("execution-at-transfer-stop.json")
     with backup.open("x", encoding="utf-8") as stream:
         stream.write(journal.path.read_text(encoding="utf-8"))
@@ -262,7 +281,6 @@ def reconcile_publication():
             "Engineer-directed single verification read with identity encoding/closed connection; original deadline and counters retained"
         )
         journal.save()
-        publication.verify(ASSETS[0])
         publication.publish_remaining()
         journal.state["stage"] = "all_assets_verified_awaiting_masked_email_key"
     finally:
@@ -274,8 +292,9 @@ def reconcile_publication():
         journal.save()
 
 
-def continue_verified_email(pg_bin):
-    journal = existing_journal()
+@owned_publication
+def continue_verified_email(pg_bin, recipient):
+    journal = existing_journal(recipient)
     if {
         asset["object"]
         for asset in journal.state["published_assets"]
@@ -305,7 +324,9 @@ def continue_verified_email(pg_bin):
         journal.save()
 
 
-def run(pg_bin):
+@owned_publication
+def run(pg_bin, recipient):
+    recipient = approved_recipient(recipient)
     credential = os.environ.pop("RESEND_API_KEY", "")
     if not credential:
         raise ValueError("RESEND_API_KEY unavailable")
@@ -323,7 +344,7 @@ def run(pg_bin):
     journal = BoundedSession(
         directory,
         "billing@intervucopilot.in",
-        "acceptance-recipient@example.invalid",
+        recipient,
         transport,
     )
     storage = requests.Session()
@@ -345,7 +366,7 @@ def run(pg_bin):
                 execute=True,
                 sender_domain_verified=True,
                 sender="billing@intervucopilot.in",
-                recipient="acceptance-recipient@example.invalid",
+                recipient=recipient,
                 evidence=str(directory),
                 pg_bin=pg_bin,
             ),
@@ -368,16 +389,17 @@ def run(pg_bin):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pg-bin", required=True)
+    parser.add_argument("--recipient", required=True)
     parser.add_argument("--reconcile-publication", action="store_true")
     parser.add_argument("--continue-verified-email", action="store_true")
     args = parser.parse_args()
     try:
         if args.reconcile_publication:
-            reconcile_publication()
+            reconcile_publication(args.recipient)
         elif args.continue_verified_email:
-            continue_verified_email(args.pg_bin)
+            continue_verified_email(args.pg_bin, args.recipient)
         else:
-            run(args.pg_bin)
+            run(args.pg_bin, args.recipient)
     except (ValueError, AssertionError, OSError, requests.RequestException) as error:
         print(
             "Publication/check stopped:",

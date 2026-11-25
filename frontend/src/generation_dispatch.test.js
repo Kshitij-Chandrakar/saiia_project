@@ -53,6 +53,23 @@ async function manualStop(h) {
   return session.stop()
 }
 
+for(const reason of ['cancel','superseded'])test(`cloud refresh cannot dispatch ${reason} generation`,async()=>{
+  const h=harness({activeSessionId:'active-1'},{auth:{status:'connected'},cloud:{available:false}})
+  let finishRefresh,dispatched=0
+  h.context.window.saiia.refreshCloudStartupContext=()=>new Promise(resolve=>{finishRefresh=resolve})
+  h.context.window.saiia.startAnswerStream=async()=>{dispatched++;return {ok:true}}
+  h.context.window.saiia.generateAnswer=async()=>{dispatched++;return {ok:true}}
+  const pending=h.generate({text:'Explain isolation'})
+  await new Promise(resolve=>setImmediate(resolve))
+  assert.equal(typeof finishRefresh,'function')
+  if(reason==='cancel')h.context.activeGenerateAbortControllerRef.current.abort()
+  else h.context.latestGenerationRequestIdRef.current='new-request'
+  finishRefresh({auth:{status:'connected'},cloud:{available:true}})
+  await assert.rejects(pending,error=>error.name==='AbortError')
+  assert.equal(dispatched,0)
+  assert.equal(h.calls.length,2)
+})
+
 test('manual live stop sends generate/stream after classify/profile when no cloud session exists', async () => {
   const h = harness()
   await manualStop(h)

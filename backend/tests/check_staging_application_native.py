@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -11,7 +12,7 @@ from uuid import uuid4
 import jwt
 import psycopg
 import smoke_staging_session_pooler  # disables dotenv before application imports
-from app.commercial.executor_connection import EXECUTORS
+from run_staging_session_workflow import ROLES
 from staging_application_acceptance import ApplicationAcceptance
 from test_catalog_store_native import ROOT, Native
 
@@ -34,6 +35,7 @@ class NativeAuth:
                 )["sub"]
                 with psycopg.connect(
                     host="127.0.0.1",
+                    hostaddr="127.0.0.1",
                     port=fixture.db.port,
                     dbname="postgres",
                     user="authenticator",
@@ -63,6 +65,7 @@ class NativeAuth:
     def connect(self):
         return psycopg.connect(
             host="127.0.0.1",
+            hostaddr="127.0.0.1",
             port=self.db.port,
             dbname="postgres",
             user="catalog_test_owner",
@@ -105,6 +108,8 @@ class NativeAuth:
 
 
 def check(pg_bin, fault_worker=False):
+    if any(key.upper().startswith("PG") for key in os.environ):
+        raise RuntimeError("Inherited libpq configuration rejected; use a clean local rehearsal process")
     assert smoke_staging_session_pooler.DEADLINE.tzinfo is not None
     db = Native(pg_bin)
     owner = auth = None
@@ -131,7 +136,7 @@ def check(pg_bin, fault_worker=False):
                 / "docs/sql/C11_C13_STAGING_cfmvqbjmnwklxqlpelxe_APPLICATION_PENDING_APPROVAL.sql"
             ).read_text()
         )
-        for role in EXECUTORS:
+        for role in ROLES:
             db.run("ALTER ROLE " + role + " LOGIN")
         auth = NativeAuth(db)
         from app.auth import supabase_auth
@@ -165,8 +170,15 @@ def check(pg_bin, fault_worker=False):
         if fault_worker:
             from staging_application_acceptance import AcceptanceFailure
 
-            def fail_worker(_):
-                raise AcceptanceFailure("synthetic_worker_startup_failure")
+            start_worker = application.start_worker
+            started = []
+
+            def fail_worker(*args):
+                if started:
+                    raise AcceptanceFailure("synthetic_worker_startup_failure")
+                worker = start_worker(*args)
+                started.append(application.workers[-1])
+                return worker
 
             application.start_worker = fail_worker
             try:
@@ -182,6 +194,7 @@ def check(pg_bin, fault_worker=False):
                 application.state["workers_stopped"]
                 and not application.state["cleanup_errors"]
             )
+            assert len(started) == 1 and started[0].poll() is not None
             assert (
                 owner.execute(
                     "SELECT count(*) FROM subscription_admin_permissions WHERE active"

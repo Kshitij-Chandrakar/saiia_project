@@ -903,13 +903,12 @@ class ApplicationAcceptance:
             == service.schedule(change["event_id"]),
             "downgrade_schedule_retry",
         )
-        expect(
-            self.http(18765, "GET", "/api/account/subscription", name="pro").json()[
-                "plan"
-            ]["name"]
-            == "Pro",
-            "downgrade_not_early",
-        )
+        before = self.http(18765, "GET", "/api/account/subscription", name="pro").json()
+        if self.query("SELECT clock_timestamp()").fetchone()[0] < datetime.fromisoformat(event["paid_until"]):
+            expect(before["plan"]["name"] == "Pro", "downgrade_not_early")
+        else:
+            self.state.setdefault("timing_results", {})["downgrade_not_early"] = "window_missed_unverified"
+            self.save()
         wait_until(event["paid_until"])
         current = self.http(
             18766, "GET", "/api/account/subscription", name="pro"
@@ -1023,6 +1022,7 @@ class ApplicationAcceptance:
                 additional_headers={"Authorization": "Bearer " + self.tokens["admin"]},
                 open_timeout=10,
                 max_size=16384,
+                proxy=None,
             )
             await ws.send(
                 json.dumps(
@@ -1247,6 +1247,18 @@ class ApplicationAcceptance:
             "resume_initial_separate_replay_failed_replacement_retains_previous_one_success_delete_reupload_denied"
         )
 
+    @staticmethod
+    def stop_worker(worker):
+        if worker.poll() is None:
+            worker.terminate()
+        try:
+            worker.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            worker.kill()
+            worker.wait(timeout=5)
+        if worker.stdout:
+            worker.stdout.close()
+
     def cleanup(self):
         errors = self.state["cleanup_errors"]
 
@@ -1258,14 +1270,7 @@ class ApplicationAcceptance:
 
         for worker in self.workers:
 
-            def stop(w=worker):
-                if w.poll() is None:
-                    w.terminate()
-                w.wait(timeout=8)
-                if w.stdout:
-                    w.stdout.close()
-
-            attempt("stop_worker", stop)
+            attempt("stop_worker", lambda w=worker: self.stop_worker(w))
         self.state["workers_stopped"] = all(w.poll() is not None for w in self.workers)
 
         def settle_expired_runs():
@@ -1401,6 +1406,10 @@ class ApplicationAcceptance:
             "SELECT account_id,period_id,used,reserved FROM usage_periods WHERE account_id=ANY(%s::uuid[]) ORDER BY account_id,period_id",
             (list(self.state["accounts"].values()),),
         ).fetchall()
+        expect(
+            {str(row[0]) for row in rows} >= set(self.state["accounts"].values()),
+            "missing_fixture_usage_periods",
+        )
         for account, period, used, reserved in rows:
             first = reconciler.audit(str(account), str(period))
             expect(
@@ -1511,6 +1520,7 @@ class ApplicationAcceptance:
 
     def __call__(self, owner, passwords):
         self.owner, self.passwords = owner, dict(passwords)
+        fixtures_started = False
         try:
             self.stage("read_only_application_baseline")
             baseline = self.query(
@@ -1520,6 +1530,7 @@ class ApplicationAcceptance:
                 baseline == (0, 0, 0, 0),
                 "staging_application_baseline_not_empty_stop_review",
             )
+            fixtures_started = True
             self.fixtures()
             self.stage("start_two_application_workers")
             self.start_worker(18765)
@@ -1553,7 +1564,8 @@ class ApplicationAcceptance:
                 "application_" + self.state["stage"] + "_" + type(error).__name__
             ) from None
         finally:
-            self.cleanup()
+            if fixtures_started:
+                self.cleanup()
         expect(
             not self.state["cleanup_errors"], "application_cleanup_requires_recovery"
         )

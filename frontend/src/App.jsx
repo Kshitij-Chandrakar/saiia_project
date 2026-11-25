@@ -1739,6 +1739,7 @@ function MainWindow() {
           }
         }, { localWithoutSaving }
       )
+      if (controller.signal.aborted || !isCurrentRequest(latestGenerationRequestIdRef.current, requestId)) throw abortError()
       console.info('Generation auth diagnostics', {
         generationAuthRequired: authRequired,
         generationAuthTokenAttached: false,

@@ -895,7 +895,7 @@ begin
  elsif p_stage='prepare' and op<>'offer.retire' and p_validated is null then result:=null;
  else
   if op='offer.retire' then
-   if p_stage<>'retire' or p_validated is not null then raise exception 'invalid stage' using errcode='23514'; end if;
+   if p_stage is distinct from 'retire' or p_validated is not null then raise exception 'invalid stage' using errcode='23514'; end if;
    select plan_id into plan from public.catalog_offer_versions where offer_version_id=target;
    if not found then raise exception 'missing offer' using errcode='P0002'; end if;
    perform 1 from public.catalog_plans where plan_id=plan for no key update;
@@ -1141,7 +1141,7 @@ begin
  elsif p_stage='prepare' and op<>'offer.retire' and p_validated is null then result:=null;
  else
   if op='offer.retire' then
-   if p_stage<>'retire' or p_validated is not null then raise exception 'invalid stage' using errcode='23514'; end if;
+   if p_stage is distinct from 'retire' or p_validated is not null then raise exception 'invalid stage' using errcode='23514'; end if;
    select plan_id into plan from public.catalog_offer_versions where offer_version_id=target;
    if not found then raise exception 'missing offer' using errcode='P0002'; end if;
    perform 1 from public.catalog_plans where plan_id=plan for no key update;
@@ -1324,7 +1324,7 @@ begin
  elsif p_stage='prepare' and op<>'offer.retire' and p_validated is null then result:=null;
  else
   if op='offer.retire' then
-   if p_stage<>'retire' or p_validated is not null then raise exception 'invalid stage' using errcode='23514'; end if;
+   if p_stage is distinct from 'retire' or p_validated is not null then raise exception 'invalid stage' using errcode='23514'; end if;
    select plan_id into plan from public.catalog_offer_versions where offer_version_id=target;
    if not found then raise exception 'missing offer' using errcode='P0002'; end if;
    perform 1 from public.catalog_plans where plan_id=plan for no key update;

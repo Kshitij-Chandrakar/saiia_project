@@ -15,20 +15,99 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $priorPythonPath = $env:PYTHONPATH
 $runId = [Guid]::NewGuid().ToString()
 $resultPath = Join-Path $root ('tmp\c132-session-' + $runId + '.json')
+$gatePath = Join-Path $root ('tmp\c132-launch-' + $runId + '.ready')
+$job = [IntPtr]::Zero
+$jobAttached = $false
+$ownedProcess = $null
+if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class C132Job {
+ [StructLayout(LayoutKind.Sequential)] struct Basic {
+  public long ProcessTime, JobTime; public uint Flags;
+  public UIntPtr MinWorking, MaxWorking; public uint ActiveLimit;
+  public UIntPtr Affinity; public uint Priority, Scheduling;
+ }
+ [StructLayout(LayoutKind.Sequential)] struct Io {
+  public ulong ReadOps, WriteOps, OtherOps, ReadBytes, WriteBytes, OtherBytes;
+ }
+ [StructLayout(LayoutKind.Sequential)] struct Extended {
+  public Basic Basic; public Io Io; public UIntPtr ProcessMemory, JobMemory, PeakProcess, PeakJob;
+ }
+ [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+ [DllImport("kernel32.dll", SetLastError=true)] static extern bool SetInformationJobObject(IntPtr job, int kind, IntPtr data, uint length);
+ [DllImport("kernel32.dll", SetLastError=true)] static extern bool QueryInformationJobObject(IntPtr job, int kind, IntPtr data, uint length, IntPtr returned);
+ [DllImport("kernel32.dll", SetLastError=true)] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+ [DllImport("kernel32.dll", SetLastError=true)] static extern bool TerminateJobObject(IntPtr job, uint code);
+ [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr handle);
+ public static IntPtr Create() {
+  IntPtr job=CreateJobObject(IntPtr.Zero,null);
+  if(job==IntPtr.Zero) throw new InvalidOperationException("Owned job creation failed");
+  Extended limits=new Extended(); limits.Basic.Flags=0x2000;
+  int size=Marshal.SizeOf(typeof(Extended)); IntPtr data=Marshal.AllocHGlobal(size);
+  try {
+   Marshal.StructureToPtr(limits,data,false);
+   if(!SetInformationJobObject(job,9,data,(uint)size)) { CloseHandle(job); throw new InvalidOperationException("Owned job limits failed"); }
+  } finally { Marshal.FreeHGlobal(data); }
+  return job;
+ }
+ public static void Attach(IntPtr job, IntPtr process) {
+  if(!AssignProcessToJobObject(job,process)) throw new InvalidOperationException("Owned process containment failed");
+ }
+ public static void Stop(IntPtr job) {
+  if(!TerminateJobObject(job,1)) throw new InvalidOperationException("Owned job termination failed");
+ }
+ public static bool Empty(IntPtr job) {
+  IntPtr data=Marshal.AllocHGlobal(48);
+  try {
+   if(!QueryInformationJobObject(job,1,data,48,IntPtr.Zero)) throw new InvalidOperationException("Owned job verification failed");
+   return Marshal.ReadInt32(data,40)==0;
+  } finally { Marshal.FreeHGlobal(data); }
+ }
+}
+'@
+    $job = [C132Job]::Create()
+}
+function Stop-OwnedTree {
+    if ($job -ne [IntPtr]::Zero) {
+        [C132Job]::Stop($job)
+        $end = [DateTimeOffset]::UtcNow.AddSeconds(5)
+        while (-not [C132Job]::Empty($job) -and [DateTimeOffset]::UtcNow -lt $end) { Start-Sleep -Milliseconds 50 }
+        if (-not [C132Job]::Empty($job)) { throw 'Owned process tree stop unverified.' }
+        if (-not $jobAttached -and $null -ne $ownedProcess -and -not $ownedProcess.HasExited) { $ownedProcess.Kill() }
+    } elseif ($null -ne $ownedProcess) {
+        & /bin/kill -KILL -- ('-' + $ownedProcess.Id) 2>$null
+        if (-not $ownedProcess.HasExited) { $ownedProcess.Kill() }
+        $end = [DateTimeOffset]::UtcNow.AddSeconds(5)
+        do {
+            $alive = @(& /bin/ps -eo pgid=,stat= | Where-Object { $_ -match ('^\s*' + $ownedProcess.Id + '\s+[^Z\s]') })
+            if ($alive.Count -eq 0) { break }
+            Start-Sleep -Milliseconds 50
+        } while ([DateTimeOffset]::UtcNow -lt $end)
+        if ($alive.Count -ne 0) { throw 'Owned process group stop unverified.' }
+    }
+    if ($null -ne $ownedProcess) { $ownedProcess.WaitForExit(5000) | Out-Null }
+    Write-Host 'OWNED PROCESS TREE STOPPED'
+}
 try {
     $env:PYTHONPATH = @((Join-Path $root 'backend'), (Join-Path $root 'backend\tests'), (Join-Path ([IO.Path]::GetTempPath()) 'c113c-db-driver')) -join [IO.Path]::PathSeparator
     $scriptPath = Join-Path $root 'backend\tests\run_staging_session_workflow.py'
-    $nonSecretArgs = @($scriptPath, '--ca', (Resolve-Path -LiteralPath $Ca).Path, '--run-id', $runId)
+    $nonSecretArgs = @($scriptPath, '--ca', (Resolve-Path -LiteralPath $Ca).Path, '--run-id', $runId, '--launcher-gate', $gatePath)
     if ($CleanupOnly) { $nonSecretArgs += '--cleanup-only' }
     if ($Application) { $nonSecretArgs += '--application' }
     $quotedArgs = @($nonSecretArgs | ForEach-Object { '"' + $_ + '"' })
     # Console inherited for getpass. No password/environment credential transfer.
     $ownedProcess = Start-Process -FilePath $Python -ArgumentList $quotedArgs -NoNewWindow -PassThru
     $ownedProcess.Handle | Out-Null
+    if ($job -ne [IntPtr]::Zero) {
+        [C132Job]::Attach($job, $ownedProcess.Handle)
+        $jobAttached = $true
+    }
+    New-Item -ItemType File -Path $gatePath -Force | Out-Null
     $remaining = [Math]::Max(0, ($deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds)
     if (-not $ownedProcess.WaitForExit([int][Math]::Min($remaining, [int]::MaxValue))) {
-        $ownedProcess.Kill()
-        $ownedProcess.WaitForExit(5000) | Out-Null
+        Stop-OwnedTree
         throw 'Approval expired: owned client stopped. Cleanup unverified; stop remote work and report.'
     }
     $ownedProcess.Refresh()
@@ -58,5 +137,11 @@ try {
     }
     Write-Host 'COMPLETE: requested workflow passed and credential/session cleanup verified.'
 } finally {
-    $env:PYTHONPATH = $priorPythonPath
+    try {
+        if ($null -ne $ownedProcess) { Stop-OwnedTree }
+    } finally {
+        if ($job -ne [IntPtr]::Zero) { [C132Job]::CloseHandle($job) | Out-Null }
+        Remove-Item -LiteralPath $gatePath -ErrorAction SilentlyContinue
+        $env:PYTHONPATH = $priorPythonPath
+    }
 }

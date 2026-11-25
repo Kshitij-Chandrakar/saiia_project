@@ -11,7 +11,7 @@ test('isolated installed production main/preload and C12 billing states',async()
   expect(response.ok).toBe(true);return response.json();
  };
  const environment=()=>{const value={...process.env,C12_ACCEPTANCE_USER_DATA:config.userData};delete value.ELECTRON_RUN_AS_NODE;delete value.C12_ACCEPTANCE_CONFIG;return value;};
- let app,page,browser;
+ let app,page,browser,primaryFailure;
  const launch=async token=>{
   const env=environment();if(token)env.C12_ACCEPTANCE_SESSION=JSON.stringify({access_token:token,refresh_token:token===config.firstToken?'synthetic-first':'synthetic-second',expires_at:Math.floor(Date.now()/1000)+3600});
   app=await electron.launch({executablePath:config.executable,args:[],env});page=await app.firstWindow();
@@ -54,5 +54,11 @@ test('isolated installed production main/preload and C12 billing states',async()
   await page.screenshot({path:path.join(config.evidence,'second-account.png')});await record('Different verified synthetic account has isolated Free state');
   const stored=await readFile(path.join(config.userData,'desktop-auth-session.bin'));
   expect(stored.includes(Buffer.from(config.secondToken))).toBe(false);await record('Session file is encrypted, not plaintext token storage');
- }finally{await control('release');if(app)await app.close();if(browser)await browser.close();}
+ }catch(error){primaryFailure=error;throw error;}finally{
+  let cleanupFailure;
+  for(const close of [()=>control('release'),()=>app?.close(),()=>browser?.close()]){
+   try{await close();}catch(error){cleanupFailure??=error;}
+  }
+  if(!primaryFailure&&cleanupFailure)throw cleanupFailure;
+ }
 });

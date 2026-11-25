@@ -1,6 +1,11 @@
-param([ValidatePattern('^c12-rzp-test-[0-9]{2}$')][string]$SessionId='c12-rzp-test-01', [switch]$ReuseLoadedCredentials, [switch]$GenerateWebhookSecret)
+param([ValidatePattern('^c12-rzp-test-[0-9]{2}$')][string]$SessionId='c12-rzp-test-01', [switch]$ReuseLoadedCredentials, [switch]$GenerateWebhookSecret,
+    [Parameter(Mandatory=$true)][string]$Python,
+    [Parameter(Mandatory=$true)][string]$PgBin)
 
 $ErrorActionPreference = 'Stop'
+foreach ($required in @($Python, (Join-Path $PgBin 'pg_ctl.exe'))) {
+    if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw 'Prepared Python/PostgreSQL runtime missing; no credentials requested.' }
+}
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 $Host.UI.RawUI.WindowTitle = "Intervucopilot C12 Test Mode - $SessionId"
@@ -35,7 +40,7 @@ try {
     if (-not (Test-Path (Join-Path $state 'launch'))) { throw 'Local preflight launch wait expired.' }
     $env:PYTHONUTF8='1'
     $env:PYTHONPATH=Join-Path $env:TEMP 'c113c-db-driver'
-    & E:/deepfake_envs/SaIIA/python.exe backend/tests/run_razorpay_test_mode.py --session-dir $state --pg-bin C:/Users/chand/AppData/Local/Temp/c112c-native-runtime-0f19d4be3f9a436d8c761b2eaf2472a9/pgsql/bin
+    & $Python backend/tests/run_razorpay_test_mode.py --session-dir $state --pg-bin $PgBin
     if ($LASTEXITCODE -ne 0) { throw 'C12 runner failed; inspect the redacted session journal for the exact stage and HTTP/error code.' }
 } finally {
     & (Join-Path $PSScriptRoot 'c12_test_credentials.ps1') -Clear

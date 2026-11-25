@@ -42,6 +42,12 @@ do $$ begin
  if not exists(select 1 from pg_roles where rolname='catalog_public_reader') then
   create role catalog_public_reader nologin nosuperuser nocreatedb nocreaterole noinherit nobypassrls;
  end if;
+ if exists(select 1 from pg_roles where rolname='catalog_public_reader' and
+   (rolcanlogin or rolsuper or rolcreatedb or rolcreaterole or rolinherit or rolbypassrls or rolreplication))
+   or exists(select 1 from pg_auth_members where member=(select oid from pg_roles where rolname='catalog_public_reader')
+     or roleid=(select oid from pg_roles where rolname='catalog_public_reader')) then
+  raise exception 'catalog_public_reader authority mismatch';
+ end if;
 end $$;
 grant usage on schema public to catalog_public_reader;
 -- One SQL statement: revision, visibility windows and terms share one MVCC snapshot.

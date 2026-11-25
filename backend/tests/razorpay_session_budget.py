@@ -51,12 +51,18 @@ class SessionBudget:
                 import msvcrt
 
                 msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle, fcntl.LOCK_EX)
             try:
                 yield
             finally:
                 if os.name == "nt":
                     handle.seek(0)
                     msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(handle, fcntl.LOCK_UN)
 
     def load(self):
         return json.loads(self.path.read_text(encoding="utf-8"))

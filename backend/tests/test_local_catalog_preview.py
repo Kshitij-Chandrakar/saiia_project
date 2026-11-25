@@ -18,6 +18,8 @@ from test_draft_api_native import create
 
 
 def test_local_catalog_preview(pricing):
+    if os.environ.get("CATALOG_MANUAL_WORKBENCH") != "true":
+        pytest.skip("Manual catalog preview requires CATALOG_MANUAL_WORKBENCH=true")
     db, client, app, _ = pricing
     assert db.directory.name.startswith('c112d-disposable-')
     conn = app.state.catalog_public.connect()

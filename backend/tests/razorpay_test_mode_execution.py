@@ -28,6 +28,56 @@ ROOT = Path(__file__).resolve().parents[2]
 logger = logging.getLogger(__name__)
 
 
+def cleanup_subscriptions(provider, budget):
+    provider.cleanup = True
+    complete = True
+    for identifier in budget.load()["resources"].get("subscriptions", []):
+        try:
+            state = provider.subscription(identifier)
+            if state["status"] not in {"cancelled", "completed", "expired"}:
+                provider.cancel(identifier)
+                state = provider.subscription(identifier)
+            terminal = state["status"] in {"cancelled", "completed", "expired"} or state.get("cancel_at_cycle_end") is True
+            complete = complete and terminal
+            budget.event("cleanup_subscription_observed", resource_id=identifier, passed=terminal)
+        except Exception as error:
+            complete = False
+            budget.event("cleanup_subscription_unresolved", resource_id=identifier, exception_type=type(error).__name__)
+    return complete
+
+
+def cleanup_pending(service, budget):
+    try:
+        pending = service.pending()[:8]
+    except Exception as error:
+        budget.event("cleanup_pending_lookup_unresolved", exception_type=type(error).__name__)
+        return False
+    complete = True
+    for operation in pending:
+        try:
+            recovered = service.reconcile(operation["account_id"], operation["operation_id"])
+            if recovered.get("provider_id"):
+                budget.resource("subscriptions", recovered["provider_id"])
+            else:
+                complete = False
+                budget.event("cleanup_uncertain_creation_unresolved", resource_id=operation["operation_id"], passed=False)
+        except Exception as error:
+            complete = False
+            budget.event("cleanup_reconciliation_unresolved", resource_id=operation["operation_id"], exception_type=type(error).__name__)
+    return complete
+
+
+def cleanup_only(credentials, directory):
+    budget = SessionBudget(directory)
+    if budget.load()["status"] != "cleanup" or not budget.load()["start_utc"]:
+        raise RuntimeError("No unfinished cleanup session; no new intake allowed")
+    provider = BoundedProvider(credentials["RAZORPAY_TEST_KEY_ID"], credentials["RAZORPAY_TEST_KEY_SECRET"], budget)
+    complete = cleanup_subscriptions(provider, budget) and not budget.load().get("cleanup_requires_reconciliation")
+    budget.close_intake("finished" if complete else "cleanup")
+    if not complete:
+        raise RuntimeError("Subscription cleanup remains unresolved; original budget retained")
+
+
 def execute(u, credentials, directory):
     key = credentials["RAZORPAY_TEST_KEY_ID"]
     merchant = credentials["RAZORPAY_TEST_ACCOUNT_ID"]
@@ -327,56 +377,29 @@ def execute(u, credentials, directory):
         if gateway_server is not None:
             gateway_server.should_exit = True
         provider.cleanup = True
-        if service is not None:
-            for operation in service.pending()[:8]:
-                try:
-                    recovered = service.reconcile(
-                        operation["account_id"], operation["operation_id"]
-                    )
-                    if recovered.get("provider_id"):
-                        budget.resource("subscriptions", recovered["provider_id"])
-                    else:
-                        budget.event(
-                            "cleanup_uncertain_creation_unresolved",
-                            resource_id=operation["operation_id"],
-                            passed=False,
-                        )
-                except Exception as error:
-                    logger.exception(
-                        "C12 cleanup reconciliation unavailable", exc_info=False
-                    )
-                    budget.event(
-                        "cleanup_reconciliation_unresolved",
-                        resource_id=operation["operation_id"],
-                        exception_type=type(error).__name__,
-                    )
-        for identifier in budget.load()["resources"].get("subscriptions", []):
-            try:
-                state = provider.subscription(identifier)
-                if state["status"] not in {"cancelled", "completed", "expired"}:
-                    provider.cancel(identifier)
-                    state = provider.subscription(identifier)
-                budget.event(
-                    "cleanup_subscription_observed",
-                    resource_id=identifier,
-                    passed=state["status"] in {"cancelled", "completed", "expired"}
-                    or state.get("cancel_at_cycle_end") is True,
-                )
-            except Exception as error:
-                logger.exception("C12 subscription cleanup unavailable", exc_info=False)
-                budget.event(
-                    "cleanup_subscription_unresolved",
-                    resource_id=identifier,
-                    exception_type=type(error).__name__,
-                )
+        cleanup_complete = cleanup_pending(service, budget) if service is not None else True
+        if not cleanup_complete:
+            with budget.locked():
+                state = budget.load()
+                state["cleanup_requires_reconciliation"] = True
+                budget.save(state)
+        cleanup_complete = cleanup_subscriptions(provider, budget) and cleanup_complete
         for process in reversed(children):
-            if process.poll() is None:
-                process.terminate()
             try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
+                if process.poll() is None:
+                    process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+            except Exception as error:
+                cleanup_complete = False
+                with budget.locked():
+                    state = budget.load()
+                    state["cleanup_requires_reconciliation"] = True
+                    budget.save(state)
+                budget.event("owned_process_stop_unresolved", exception_type=type(error).__name__)
             budget.event(
                 "owned_process_stopped",
                 resource_id=str(process.pid),
@@ -385,4 +408,4 @@ def execute(u, credentials, directory):
         if website_log is not None:
             website_log.close()
         budget.event("webhook_dashboard_cleanup_requires_verification", passed=False)
-        budget.close_intake("finished")
+        budget.close_intake("finished" if cleanup_complete else "cleanup")

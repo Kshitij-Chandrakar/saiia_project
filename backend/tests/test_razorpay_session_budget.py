@@ -55,3 +55,17 @@ def test_one_authentication_retry_preserves_clock_and_attempts(tmp_path):
     budget.close_intake("finished")
     with pytest.raises(RuntimeError):
         budget.resume_after_authentication_rejection()
+
+
+def test_independent_budget_instances_share_the_same_reservation_lock(tmp_path):
+    def attempt(_):
+        budget = SessionBudget(tmp_path)
+        try:
+            budget.reserve("subscriptions")
+            return True
+        except RuntimeError:
+            return False
+
+    with ThreadPoolExecutor(8) as workers:
+        assert sum(workers.map(attempt, range(20))) == 8
+    assert SessionBudget(tmp_path).load()["counts"]["subscriptions"] == 8

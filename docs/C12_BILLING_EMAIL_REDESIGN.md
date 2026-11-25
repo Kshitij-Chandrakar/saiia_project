@@ -1,6 +1,6 @@
 # C12 initial-payment and renewal email redesign — locally verified
 
-**Later approved publication/inbox execution, 27 October:** [actual results](C12_EMAIL_REDESIGN_01_EXECUTION.md) supersede the historical unpublished/prepared-only statements below. Three new versioned objects verified, two redesigned emails accepted by Resend, owner confirmed receipt/artwork/no CTA; all within original limits/deadline after bounded transfer recovery. Public website remains undeployed; CTA stays omitted. No production activation; C12 remains open.
+**Later approved publication/inbox execution, 27 October:** actual results (owner-held private record `C12_EMAIL_REDESIGN_01_EXECUTION.md`; excluded from this checkout) supersede the historical unpublished/prepared-only statements below. Three new versioned objects verified, two redesigned emails accepted by Resend, owner confirmed receipt/artwork/no CTA; all within original limits/deadline after bounded transfer recovery. Public website remains undeployed; CTA stays omitted. No production activation; C12 remains open.
 
 26 October 2026. Presentation-only implementation, using the owner's supplied HTML as visual direction and supplied payment/renewal illustrations. No actual email, upload, provider call, migration, shared-service change, activation, commit, push or deployment occurred. Existing payment verification, outbox/event identities, retries, recipient policy, Resend adapter, subjects and cancellation uncertainty are preserved.
 
