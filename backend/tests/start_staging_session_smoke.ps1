@@ -16,7 +16,7 @@ $priorPythonPath = $env:PYTHONPATH
 $runId = [Guid]::NewGuid().ToString()
 $resultPath = Join-Path $root ('tmp\c132-session-' + $runId + '.json')
 try {
-    $env:PYTHONPATH = (Join-Path $root 'backend') + ';' + (Join-Path $root 'backend\tests') + ';' + (Join-Path $env:TEMP 'c113c-db-driver')
+    $env:PYTHONPATH = @((Join-Path $root 'backend'), (Join-Path $root 'backend\tests'), (Join-Path ([IO.Path]::GetTempPath()) 'c113c-db-driver')) -join [IO.Path]::PathSeparator
     $scriptPath = Join-Path $root 'backend\tests\run_staging_session_workflow.py'
     $nonSecretArgs = @($scriptPath, '--ca', (Resolve-Path -LiteralPath $Ca).Path, '--run-id', $runId)
     if ($CleanupOnly) { $nonSecretArgs += '--cleanup-only' }

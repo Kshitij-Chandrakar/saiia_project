@@ -253,6 +253,7 @@ def test_initial_connection_failure_never_provisions_and_records_cleanup_failure
 def test_actual_powershell_launcher_local_orchestration(tmp_path, scenario):
     """Run the real launcher with a disposable no-network child executable script."""
     import json
+    import os
     import shutil
     import subprocess
     import sys
@@ -283,7 +284,11 @@ def test_actual_powershell_launcher_local_orchestration(tmp_path, scenario):
         "error": None if scenario == "success" else "PoolTimeout",
     }
     stub = (
-        "import json,sys\nfrom pathlib import Path\n"
+        "import json,os,sys\nfrom pathlib import Path\n"
+        "paths=os.environ['PYTHONPATH'].split(os.pathsep)\n"
+        "assert len(paths)==3 and str(Path(__file__).parents[1]) in paths\n"
+        "assert str(Path(__file__).parent) in paths\n"
+        "assert Path(paths[-1]).name=='c113c-db-driver'\n"
         "run=sys.argv[sys.argv.index('--run-id')+1]\n"
         f"result=json.loads({json.dumps(result)!r})\n"
         f"result['run_id']='wrong' if {scenario!r}=='wrong_run' else run\n"
@@ -306,6 +311,7 @@ def test_actual_powershell_launcher_local_orchestration(tmp_path, scenario):
             sys.executable,
         ],
         capture_output=True,
+        env={key: value for key, value in os.environ.items() if key != "TEMP"},
         check=False,
         text=True,
         timeout=30,
