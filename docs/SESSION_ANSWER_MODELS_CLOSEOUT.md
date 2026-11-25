@@ -25,7 +25,7 @@ New sessions default to Gemini 3.5 Flash-Lite. Creation validates stable keys, i
 
 Owned active sessions route HTTP manual answers, typed Chat, standard Auto/live follow-ups and cloud gRPC Auto through request-scoped providers. Existing prompts, resume/JD retrieval, formatting and validation remain. Corrections use the current attempt provider. STT/classification, direct OCR/vision answers, dashboard Ask AI and AI Notes remain on independent routing; this feature does not claim those surfaces use the session answer model.
 
-Selected model runs first; eligible failure tries Groq GPT-OSS 120B once, silently. Missing Gemini credentials do not block creation and immediately take fallback. No self-fallback; every subsequent question starts at the selected model. Authorization/lifecycle/cancellation/supersession stops do not trigger fallback. Shared first-token/idle/overall deadlines and fallback reserve bound the whole turn. HTTP replace events clear failed partial text; gRPC full answer_completed replaces provisional text. Typed terminal failure clears text and exposes ?Unable to generate an answer? with Retry. Retry reuses the captured failed turn without audio recapture or a second history entry.
+Selected model runs first; eligible failure tries Groq GPT-OSS 120B once, silently. Missing Gemini credentials do not block creation and immediately take fallback. No self-fallback; every subsequent question starts at the selected model. Authorization/lifecycle/cancellation/supersession stops do not trigger fallback. Shared first-token/idle/overall deadlines and fallback reserve bound the whole turn. HTTP replace events clear failed partial text; gRPC full answer_completed replaces provisional text. Typed terminal failure clears text and exposes "Unable to generate an answer" with Retry. Retry reuses the captured failed turn without audio recapture or a second history entry.
 
 One backend claim/checkpoint/complete boundary owns final validated persistence. Restricted selected/actual provider/API identifiers and fallback_used preserve historical truth. Claims/checkpoints have service-only access, forced RLS, ownership checks and transcript-equivalent deletion/session-close cleanup. Completed replay and checkpoint save-only recovery do not regenerate. Processing leases expire after 120 seconds into uncertain recovery; crash-before-checkpoint uncertainty does not regenerate automatically. Fencing/database deduplication does not guarantee exactly one upstream execution after crashes. Existing gRPC request_id carries server-minted turn identity; Retry recovers it over existing HTTP, not a new protobuf retry contract. Auto source metadata alone does not identify the transport used.
 
@@ -50,7 +50,7 @@ Pause new admission by changing only the development DB `session_model_routing_r
 
 ## Evidence, with limits
 
-User confirmation ?everything is working? is recorded as **user-reported manual success** only. It does not establish unreported model/transport/failure tests.
+User confirmation "everything is working" is recorded as **user-reported manual success** only. It does not establish unreported model/transport/failure tests.
 
 Read-only restricted metadata review on Saiia-dev (100 most recent saved transcript metadata rows, no question/answer text or identities printed):
 

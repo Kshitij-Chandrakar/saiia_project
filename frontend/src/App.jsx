@@ -1790,7 +1790,7 @@ function MainWindow() {
 
       if (authRequired) {
         let desktopHandlerKey = ''
-        let desktopStreamId = String(requestId)
+        let desktopStreamId = requestBody.request_id
         let desktopStreamPromise = null
         let removeDesktopAbortListener = () => {}
         let unsubscribeDesktop = () => {}
@@ -1798,7 +1798,7 @@ function MainWindow() {
         if (
           displayMode !== 'screen' && desktopStreamAvailable
         ) {
-          desktopHandlerKey = String(requestId)
+          desktopHandlerKey = requestBody.request_id
           desktopStreamPromise = new Promise((resolve, reject) => {
             let settled = false
             const settle = (callback, value) => {
@@ -4853,6 +4853,7 @@ function MainWindow() {
     setGenerationDiagnostics(current => ({ ...current, ...realtimeRouteDiagnostics(
       { route: 'existing_default', reason: 'preparing', fallbackAvailable: sourceMode === 'microphone' },
       null, { source: sourceMode }), autoPipeline: 'existing default', autoModePipeline: 'existing_default' }))
+    setAnswerDisplayMode('answer')
     setError('')
     clearProgressiveAnswer()
     resetAnswerMeta()
@@ -5013,6 +5014,7 @@ function MainWindow() {
           },
           onAnswer: entry => {
             if (!isCurrent()) return
+            setAnswerDisplayMode('answer')
             setGrpcAnswerIdentity(entry.streamIdentity || null)
             if (entry.status === 'generating' && entry.historyEntryId !== failedAnswerTurnRef.current?.historyEntryId) {
               activeGenerateAbortControllerRef.current?.abort()
@@ -7011,6 +7013,10 @@ function ProfileSetupForm() {
 }
 
 export default function App() {
+  useEffect(() => {
+    if (!window.electronAPI) window.dispatchEvent(new Event('intervucopilot:mounted'))
+  }, [])
+
   const params = new URLSearchParams(window.location.search)
   const view = params.get('view')
 

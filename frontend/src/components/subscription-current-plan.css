@@ -1,44 +1,93 @@
-/* Current-plan copy needs natural height inside the existing desktop shell. */
-.startup-choice-window.startup-choice-window--home {
+/* Shared startup shell keeps Create and Past Sessions visually consistent. */
+.startup-choice-window:is(.startup-choice-window--home, .startup-choice-window--history) {
   width: min(428px, 100vw);
-  height: min(560px, 100dvh);
+  height: 100dvh;
   overflow-y: auto;
 }
-.startup-choice-window.startup-choice-window--home .startup-choice-card {
+.startup-choice-window:is(.startup-choice-window--home, .startup-choice-window--history) .startup-choice-card {
   width: 100%;
   height: auto;
   min-height: 100%;
-  overflow: visible;
 }
-.startup-choice-window.startup-choice-window--home .startup-choice-header,
-.startup-choice-window.startup-choice-window--home .startup-choice-main,
-.startup-choice-window.startup-choice-window--home .startup-choice-tabs,
-.startup-choice-window.startup-choice-window--home .startup-choice-footer {
+.startup-choice-window:is(.startup-choice-window--home, .startup-choice-window--history) .startup-choice-header,
+.startup-choice-window:is(.startup-choice-window--home, .startup-choice-window--history) .startup-choice-main,
+.startup-choice-window:is(.startup-choice-window--home, .startup-choice-window--history) .startup-choice-tabs { width: 100%; }
+.startup-choice-window:is(.startup-choice-window--home, .startup-choice-window--history) .startup-choice-main { padding: 16px 18px; gap: 14px; }
+.startup-choice-window:is(.startup-choice-window--home, .startup-choice-window--history) .startup-choice-tabs { height: 42px; padding: 4px; border: 0; background: #f4f4f5; }
+.startup-choice-window:is(.startup-choice-window--home, .startup-choice-window--history) .startup-choice-tab { height: 34px; font-size: 14px; font-weight: 500; }
+.startup-choice-window:is(.startup-choice-window--home, .startup-choice-window--history) .startup-choice-tab--active { background: #fff; box-shadow: 0 1px 3px #00000014; }
+.startup-choice-window:is(.startup-choice-window--home, .startup-choice-window--history) .startup-choice-tab img { display: none; }
+.startup-choice-window:is(.startup-choice-window--home, .startup-choice-window--history) .startup-choice-intro h2 { font-size: 15px; font-weight: 500; letter-spacing: normal; }
+.startup-choice-window:is(.startup-choice-window--home, .startup-choice-window--history) .startup-choice-time { background: #181818; color: #fff; }
+.startup-choice-session-actions { display: flex; gap: 12px; }
+.startup-choice-session-button {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  flex: 1; min-width: 0; min-height: 42px; padding: 10px 8px;
+  border: 1px solid #181818; border-radius: 10px;
+  background: #181818; color: #fff; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.startup-choice-session-button--free { background: #fff; color: #181818; border-color: #dedee3; box-shadow: 0 1px 2px #0000000d; }
+.startup-choice-session-limit { color: #087f5b; font-size: 12px; white-space: nowrap; }
+.startup-choice-session-button:hover { background: #303030; }
+.startup-choice-session-button--free:hover { background: #f4f4f5; }
+.startup-choice-session-button:active { opacity: .85; }
+.startup-choice-upgrade { align-self: center; padding: 4px 8px; margin-top: -8px; border: 0; background: transparent; color: #4042b6; font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; }
+.startup-choice-plan-status { margin: 0; font-size: 12px; line-height: 16px; color: #555963; }
+.startup-choice-window:is(.startup-choice-window--home, .startup-choice-window--history) .startup-choice-message { position: static; margin: 0; color: #45429c; }
+@media (max-width: 400px) {
+  .startup-choice-window:is(.startup-choice-window--home, .startup-choice-window--history) .startup-choice-header { height: auto; min-height: 65px; flex-wrap: wrap; gap: 8px; }
+  .startup-choice-window:is(.startup-choice-window--home, .startup-choice-window--history) .startup-choice-header__actions { margin-left: auto; }
+  .startup-choice-session-actions { flex-wrap: wrap; }
+  .startup-choice-session-button { flex-basis: 140px; }
+}
+.startup-choice-window:is(.startup-choice-window--home, .startup-choice-window--history) .startup-choice-brand h1 { font-size: 17px; letter-spacing: -.3px; }
+
+.startup-choice-window.startup-choice-window--history .startup-choice-main {
+  height: auto;
+  min-height: calc(100dvh - 65px);
+}
+.startup-choice-window--history .startup-choice-history-intro h2 {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: normal;
+}
+.startup-choice-window--history .startup-choice-history-content {
   width: 100%;
-}
-.startup-choice-window--home .startup-choice-option--subscription {
   height: auto;
-  min-height: 208px;
-  gap: 4px;
-  overflow: visible;
+  flex: 1;
+  align-items: flex-start;
 }
-.startup-choice-option--subscription h3,
-.startup-choice-option--subscription p {
-  flex-shrink: 0;
-  overflow-wrap: anywhere;
-}
-.startup-choice-window--home .startup-choice-option--subscription p { line-height: 1.4; }
-.startup-choice-option--subscription .startup-choice-link-button {
-  flex-shrink: 0;
-  min-height: 36px;
+.startup-choice-window--history .startup-choice-history-list { width: 100%; gap: 8px; }
+.startup-choice-window--history .startup-choice-history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  width: 100%;
   height: auto;
-  padding-top: 8px;
+  min-height: 76px;
+  padding: 10px 12px;
+  border-color: #e4e4e7;
+  border-radius: 10px;
 }
-@media (max-width: 427px) {
-  .startup-choice-window.startup-choice-window--home { height: auto; max-height: 100dvh; bottom: auto; }
-  .startup-choice-window.startup-choice-window--home .startup-choice-header { height: auto; flex-wrap: wrap; gap: 10px; }
-  .startup-choice-window--home .startup-choice-header__actions { margin-left: auto; }
-  .startup-choice-window--home .startup-choice-main { padding: 18px; gap: 18px; }
-  .startup-choice-window--home .startup-choice-options { flex-direction: column; }
-  .startup-choice-window--home .startup-choice-option { flex: none; }
+.startup-choice-window--history .startup-choice-history-row__identity { gap: 10px; }
+.startup-choice-window--history .startup-choice-history-avatar {
+  width: 32px; height: 32px; flex-basis: 32px;
+  background: #f4f4f5; color: #45474c; font-family: inherit; font-size: 14px;
 }
+.startup-choice-window--history .startup-choice-history-row__details strong { font-size: 14px; line-height: 20px; }
+.startup-choice-window--history .startup-choice-history-row__details span {
+  font-family: inherit; font-size: 12px; line-height: 18px; text-transform: none; color: #555963;
+}
+.startup-choice-window--history .startup-choice-history-row time {
+  grid-column: 2; margin: 0; text-align: right;
+  font-family: inherit; font-size: 11px; letter-spacing: normal; color: #555963;
+}
+.startup-choice-window--history .startup-choice-history-view-all {
+  width: 100%; min-height: 42px; height: auto; margin-top: auto;
+  border-color: #181818; background: #181818; color: #fff;
+  font-family: inherit; font-size: 14px; letter-spacing: normal;
+}
+.startup-choice-window--history .startup-choice-history-view-all:hover { background: #303030; }
+.startup-choice-window--history .startup-choice-history-view-all img { display: none; }
+.startup-choice-window--history .startup-choice-history-status { padding: 16px 0; font-size: 13px; color: #555963; }

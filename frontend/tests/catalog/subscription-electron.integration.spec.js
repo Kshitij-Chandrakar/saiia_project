@@ -50,7 +50,7 @@ test('actual Windows Electron main, preload, current plan, Upgrade and logout', 
     let second
     try {
       second = await launch({ C132_ELECTRON_DATA: secondDirectory,
-        ...(native.hosted ? { ELECTRON_HOSTED_AUDIO_URL: native.hosted.secondUrl } : {}) } })
+        ...(native.hosted ? { ELECTRON_HOSTED_AUDIO_URL: native.hosted.secondUrl } : {}) })
       const other = await second.firstWindow()
       await expect(other.getByText('Current plan: Free', { exact: true })).toBeVisible()
       const status = await other.evaluate(sessionId => window.electronAPI.connectGrpcAutoPipeline({ activeSessionId: sessionId, source: 'microphone' }), native.manual.session_id)
@@ -71,7 +71,7 @@ test('actual Windows Electron main, preload, current plan, Upgrade and logout', 
       await expect(page).toHaveURL(/^file:/)
     }
     await expect(page.getByText('Current plan: Free', { exact: true })).toBeVisible({ timeout: 30000 })
-    await page.getByRole('button', { name: 'Upgrade', exact: true }).click()
+    await page.getByRole('button', { name: 'Buy Credits', exact: true }).click()
     await expect.poll(() => app.evaluate(() => global.subscriptionOpened)).toEqual(['http://127.0.0.1:5186/#pricing'])
     expect(await page.evaluate(() => typeof window.electronAPI.getSubscription)).toBe('function')
     expect(await page.getByRole('heading', { name: 'Plus', exact: true }).count()).toBe(0)

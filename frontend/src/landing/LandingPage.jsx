@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import CatalogPricing from './CatalogPricing.jsx'
 import React, { useEffect, useRef, useState } from 'react'
 import './LandingPage.css'
@@ -149,7 +150,7 @@ function Hero() {
           </div>
         </div>
         <div className="figma-17" data-node-id="173:2444" data-name="CTAs">
-          <a href="/auth/signup" className="figma-18" data-node-id="173:2445" data-name="Link">
+          <Link to="/auth/signup" className="figma-18" data-node-id="173:2445" data-name="Link">
             <div className="figma-19" data-node-id="173:2446" data-name="Container">
               <div className="figma-20" data-node-id="173:2447">
                 <p className="figma-21">Get Started</p>
@@ -158,7 +159,7 @@ function Hero() {
             <div className="figma-22" data-node-id="173:2448" data-name="Container">
               <img alt="" className="figma-23" src={heroImgContainer} />
             </div>
-          </a>
+          </Link>
           <a href="#how-it-works" className="figma-24" data-node-id="173:2450" data-name="Link">
             <div className="figma-25" data-node-id="173:2451" data-name="Container">
               <img alt="" className="figma-23" src={heroImgContainer1} />
@@ -2836,7 +2837,7 @@ function FinalCTA() {
           </div>
         </div>
         <div className="figma-523" data-node-id="173:3306" data-name="Container">
-          <a href="/auth/signup" className="figma-435" data-node-id="173:3307" data-name="Link">
+          <Link to="/auth/signup" className="figma-435" data-node-id="173:3307" data-name="Link">
             <div className="figma-76" data-node-id="173:3308" data-name="Container">
               <div className="figma-524" data-node-id="173:3309">
                 <p className="figma-21">Create Free Account</p>
@@ -2845,7 +2846,7 @@ function FinalCTA() {
             <div className="figma-22" data-node-id="173:3310" data-name="Container">
               <img alt="" className="figma-23" src={finalctaImgContainer} />
             </div>
-          </a>
+          </Link>
           <div className="figma-525" data-node-id="173:3312" data-name="Button">
             <div className="figma-22" data-node-id="173:3313" data-name="Container">
               <img alt="" className="figma-23" src={finalctaImgContainer1} />
@@ -3180,12 +3181,12 @@ function Header() {
             </a>
           </div>
           <div className="figma-628" id="landing-account-links" data-node-id="173:3396" data-name="Container">
-            <a href="/auth/login" className="figma-629" data-node-id="173:3397" data-name="Link">
+            <Link to="/auth/login" className="figma-629" data-node-id="173:3397" data-name="Link">
               <div className="figma-630" data-node-id="173:3398">
                 <p className="figma-21">Log in</p>
               </div>
-            </a>
-            <a href="/auth/signup" className="figma-631" data-node-id="173:3399" data-name="Link">
+            </Link>
+            <Link to="/auth/signup" className="figma-631" data-node-id="173:3399" data-name="Link">
               <div className="figma-19" data-node-id="173:3400" data-name="Container">
                 <div className="figma-632" data-node-id="173:3401">
                   <p className="figma-341">Get Started</p>
@@ -3194,7 +3195,7 @@ function Header() {
               <div className="figma-633" data-node-id="173:3402" data-name="Container">
                 <img alt="" className="figma-23" src={headerImgContainer1} />
               </div>
-            </a>
+            </Link>
           </div>
         </div>
       </div>
@@ -3294,16 +3295,16 @@ function Footer() {
                   <p className="figma-8">{`ACCOUNT & LEGAL`}</p>
                 </div>
               </div>
-              <a href="/auth/login" className="figma-43" data-node-id="173:3358" data-name="Link">
+              <Link to="/auth/login" className="figma-43" data-node-id="173:3358" data-name="Link">
                 <div className="figma-646" data-node-id="173:3359">
                   <p className="figma-341">Log in</p>
                 </div>
-              </a>
-              <a href="/auth/signup" className="figma-43" data-node-id="173:3360" data-name="Link">
+              </Link>
+              <Link to="/auth/signup" className="figma-43" data-node-id="173:3360" data-name="Link">
                 <div className="figma-646" data-node-id="173:3361">
                   <p className="figma-341">Create Account</p>
                 </div>
-              </a>
+              </Link>
               <a href="#privacy" className="figma-43" data-node-id="173:3362" data-name="Link">
                 <div className="figma-646" data-node-id="173:3363">
                   <p className="figma-341">Privacy Policy</p>

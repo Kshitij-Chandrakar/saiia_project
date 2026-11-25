@@ -926,12 +926,7 @@ export default function AnswerPanel({
     >
       {mode !== 'chat' && mode !== 'analyzeScreen' && overlayState.generationDiagnostics?.generationRequestBlocked ? (
         <div role="alert" className="no-drag">
-          <p>Generation blocked: cloud access is unavailable. Reconnect to save this answer, end the session, or explicitly generate locally without saving.</p>
-          {[
-            ['generation-refresh-cloud', 'Reconnect / refresh cloud'],
-            ['generation-end-session', 'End active session'],
-            ['generation-local', 'Generate locally without saving'],
-          ].map(([action, label]) => <button key={action} type="button" disabled={overlayState.isManualGenerating} onClick={() => window.electronAPI?.triggerToolbarAction?.(action)}>{label}</button>)}
+          <p>Cloud connection unavailable. Please check your connection and try again.</p>
         </div>
       ) : null}
       {overlayState.generationDiagnostics?.answerRetryAvailable ? <div role="alert"><span>Unable to generate an answer</span><button type="button" disabled={overlayState.isManualGenerating} onClick={() => window.electronAPI?.triggerToolbarAction?.('generation-retry')}>Retry</button></div> : null}

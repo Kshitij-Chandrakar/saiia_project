@@ -5,6 +5,45 @@ import { prepareGenerationRequest } from './generation_auth.js'
 const available = { getCloudStartupContext: async () => ({ auth: { status: 'connected' }, cloud: { available: true } }) }
 const unavailable = { getCloudStartupContext: async () => ({ auth: { status: 'connected' }, cloud: { available: false } }) }
 
+test('generation refreshes unavailable cached cloud state once and preserves session context', async () => {
+  let refreshes = 0
+  const api = { ...unavailable, refreshCloudStartupContext: async () => {
+    refreshes += 1
+    return available.getCloudStartupContext()
+  } }
+  let diagnostics
+  const result = await prepareGenerationRequest({ question: 'Question' },
+    { activeSessionId: 'session', selectedResumeId: 'resume' }, api, value => { diagnostics = value })
+  assert.equal(refreshes, 1)
+  assert.equal(result.requestBody.session_id, 'session')
+  assert.equal(result.requestBody.selected_resume_id, 'resume')
+  assert.equal(result.authRequired, true)
+  assert.equal(diagnostics.generationRequestBlocked, false)
+})
+
+for (const outcome of ['unavailable', 'expired', 'throws']) test(`cloud refresh ${outcome} keeps generation blocked`, async () => {
+  let refreshes = 0
+  const body = { question: 'Question', session_id: 'session', selected_resume_id: 'resume' }
+  const api = { ...unavailable, refreshCloudStartupContext: async () => {
+    refreshes += 1
+    if (outcome === 'throws') throw new Error('Unavailable')
+    return { auth: { status: outcome === 'expired' ? 'token-expired' : 'connected' }, cloud: { available: outcome === 'expired' } }
+  } }
+  await assert.rejects(prepareGenerationRequest(body, {}, api), /Sign in again/)
+  assert.equal(refreshes, 1)
+  assert.equal(body.session_id, 'session')
+  assert.equal(body.selected_resume_id, 'resume')
+})
+
+test('healthy and explicitly local generation skip the cloud refresh', async () => {
+  let refreshes = 0
+  const refreshCloudStartupContext = async () => { refreshes += 1 }
+  await prepareGenerationRequest({}, { activeSessionId: 'session' }, { ...available, refreshCloudStartupContext })
+  await prepareGenerationRequest({}, { activeSessionId: 'session' }, { ...unavailable, refreshCloudStartupContext }, undefined, { localWithoutSaving: true })
+  await prepareGenerationRequest({}, {}, { ...unavailable, refreshCloudStartupContext })
+  assert.equal(refreshes, 0)
+})
+
 test('unavailable active startup session rejects instead of detaching session persistence', async () => {
   const body = { question: 'What is deep learning?', session_id: 'startup-session' }
   await assert.rejects(prepareGenerationRequest(body, { activeSessionId: 'startup-session' }, unavailable), /Sign in again/)

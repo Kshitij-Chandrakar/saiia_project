@@ -43,6 +43,24 @@ function harness({ capability = true, selected = 'system', healthWait, getUserMe
   return { start, context, values, counts: () => ({ connects, closes }) }
 }
 
+for (const selected of ['microphone', 'system', 'both']) test(`Auto ${selected} answers keep Answer mode after Chat`, async () => {
+  const f = harness({ selected, getUserMedia: async () => ({ getTracks: () => [] }) })
+  let publishAnswer
+  f.context.createGrpcAutoSession = async options => {
+    publishAnswer = options.onAnswer
+    return { close: async () => {} }
+  }
+  f.values.setAnswerDisplayMode = 'chat'
+  await f.start()
+  assert.equal(f.values.setAnswerDisplayMode, 'answer')
+  for (const status of ['generating', 'complete']) {
+    f.values.setAnswerDisplayMode = 'chat'
+    publishAnswer({ question: 'What are parameters in language models?', answer: 'Model parameters are learned values.', status, historyEntryId: 'auto-question' })
+    assert.equal(f.values.setAnswerDisplayMode, 'answer')
+    assert.equal(f.values.setAnswer, 'Model parameters are learned values.')
+  }
+})
+
 test('actual Computer renderer Start uses one gRPC factory with no microphone or system HTTP/WS transport', async () => {
   const f = harness()
   await f.start()

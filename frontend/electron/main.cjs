@@ -313,7 +313,7 @@ function cancelAllAnswerStreams() {
 
 const STARTUP_WINDOW_LAYOUTS = Object.freeze({
   auth: Object.freeze({ width: 504, height: 462, minWidth: 426, minHeight: 384 }),
-  home: Object.freeze({ width: 428, height: 560, minWidth: 428, minHeight: 384 }),
+  home: Object.freeze({ width: 428, height: 280, minWidth: 428, minHeight: 280 }),
   history: Object.freeze({ width: 428, height: 514, minWidth: 428, minHeight: 384 }),
   setup: Object.freeze({ width: 421, height: 484, minWidth: 421, minHeight: 484 }),
 })
@@ -1830,6 +1830,8 @@ function createMainWindow() {
       nodeIntegration: false,
     },
   })
+  //The following line enables content protection for the main window
+  //mainWindow.setContentProtection(true)
   loadWindow(mainWindow, 'main')
 
   mainWindow.on('closed', () => {

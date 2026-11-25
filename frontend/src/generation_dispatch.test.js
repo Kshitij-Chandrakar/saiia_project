@@ -35,7 +35,7 @@ function harness(config = {}, cloudState = null) {
     // Manual stop-to-generate has already detected the question; classification/profile precede this stream.
     await context.fetch('http://local/classify/', { body: JSON.stringify({ text: capture.text }) })
     await context.fetch('http://local/api/profile')
-    return stream({ ...options, body: { request_id: 'request-1', question: capture.text, session_id: config.activeSessionId || undefined }, requestId: 'request-1' })
+    return stream({ ...options, body: { request_id: config.wireRequestId || 'request-1', question: capture.text, session_id: config.activeSessionId || undefined }, requestId: 'request-1' })
   }
   return { context, calls, values, generate }
 }
@@ -278,8 +278,8 @@ test('electronAPI stream capability is used when the saiia alias is unavailable'
 })
 
 
-test('actual preload routes authenticated manual streaming IPC and forwards deltas without renderer credentials', async () => {
-  const h = harness({ activeSessionId: 'active-1' }, { auth: { status: 'connected' }, cloud: { available: true } })
+for (const wireRequestId of ['request-1', 'backend-turn-2']) test(`actual preload forwards manual deltas with wire request ${wireRequestId}`, async () => {
+  const h = harness({ activeSessionId: 'active-1', wireRequestId }, { auth: { status: 'connected' }, cloud: { available: true } })
   const preloadSource = readFileSync(new URL('../electron/preload.cjs', import.meta.url), 'utf8')
   const listeners = new Map()
   const ipcRenderer = {
@@ -288,7 +288,7 @@ test('actual preload routes authenticated manual streaming IPC and forwards delt
       if (channel === 'cloud:get-startup-context') return { auth: { status: 'connected' }, cloud: { available: true } }
       assert.equal(channel, 'generate:answer:stream:start', 'manual must never choose generate:answer IPC')
       h.calls.push({ url: channel, body })
-      assert.equal(body.request_id, 'request-1')
+      assert.equal(body.request_id, wireRequestId)
       assert.equal(body.session_id, 'active-1')
       assert.equal(body.access_token, undefined)
       const emit = (event) => listeners.get('generate:answer:stream:event')({}, { client_request_id: body.request_id, event })

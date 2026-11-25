@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { money } from './pricingMoney.js';
 import { useEffect, useState } from 'react';
 import { Check, X, UserRound, Zap, Crown, ArrowUpRight, MessageCircle, Network, FileText, Sparkles } from 'lucide-react';
@@ -52,7 +53,7 @@ export function CatalogPricingCards({offers,yearly,checkoutAvailable=false,check
       <div className="cp-price"><div><strong>{free?'\u20b90':price?money(price):'Not available'}</strong></div>
       {free?<p>No payment required</p>:<><p className="cp-billing">per {yearly?'year':'month'} + 18% GST</p><p className="cp-payable">{quote?`Total: ${money({currency:quote.currency,exponent:quote.exponent,amount_minor:quote.total_amount_minor})}`:'Total temporarily unavailable'}</p></>}
       </div>
-      {free?<a className="cp-cta" href="/auth/signup">Get started<ArrowUpRight size={17} aria-hidden="true"/></a>:checkoutAvailable&&price&&quote&&checkoutPriceIds.includes(price.price_id)?<a className="cp-cta" href={`/auth/checkout?offer=${encodeURIComponent(o.offer_version_id)}&price=${encodeURIComponent(price.price_id)}`}>Review purchase<ArrowUpRight size={17} aria-hidden="true"/></a>:<button className="cp-cta" disabled data-offer-id={o.offer_version_id} data-price-id={price?.price_id}>Checkout coming soon</button>}
+      {free?<Link className="cp-cta" to="/auth/signup">Get started<ArrowUpRight size={17} aria-hidden="true"/></Link>:checkoutAvailable&&price&&quote&&checkoutPriceIds.includes(price.price_id)?<Link className="cp-cta" to={`/auth/checkout?offer=${encodeURIComponent(o.offer_version_id)}&price=${encodeURIComponent(price.price_id)}`}>Review purchase<ArrowUpRight size={17} aria-hidden="true"/></Link>:<button className="cp-cta" disabled data-offer-id={o.offer_version_id} data-price-id={price?.price_id}>Checkout coming soon</button>}
       <ul className="cp-features">{rows.map(([key,allowed,label,information,infoLabel])=><li key={key} className={allowed?'':'cp-excluded'}>{allowed?<Check size={17} aria-hidden="true"/>:<X size={17} aria-hidden="true"/>}{information?<CatalogFeaturePresentation label={label} information={information} included={allowed} informationLabel={infoLabel}/>:<span>{key==='sketch'&&!allowed?<s>{label}</s>:label}</span>}</li>)}
       {o.service_benefits?.map(b=><li key={b.key}><Check size={17} aria-hidden="true"/><span>{b.label}{b.availability==='coming_soon'&&<> {'\u00b7'} <span>Coming soon</span></>}</span></li>)}</ul>
     </article>;

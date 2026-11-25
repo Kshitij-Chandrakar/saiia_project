@@ -1,0 +1,50 @@
+[
+  {
+    "file": "payment-success.jpg",
+    "width": 1080,
+    "height": 540,
+    "bytes": 56965,
+    "source_name": "Robot Celebrates Payment Received-1.png",
+    "source_dimensions": [
+      1774,
+      887
+    ],
+    "source_sha256": "bceea8e619f352455e18de18bed0f1779aa753dfb4516bb68771a209502037a1",
+    "published_object": "payment-success-20261027-v1.jpg",
+    "published_url": "https://rbmxfazjbldmkomdpyzl.supabase.co/storage/v1/object/public/email-assets/payment-success-20261027-v1.jpg",
+    "published_sha256": "fc0281dcb9f24820b27437cbdfc7e4faabf9d901becdae3a92c5a9fac0301700",
+    "publication_verified": true
+  },
+  {
+    "file": "renewal-success.jpg",
+    "width": 1080,
+    "height": 540,
+    "bytes": 63394,
+    "source_name": "Robot Mascot with Renewal Calendar-2.png",
+    "source_dimensions": [
+      1774,
+      887
+    ],
+    "source_sha256": "1f20b7ea9c24f235c010db7437b0ff73ff8ef121768621d5432e01f128253257",
+    "published_object": "renewal-success-20261027-v1.jpg",
+    "published_url": "https://rbmxfazjbldmkomdpyzl.supabase.co/storage/v1/object/public/email-assets/renewal-success-20261027-v1.jpg",
+    "published_sha256": "6d68e5e934940dd81ee2085583a3a3c4d64fdca1deb1b706879d9f8c767fabab",
+    "publication_verified": true
+  },
+  {
+    "file": "mascot.png",
+    "width": 120,
+    "height": 80,
+    "bytes": 11659,
+    "source_name": "login-mascot.png",
+    "source_dimensions": [
+      1536,
+      1024
+    ],
+    "source_sha256": "649decc9bc2b9a2b58ea06418b70cc71bee93784b81222ec3a3409a6ada88995",
+    "published_object": "mascot-20261027-v1.png",
+    "published_url": "https://rbmxfazjbldmkomdpyzl.supabase.co/storage/v1/object/public/email-assets/mascot-20261027-v1.png",
+    "published_sha256": "cbec3e0d352464f2d36f6b9244f955897751c39c313d50205a1ee29e12b93427",
+    "publication_verified": true
+  }
+]
