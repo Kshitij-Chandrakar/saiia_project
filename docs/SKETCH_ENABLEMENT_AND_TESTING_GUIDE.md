@@ -87,11 +87,15 @@ Saving the answer does not automatically generate a diagram. Reads and recovery 
 
 ## How to diagnose an unavailable control
 
-The source resolver is `GET /api/interview-sessions/{session_id}/answer-sources`, with exactly one of `transcript_id` or `request_id`. Its descriptor includes source eligibility, revision and `generation_enabled`. Inspect it through the authenticated app's developer tools without copying tokens, answer text or identifiers into public reports.
+The source resolver is `GET /api/interview-sessions/{session_id}/answer-sources`, with exactly one of `transcript_id` or `request_id`. Electron sends it from the **main process**, so the renderer's Network tab does not show that HTTP request.
+
+For an authorized local developer using synthetic data, stop active capture/generation and close the normal Electron instance. Run the backend and standalone Vite (`npm run dev`) in separate terminals. In a PowerShell terminal at `frontend/`, clear the process-local Node-only switch with `$env:ELECTRON_RUN_AS_NODE=$null`, then launch `.\node_modules\.bin\electron.cmd --inspect=127.0.0.1:9229 .`. Connect through `chrome://inspect` to the Electron main-process target. In `electron/answer_diagrams.cjs`, pause inside `perform()` immediately after `await manager._backendJson(...)`. Inspect only `response.status` and the descriptor fields `response.payload.eligible`, `response.payload.generation_enabled` and `response.payload.reason`. Trigger the ordinary source lookup by opening an eligible saved answer; do not invoke generation merely to inspect it. Follow [Electron's main-process debugging guidance](https://www.electronjs.org/docs/latest/tutorial/debugging-main-process).
+
+Keep the inspector loopback-only and close the debug instance afterward; never enable it on a production/public endpoint. Do not expand, log, screenshot or export the session, authorization context, full payload, tokens, answer content or account/source identifiers. The renderer's projected descriptor can omit unrecognized reason codes, so a null renderer reason does not establish that subscription authorization passed.
 
 | Visible state/code | Meaning and next check |
 | --- | --- |
-| “Diagram generation is disabled” / `generation_disabled` | Verify the effective backend flag, correct server/process and restart. |
+| “Diagram generation is disabled” / `generation_disabled` | Check the effective backend flag and correct server/process first. The same UI text also appears when the flag is true but subscription authorization returns `generation_enabled=false`; inspect the safe resolver reason and verify entitlement/allowance, account restrictions and subscription-runtime availability before diagnosing it as a flag problem. Restart only after an actual configuration change. |
 | Available only for verified saved system-design answers / `ineligible_source` | Verify the saved answer's trusted classification and source; do not change client labels to bypass it. |
 | `source_pending` | The durable answer/source is not available yet; allow the normal persistence/resolve flow to finish. |
 | `schema_unavailable` | Inspect migration/function/permission compatibility on the intended isolated DB. Missing schema is not a reason for a blind remote push. |
@@ -108,11 +112,11 @@ Generation/retry/cancel routes live under `/{session_id}/transcript-entries/{tra
 
 ## Verification and evidence
 
-Run focused existing tests in a prepared local environment:
+Run focused existing tests after installing developer/test dependencies with `.\scripts\setup-dev.ps1 -WithTests` from the repository root. The setup script does not activate `.venv`, so use its interpreter explicitly:
 
 ```powershell
 # Repository root: offline contracts; no live provider acceptance.
-python -m pytest backend/tests/test_answer_diagrams.py -q
+.\.venv\Scripts\python.exe -m pytest backend/tests/test_answer_diagrams.py -q
 
 # Frontend directory: layout and Electron bridge contracts.
 cd frontend
