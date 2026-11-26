@@ -1,4 +1,4 @@
-# G9 — microphone realtime routing and fallback hardening
+# G9 â€” microphone realtime routing and fallback hardening
 
 > Current audio status: Computer-only and Microphone + Computer Auto are implemented through gRPC. The routing tables below preserve Phase 1 history. See [Computer-only](G10_COMPUTER_GRPC_AUTO.md), [combined audio](G11_COMBINED_GRPC_AUTO.md) and [Phase 4 closeout](G12_GRPC_AUDIO_CLOSEOUT.md). Windows acceptance is user-reported; answer-token streaming is deferred and the model-recovery migration remains paused.
 
@@ -58,7 +58,7 @@ Main retains a conservative commit latch and lifecycle stage through failures. E
 
 Diagnostics include routing/default/reason, health and health timestamps, connection/failure/fallback state, source, cloud auth/session/context/save state, Auto run, question/answer transport, commit/stage and cleanup status. System mode reports cloud auth `not_applicable`, never a stale cloud-auth failure. Failed-run diagnostics remain visible until a new run or deliberate source change; live content is not replayed.
 
-## Physical acceptance — not performed by automated tests
+## Physical acceptance â€” not performed by automated tests
 
 Use a test account/session; each actual speech/generation run may incur normal provider usage. Do not use real sensitive interview content. Start backend from `backend` with `python -m uvicorn app.main:app --host 127.0.0.1 --port 8000`; enable backend realtime/STT/answer gates and the two Auto/cloud preference flags in that process. Do **not** also start the standalone gRPC command. Start Electron with its realtime/audio gates and Auto/cloud flags enabled, pointing to loopback port 50051; from `frontend` run `npm run electron:dev`. Keep secrets only in their existing server/main locations. Unset flags/restore their previous values after testing.
 
@@ -87,11 +87,11 @@ Set-Location frontend
 npm run electron:dev
 ```
 
-1. **A — cloud microphone:** sign in, create/select a fresh active cloud interview with authorized resume/job context, select microphone only and Auto. Expect `selected_realtime_pipeline=grpc_realtime`, `grpc_health=healthy`, `cloud_grpc_auth_status=verified`, session/context true. Ask a sanitized question, see streamed answer, then `cloud_answer_save_status=saved`. Reopen website history and verify exactly one saved entry. Repeat with another question. No token must appear in renderer diagnostics.
-2. **B — local microphone:** in development, choose the existing Local test session control (suspends cloud selections in memory), microphone only, Auto. Expect gRPC, continuous multiple questions and no cloud save (`n/a`). Restore cloud context afterward.
-3. **C — system-only:** select system audio only and Auto. Expect `existing_default`, REST/WebSocket, `system_audio_selected`, cloud auth `not_applicable`, fallback-used false. Verify the stable loopback path still works. Both-source remains blocked as before.
-4. **D — unavailable backend:** stop the gRPC-owning backend; restart FastAPI with realtime disabled so REST remains up, leaving Electron gates enabled. Start microphone Auto. Expect health unavailable and standard fallback before generation, exact health failure reason, fallback-used true, no crash. Separately interrupt gRPC after a question/delta: the answer must stay, no REST regeneration or duplicate cloud save may occur, and the user must explicitly restart for the next question.
-5. **E — Stop/restart:** during listening, partial speech, generation and cooldown, press Stop twice. Confirm tracks/capture indicator stop, streams close, cleanup becomes clean, timers/pending buffers no longer update UI. Restart and expect a fresh Auto run and main run, no old transcript/question/save state, and one answer per new question. Also stop while health/authorization is pending, restart quickly, and ensure old cleanup cannot close the new stream.
+1. **A â€” cloud microphone:** sign in, create/select a fresh active cloud interview with authorized resume/job context, select microphone only and Auto. Expect `selected_realtime_pipeline=grpc_realtime`, `grpc_health=healthy`, `cloud_grpc_auth_status=verified`, session/context true. Ask a sanitized question, see streamed answer, then `cloud_answer_save_status=saved`. Reopen website history and verify exactly one saved entry. Repeat with another question. No token must appear in renderer diagnostics.
+2. **B â€” local microphone:** in development, choose the existing Local test session control (suspends cloud selections in memory), microphone only, Auto. Expect gRPC, continuous multiple questions and no cloud save (`n/a`). Restore cloud context afterward.
+3. **C â€” system-only:** select system audio only and Auto. Expect `existing_default`, REST/WebSocket, `system_audio_selected`, cloud auth `not_applicable`, fallback-used false. Verify the stable loopback path still works. Both-source remains blocked as before.
+4. **D â€” unavailable backend:** stop the gRPC-owning backend; restart FastAPI with realtime disabled so REST remains up, leaving Electron gates enabled. Start microphone Auto. Expect health unavailable and standard fallback before generation, exact health failure reason, fallback-used true, no crash. Separately interrupt gRPC after a question/delta: the answer must stay, no REST regeneration or duplicate cloud save may occur, and the user must explicitly restart for the next question.
+5. **E â€” Stop/restart:** during listening, partial speech, generation and cooldown, press Stop twice. Confirm tracks/capture indicator stop, streams close, cleanup becomes clean, timers/pending buffers no longer update UI. Restart and expect a fresh Auto run and main run, no old transcript/question/save state, and one answer per new question. Also stop while health/authorization is pending, restart quickly, and ensure old cleanup cannot close the new stream.
 
 Also validate expired/refreshed/switched-account auth, permission denial, sleep/wake, microphone removal, packaged backend provisioning/shutdown, and real provider startup failures before production promotion. A refreshed token intentionally invalidates the old stream and requires the existing explicit restart mechanism. No physical capture, live OAuth/cloud writes or paid generation was performed during implementation.
 

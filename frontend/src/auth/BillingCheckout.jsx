@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { money } from '../landing/pricingMoney.js';
@@ -154,8 +155,8 @@ export default function BillingCheckout({backendUrl = '', authClient = supabase}
     finally {if(current===generation.current) {pending.current=false;setBusy(false);}}
   }
 
-  return <main className="catalog-pricing billing-checkout"><a href="/#pricing">Back to pricing</a><h1>Secure checkout</h1>
-    {!loaded?<p role="status">Loading your account…</p>:!session?<p><a href="/auth/login">Sign in to review your purchase</a>, then return to pricing to select your plan.</p>:<>
+  return <main className="catalog-pricing billing-checkout"><Link to="/#pricing">Back to pricing</Link><h1>Secure checkout</h1>
+    {!loaded?<p role="status">Loading your account…</p>:!session?<p><Link to="/auth/login">Sign in to review your purchase</Link>, then return to pricing to select your plan.</p>:<>
       {operation&&<><h2>{operation.name}</h2><dl>{operation.payable&&<><dt>Base price</dt><dd>{money({currency:operation.currency,exponent:'2',amount_minor:operation.payable.base_amount_minor})}</dd><dt>GST (18%)</dt><dd>{money({currency:operation.currency,exponent:'2',amount_minor:operation.payable.tax_amount_minor})}</dd></>}<dt>Recurring total</dt><dd>{money({...operation,exponent:'2'})}</dd><dt>Billing interval</dt><dd>Every {operation.interval}</dd><dt>Maximum term</dt><dd>{operation.total_count} billing cycles</dd></dl>
         <p>Renews automatically every {operation.interval} for up to {operation.total_count} charges of {money({...operation,exponent:'2'})}. Cancel renewal to stop future charges. Paid access continues through the verified paid-period end. Fresh consent is required after the final cycle; otherwise your account returns to Free.</p>
         <p>Monthly allowances follow your signup anniversary, including on yearly purchases.</p><p role="status">{labels[operation.state]||'Payment verification pending'}</p>
@@ -165,7 +166,7 @@ export default function BillingCheckout({backendUrl = '', authClient = supabase}
         {operation.state==='confirmed'&&!operation.cancel_requested&&<button onClick={async()=>{const epoch=generation.current;try{const data=await request('cancel',{operation_id:operation.operation_id,confirm:true});if(epoch===generation.current)setOperation(data);}catch{if(epoch===generation.current)setMessage('Cancellation status is pending. Check payment status before retrying.');}}}>Cancel future renewal</button>}
         {operation.cancel_requested&&<p>Renewal cancellation requested. Provider status: {operation.provider_state}. Paid access ends at the verified paid-period end.</p>}
         <button onClick={refresh} disabled={busy||restoring}>Check payment status</button>
-        {operation.state==='confirmed'&&<a href="/auth/dashboard">View your account</a>}
+        {operation.state==='confirmed'&&<Link to="/auth/dashboard">View your account</Link>}
       </>}
       {!operation && (restoreIssue || restoring) ? <WebsiteProgress pending={restoring} title={restoring?'Checking your checkout':'Checkout status is not confirmed'} message={message}>
         <button type="button" onClick={refresh} disabled={restoring}>{restoring?'Checking existing checkout…':'Recover existing checkout'}</button>

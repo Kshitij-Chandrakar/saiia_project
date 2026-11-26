@@ -2473,7 +2473,7 @@ Local/synthetic provider-flow tests cover totals, signatures and synchronization
 
 ## Provider decision gate
 
-Current C12.2/C12.3 local follow-up: [billing email and billing-only admin acceptance](docs/C12_BILLING_EMAIL_ADMIN_LOCAL_ACCEPTANCE.md) now covers C10-backed durable notifications, explicit billing read/manage permissions, state-bound confirmations, eligible retries, queued provider reconciliation and audits. No real email/provider call or shared migration occurred. Earlier email/admin implementation-pending statements are superseded for this scope only; actual delivery/provider acceptance and all six cancellation confirmations remain open. The [support packet](docs/C12_RAZORPAY_CANCELLATION_SUPPORT_DRAFT.md) is prepared, not sent. C11/C13 staging application acceptance is preserved.
+Current C12.2/C12.3 local follow-up: billing email and billing-only admin acceptance (owner-held private record `C12_BILLING_EMAIL_ADMIN_LOCAL_ACCEPTANCE.md`; excluded from this checkout) now covers C10-backed durable notifications, explicit billing read/manage permissions, state-bound confirmations, eligible retries, queued provider reconciliation and audits. No real email/provider call or shared migration occurred. Earlier email/admin implementation-pending statements are superseded for this scope only; actual delivery/provider acceptance and all six cancellation confirmations remain open. The support packet (owner-held private record `C12_RAZORPAY_CANCELLATION_SUPPORT_DRAFT.md`; excluded from this checkout) is prepared, not sent. C11/C13 staging application acceptance is preserved.
 
 Choose:
 
@@ -5048,3 +5048,86 @@ Backend-only Resend API foundation, default dry-run and `MARKETING_EMAILS_ENABLE
 Real marketing requires `MARKETING_EMAILS_ENABLED=true`, `EMAIL_PROVIDER_MODE=live`, a secure backend-only `RESEND_API_KEY`, verified consent/unsubscribe and sender setup, public unsubscribe route deployment, and a reply-to decision. `support@intervucopilot.in` receiving remains deferred due to paid GoDaddy mailbox/forwarding setup; reply-to is omitted by default. Do not use Supabase Auth SMTP for marketing. See `docs/C10_EMAIL_SYSTEM_PLAN.md` for configuration and rollout limitations. C10.7 live campaign work remains pending.
 
 C10.7A RPC follow-up: `20260924120000_fix_outbound_email_event_claim_ambiguous_user_id.sql` fixes SQLSTATE 42702 caused by RETURNS TABLE output variables colliding with ON CONFLICT columns. Function-local column resolution and an INSERT alias preserve the six-type allowlist, RPC contract and atomic idempotency. Prior migrations remain unchanged; CHECK validation is still deferred. The forward fix is local, unapplied by this work, and involves no real sends. See the C10 email plan for validation limits and rollout steps.
+
+
+### 2026-10-23 isolated manual acceptance and next milestone reconciliation
+
+User-reported manual acceptance of the isolated catalog flow is recorded separately from automated verification and shared/deployed acceptance. The documented stop-file shutdown completed: demo runner/child, frontend/API bridge and disposable PostgreSQL exited; normal ::1:5173 (PID 38624) and 127.0.0.1:8000 (PID 34584) remained listening. No retained runtime downloads were deleted. The normal pricing-preview proxy cannot display disposable offers after its source demo is stopped; no normal configuration was changed.
+
+Draft Close/Discard, centered review popup and operating guide are implemented, with prior verification preserved. Visible published-offer discovery is implemented; private scheduled/retired history listing is not. This task performed source/document/whitespace checks, not new runtime enforcement or shared-database acceptance. Earlier known unrelated test failures remain open.
+
+**C11 remains partial. Next is C13.1 ledger/measurement, then C13.2 enforcement/visibility and Electron integration; C12 remains payments.** Account-to-immutable-terms binding and current-plan/customer state remain missing, as do production usage reservations/settlement, trusted Auto relay/shared state and outstanding C11.1/deployment acceptance. Resolver code exists for publication policy; real approved deployment policy/configuration is a separate gate. Do not reopen accepted generic catalog work.
+
+See [the consolidated implementation milestone](docs/SUBSCRIPTION_ENTITLEMENTS_USAGE_MILESTONE.md) for confirmed facts versus proposals, first bounded internally callable account/usage persistence scope, proposed additive migrations, affected files, native acceptance, rollback and exact blocking business decisions. No implementation/enforcement, real assignment, shared migration, offer publication, payments, configuration activation, commit or deployment occurred in this task.
+
+
+### C13.1 closed foundation current update - 2026-10-23
+
+The authorized account/usage foundation is implemented and accepted only on disposable native PostgreSQL 17.11: immutable account-term bindings, Auth signup anchor, current authority, account/meter periods, durable operation identities, atomic reservations/settlement/release, fenced uncertainty/reconciliation and immutable events. **17 native foundation tests passed**, with 159 domain/catalog checks, 117 admission/admin/period checks (overlap), and existing 12 adapter/23 draft/30 lifecycle native regressions. Migration `20261023160000_account_usage_foundation.sql` is prepared/isolated-tested only; no production composition, assignment, enforcement or shared apply. Actual Auto clock/relay, result-store coupling and feature execution/client current-plan integration remain next C13.2 work, gated by explicit unresolved lifecycle policies. C12 remains payments; C11/C13 overall remain partial. See [the implementation milestone](docs/SUBSCRIPTION_ENTITLEMENTS_USAGE_MILESTONE.md) and [fixed C11 closure checklist](docs/C11_CLOSURE_CHECKLIST.md), which preserves existing C11 exits and distinguishes local evidence from deployment acceptance.
+
+
+### C11/C13 local acceptance continuation - 25 October 2026
+Retain accepted synchronized timing and controlled JBL automatic disconnect/reconnect; no repeat physical checks performed in this continuation. Default-off hosted relay/shared handoff and deletion preparation are implemented and native-tested. See [current gates](docs/C11_C13_ACCEPTANCE_RUNBOOK.md#current-status--25-october-2026) and [rollout/privacy packet](docs/C13_HOSTED_RELAY_PRIVACY_REVIEW.md). Remaining: released desktop hosted transport and staged TLS/multi-worker acceptance, irreversible retention/unlink policy and purge implementation, signed/installed Windows, existing lint baseline, isolated staging target/preflight/approval. C11/C13 remain partial; C12 remains payments. No shared migration, real assignment, activation or deployment.
+
+
+### Current hosted desktop continuation ? 25 October 2026
+
+The default-off Electron hosted client now uses authenticated capabilities and the existing relay, main-owned bounded PCM forwarding, server leases and a single mixed Both stream. Native claim-once fencing prevents duplicate relay connection ownership. Isolated packaged acceptance exercises two workers, durable answers, Stop, worker failure/recovery and logout; see [implementation evidence](docs/C13_2_IMPLEMENTATION_EVIDENCE.md) for exact logs and overlapping suite counts (51 backend native, 48 local native, 189 Node, 58 browser cases; hosted packaged wrapper 1/embedded 2). This supersedes earlier statements that desktop relay delivery is missing.
+
+Real hosted-device acceptance is in progress: baseline Free/zero usage/zero reservations is operator-confirmed; capture is not yet accepted. Existing local synchronized timing/JBL acceptance remains valid and is not repeated. Shared TLS/staging, signed installation and irreversible account deletion remain open. No staging project has been designated; 50 migration candidates are a review inventory, not presumed pending. The deletion retention/unlink proposal is unapproved. C11/C13 remain open; C12 remains payment integration. No shared migration or production activation occurred.
+
+
+### C12 GST-added local implementation - 26 October 2026
+
+Approved catalog bases remain unchanged; recurring payable totals add 18% GST (INR 470.82 / 3,538.82 / 1,060.82 / 7,668.82). Website cards, immutable payable quotes, explicit quote-bound consent, provider-plan/invoice/payment checks and historical-mandate preservation are locally implemented. New additive migration `20261025030000_billing_gst_payable.sql` is prepared and tested only on disposable native PostgreSQL. Exact verification and screenshots (owner-held private record `C12_GST_IMPLEMENTATION_EVIDENCE.md`; excluded from this checkout); [updated C12-RZP-TEST-01](docs/C12_PAYABLE_POLICY_AND_TEST_SCOPE.md). C12 remains in progress: actual provider acceptance and live readiness are pending. No provider calls, remote migration, publication, real assignment, deployment, commit or push. Existing C11/C13 acceptance and staging authorization remain separate.
+
+
+### C12 actual Test Mode attempt - 26 October 2026
+
+Blocked at Razorpay API authentication: two GET /v1/plans?count=1 attempts both returned HTTP 401 / BAD_REQUEST_ERROR. Window 14:31:43-15:31:43 IST (09:01:43-10:01:43 UTC), expired without extension. Counts: 2 provider GETs; 0 plans/subscriptions/cancellations/tunnels/webhook registrations/downloads. Process credentials cleared, owned entry processes exited, disposable DB removed and acceptance ports closed; normal services preserved. Payment-to-entitlement/account-refresh acceptance remains untested against Razorpay. C12 remains incomplete; C11/C13 unchanged. Actual execution and next step (owner-held private record `C12_RZP_TEST_01_EXECUTION.md`; excluded from this checkout).
+
+
+### C12 signed Resend callbacks - 27 October 2026
+
+Local callback hardening is implemented using official Svix verification, durable deduplicated/conflict-detecting receipts, scope/message-ID correlation, bounded early-event recovery, adverse-event history and permission-controlled admin timestamps. Additive `20261027010000_resend_delivery_callbacks.sql` is prepared and validated only on disposable native PostgreSQL. Verification: 29 native tests, 12 boundary/provider tests and 4 admin browser checks passed; scoped typing/lint/format and frontend build passed. Implementation, migration/rollback, exact results and proposed provider scope (owner-held private record `C12_RESEND_CALLBACKS_LOCAL_ACCEPTANCE.md`; excluded from this checkout).
+
+Actual signed Resend callback/replay acceptance has NOT run. Proposed next window: 15 minutes, one temporary webhook/tunnel, one new synthetic email send maximum, one manual webhook replay and 12 forwarded callback attempts, with provider webhook disabled before tunnel closure. No external execution was performed in this task. Earlier four actual Test Mode payments, original email/admin acceptance and redesigned Gmail inbox confirmations remain preserved; redesigned dashboard Delivered evidence remains separately unverified. All six cancellation outcomes, remaining provider recovery/renewal/expiry scenarios, installed Electron and live readiness remain open. C12 is not complete; C11/C13 staging acceptance is preserved. Previous provider clocks/counters were not reset.
+
+
+### C12 actual signed Resend callback acceptance - 27 October 2026
+
+Approved fresh 15-minute execution completed before its deadline: **1/1 real synthetic send, 1/1 manual webhook replay, 3/12 callback forwards (all HTTP 200)**. Official raw-byte signature verification, stored message/scope correlation, durable sent/delivered state and replay deduplication passed. Authorized billing inspection and unauthorized denial/audit passed. Owner separately confirmed Gmail receipt/rendering and this temporary webhook Disabled before tunnel shutdown; local processes/ports/owned database cleanup and credential clearing were verified. Exact evidence, times, IDs, counters and cleanup (owner-held private record `C12_RESEND_CALLBACK_01_EXECUTION.md`; excluded from this checkout). No Razorpay calls, remote migration, Auth/SMTP/DNS/asset changes, activation, commit, push or deployment.
+
+C12 remains open: all six existing cancellation outcomes/support findings, remaining provider recovery/renewal/expiry/maximum-term scenarios, installed Electron and live readiness remain unresolved. Callback migration remains local-only. Earlier actual payment/email evidence and C11/C13 staging acceptance are preserved; original execution journals and counters were not changed. This closes only the narrow actual Resend sent/delivered/replay gate; older pending-callback notes are historical.
+
+
+### C12 local closure update ? 27 October 2026
+
+Canonical acceptance status: [docs/C12_ACCEPTANCE_CHECKLIST.md](docs/C12_ACCEPTANCE_CHECKLIST.md). Separate unsigned installer built and installed; one Playwright test passed with nine observed installed checks, plus one targeted native missed-renewal recovery test passed. See installed evidence and cleanup limitation (owner-held private record `C12_INSTALLED_ACCEPTANCE.md`; excluded from this checkout). No provider calls or sends. C12 remains OPEN: six cancellations unresolved, conditional actual renewal not executed, other documented provider/live gaps retained. Production signing/authentication belong to their existing cross-phase gates. Invoice issuance/history remains separate deferred work. Normal protocol/auth snapshot unchanged; acceptance install files and six synthetic profiles await manual cleanup after blocked recursive deletion.
+
+
+C12 cleanup follow-up (27 October 2026): owner removed both acceptance directories; read-only verification confirms absence, no acceptance process/listeners or final disposable database, and unchanged normal protocol/auth snapshot. This supersedes the preceding retained-files cleanup limitation only. Evidence: `tmp/c12-acceptance-installer/cleanup-followup-verification.json`. C12 remains open for the separate items in `docs/C12_ACCEPTANCE_CHECKLIST.md`; no tests or provider actions repeated.
+
+
+### Current prioritization ? 27 October 2026, support submission follow-up
+
+Owner reports the six-subscription Razorpay support ticket submitted; findings pending, reference not supplied. C12 cancellations remain unresolved and provider execution is paused. Canonical C12 checklist preserves all passed payments/email/callback/admin/installed-local and cleanup evidence. No tests or external changes were repeated.
+
+C11/C13 review uses the newer successful `docs/C13_2_STAGING_APPLICATION_ACCEPTANCE.md` rather than historical not-started/staging-pending paragraphs: catalog/bindings/enforcement/usage, physical timing/JBL/hosted-device checks and all 11 staging application groups are accepted within their recorded boundaries. C12's unsigned installed billing checks do not establish signed full hosted-device release acceptance.
+
+**Next independent local task:** resolve the attributed frontend repository lint gate, starting with a fresh diagnostic against current source and `docs/C13_2_LINT_ATTRIBUTION.json`, then smallest behavior-preserving source fixes and focused checks. Last recorded baseline is 60 errors / 29 warnings; it was not rerun here and must not be presented as a current measured count. Do not disable rules, reopen accepted payment/physical/staging tests, or start a later phase. This is identified next work, not a claim of implementation in this documentation-only follow-up. No business input is required for that local diagnostic/cleanup.
+
+Other C11/C13 gates require independent inputs: approved isolated HTTPS/WSS hosting/proxy scope before public deployment; signing/artifact and isolated Windows acceptance prerequisites; approval/change of the explicit retention/pseudonymous-unlink/backup policy in `docs/SUBSCRIPTION_DELETION_POLICY_PROPOSAL.md` before irreversible purge implementation. No remote change or deletion is inferred. Invoice issuance/live readiness remain separate.
+
+
+### Frontend lint gate ? 27 October 2026
+
+Measured baseline 60 errors / 29 warnings; final **0 errors / 12 warnings**, `npm run lint` exit 0 under unchanged configuration. 179 focused Node cases, 52 existing catalog browser cases and 2 new lifecycle browser regressions passed; frontend production build/JS syntax/whitespace checks passed. Broader CI-style Node run remains **715 passed / 2 pre-existing gRPC failures**; no full-CI pass is claimed. Remaining 12 hook warnings and exact blockers are listed in [lint evidence](docs/FRONTEND_LINT_CLOSURE_20261027.md). Historical lint attribution and provider journals are preserved. This supersedes the old failing lint-gate status only, not all C11/C12/C13 exits. Razorpay support findings pending; provider execution paused. No external or installed acceptance repeated.
+
+
+**Lint gRPC baseline follow-up ? 27 October 2026:** both reported failures reproduce with identical command/environment in isolated pre-lint/current copies (2 failed on each). No lint regression found in these cases; working sources unchanged. [Comparison and baseline limitations](docs/FRONTEND_LINT_GRPC_BASELINE_COMPARISON.md). Lint edits are ready for review, not a full-CI pass or C11/C12/C13 completion. No provider/installed acceptance repeated; Razorpay execution remains paused.
+
+
+### gRPC baseline failures resolved ? 27 October 2026
+
+Two test-fixture corrections, separate from lint changes: initialize the absent track-listener slot and assert one-time/partial cleanup; await the actual synthetic permission-request handshake before canceling/resolving it. Production App and gRPC session bytes unchanged. Affected cases 2/2 passed; relevant 12-file lifecycle suite **164/164 passed** with external networking blocked and local socket tests allowed. Lint **0 errors / 12 warnings**, syntax and scoped whitespace checks passed. Historical baseline/provider journals preserved; baseline comparison and external/installed acceptance not repeated. [Root causes, commands and limits](docs/GRPC_BASELINE_FAILURE_FIXES_20261027.md). These fixes and lint changes are ready for review, not a claim of full-CI success or C11/C12/C13 completion. Razorpay execution remains paused.

@@ -1,8 +1,8 @@
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-import re
-from typing import Literal, Mapping, Protocol
-
+from typing import Literal, Protocol
 
 BACKEND_TRANSACTIONAL_EMAIL_TYPES = frozenset(
     {

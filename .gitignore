@@ -75,3 +75,5 @@ playwright/.auth/
 *.key
 *.p12
 *.pfx
+
+.ruff_cache/

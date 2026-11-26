@@ -14,7 +14,13 @@ export function catalogDevProxy(env = process.env, previewEnabled = () => exists
       const forward = proxy.web.bind(proxy)
       proxy.web = (req, res, options) => {
         req.isolatedCatalogPreview = !env.CATALOG_DEV_PROXY_TARGET && req.method === 'GET' && req.url === '/api/catalog' && previewEnabled()
-        return forward(req, res, { ...options, target: req.isolatedCatalogPreview ? 'http://127.0.0.1:5188' : normalTarget })
+        return forward(req, res, { ...options, target: req.isolatedCatalogPreview ? 'http://127.0.0.1:5188' : normalTarget }, () => {
+          // A stopped local catalog is unavailable, not a reason to change environments.
+          if (res.destroyed || res.writableEnded) return
+          if (res.headersSent) return res.destroy()
+          res.writeHead(503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+          res.end(JSON.stringify({ error: 'catalog_unavailable' }))
+        })
       }
       proxy.on('proxyReq', (outgoing, req) => {
         if (req.isolatedCatalogPreview) for (const name of ['authorization', 'cookie']) outgoing.removeHeader(name)

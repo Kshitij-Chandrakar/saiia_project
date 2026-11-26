@@ -15,6 +15,14 @@ export async function prepareGenerationRequest(body, startupConfig, api, onDiagn
       cloudAvailable = state?.auth?.status === 'connected' && state?.cloud?.available === true
     } catch { /* Local generation remains available without cloud. */ }
   }
+  if (!cloudAvailable && !localWithoutSaving &&
+      (selectedResumeId || jobContextId || startupSessionId || body.session_id) &&
+      typeof api?.refreshCloudStartupContext === 'function') {
+    try {
+      cloudState = await api.refreshCloudStartupContext()
+      cloudAvailable = cloudState?.auth?.status === 'connected' && cloudState?.cloud?.available === true
+    } catch { /* The availability check below handles a failed refresh. */ }
+  }
   if (startupSessionId) requestBody.session_id ||= startupSessionId
   const candidateSessionId = String(requestBody.session_id || '').trim()
   const endedIds = Array.isArray(cloudState?.auth?.endedInterviewSessionIds) ? cloudState.auth.endedInterviewSessionIds : []
@@ -53,7 +61,7 @@ export async function prepareGenerationRequest(body, startupConfig, api, onDiagn
   }
   onDiagnostics(diagnostics)
   if (authRequired && !cloudAvailable) {
-    throw new Error('Cloud generation requires a valid connection. Sign in again and reconnect to continue the active session, or end the session and clear cloud selections to generate locally.')
+    throw new Error('Cloud generation requires a valid connection. Sign in again to continue the active session.')
   }
   return { requestBody, authRequired }
 }

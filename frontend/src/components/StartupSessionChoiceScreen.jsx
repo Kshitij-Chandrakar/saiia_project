@@ -1,21 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react'
 import StartupAccountMenu from './StartupAccountMenu'
-import DesktopAnswerHistory from './DesktopAnswerHistory.jsx'
 import loginMascotUrl from '../assets/startup-login/login-mascot.png'
-import choiceArrowUrl from '../assets/startup-choice/choice-arrow.svg'
 import choiceBrandUrl from '../assets/startup-choice/choice-brand.svg'
-import choiceCardArrowUrl from '../assets/startup-choice/choice-card-arrow.svg'
-import choiceClockUrl from '../assets/startup-choice/choice-clock.svg'
 import choiceCloseUrl from '../assets/startup-choice/choice-close.svg'
 import choiceCollapseUrl from '../assets/startup-choice/choice-collapse.svg'
-import choiceFreeStarsUrl from '../assets/startup-choice/choice-free-stars.svg'
 import choiceHistoryUrl from '../assets/startup-choice/choice-history.svg'
 import choicePastHistoryUrl from '../assets/startup-choice/choice-past-history.svg'
 import choicePastStarsUrl from '../assets/startup-choice/choice-past-stars.svg'
 import choicePastViewAllArrowUrl from '../assets/startup-choice/choice-past-view-all-arrow.svg'
-import choiceShieldUrl from '../assets/startup-choice/choice-shield.svg'
 import choiceStarsUrl from '../assets/startup-choice/choice-stars.svg'
-import choiceWalletUrl from '../assets/startup-choice/choice-wallet.svg'
 import './subscription-current-plan.css'
 
 const PAST_SESSION_STATUSES = new Set(['ended', 'abandoned'])
@@ -44,11 +37,8 @@ export default function StartupSessionChoiceScreen({
   onSignedOut,
   onClose,
   authenticatedEmail = '',
-  remainingMinutes = null,
-  totalMinutes = null,
 }) {
   const [activeTab, setActiveTab] = useState('create')
-  const [answerHistorySession, setAnswerHistorySession] = useState('')
   const [message, setMessage] = useState('')
   const [subscription, setSubscription] = useState({ status: 'loading' })
   const [pastSessions, setPastSessions] = useState([])
@@ -61,21 +51,6 @@ export default function StartupSessionChoiceScreen({
   const mountedRef = useRef(true)
   const saiiaApi = typeof window !== 'undefined' ? window.saiia : null
   const electronApi = typeof window !== 'undefined' ? window.electronAPI : null
-  const normalizedRemainingMinutes = Number(remainingMinutes)
-  const normalizedTotalMinutes = Number(totalMinutes)
-  const hasTimeBalance =
-    remainingMinutes !== null &&
-    remainingMinutes !== undefined &&
-    totalMinutes !== null &&
-    totalMinutes !== undefined &&
-    Number.isFinite(normalizedRemainingMinutes) &&
-    Number.isFinite(normalizedTotalMinutes)
-  const timeAriaLabel = hasTimeBalance
-    ? `${normalizedRemainingMinutes} of ${normalizedTotalMinutes} minutes remaining`
-    : 'Time availability unavailable'
-  const freeSessionLabel = hasTimeBalance
-    ? `${normalizedRemainingMinutes} minutes available`
-    : 'Time availability unavailable'
   const safeAuthenticatedEmail = typeof authenticatedEmail === 'string' ? authenticatedEmail.trim() : ''
 
   useEffect(() => {
@@ -100,10 +75,26 @@ export default function StartupSessionChoiceScreen({
   }, [safeAuthenticatedEmail])
 
   const currentSubscription = subscription.account === safeAuthenticatedEmail ? subscription : { status: subscription.status === 'ready' ? 'loading' : subscription.status }
+  const planName = currentSubscription.status === 'ready' ? currentSubscription.plan?.name?.trim() : ''
+  const plan = ['free', 'plus', 'pro'].includes(planName?.toLowerCase()) ? planName.toLowerCase() : null
   const autoBalance = currentSubscription.auto
-  const autoStatus = autoBalance?.mode === 'unlimited' ? 'Unlimited Auto time' : autoBalance?.mode === 'limited'
-    ? (() => { const units = BigInt(autoBalance.allowance) - BigInt(autoBalance.used) - BigInt(autoBalance.reserved); return units <= 0n ? 'Auto allowance exhausted' : `${(Number(units) / autoBalance.unit_scale / 60).toFixed(1)} Auto minutes available` })()
-    : 'Auto allowance unavailable'
+  const unlimited = autoBalance?.mode === 'unlimited'
+  const hasTimeBalance = autoBalance?.mode === 'limited'
+  const normalizedRemainingMinutes = hasTimeBalance
+    ? Math.max(0, Number(BigInt(autoBalance.allowance) - BigInt(autoBalance.used) - BigInt(autoBalance.reserved)) / autoBalance.unit_scale / 60) : null
+  const normalizedTotalMinutes = hasTimeBalance ? Number(autoBalance.allowance) / autoBalance.unit_scale / 60 : null
+  const formatMinutes = value => Number(value.toFixed(1)).toString()
+  const timeAriaLabel = unlimited ? 'Unlimited Auto time' : hasTimeBalance
+    ? `${formatMinutes(normalizedRemainingMinutes)} of ${formatMinutes(normalizedTotalMinutes)} Auto minutes remaining`
+    : 'Time availability unavailable'
+  const startLabel = plan === 'plus' ? 'Plus Start Session' : plan === 'pro' ? 'Pro Start Session' : plan === 'free' ? 'Free Session' : 'Start Session'
+  const openPricing = async () => {
+    setMessage('')
+    try {
+      const result = await electronApi?.openUpgrade?.()
+      if (result?.ok !== true) setMessage('Unable to open the website. Please try again.')
+    } catch { setMessage('Unable to open the website. Please try again.') }
+  }
 
   useEffect(() => {
     mountedRef.current = true
@@ -272,11 +263,9 @@ export default function StartupSessionChoiceScreen({
                 </span>
               </div>
               <time dateTime={session?.started_at || undefined}>{formatPastSessionDate(session?.started_at)}</time>
-              {electronApi?.answerDiagram && <button type="button" onClick={() => setAnswerHistorySession(session.id)}>View answers</button>}
             </article>
           )
         })}
-        {answerHistorySession && <DesktopAnswerHistory key={answerHistorySession} sessionId={answerHistorySession} api={electronApi} />}
       </div>
     )
   }
@@ -313,12 +302,8 @@ export default function StartupSessionChoiceScreen({
           </div>
           <div className="startup-choice-header__actions" aria-label="Session window controls">
             <span className="startup-choice-time" aria-label={timeAriaLabel}>
-              <img src={choiceClockUrl} alt="" aria-hidden="true" />
-              <span className="startup-choice-time__copy">
-                <span className="startup-choice-time__value">
-                  <strong>{hasTimeBalance ? normalizedRemainingMinutes : '--'}</strong> / {hasTimeBalance ? normalizedTotalMinutes : '--'} min
-                </span>
-                <small>remaining</small>
+              <span className="startup-choice-time__value">
+                {unlimited ? 'Unlimited' : hasTimeBalance ? `${formatMinutes(normalizedRemainingMinutes)} / ${formatMinutes(normalizedTotalMinutes)} min` : '-- / -- min'}
               </span>
             </span>
             <StartupAccountMenu key={`${safeAuthenticatedEmail}:${activeTab}`} authenticatedEmail={safeAuthenticatedEmail} onSignedOut={onSignedOut} />
@@ -369,7 +354,7 @@ export default function StartupSessionChoiceScreen({
           {isPast ? (
             <>
               <section className="startup-choice-history-intro">
-                <h2>Past Session :</h2>
+                <h2>Recent sessions</h2>
               </section>
               <section className="startup-choice-history-content">{renderPastSessions()}</section>
               <button className="startup-choice-history-view-all" type="button" onClick={handleViewAllSessions}>
@@ -380,48 +365,20 @@ export default function StartupSessionChoiceScreen({
           ) : (
             <>
               <section className="startup-choice-intro">
-                <h2>Start a New Session</h2>
-                <p>Choose how you'd like to continue.</p>
+                <h2>Select Session Type</h2>
               </section>
-
-              <div className="startup-choice-options">
-                <article className="startup-choice-option startup-choice-option--free">
-                  <img className="startup-choice-corner startup-choice-corner--sparkle" src={choiceFreeStarsUrl} alt="" aria-hidden="true" />
-                  <h3>Free Session</h3>
-                  <p>{freeSessionLabel}</p>
-                  <button type="button" className="startup-choice-link-button" onClick={onCreateSession}>
-                    Start Session
-                    <img src={choiceCardArrowUrl} alt="" aria-hidden="true" />
-                  </button>
-                </article>
-
-                <article className="startup-choice-option startup-choice-option--subscription">
-                  <img className="startup-choice-corner startup-choice-corner--credit" src={choiceWalletUrl} alt="" aria-hidden="true" />
-                  <h3>Buy Credits</h3>
-                  <p aria-live="polite">{currentSubscription.status === 'ready' ? `Current plan: ${currentSubscription.plan.name}` : currentSubscription.status === 'loading' ? 'Loading current plan…' : 'Current plan temporarily unavailable'}</p>
-                  <p>{currentSubscription.status === 'ready' ? autoStatus : 'Auto allowance unavailable'}</p>
-                  <p>{currentSubscription.checkout_ready ? 'Review plans and secure checkout on our website.' : 'Checkout coming soon. Compare plans on our website.'}</p>
-                  <button type="button" className="startup-choice-link-button" onClick={async () => {
-                    try {
-                      const result = await window.electronAPI?.openUpgrade?.()
-                      if (result?.ok !== true) setMessage('Unable to open the website.')
-                    } catch { setMessage('Unable to open the website.') }
-                  }}>
-                    Upgrade
-                    <img src={choiceCardArrowUrl} alt="" aria-hidden="true" />
-                  </button>
-                </article>
-              </div>
-
-              <footer className="startup-choice-footer">
-                <span>
-                  <img src={choiceShieldUrl} alt="" aria-hidden="true" />
-                  Your data is secure and private
-                </span>
-                <button type="button" onClick={() => setMessage('More details will be available in a later phase.')}>
-                  Learn More <img src={choiceArrowUrl} alt="" aria-hidden="true" />
+              <div className={`startup-choice-session-actions ${plan === 'free' ? 'startup-choice-session-actions--free' : ''}`}>
+                <button type="button" className={`startup-choice-session-button ${plan === 'free' ? 'startup-choice-session-button--free' : ''}`} onClick={onCreateSession}>
+                  {startLabel}
+                  {plan === 'free' && hasTimeBalance ? <span className="startup-choice-session-limit" title="Auto time remaining today">{formatMinutes(normalizedRemainingMinutes)} min</span> : null}
                 </button>
-              </footer>
+                {plan === 'free' ? <button type="button" className="startup-choice-session-button" onClick={openPricing}>Buy Credits</button> : null}
+              </div>
+              {plan === 'plus' ? <button type="button" className="startup-choice-upgrade" onClick={openPricing}>Upgrade to Pro</button> : null}
+              <p className="startup-choice-plan-status" role="status">
+                {currentSubscription.status === 'ready' ? `Current plan: ${planName}` : currentSubscription.status === 'loading' ? 'Loading current plan...' : 'Current plan temporarily unavailable'}
+                {currentSubscription.status === 'ready' && !hasTimeBalance && !unlimited ? '. Auto allowance unavailable' : ''}
+              </p>
             </>
           )}
 

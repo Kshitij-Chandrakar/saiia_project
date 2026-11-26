@@ -2,6 +2,8 @@
 
 ## Status and boundary
 
+**Newer owner-confirmed setup, 26 October 2026:** `intervucopilot.in` is Verified in Resend and Supabase Auth already uses configured Resend SMTP for signup verification/password reset. This supersedes the historical missing-domain/setup assumption below; it is user-confirmed configuration, not a newly performed delivery test. C12 billing preparation leaves SMTP, authentication email settings and DNS unchanged. Billing uses the existing backend Resend HTTPS adapter with separately entered local credentials; see [bounded billing acceptance](C12_EMAIL_ADMIN_ACCEPTANCE_SCOPE.md).
+
 **Completed/merged: runbook and controlled validation preparation.** This document does not configure Supabase, call Resend, send email, add secrets, or implement custom authentication logic. C10.2B live verification/reset delivery remains blocked until a verified Resend sender/domain and approved credentials are available.
 
 This phase covers only:

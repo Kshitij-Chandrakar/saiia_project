@@ -1,0 +1,252 @@
+[
+  {
+    "version": "20260731121714",
+    "file": "20260731121714_create_base_cloud_schema.sql",
+    "sha256": "2ce3623b48538f648b6f86296de6d200279d6c150381130bda2e13ba8a2ee76e"
+  },
+  {
+    "version": "20260731123545",
+    "file": "20260731123545_enable_rls_and_storage.sql",
+    "sha256": "96192051ce9f2bba2b95ae703935a68a869c7429650128cbbfd881f11b9bd870"
+  },
+  {
+    "version": "20260801115446",
+    "file": "20260801115446_grant_cloud_table_privileges.sql",
+    "sha256": "c363841eddae03786b59d6eadb36d28e08e7054cb2b4e3fdd1e22b1c51ca9667"
+  },
+  {
+    "version": "20260803143000",
+    "file": "20260803143000_add_resume_lifecycle_and_harden_cloud_writes.sql",
+    "sha256": "fca4c69b2b3625e109f7dbdb4f14592b50c0bf05a205bb6c1bee850b0091aac7"
+  },
+  {
+    "version": "20260804134140",
+    "file": "20260804134140_add_cloud_resume_chunk_activation.sql",
+    "sha256": "1fd3235e22998793a0b4604dd1c887f7ffcba100231d59e5e5844df0ac2c2518"
+  },
+  {
+    "version": "20260804151715",
+    "file": "20260804151715_fix_cloud_resume_activation_profile_parsing.sql",
+    "sha256": "52b89d8468d7ff2cea9708d4c8f92ac7e3889a1a0e100aab24fd139b6c338498"
+  },
+  {
+    "version": "20260804162315",
+    "file": "20260804162315_preserve_profile_fields_on_cloud_resume_activation.sql",
+    "sha256": "194b04ce93d02a66538b3609ead30a46006b6b718825fd6dbb6be6099adace18"
+  },
+  {
+    "version": "20260809120000",
+    "file": "20260809120000_add_cloud_job_context_lifecycle.sql",
+    "sha256": "6df0e7dff1806096c636e2d2de029158ffb7ea1e453602e17bf1c9789eae2067"
+  },
+  {
+    "version": "20260828120000",
+    "file": "20260828120000_add_interview_session_lifecycle.sql",
+    "sha256": "59acba24edac30e59c2598041186bb277d2585caa57cda2b52465894b4b9ac6a"
+  },
+  {
+    "version": "20260828153000",
+    "file": "20260828153000_fix_interview_session_idempotency_rpc.sql",
+    "sha256": "bf63e63e9d4ae8f2c51b733c908939ba2df201cae0200cfb67b24f670f7ea526"
+  },
+  {
+    "version": "20260829103000",
+    "file": "20260829103000_add_interview_session_transcript_storage.sql",
+    "sha256": "fe608abbc77240c06de2293a2207811fce820e98cbcdd426a6abac2aea53a459"
+  },
+  {
+    "version": "20260829170000",
+    "file": "20260829170000_lock_down_transcript_entry_inserts.sql",
+    "sha256": "13a8133325ba0e9eac4223f87aaa92e71a2b252d95c3eb153290b926e0892945"
+  },
+  {
+    "version": "20260829223000",
+    "file": "20260829223000_add_interview_session_ai_notes.sql",
+    "sha256": "6f8cdc1e250f30b05b7844ab4e2651dfc460dc1fc26e63ae26e91c54ffe73380"
+  },
+  {
+    "version": "20260901103000",
+    "file": "20260901103000_add_interview_session_ask_ai_messages.sql",
+    "sha256": "8f83873249cc744f846a5a518c66a6b0e732b9e7879593838983fd64527f60e6"
+  },
+  {
+    "version": "20260901123000",
+    "file": "20260901123000_add_ask_ai_request_idempotency_keys.sql",
+    "sha256": "a6aafbe79e5a08e3ca1f905d19f8e3e8414cbbcb3b68eeb51d17f74692bb4596"
+  },
+  {
+    "version": "20260901170000",
+    "file": "20260901170000_add_ask_ai_request_key_updated_at_trigger.sql",
+    "sha256": "794f07285e45c4acff4888068f2a4840fb974a9441d18040aa3d1ec0f4448c3f"
+  },
+  {
+    "version": "20260902120000",
+    "file": "20260902120000_add_ask_ai_atomic_turn_persistence.sql",
+    "sha256": "ead67b88107eba8d4193510cb93c9e1e286c505d2d6f9e8847b8b9bd55602a0b"
+  },
+  {
+    "version": "20260902130000",
+    "file": "20260902130000_drop_redundant_ask_ai_message_index.sql",
+    "sha256": "4d28190b3d0939d1d392f20230a67b0ced81f34b9f872f7fdfae9d43d71e6543"
+  },
+  {
+    "version": "20260915120000",
+    "file": "20260915120000_add_interview_session_my_answers.sql",
+    "sha256": "2f8081112b6ddd534f36a461806ab20c86e1d9a8faffdf0cad8e5caba075dff5"
+  },
+  {
+    "version": "20261011120000",
+    "file": "20261011120000_add_permanent_transcript_deletion.sql",
+    "sha256": "deec68991696c429dc0e4d3a649bd2df7cf03d24f7cd79ea23f537a40236d9f0"
+  },
+  {
+    "version": "20261018120000",
+    "file": "20261018120000_add_session_model_selection.sql",
+    "sha256": "83f56f997b369c8f208aba1b19098ba55362f026b47777fd995431089cf16de5"
+  },
+  {
+    "version": "20261018150000",
+    "file": "20261018150000_add_session_generation_turns.sql",
+    "sha256": "3d2cd07961ef4bccf4873a2a9719806b3f827917bd8c1a08665d2028d3af44ca"
+  },
+  {
+    "version": "20261018180000",
+    "file": "20261018180000_add_session_model_bindings.sql",
+    "sha256": "5d288979763d8eb14a1dd54ee7d836046a213ec6f5beec4eb434d4bb22881476"
+  },
+  {
+    "version": "20261018210000",
+    "file": "20261018210000_harden_session_generation_recovery.sql",
+    "sha256": "908a74a22dbb6315d2a8a3292eb0207d05332897fa64d0a5961e14118fdad445"
+  },
+  {
+    "version": "20261021120000",
+    "file": "20261021120000_add_answer_sources.sql",
+    "sha256": "20f86054bb542ab1c6a284545a91293fc082b5f25a280b8d300ab056ca0f13b0"
+  },
+  {
+    "version": "20261021130000",
+    "file": "20261021130000_add_answer_diagrams.sql",
+    "sha256": "a9dbb83ff4f5cabd1663b996993e728ca9b804c5bcc59bf00e7baf95143ed0bb"
+  },
+  {
+    "version": "20261022120000",
+    "file": "20261022120000_catalog_storage_foundation.sql",
+    "sha256": "9ecb1e5edfa99085ae553b4ca2821b09565f79be6354d123e4f38d25167483a3"
+  },
+  {
+    "version": "20261022150000",
+    "file": "20261022150000_catalog_adapter_primitives.sql",
+    "sha256": "dc25a3bd0f1a25274c3376f8fd26b27a14cbb5918904637940cf757487dc544e"
+  },
+  {
+    "version": "20261022180000",
+    "file": "20261022180000_subscription_admin_self_probe.sql",
+    "sha256": "536dcf4b6a7add22c94fb199aa7c114963d12765842ad66f887b6794d9b1f407"
+  },
+  {
+    "version": "20261022200000",
+    "file": "20261022200000_catalog_draft_service.sql",
+    "sha256": "526314e4e5a756242a52294073d26281dc975cabed0c55425266a18796875086"
+  },
+  {
+    "version": "20261022210000",
+    "file": "20261022210000_catalog_publication_reviews.sql",
+    "sha256": "d8c661c75b4932805c85e8fd762586abda8129fdfc3789eed6a1e996efbda885"
+  },
+  {
+    "version": "20261022220000",
+    "file": "20261022220000_catalog_lifecycle_transactions.sql",
+    "sha256": "199b8cc1ec675c631b78256bfaa922562b965168137d7e50968dc0eb90cb7204"
+  },
+  {
+    "version": "20261023010000",
+    "file": "20261023010000_catalog_lifecycle_transport.sql",
+    "sha256": "7dc20ec15639f6bfc630cc280adc2bf0f62a8fd3d356a4c2d4e4c88e3f27850c"
+  },
+  {
+    "version": "20261023120000",
+    "file": "20261023120000_catalog_v2_drafts.sql",
+    "sha256": "e917376a9c1972032deb9a6e2e709a36de81cd510b76d7289b1169aedcc696a9"
+  },
+  {
+    "version": "20261023130000",
+    "file": "20261023130000_catalog_v2_review_binding.sql",
+    "sha256": "37f45f11359412c5fddb9ad927154680742bc606cd31e8211e5e1ff13492b6dc"
+  },
+  {
+    "version": "20261023140000",
+    "file": "20261023140000_catalog_v3_terms.sql",
+    "sha256": "a9e13207588c66bccef59e03e3dd7773c27baa042ed84839b8b87a897ea31977"
+  },
+  {
+    "version": "20261023150000",
+    "file": "20261023150000_catalog_policy_public_read.sql",
+    "sha256": "d98d7928e2b8a14e3fba3e46f9a798b85252e8104da653eb647498cc84d1b1ed"
+  },
+  {
+    "version": "20261023160000",
+    "file": "20261023160000_account_usage_foundation.sql",
+    "sha256": "09db2079d5aa1ec626d879f716a90a5eab9edbd0eb947afe9198726afb85fe2c"
+  },
+  {
+    "version": "20261024010000",
+    "file": "20261024010000_subscription_account_integration.sql",
+    "sha256": "bfb06869a6643e5190df1745bd90a70f9be5e08660f86a27436d6fb4da7f760c"
+  },
+  {
+    "version": "20261024020000",
+    "file": "20261024020000_subscription_auto_leases.sql",
+    "sha256": "65a55ae40a819a30338f5c13b17931302a4fee79ed65bda7ada02fa21bf3f450"
+  },
+  {
+    "version": "20261024030000",
+    "file": "20261024030000_subscription_clipboard_settlement.sql",
+    "sha256": "e21a8a4188916308b7383620dc937cff7111f6eae3acacebab09488d89d64f0d"
+  },
+  {
+    "version": "20261024040000",
+    "file": "20261024040000_subscription_sketch_execution.sql",
+    "sha256": "079cfc8bc538ca89c7a7af05ae5f579a67c6e204b34fac4ce35f31e7cc9ec03d"
+  },
+  {
+    "version": "20261024050000",
+    "file": "20261024050000_subscription_manual_execution.sql",
+    "sha256": "668c14a9557ba7171bc6c3804d8213301d24781206a6d7dcf1ac6894c7f21a1c"
+  },
+  {
+    "version": "20261024060000",
+    "file": "20261024060000_subscription_scheduled_changes.sql",
+    "sha256": "b77aa174df0856a33cfcba19f811fef1da419725569fe271904e55963be3a680"
+  },
+  {
+    "version": "20261024070000",
+    "file": "20261024070000_subscription_auto_transport.sql",
+    "sha256": "ec71820fbd118cc10c2f2a92c68256d2e988023b0d9eb07cd2fee464a2b7000f"
+  },
+  {
+    "version": "20261024080000",
+    "file": "20261024080000_subscription_screen_results.sql",
+    "sha256": "40fac2cb1f7fe5199d0e9505c938f897c302a3af76393e4044ee3d5be87434bf"
+  },
+  {
+    "version": "20261024090000",
+    "file": "20261024090000_subscription_resume_settlement.sql",
+    "sha256": "e7857529b1eb3af979f287f7e9bd892e15cd37c2d74faecfdb40ce893d393ac8"
+  },
+  {
+    "version": "20261024100000",
+    "file": "20261024100000_subscription_auxiliary_execution.sql",
+    "sha256": "76aa3f5045558703aa0336747382556ae98128cc779a7f3008ece53ff013ee06"
+  },
+  {
+    "version": "20261024110000",
+    "file": "20261024110000_subscription_relay_privacy.sql",
+    "sha256": "d188f5950533b352ff1b2e6b2cf61bf1f1a3da75bd1081c32160b3e5525f7378"
+  },
+  {
+    "version": "20261025010000",
+    "file": "20261025010000_subscription_relay_connections.sql",
+    "sha256": "e4ccd4a145f51c7c43fa5e689c667baa104c586868bd4da15b1f7406c43445af"
+  }
+]

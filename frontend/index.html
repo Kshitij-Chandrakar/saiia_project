@@ -5,7 +5,7 @@
     <link rel="icon" type="image/png" href="/website-favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Intervucopilot</title>
-    <noscript><style>#startup-title,#startup-message{display:none}</style></noscript>
+    <noscript><style>#startup-title,#startup-message{display:none}#website-startup[hidden]{display:flex}#root{display:none}</style></noscript>
     <script>
       if (window.electronAPI || window.location.pathname.toLowerCase().startsWith('/auth/admin/')) {
         // Preserve the shared entry's previous metadata outside customer website routes.
@@ -15,9 +15,13 @@
       }
       if (window.electronAPI) document.documentElement.dataset.desktop = '';
       else {
+        const startupTimer = setTimeout(() => {
+          document.getElementById('website-startup')?.removeAttribute('hidden');
+        }, 1500);
         let failed = false;
         const showFailure = () => {
           if (!failed || !document.getElementById('startup-title')) return;
+          document.getElementById('website-startup').removeAttribute('hidden');
           document.getElementById('startup-title').textContent = 'The website couldn’t start';
           document.getElementById('startup-message').textContent = 'A part of this page couldn’t load. Reload to try again. No action has been confirmed by this screen.';
         };
@@ -28,6 +32,7 @@
         window.addEventListener('error', scriptFailed, true);
         document.addEventListener('DOMContentLoaded', showFailure, {once:true});
         window.addEventListener('intervucopilot:mounted', () => {
+          clearTimeout(startupTimer);
           document.getElementById('website-startup')?.remove();
           window.removeEventListener('error', scriptFailed, true);
         }, {once:true});
@@ -37,7 +42,7 @@
   <body>
     <style>
       html:not([data-desktop]) body:has(>#website-startup){margin:0}
-      html:not([data-desktop]) body:has(>#website-startup)>#root{display:none}
+      html:not([data-desktop]) body:has(>#website-startup:not([hidden]))>#root{display:none}
       #website-startup{box-sizing:border-box;min-height:100vh;padding:40px 24px;background:#eef4ff;color:#10234f;font:16px/1.65 Arial,Helvetica,sans-serif;display:flex;flex-direction:column;gap:48px}
       #website-startup[hidden],html[data-desktop] #website-startup{display:none}
       #website-startup .startup-brand{font-size:24px;font-weight:700;letter-spacing:-.6px}
@@ -49,7 +54,7 @@
       #website-startup noscript{display:block;color:#475569}
       @media(max-width:640px){#website-startup{padding:24px 20px}#website-startup section{padding:32px 24px}#website-startup h1{font-size:26px}}
     </style>
-    <main id="website-startup" aria-label="Intervucopilot startup">
+    <main id="website-startup" aria-label="Intervucopilot startup" hidden>
       <div class="startup-brand">Intervucopilot</div>
       <section>
         <h1 id="startup-title">Opening your workspace</h1>
