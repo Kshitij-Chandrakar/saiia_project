@@ -108,3 +108,49 @@ def test_cleanup_pending_retries_every_operation_without_clearing_failure(tmp_pa
     assert calls == ["0", "1", "0", "1"]
     service.reconcile = lambda *_: {"state": "expired"}
     assert cleanup_pending(service, budget)
+
+
+@pytest.mark.parametrize("failure", ["read", "hash", "replace", "lock", "load", "save"])
+def test_recovery_snapshot_commit_preserves_previous_dump_on_failure(tmp_path, monkeypatch, failure):
+    import hashlib
+    from contextlib import contextmanager
+    from pathlib import Path
+    import razorpay_test_mode_execution as execution
+    budget = SessionBudget(tmp_path)
+    class Database:
+        port = 1
+        payload = b"old synthetic database"
+        def command(self, name, arguments):
+            assert name == "pg_dump" and arguments[1] == "127.0.0.1"
+            Path(arguments[-1]).write_bytes(self.payload)
+    db = Database()
+    execution.retain_cleanup_database(db, budget)
+    previous = budget.load()["cleanup_database_sha256"]
+    original = tmp_path / ("cleanup-database-" + previous + ".dump")
+    db.payload = b"new synthetic database"
+    def fail(*args, **kwargs):
+        raise OSError("synthetic interrupted snapshot commit")
+    with monkeypatch.context() as patch:
+        if failure == "read":
+            read = Path.read_bytes
+            patch.setattr(Path, "read_bytes", lambda path: fail() if path.suffix == ".pending" else read(path))
+        elif failure == "hash":
+            patch.setattr(execution.hashlib, "sha256", fail)
+        elif failure == "replace":
+            patch.setattr(execution.os, "replace", fail)
+        elif failure == "lock":
+            @contextmanager
+            def locked():
+                fail()
+                yield
+            patch.setattr(budget, "locked", locked)
+        else:
+            patch.setattr(budget, failure, fail)
+        with pytest.raises(OSError):
+            execution.retain_cleanup_database(db, budget)
+    assert budget.load()["cleanup_database_sha256"] == previous
+    assert hashlib.sha256(original.read_bytes()).hexdigest() == previous
+    execution.retain_cleanup_database(db, budget)
+    current = budget.load()["cleanup_database_sha256"]
+    assert current != previous and original.is_file()
+    assert hashlib.sha256((tmp_path / ("cleanup-database-" + current + ".dump")).read_bytes()).hexdigest() == current

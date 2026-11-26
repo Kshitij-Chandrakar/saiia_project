@@ -198,7 +198,7 @@ def test_review_cleanup_database_restores_service_before_clearing_reconciliation
         state = budget.load()
         state["cleanup_requires_reconciliation"] = True
         budget.save(state)
-    (tmp_path / "cleanup-database.dump").write_bytes(b"tampered")
+    (tmp_path / ("cleanup-database-" + budget.load()["cleanup_database_sha256"] + ".dump")).write_bytes(b"tampered")
     with pytest.raises(RuntimeError, match="recovery database unavailable"):
         execution.cleanup_only(credentials, tmp_path, pg_bin=str(u["db"].bin))
     assert budget.load()["cleanup_requires_reconciliation"] is True

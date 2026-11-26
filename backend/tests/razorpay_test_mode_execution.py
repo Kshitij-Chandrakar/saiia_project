@@ -70,14 +70,17 @@ def cleanup_pending(service, budget):
 
 def retain_cleanup_database(db, budget):
     """Private synthetic database snapshot, never provider credentials."""
-    target = budget.directory / "cleanup-database.dump"
-    temporary = target.with_suffix(".pending")
+    temporary = budget.directory / ("cleanup-database-" + uuid4().hex + ".pending")
     db.command("pg_dump", ["-h", "127.0.0.1", "-p", str(db.port), "-U", "catalog_test_owner",
                            "-d", "postgres", "-Fc", "-f", str(temporary)])
+    digest = hashlib.sha256(temporary.read_bytes()).hexdigest()
+    target = budget.directory / ("cleanup-database-" + digest + ".dump")
+    # Publish immutable bytes first; the atomic journal update switches the
+    # pointer. A failed update leaves the previous snapshot and pointer intact.
     os.replace(temporary, target)
     with budget.locked():
         state = budget.load()
-        state["cleanup_database_sha256"] = hashlib.sha256(target.read_bytes()).hexdigest()
+        state["cleanup_database_sha256"] = digest
         budget.save(state)
 
 
@@ -88,8 +91,12 @@ def cleanup_only(credentials, directory, *, pg_bin=None):
     provider = BoundedProvider(credentials["RAZORPAY_TEST_KEY_ID"], credentials["RAZORPAY_TEST_KEY_SECRET"], budget)
     provider.cleanup = True
     if budget.load().get("cleanup_requires_reconciliation"):
-        snapshot = directory / "cleanup-database.dump"
         expected = budget.load().get("cleanup_database_sha256")
+        if not isinstance(expected, str) or not re.fullmatch(r"[a-f0-9]{64}", expected):
+            raise RuntimeError("Verified synthetic recovery database unavailable; cleanup remains blocked")
+        snapshot = directory / ("cleanup-database-" + expected + ".dump")
+        if not snapshot.is_file():
+            snapshot = directory / "cleanup-database.dump"  # Earlier journal format; still digest-verified.
         if not pg_bin or not expected or not snapshot.is_file() or hashlib.sha256(snapshot.read_bytes()).hexdigest() != expected:
             raise RuntimeError("Verified synthetic recovery database unavailable; cleanup remains blocked")
         from razorpay_local_runtime import local_runtime
