@@ -35,7 +35,7 @@ try:
     if args.cleanup_only:
         from razorpay_test_mode_execution import cleanup_only
 
-        cleanup_only(credentials, session_dir)
+        cleanup_only(credentials, session_dir, pg_bin=args.pg_bin)
     else:
         with local_runtime(args.pg_bin) as runtime:
             from razorpay_test_mode_runtime import preflight

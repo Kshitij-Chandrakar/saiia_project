@@ -82,7 +82,7 @@ Build the new cluster from the existing local native fixture prerequisites. Appl
 
 `supabase/migrations/20261025020000_razorpay_checkout.sql`
 
-Original migration SHA256 remains `587405e6b2d1cc820238cad6d38bd91358f27380ffe0d25391bfda56b9dc7b9e`. Then apply the additive `20261025030000_billing_gst_payable.sql` locally, once. It adds immutable payable storage and wraps the existing lifecycle RPC; it does not rewrite the original migration or historical financial rows.
+The current `20261025020000_razorpay_checkout.sql` has canonical-LF SHA-256 `d53c967f0353177105339ddbc06f54f84f53cb39c972800ab91a33425a7a49c1`. This identifies the current file, not an earlier pre-edit revision. Then apply the additive `20261025030000_billing_gst_payable.sql` locally, once. It adds immutable payable storage and wraps the existing lifecycle RPC; it does not rewrite historical financial rows.
 
 Prepare its own local application record and postflight evidence, including RLS/table denial and exact function grants. Do not edit or rerun the already-applied 50-file staging batch or change its manifest. A future remote migration requires a different scope, target and approval.
 

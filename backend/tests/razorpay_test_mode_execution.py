@@ -1,6 +1,7 @@
 """Opt-in real-provider session. All provider dispatches use the durable budget."""
 
 import json
+import hashlib
 import logging
 import os
 import re
@@ -58,7 +59,7 @@ def cleanup_pending(service, budget):
             recovered = service.reconcile(operation["account_id"], operation["operation_id"])
             if recovered.get("provider_id"):
                 budget.resource("subscriptions", recovered["provider_id"])
-            else:
+            elif recovered.get("state") != "expired":
                 complete = False
                 budget.event("cleanup_uncertain_creation_unresolved", resource_id=operation["operation_id"], passed=False)
         except Exception as error:
@@ -67,12 +68,51 @@ def cleanup_pending(service, budget):
     return complete
 
 
-def cleanup_only(credentials, directory):
+def retain_cleanup_database(db, budget):
+    """Private synthetic database snapshot, never provider credentials."""
+    target = budget.directory / "cleanup-database.dump"
+    temporary = target.with_suffix(".pending")
+    db.command("pg_dump", ["-h", "127.0.0.1", "-p", str(db.port), "-U", "catalog_test_owner",
+                           "-d", "postgres", "-Fc", "-f", str(temporary)])
+    os.replace(temporary, target)
+    with budget.locked():
+        state = budget.load()
+        state["cleanup_database_sha256"] = hashlib.sha256(target.read_bytes()).hexdigest()
+        budget.save(state)
+
+
+def cleanup_only(credentials, directory, *, pg_bin=None):
     budget = SessionBudget(directory)
     if budget.load()["status"] != "cleanup" or not budget.load()["start_utc"]:
         raise RuntimeError("No unfinished cleanup session; no new intake allowed")
     provider = BoundedProvider(credentials["RAZORPAY_TEST_KEY_ID"], credentials["RAZORPAY_TEST_KEY_SECRET"], budget)
-    complete = cleanup_subscriptions(provider, budget) and not budget.load().get("cleanup_requires_reconciliation")
+    provider.cleanup = True
+    if budget.load().get("cleanup_requires_reconciliation"):
+        snapshot = directory / "cleanup-database.dump"
+        expected = budget.load().get("cleanup_database_sha256")
+        if not pg_bin or not expected or not snapshot.is_file() or hashlib.sha256(snapshot.read_bytes()).hexdigest() != expected:
+            raise RuntimeError("Verified synthetic recovery database unavailable; cleanup remains blocked")
+        from razorpay_local_runtime import local_runtime
+
+        with local_runtime(pg_bin) as runtime:
+            db = runtime["db"]
+            db.command("pg_restore", ["-h", "127.0.0.1", "-p", str(db.port), "-U", "catalog_test_owner",
+                                      "-d", "postgres", "--clean", "--if-exists", "--exit-on-error", str(snapshot)])
+            service = BillingService(
+                lambda: runtime["connect"]("usage_binding_executor"), provider,
+                merchant=credentials["RAZORPAY_TEST_ACCOUNT_ID"],
+                webhook_secrets=(credentials["RAZORPAY_TEST_WEBHOOK_SECRET"],), renewal="automatic", enabled=True,
+                total_policy_ref="billing.inr.gst18.v1",
+            )
+            reconciled = cleanup_pending(service, budget)
+            retain_cleanup_database(db, budget)
+            with budget.locked():
+                state = budget.load()
+                state["cleanup_requires_reconciliation"] = not reconciled
+                budget.save(state)
+    complete = cleanup_subscriptions(provider, budget) and not (
+        budget.load().get("cleanup_requires_reconciliation") or budget.load().get("cleanup_processes_unresolved")
+    )
     budget.close_intake("finished" if complete else "cleanup")
     if not complete:
         raise RuntimeError("Subscription cleanup remains unresolved; original budget retained")
@@ -383,6 +423,10 @@ def execute(u, credentials, directory):
                 state = budget.load()
                 state["cleanup_requires_reconciliation"] = True
                 budget.save(state)
+            try:
+                retain_cleanup_database(u["db"], budget)
+            except Exception as error:
+                budget.event("cleanup_database_snapshot_unavailable", exception_type=type(error).__name__)
         cleanup_complete = cleanup_subscriptions(provider, budget) and cleanup_complete
         for process in reversed(children):
             try:
@@ -397,7 +441,7 @@ def execute(u, credentials, directory):
                 cleanup_complete = False
                 with budget.locked():
                     state = budget.load()
-                    state["cleanup_requires_reconciliation"] = True
+                    state["cleanup_processes_unresolved"] = True
                     budget.save(state)
                 budget.event("owned_process_stop_unresolved", exception_type=type(error).__name__)
             budget.event(

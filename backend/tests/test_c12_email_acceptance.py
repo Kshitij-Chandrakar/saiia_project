@@ -54,6 +54,32 @@ def test_callback_deadline_does_not_wait_forever_or_claim_cleanup(tmp_path):
     assert completion_stage({**state, "cleanup": {"tunnel_stopped": False}}) == "stopped"
 
 
+def test_callback_snapshot_stays_reserved_when_final_forward_settles():
+    import threading
+    from types import SimpleNamespace
+    from c12_resend_callback_acceptance import callback_snapshot, forwarding_exhausted
+    journal = SimpleNamespace(lock=threading.Lock(), state={"forwarded_callbacks": [{"status": 200}] * 11 + [{"status": "reserved"}]})
+    _, rows = callback_snapshot(journal)
+    with journal.lock:
+        journal.state["forwarded_callbacks"][-1]["status"] = 200
+    assert not forwarding_exhausted(rows)
+    assert forwarding_exhausted(callback_snapshot(journal)[1])
+
+
+def test_callback_incomplete_cleanup_cannot_return_success():
+    from c12_resend_callback_acceptance import completion_stage, finished_result
+    state = {"result": "verified", "cleanup": {"database_removed": True},
+             "provider_webhook_disable": "owner_confirmed_disabled"}
+    for changes in ({"cleanup_error_type": "TimeoutError"}, {"provider_webhook_disable": "unconfirmed_cleanup_required"}):
+        stopped = {**state, **changes}
+        stopped["stage"] = completion_stage(stopped)
+        with pytest.raises(RuntimeError, match="cleanup incomplete"):
+            finished_result(stopped)
+        assert stopped["result"] == "verified"
+    state["stage"] = completion_stage(state)
+    assert finished_result(state) is state
+
+
 def arguments():
     return {
         "headers": {

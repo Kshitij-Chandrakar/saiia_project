@@ -113,4 +113,6 @@ Set `$PreparedPython` to your prepared Python executable before the Uvicorn exam
 
 - `20261025020000_razorpay_checkout.sql`: canonical-LF SHA-256 `d53c967f0353177105339ddbc06f54f84f53cb39c972800ab91a33425a7a49c1`.
 
+Cleanup-only recovery retains a private `cleanup-database.dump` beside the existing session budget when pending reconciliation fails. Its digest is bound to that budget. `--cleanup-only --pg-bin <prepared-runtime>` restores only this verified synthetic snapshot into a newly disposable local runtime, reuses the billing service's pending/reconcile operations and preserves the original provider counters. Missing or mismatched snapshots remain blocked; no new checkout intake is opened. The snapshot contains synthetic billing state/provider references, is not public evidence and must never be committed. Older sessions without a snapshot cannot be reconstructed by guessing. Unresolved process cleanup remains separately blocked.
+
 - `20261025030000_billing_gst_payable.sql`: canonical-LF SHA-256 `a726445fc1f9c052ffd6c9c76f663743840a9bb73a4aa94cc024ef06bd59696b`.

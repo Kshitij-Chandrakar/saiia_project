@@ -122,3 +122,15 @@ def test_callback_launcher_restores_python_environment_after_child_failure(tmp_p
     result = subprocess.run([powershell, "-NoProfile", "-File", str(driver)], capture_output=True, text=True,
                             env=environment, timeout=25)
     assert marker.exists() and result.returncode == 0 and "ENVIRONMENT_RESTORED" in result.stdout, result.stdout + result.stderr
+
+
+def test_preview_opt_in_is_restored_and_runtime_paths_are_resolved_before_chdir():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2]
+    preview = (root / "backend/tests/start_catalog_preview.ps1").read_text()
+    assert preview.index("$previousManualWorkbench =") < preview.index("$env:CATALOG_MANUAL_WORKBENCH = 'true'")
+    assert "finally {\n    $env:CATALOG_MANUAL_WORKBENCH = $previousManualWorkbench\n}" in preview
+    assert preview.index("$previewExit = $LASTEXITCODE") < preview.index("finally {") < preview.index("exit $previewExit")
+    launcher = (root / "scripts/c12_enter_test_session.ps1").read_text()
+    for variable in ("Python", "PgBin"):
+        assert launcher.index(f"${variable} = (Resolve-Path -LiteralPath ${variable}") < launcher.index("foreach ($required") < launcher.index("Set-Location")

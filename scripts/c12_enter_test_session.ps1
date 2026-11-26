@@ -3,6 +3,8 @@ param([ValidatePattern('^c12-rzp-test-[0-9]{2}$')][string]$SessionId='c12-rzp-te
     [Parameter(Mandatory=$true)][string]$PgBin)
 
 $ErrorActionPreference = 'Stop'
+$Python = (Resolve-Path -LiteralPath $Python -ErrorAction Stop).Path
+$PgBin = (Resolve-Path -LiteralPath $PgBin -ErrorAction Stop).Path
 foreach ($required in @($Python, (Join-Path $PgBin 'pg_ctl.exe'))) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw 'Prepared Python/PostgreSQL runtime missing; no credentials requested.' }
 }

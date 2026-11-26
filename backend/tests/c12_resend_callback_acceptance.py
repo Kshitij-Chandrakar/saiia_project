@@ -135,6 +135,18 @@ def completion_stage(state):
     return "finished" if complete else "stopped"
 
 
+def callback_snapshot(journal):
+    with journal.lock:
+        return ([dict(row) for row in journal.state.get("receipts", [])],
+                [dict(row) for row in journal.state["forwarded_callbacks"]])
+
+
+def finished_result(state):
+    if state["stage"] != "finished":
+        raise RuntimeError("Acceptance cleanup incomplete; retained journal requires recovery")
+    return state
+
+
 def server(app, port, stack):
     if listener(port):
         raise ValueError("Acceptance port already in use")
@@ -415,7 +427,7 @@ def execute(args):
                     worker.delivery_call("process")
                     snapshot(journal, u)
                     poll_at = time.monotonic() + 5
-                receipts = journal.state.get("receipts", [])
+                receipts, forwarded = callback_snapshot(journal)
                 delivered = [
                     e
                     for e in receipts
@@ -427,7 +439,7 @@ def execute(args):
                     digest = hashlib.sha256(event["delivery_id"].encode()).hexdigest()
                     matching = [
                         r
-                        for r in journal.state["forwarded_callbacks"]
+                        for r in forwarded
                         if r["delivery_id_sha256"] == digest
                         and r["raw_sha256"] == event["raw_hash"]
                         and r["status"] == 200
@@ -446,7 +458,7 @@ def execute(args):
                         "awaiting_one_manual_replay",
                         delivery_message_id=event["message_id"],
                     )
-                if forwarding_exhausted(journal.state["forwarded_callbacks"]):
+                if forwarding_exhausted(forwarded):
                     raise RuntimeError("Callback forwarding budget reached")
                 time.sleep(1)
             if not journal.state["replay_verified"]:
@@ -507,7 +519,7 @@ def execute(args):
             "tunnel_stopped": tunnel is None or tunnel.poll() is not None,
         }
         journal.stage(completion_stage(journal.state))
-    return journal.state
+    return finished_result(journal.state)
 
 
 if __name__ == "__main__":

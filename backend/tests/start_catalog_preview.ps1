@@ -11,10 +11,16 @@ $previewPgBin = 'C:/Users/chand/AppData/Local/Temp/c112c-native-runtime-0f19d4be
 foreach ($required in @($previewPython, $previewLauncher, $previewDriver, "$previewPgBin/pg_ctl.exe")) {
     if (-not (Test-Path -LiteralPath $required)) { throw 'Retained local test runtime missing; see docs/CATALOG_LOCAL_MANUAL.md.' }
 }
+$previousManualWorkbench = $env:CATALOG_MANUAL_WORKBENCH
+try {
 $env:PYTHONUTF8 = '1'
 $env:CATALOG_MANUAL_WORKBENCH = 'true'
 $env:PYTHONPATH = $previewDriver
 New-Item -ItemType Directory -Force tmp | Out-Null
 New-Item -ItemType File -Force tmp/catalog-local-preview.enabled | Out-Null
 & $previewPython $previewLauncher backend/tests/test_local_catalog_preview.py --pg-bin $previewPgBin
-exit $LASTEXITCODE
+$previewExit = $LASTEXITCODE
+} finally {
+    $env:CATALOG_MANUAL_WORKBENCH = $previousManualWorkbench
+}
+exit $previewExit

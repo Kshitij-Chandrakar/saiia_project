@@ -85,3 +85,26 @@ def test_pending_lookup_failure_returns_to_remaining_cleanup(tmp_path):
     assert cleanup_pending(Service(), budget) is False
     assert budget.load()["events"][-1]["stage"] == "cleanup_pending_lookup_unresolved"
     assert "private database diagnostic" not in budget.path.read_text()
+
+
+def test_cleanup_pending_retries_every_operation_without_clearing_failure(tmp_path):
+    from razorpay_test_mode_execution import cleanup_pending
+    calls = []
+    class Service:
+        fails = True
+        def pending(self):
+            return [{"account_id": "synthetic", "operation_id": str(i)} for i in range(2)]
+        def reconcile(self, account, operation):
+            calls.append(operation)
+            if self.fails and operation == "0":
+                raise RuntimeError("synthetic timeout")
+            return {"provider_id": "sub_" + operation}
+    service = Service()
+    budget = SessionBudget(tmp_path)
+    assert not cleanup_pending(service, budget)
+    assert calls == ["0", "1"]
+    service.fails = False
+    assert cleanup_pending(service, budget)
+    assert calls == ["0", "1", "0", "1"]
+    service.reconcile = lambda *_: {"state": "expired"}
+    assert cleanup_pending(service, budget)

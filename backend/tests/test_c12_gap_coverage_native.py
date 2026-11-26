@@ -163,6 +163,47 @@ def test_review_prepared_retirement_requires_explicit_stage(pricing):
     assert db.rows(target) == [{"state": "visible"}]
 
 
+def test_review_cleanup_database_restores_service_before_clearing_reconciliation(billing, tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2]))
+    import razorpay_local_runtime
+    import razorpay_test_mode_execution as execution
+    from razorpay_session_budget import SessionBudget
+    u = billing
+    f.fixtures.ready(u)
+    assert u["billing"].pending()
+    creation_calls = u["provider"].calls
+    budget = SessionBudget(tmp_path)
+    budget.reserve("gets")
+    budget.close_intake()
+    with budget.locked():
+        state = budget.load()
+        state["cleanup_requires_reconciliation"] = True
+        budget.save(state)
+    execution.retain_cleanup_database(u["db"], budget)
+    @contextmanager
+    def runtime(_):
+        yield u
+    monkeypatch.setattr(razorpay_local_runtime, "local_runtime", runtime)
+    monkeypatch.setattr(execution, "BoundedProvider", lambda *_: u["provider"])
+    credentials = {"RAZORPAY_TEST_KEY_ID": "rzp_test_synthetic", "RAZORPAY_TEST_KEY_SECRET": "synthetic",
+                   "RAZORPAY_TEST_ACCOUNT_ID": u["billing"].merchant, "RAZORPAY_TEST_WEBHOOK_SECRET": "synthetic-recovery-webhook-secret"}
+    execution.cleanup_only(credentials, tmp_path, pg_bin=str(u["db"].bin))
+    assert budget.load()["status"] == "finished"
+    assert budget.load()["cleanup_requires_reconciliation"] is False
+    assert u["provider"].calls == creation_calls
+    assert all(row["status"] == "cancelled" for row in u["provider"].orders.values())
+    budget.close_intake()
+    with budget.locked():
+        state = budget.load()
+        state["cleanup_requires_reconciliation"] = True
+        budget.save(state)
+    (tmp_path / "cleanup-database.dump").write_bytes(b"tampered")
+    with pytest.raises(RuntimeError, match="recovery database unavailable"):
+        execution.cleanup_only(credentials, tmp_path, pg_bin=str(u["db"].bin))
+    assert budget.load()["cleanup_requires_reconciliation"] is True
+
+
 def test_missed_renewal_reconciliation_and_duplicate_delivery_share_one_email(mail):
     u = mail
     op, _, _ = f.paid(u)
