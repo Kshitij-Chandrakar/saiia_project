@@ -46,7 +46,7 @@ Not every feature is enabled in a fresh checkout. A successful build does not co
 
 ### Prerequisites
 
-- Git, Python and Node.js/npm. Repository CI currently uses **Python 3.11** and **Node.js 20**; check compatibility and runtime support when selecting a deployment version.
+- Git, **Python 3.11**, and Node.js/npm (**20.19+ or 22.12+**, or a compatible newer version). Check runtime support when selecting a deployment version.
 - The native dependencies required by the selected backend/audio features. Audio processing may require ffmpeg and platform-specific components.
 - An isolated, configured Auth/database/Storage environment for cloud features. Docker/local services are needed only for workflows that require them.
 
@@ -55,13 +55,12 @@ The commands below use Windows PowerShell. Run them from the repository root unl
 ### 1. Install dependencies
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
-
-cd frontend
-npm ci
-cd ..
+.\scripts\setup-dev.ps1
 ```
+
+This creates or validates a Python 3.11 `.venv`, installs the root `requirements.txt`, checks Python dependency consistency, and runs `npm ci` for the website/Electron packages. It does not modify your credentials, start services, install system-wide software or apply database migrations. It may download substantial AI/runtime packages; model weights can also download on first use.
+
+For Python dependencies only, use `python -m pip install -r requirements.txt` inside a Python 3.11 virtual environment. The root file is the single runtime list; there are no separate backend/frontend Python runtime lists. Legacy PyQt prototype dependencies are not part of the current React/Electron setup. ffmpeg, Auth/database/Storage services and private configuration remain separate prerequisites.
 
 ### 2. Configure your local environment
 
@@ -111,6 +110,8 @@ For backend tests, install the test dependencies from the repository root:
 .\.venv\Scripts\python.exe -m pip install -r backend/requirements-test.txt
 .\.venv\Scripts\python.exe -m pytest backend/tests -q
 ```
+
+Alternatively, run `.\scripts\setup-dev.ps1 -WithTests` for runtime, frontend and developer/test dependencies together. Test packages and protobuf regeneration tools are kept in `backend/requirements-test.txt`, not the application runtime list.
 
 Some suites require additional isolated runtimes or explicit opt-in and may skip without them. A skipped integration test is not acceptance evidence. Follow the relevant test documentation before running native database, browser, installed-app or provider-backed checks.
 
