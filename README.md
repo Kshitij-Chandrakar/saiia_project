@@ -67,6 +67,8 @@ cd ..
 
 Use [.env.example](.env.example) as a configuration reference. Supply only the credentials and services needed for the features you intend to test. The template is not a production activation profile.
 
+Put backend settings and server credentials in the repository-root `.env` for the backend startup command below. Put browser-safe values such as `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `frontend/.env.local`. Vite reads environment files from `frontend/`; a root `.env` does not supply the website's browser configuration. Never put server credentials in the frontend file. Restart the affected development server after changing its configuration.
+
 Keep local secrets outside version control. Browser configuration must contain only browser-safe values; never include server credentials in frontend environment variables or distributed bundles. Do not copy another developer's private environment files.
 
 A fresh checkout does not include personal credentials, private execution records or a preconfigured admin login. Cloud and provider-backed features require their own setup. Do not apply migrations to an existing shared project as part of routine local startup.
